@@ -5,6 +5,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any, Literal, TypedDict, cast
 
+from assertionengine import AssertionOperator, verify_assertion
 from platynui_native import (
     Activatable,
     AttributeNotFoundError,
@@ -58,6 +59,10 @@ class NoQueryError(BareMetalError):
 
 class InvalidSelectorError(BareMetalError):
     """Raised when a selector passed to Set Root cannot be parsed as a valid XPath expression."""
+
+
+class ElementStillPresentError(BareMetalError):
+    """Raised when an element is still present/valid after a `Wait Until Gone` timeout elapses."""
 
 
 PLATYNUI_QUERY_SETTINGS = (
@@ -181,6 +186,19 @@ class UiNodeDescriptor:
 PLATYNUI_ROOT_DESCRIPTOR = (
     'PLATYNUI_ROOT_DESCRIPTOR'  # Variable name for storing the current root descriptor in Robot Framework variables
 )
+
+
+def _assertion_value(result: Any) -> Any:
+    """Unwrap an evaluated query result to the value an assertion should apply to.
+
+    ``evaluate_single`` for a ``.../@X`` step returns an `EvaluatedAttribute`; assertions
+    must run against its typed ``.value`` so that the AssertionEngine operators which need
+    the native value — ``contains``, ``matches`` and the order operators — work. ``UiNode``
+    and native values pass through unchanged.
+    """
+    if isinstance(result, EvaluatedAttribute):
+        return result.value
+    return result
 
 
 @library(
@@ -572,6 +590,28 @@ class BareMetal(OurDynamicCore):
     as a whole. A keyword that resolves both a root and a target performs two lookups, each allowed its
     own ``timeout`` — so in the worst case a single keyword can wait longer than the number you set.
 
+    == Waiting explicitly ==
+
+    Most of the time you never wait by hand — you state what you expect and the action or read keyword
+    waits for exactly that. Now and then, though, you want a *pure* synchronization point: wait for a
+    splash screen to vanish before carrying on, wait for a window to open without acting on it yet, or
+    wait for a row count to settle. Three keywords cover this, all governed by the same query settings as
+    everything else (see `Tuning the wait`) and tuned per call with ``query_overrides``:
+
+    - `Wait Until Exists` waits for a selector to resolve to an element and *returns* it — the waiting
+      companion to `Query`, which does not wait. It is element-only.
+    - `Wait Until Gone` waits for the opposite: a selector that matches nothing, or a captured element
+      that becomes invalid. For a value condition — a count dropping to zero, say — use `Wait Until
+      Query` instead.
+    - `Wait Until Query` waits until an XPath result satisfies a condition. It takes the same assertion
+      operators as `Get Attribute`; with no operator it waits until the result is truthy. Unlike `Get
+      Attribute` it works on the raw query result, so an attribute step yields the attribute value and
+      ``count(...)`` a number.
+
+    | `Wait Until Exists`    Window[@Name="Save As"]    # wait for the dialog, then return it
+    | `Wait Until Gone`      Window[@Name="Please wait"]    # wait until the splash is gone
+    | `Wait Until Query`     count(//item:ListItem)    >    0    # wait until the list has filled
+
     = Input timing and motion =
 
     BareMetal generates real keystrokes and pointer movements. Out of the box they are quick and
@@ -952,6 +992,232 @@ class BareMetal(OurDynamicCore):
 
         self.runtime.clear_cache()
         return self.runtime.evaluate_single(expression, root) if only_first else self.runtime.evaluate(expression, root)
+
+    @keyword
+    def wait_until_exists(
+        self, descriptor: UiNodeDescriptor, *, query_overrides: QuerySettingsDict | None = None
+    ) -> UiNode:
+        """Wait until a selector resolves to an element, then return that element.
+
+        This is the explicit form of the wait every action keyword already performs (see
+        `Waiting for elements`): it re-evaluates the selector against the live tree every
+        ``retry_interval`` and returns the element the moment it appears, or fails once
+        ``timeout`` elapses. Reach for it as a synchronization point — wait for a window or
+        dialog to open before acting, or capture an element for reuse — where `Query` would
+        not wait and an action keyword would also act.
+
+        The keyword is element-only: a selector that resolves to a value or an attribute
+        (``count(...)``, ``.../@Name``) fails rather than waiting. A captured element passed
+        instead of a selector is simply validated as still present. Per-call waiting is tuned
+        with ``query_overrides`` (see `Tuning the wait`).
+
+        Args:
+            descriptor: The element to wait for — a selector or an element from `Query`.
+            query_overrides: Per-call query settings, e.g. ``{'timeout': 10}``.
+
+        Returns:
+            UiNode: The resolved element, once it appears.
+
+        Examples:
+            | ${dialog}=    `Wait Until Exists`    Window[@Name="Save As"]
+            | `Wait Until Exists`    //control:ProgressBar[@Name="Importing"]    query_overrides={'timeout': 60}
+        """
+        descriptor.overrides = query_overrides
+        settings = replace(self.query_settings, **query_overrides) if query_overrides else self.query_settings
+        try:
+            return descriptor()
+        except ElementNotFoundError:
+            raise ElementNotFoundError(
+                f'No element matched {descriptor.query!r} within timeout of {settings.timeout} seconds.'
+            ) from None
+
+    @keyword
+    def wait_until_gone(
+        self, descriptor: UiNodeDescriptor, *, query_overrides: QuerySettingsDict | None = None
+    ) -> None:
+        """Wait until an element is gone — a selector matches nothing, or a captured element is no longer valid.
+
+        The counterpart to `Wait Until Exists`: it polls until the target disappears and then
+        returns, or raises ``ElementStillPresentError`` once ``timeout`` elapses with the target
+        still there. Pass a *selector* to wait until it matches nothing — the live tree is
+        re-evaluated on every attempt — or a *captured element* from `Query` to wait until it
+        becomes invalid.
+
+        Whether a captured element ever reports itself gone depends on the accessibility
+        provider's liveness check. For a *value* condition — a count dropping to zero, say — use
+        `Wait Until Query`; a value-producing selector (``count(...)``) is rejected here rather
+        than silently waiting out the timeout. A `Set Root` root that itself vanishes surfaces as
+        the root's own lookup error. Per-call waiting is tuned with ``query_overrides``.
+
+        Args:
+            descriptor: The target whose disappearance to wait for — a selector or an element
+                from `Query`.
+            query_overrides: Per-call query settings, e.g. ``{'timeout': 10}``.
+
+        Examples:
+            | `Wait Until Gone`    Window[@Name="Please wait"]
+            | ${spinner}=    `Query`    //control:ProgressBar[@Name="Loading"]    only_first=${True}
+            | `Wait Until Gone`    ${spinner}
+            | `Wait Until Gone`    Window[@Name="Save As"]    query_overrides={'timeout': 15}
+        """
+        settings = replace(self.query_settings, **query_overrides) if query_overrides else self.query_settings
+        query = descriptor.query
+        start = time.monotonic()
+        while True:
+            gone = False
+            try:
+                if query is not None:
+                    # Selector: re-evaluate fresh every attempt; never trust descriptor.node
+                    # (it may be a node cached on the shared descriptor by a prior keyword).
+                    self.runtime.clear_cache()
+                    result = self.runtime.evaluate_single(query, self.root)
+                    if result is not None and not isinstance(result, UiNode):
+                        raise ResultTypeError(
+                            f'Wait Until Gone expects an element selector or a captured element; query '
+                            f'{query!r} returned a value. Use Wait Until Query for value conditions.'
+                        )
+                    gone = result is None
+                else:
+                    # Captured element: poll its liveness directly.
+                    node = descriptor.node
+                    if node is None:
+                        gone = True
+                    else:
+                        self.runtime.clear_cache()
+                        node.invalidate()
+                        gone = not node.is_valid()
+            except ResultTypeError:
+                raise  # usage error — surface immediately, regardless of ignore_exceptions
+            except (SystemExit, KeyboardInterrupt):
+                raise
+            except Exception as e:
+                if not settings.ignore_exceptions:
+                    raise e
+                gone = False  # swallowed error => cannot confirm gone => keep waiting
+
+            if gone:
+                return
+
+            if (time.monotonic() - start) > settings.timeout:
+                if query is not None:
+                    raise ElementStillPresentError(
+                        f'Element matching query {query!r} was still present within timeout of '
+                        f'{settings.timeout} seconds.'
+                    )
+                raise ElementStillPresentError(
+                    f'Captured element {descriptor.node!r} was still valid within timeout of '
+                    f'{settings.timeout} seconds.'
+                )
+
+            time.sleep(settings.retry_interval)
+
+    @keyword
+    def wait_until_query(
+        self,
+        expression: str,
+        assertion_operator: AssertionOperator | None = None,
+        assertion_expected: Any = None,
+        assertion_message: str | None = None,
+        *,
+        root: UiNode | None = None,
+        query_overrides: QuerySettingsDict | None = None,
+    ) -> Any:
+        r"""Wait until an XPath result satisfies an assertion (default: until it is truthy).
+
+        The waiting counterpart to `Query`: instead of a one-shot snapshot, it re-evaluates the
+        expression against the live tree every ``retry_interval`` until its result satisfies the
+        condition, then returns that result — or fails once ``timeout`` elapses. Use it to wait
+        for a computed condition: a row count to settle, a value to reach a target, an attribute
+        to flip.
+
+        It takes the same assertion arguments as `Get Attribute` — an operator and an expected
+        value (``==``, ``!=``, ``contains``, ``starts``, ``ends``, ``matches``, ``>``, ``<`` …;
+        see [https://github.com/MarketSquare/AssertionEngine|AssertionEngine]). With no operator
+        it waits until the result is *truthy* — a non-zero number, a non-empty string, a true
+        boolean, a present element. Unlike `Get Attribute`, it works on the raw XPath result, so
+        ``.../@X`` yields an attribute value, ``count(...)`` a number and ``//X`` an element; a
+        missing attribute is an empty result here, not an error.
+
+        The ``then`` operator is not supported (it transforms rather than asserts and cannot
+        express a wait) — use ``validate`` for a boolean expression. Per-call waiting is tuned
+        with ``query_overrides``.
+
+        Args:
+            expression: The XPath 2.0 expression to evaluate.
+            assertion_operator: Optional AssertionEngine operator; without one the keyword waits
+                for a truthy result.
+            assertion_expected: The expected value the operator compares against.
+            assertion_message: Optional custom failure message.
+            root: Optional context node to evaluate against; defaults to the current root.
+            query_overrides: Per-call query settings, e.g. ``{'timeout': 10}``.
+
+        Returns:
+            The satisfying result — the raw result without an operator (a value, an attribute or
+            an element), or the value returned by the assertion with one.
+
+        Examples:
+            | ${count}=    `Wait Until Query`    count(//control:ListItem)    >    0
+            | `Wait Until Query`    Window[@Name="Editor"]//Button[@Name="Save"]/@IsEnabled    ==    ${True}
+            | `Wait Until Query`    string-join(//control:ListItem/@Name, ", ")    contains    Welcome
+            | ${n}=    `Wait Until Query`    count(//control:Window[@Name="Dialog"])    # wait until truthy
+        """
+        # ``then`` transforms rather than asserts, so it never reports a mismatch and cannot wait.
+        if assertion_operator is not None and assertion_operator is AssertionOperator['then']:
+            raise ResultTypeError(
+                "Wait Until Query cannot wait on the 'then' operator (it transforms rather than asserts). "
+                "Use 'validate' for a boolean wait condition, or a comparison operator."
+            )
+
+        settings = replace(self.query_settings, **query_overrides) if query_overrides else self.query_settings
+        ctx = root if root is not None else self.root
+        start = time.monotonic()
+        while True:
+            satisfied = False
+            ret: Any = None
+            try:
+                self.runtime.clear_cache()
+                result = self.runtime.evaluate_single(expression, ctx)
+                if assertion_operator is None:
+                    ret = result
+                    satisfied = bool(result)  # relies on UiNode/EvaluatedAttribute __bool__
+                else:
+                    ret = verify_assertion(
+                        _assertion_value(result), assertion_operator, assertion_expected, assertion_message or ''
+                    )
+                    satisfied = True
+            except (SystemExit, KeyboardInterrupt):
+                raise
+            except RuntimeError:
+                raise  # unknown operator — a programming error, surface immediately
+            except (AssertionError, TypeError):
+                satisfied = False  # mismatch, or not-yet-comparable early value — keep polling
+            except Exception as e:
+                if not settings.ignore_exceptions:
+                    raise e
+                satisfied = False
+
+            if satisfied:
+                return ret
+
+            if (time.monotonic() - start) > settings.timeout:
+                if assertion_operator is None:
+                    raise ResultTypeError(
+                        f'Query {expression!r} did not become truthy within timeout of {settings.timeout} seconds.'
+                    )
+                # Final assertion outside the loop so AssertionEngine's actual-vs-expected message surfaces.
+                self.runtime.clear_cache()
+                result = self.runtime.evaluate_single(expression, ctx)
+                try:
+                    verify_assertion(
+                        _assertion_value(result), assertion_operator, assertion_expected, assertion_message or ''
+                    )
+                except AssertionError as ae:
+                    raise AssertionError(f'{ae} (within timeout of {settings.timeout} seconds)') from None
+                raise ResultTypeError(
+                    f'Query {expression!r} did not satisfy the assertion within timeout of {settings.timeout} seconds.'
+                )
+
+            time.sleep(settings.retry_interval)
 
     # Internal helpers
     def _maybe_bring_to_front(
