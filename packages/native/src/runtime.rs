@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use pyo3::IntoPyObject;
 use pyo3::exceptions::{PyException, PyTypeError};
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyAnyMethods, PyDict, PyIterator, PyList, PyModule, PyTuple, PyType};
+use pyo3::types::{PyAny, PyAnyMethods, PyDict, PyIterator, PyList, PyModule, PyStringMethods, PyTuple, PyType};
 use std::str::FromStr;
 
 use core_rs::ui::UiNodeExt;
@@ -181,6 +181,14 @@ impl PyNode {
     /// Tells the provider to refresh any cached information for this node.
     fn invalidate(&self) {
         self.inner.invalidate();
+    }
+
+    /// Truthiness reflects whether the node still refers to a live platform element.
+    ///
+    /// ``bool(node)`` mirrors :py:meth:`is_valid`, so ``if node:`` and waiting on a
+    /// node-valued query behave intuitively rather than being unconditionally ``True``.
+    fn __bool__(&self) -> bool {
+        self.inner.is_valid()
     }
 
     /// Returns ``True`` when the node advertises support for the given pattern.
@@ -590,6 +598,29 @@ impl PyEvaluatedAttribute {
     /// Returns the originating node if it was provided during evaluation.
     fn owner(&self, py: Python<'_>) -> Option<Py<PyNode>> {
         self.owner.as_ref().map(|o| o.clone_ref(py))
+    }
+    /// Truthiness reflects the captured value, so ``bool(attr)`` and waiting on an
+    /// attribute-valued query behave like the value itself rather than being
+    /// unconditionally ``True``.
+    fn __bool__(&self, py: Python<'_>) -> PyResult<bool> {
+        self.value.bind(py).is_truthy()
+    }
+    /// Compares by the captured value, so ``attr == x`` matches the value (and
+    /// another evaluated attribute compares by its value via reflected equality).
+    fn __eq__(&self, other: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<bool> {
+        self.value.bind(py).eq(other)
+    }
+    /// Returns ``False`` when the captured value is equal to ``other``.
+    fn __ne__(&self, other: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<bool> {
+        self.value.bind(py).ne(other)
+    }
+    /// Returns the string form of the captured value.
+    fn __str__(&self, py: Python<'_>) -> PyResult<String> {
+        Ok(self.value.bind(py).str()?.to_string_lossy().into_owned())
+    }
+    /// Hashes by the captured value so equal attributes hash equally.
+    fn __hash__(&self, py: Python<'_>) -> PyResult<isize> {
+        self.value.bind(py).hash()
     }
     /// Returns a concise string representation useful for debugging.
     fn __repr__(&self) -> String {
