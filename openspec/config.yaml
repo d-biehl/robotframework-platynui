@@ -1,20 +1,55 @@
+# OpenSpec project config (schema validated by the CLI; see `openspec schemas`).
+#
+# Valid top-level keys: `schema` (required), `context`, `rules`. Anything else is
+# silently ignored.
+#   - `context`  : one string, injected as <project_context> into EVERY artifact
+#                  prompt (proposal/specs/design/tasks). Hard limit 50 KB. It is a
+#                  per-token cost on every generation, so it states only what helps
+#                  the AI write good artifacts here and points at the repo's own
+#                  files for project facts rather than copying them.
+#   - `rules`    : map keyed by artifact ID -> list of extra constraints, injected
+#                  only into that artifact's prompt. Valid IDs for `spec-driven`:
+#                  proposal, specs, design, tasks. No wildcard/global bucket; an
+#                  unknown key is warned about and does nothing. Per OpenSpec's
+#                  docs, rules are short, general guardrails layered on top of each
+#                  artifact's built-in instructions — a handful of checkable lines
+#                  that apply to EVERY change of that type. Keep them generic; don't
+#                  restate the schema or the repo's docs, and don't tailor them to
+#                  one past change.
+
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  PlatynUI is a cross-platform native UI-automation toolkit for Robot Framework —
+  a Rust core (UI model, XPath engine, runtime, platform/provider devices) with
+  Python/PyO3 bindings.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+  Source of truth (read the relevant ones and conform to them; don't restate them):
+  AGENTS.md is the orientation map — the two stacked Rust/Python workspaces, the
+  Rust<->Python boundary in packages/native, task routing, the canonical `just`
+  commands, commit rules, and the English-everywhere / German-planning-docs rule.
+  README.md carries the platform & provider support table — check it before
+  promising behavior on any backend (Windows UIA, Linux X11/AT-SPI2, Wayland,
+  macOS AX, mock). dev-docs/ holds the per-area design docs (architecture,
+  error-handling, testing-strategy, python-bindings, *-input, cli, inspector,
+  platform-*), and the contributor workflow lives in CONTRIBUTING.md. When a doc and
+  the code disagree, the code is reality but the doc captures intent — flag the gap
+  rather than silently picking one.
+
+  Testing — the test layers and the mock vs. real-provider lanes — is governed by
+  dev-docs/testing-strategy.md; specs, design, and tasks must follow it.
+rules:
+  proposal:
+    - "Scope Impact across every layer the change touches — Rust crates, Python/RF modules, and the tests that cover them — not just the headline change."
+    - "Call out cross-cutting concerns: whether it needs a native rebuild, which platforms/providers it affects and their support status, and any BREAKING behavior change."
+  specs:
+    - "Write each scenario as a single, concrete acceptance criterion (Given/When/Then) — specific enough to become one automated test."
+    - "Cover failure and edge cases (timeouts, invalid input, fallbacks), not only the happy path."
+    - "Note when a scenario can only be verified against a real provider rather than the mock."
+  design:
+    - "Back load-bearing claims with concrete code references (file:line), and separate what was verified against the real code from what is assumed."
+    - "In the Migration Plan, state whether the change is additive or behavioral, whether it needs a native rebuild, and how to roll back."
+  tasks:
+    - "Derive a test task from each spec scenario and place it before the implementation task it covers (test-first)."
+    - "Sequence native-binding rebuilds before the Python/RF work that depends on them."
+    - "Finish with a verification step that runs the relevant `just` test recipes, with real-provider-only checks in the acceptance lane."
