@@ -2,7 +2,7 @@
 
 <!-- This is a living document. For version history see CHANGELOG.md and git log. -->
 
-This document describes proposed usability and architecture improvements for the PlatynUI Inspector. It complements the current implementation overview in `docs/inspector.md` and is intended to help choose the next implementation slices.
+This document describes proposed usability and architecture improvements for the PlatynUI Inspector. It complements the current implementation overview in `dev-docs/inspector.md` and is intended to help choose the next implementation slices.
 
 ## 0. Current Status Snapshot (2026-04-24)
 
@@ -332,7 +332,7 @@ Phase C: live-vs-snapshot diff
 
 #### Problem
 
-The Inspector has changed significantly, but `docs/inspector.md` still describes an older command and interaction set. Recent regressions around scroll-to-focus and text-selection context menus also show that interaction behavior is easy to break.
+The Inspector has changed significantly, but `dev-docs/inspector.md` still describes an older command and interaction set. Recent regressions around scroll-to-focus and text-selection context menus also show that interaction behavior is easy to break.
 
 #### Goals
 
@@ -341,7 +341,7 @@ The Inspector has changed significantly, but `docs/inspector.md` still describes
 
 #### Proposed Work
 
-- Update `docs/inspector.md` to reflect:
+- Update `dev-docs/inspector.md` to reflect:
   - menu bar
   - toolbar actions
   - shortcuts

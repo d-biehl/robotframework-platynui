@@ -34,10 +34,10 @@ cargo run -p platynui-wayland-compositor -- --backend winit --xwayland --print-e
 ## More information
 
 - [docs/](docs/) - current working notes for compositor usage, configuration, and the control protocol.
-- [../../docs/](../../docs/) - current project working notes and planning material.
+- [../../dev-docs/](../../dev-docs/) - project developer notes and planning material.
 - [../../README.md](../../README.md) - project overview.
 
-The files in these `docs/` directories are working documentation for now and will be replaced or consolidated into proper user documentation later.
+The files in `docs/` (here) and `../../dev-docs/` are developer documentation for now and will be consolidated into user-facing docs later.
 
 ## License
 

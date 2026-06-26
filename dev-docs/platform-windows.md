@@ -2,7 +2,7 @@
 
 <!-- This is a living document. For version history see CHANGELOG.md and git log. -->
 
-This document covers the Windows-specific implementation details for PlatynUI: platform devices, UIA provider, and Win32 WindowManager. For the platform-agnostic architecture, see `docs/architecture.md`.
+This document covers the Windows-specific implementation details for PlatynUI: platform devices, UIA provider, and Win32 WindowManager. For the platform-agnostic architecture, see `dev-docs/architecture.md`.
 
 ## 1. Platform Devices
 

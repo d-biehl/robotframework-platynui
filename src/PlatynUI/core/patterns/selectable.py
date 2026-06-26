@@ -7,7 +7,7 @@
 The selection capability is split into orthogonal Read- and Action-
 patterns. Read-patterns expose state from the native adapter; action-
 patterns are synthesised by default proxies via mouse and keyboard.
-See `docs/python-library-design.md` §5a.4 and §A.14.17.
+See `dev-docs/python-library-design.md` §5a.4 and §A.14.17.
 """
 
 from abc import abstractmethod

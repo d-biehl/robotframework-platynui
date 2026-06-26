@@ -84,7 +84,7 @@ The Inspector shows the first 5000 XPath search results by default. Use `--searc
 | Window management | ✅ Win32 | ⚠️ partial EWMH | ⚠️ PlatynUI test compositor only | ❌ stub | ✅ |
 | Inspector | ✅ | ✅ | ⚠️ experimental through Linux mediator | ❌ | ✅ with mock feature |
 
-Linux uses `platynui-platform-linux` as a runtime session mediator. It detects X11 vs Wayland from the environment and delegates to the matching backend. X11 remains the most complete Linux path today. Wayland support is active but experimental; see the working notes under [docs/](docs/) and [apps/wayland-compositor/docs/](apps/wayland-compositor/docs/) for current protocol work.
+Linux uses `platynui-platform-linux` as a runtime session mediator. It detects X11 vs Wayland from the environment and delegates to the matching backend. X11 remains the most complete Linux path today. Wayland support is active but experimental; see the working notes under [dev-docs/](dev-docs/) and [apps/wayland-compositor/docs/](apps/wayland-compositor/docs/) for current protocol work.
 
 ## Package docs
 
@@ -97,7 +97,7 @@ Linux uses `platynui-platform-linux` as a runtime session mediator. It detects X
 
 ## Documentation
 
-The files under [docs/](docs/) are currently working notes, design sketches, and development references. They will be consolidated into user-facing documentation as the project matures.
+Developer, design, and planning documentation lives under [dev-docs/](dev-docs/) — architecture, platform internals, input, testing strategy, Python bindings, and planning notes (see [dev-docs/README.md](dev-docs/README.md) for an index). The [docs/](docs/) directory is reserved for user-facing documentation, which is still being built out.
 
 Additional working docs live next to some components:
 

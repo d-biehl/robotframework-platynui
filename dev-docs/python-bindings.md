@@ -2,7 +2,7 @@
 
 <!-- This is a living document. For version history see CHANGELOG.md and git log. -->
 
-This document covers the Python/PyO3 bindings for PlatynUI (`platynui_native`). For the platform-agnostic architecture, see `docs/architecture.md`.
+This document covers the Python/PyO3 bindings for PlatynUI (`platynui_native`). For the platform-agnostic architecture, see `dev-docs/architecture.md`.
 
 ## Architecture
 

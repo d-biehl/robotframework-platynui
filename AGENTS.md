@@ -25,10 +25,10 @@ The Python native package lives outside the Cargo workspace and uses `platynui_n
 	- Owning paths: `crates/`, `apps/`.
 - Python / Robot Framework:
 	- Owning paths: `src/PlatynUI`, `packages/`.
-	- The Rust/Python boundary lives in `packages/native`; see [`docs/python-bindings.md`](docs/python-bindings.md).
-	- Robot Framework surface state, incl. the `PlatynUI` vs `PlatynUI.BareMetal` situation: [`docs/python-library-design.md`](docs/python-library-design.md), [`docs/python-migration-status.md`](docs/python-migration-status.md).
+	- The Rust/Python boundary lives in `packages/native`; see [`dev-docs/python-bindings.md`](dev-docs/python-bindings.md).
+	- Robot Framework surface state, incl. the `PlatynUI` vs `PlatynUI.BareMetal` situation: [`dev-docs/python-library-design.md`](dev-docs/python-library-design.md), [`dev-docs/python-migration-status.md`](dev-docs/python-migration-status.md).
 - Docs:
-	- Owning paths: `docs/`, root Markdown files.
+	- Owning paths: `dev-docs/` (developer & design docs), `docs/` (user-facing documentation), root Markdown files.
 
 ## Common Commands
 
@@ -49,11 +49,11 @@ Heavy recipes (`just pre-commit-cross`, the `build-*-wheel` recipes, `just build
 
 Don't guess conventions — the design docs are authoritative. Consult them before editing the corresponding area:
 
-- [`docs/architecture.md`](docs/architecture.md) — overall system design
-- [`docs/error-handling.md`](docs/error-handling.md) — error type conventions
-- [`docs/testing-strategy.md`](docs/testing-strategy.md) — test layout, mock-provider usage
-- [`docs/platform-linux.md`](docs/platform-linux.md), [`docs/platform-linux-wayland.md`](docs/platform-linux-wayland.md), [`docs/platform-windows.md`](docs/platform-windows.md) — platform specifics
-- [`docs/cli.md`](docs/cli.md), [`docs/inspector.md`](docs/inspector.md), [`docs/keyboard-input.md`](docs/keyboard-input.md), [`docs/pointer-input.md`](docs/pointer-input.md) — component-level designs
+- [`dev-docs/architecture.md`](dev-docs/architecture.md) — overall system design
+- [`dev-docs/error-handling.md`](dev-docs/error-handling.md) — error type conventions
+- [`dev-docs/testing-strategy.md`](dev-docs/testing-strategy.md) — test layout, mock-provider usage
+- [`dev-docs/platform-linux.md`](dev-docs/platform-linux.md), [`dev-docs/platform-linux-wayland.md`](dev-docs/platform-linux-wayland.md), [`dev-docs/platform-windows.md`](dev-docs/platform-windows.md) — platform specifics
+- [`dev-docs/cli.md`](dev-docs/cli.md), [`dev-docs/inspector.md`](dev-docs/inspector.md), [`dev-docs/keyboard-input.md`](dev-docs/keyboard-input.md), [`dev-docs/pointer-input.md`](dev-docs/pointer-input.md) — component-level designs
 
 When a design doc and the code disagree, the code is reality but the doc usually documents the *intent* — flag the divergence rather than silently picking one.
 
@@ -65,6 +65,6 @@ When a design doc and the code disagree, the code is reality but the doc usually
 
 ## Agent Notes
 
-- Code, public APIs, comments, commit messages, and PR descriptions are English — even when the user writes German. The design docs under `docs/` (architecture, error-handling, platform-*, cli, inspector, keyboard-input, pointer-input, python-bindings, testing-strategy) are English; only specific planning docs (`python-library-design.md`, `python-migration-status.md`, and the `plan-*.md` files) are German living documents. When editing a German doc, add a brief English summary at the top if feasible.
+- Code, public APIs, comments, commit messages, and PR descriptions are English — even when the user writes German. Developer and design docs live under `dev-docs/` and are English; a few still-German living documents there (`python-library-design.md`, `python-migration-status.md`, `plan-waylandCompositor.md`, `eis-libei.md`) are slated for English translation when they migrate to OpenSpec. When editing a still-German doc, add a brief English summary at the top if feasible.
 - Make small, focused changes and avoid unrelated refactors.
 - Update [CONTRIBUTING.md](CONTRIBUTING.md) when contributor rules change; update this file when the orientation, task routing, or common commands change.

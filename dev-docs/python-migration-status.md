@@ -392,7 +392,7 @@ Aus den ursprünglichen `Properties` / `NativeProperties`-Patterns wird
 **ein** namespacebasierter Attribut-Schlüsselraum, symmetrisch zur
 Rust-Seite (`crates/core/src/ui/{node,namespace}.rs`).
 
-**Doku-Pass (alle 16 Stellen in `docs/python-library-design.md`):**
+**Doku-Pass (alle 16 Stellen in `dev-docs/python-library-design.md`):**
 
 - Header auf Rev. 15 aktualisiert; Rev-14- und Rev-15-Notes
 - §4.1 Tabelle: zwei Properties-Zeilen → eine `attributes[(ns, name)]`
@@ -462,7 +462,7 @@ Vorrang-Verhalten.
       licher Namespaces, „reservierte Felder nur exakt-snake_case"
       (`Locator(Path="x")` → `@Path="x"`).
 
-**Doku-Pass (`docs/python-library-design.md`):**
+**Doku-Pass (`dev-docs/python-library-design.md`):**
 
 - §7.1 Attribut-Namenskonvention: Block von zwei auf drei
   Eingangskanäle erweitert; Empfehlungs-Reihenfolge ergänzt;
@@ -527,8 +527,8 @@ HasIsEnabled` → `Element`; `Toggleable + HasToggleState` →
 - [x] `crates/provider-atspi/src/node.rs`: enum-Variante
       `StdAttrKind::IsOffscreen` → `IsInView`, Wert-Berechnung
       invertiert (Negation entfernt)
-- [x] Doku: `docs/architecture.md` (4 Stellen),
-      `docs/platform-windows.md`, `docs/platform-linux.md`
+- [x] Doku: `dev-docs/architecture.md` (4 Stellen),
+      `dev-docs/platform-windows.md`, `dev-docs/platform-linux.md`
       durchgängig auf `IsInView` / `IsEnabled && IsInView`
 
 **Python-Code-Umbau (uncommitted):**
@@ -558,7 +558,7 @@ HasIsEnabled` → `Element`; `Toggleable + HasToggleState` →
       `test_pattern_names_match_rust_ids`,
       `test_point_and_rect_come_from_native_module`
 
-**Doku-Pass (`docs/python-library-design.md`):**
+**Doku-Pass (`dev-docs/python-library-design.md`):**
 
 - Header auf Rev. 17; Rev-17-Note (Pattern-Konsolidierung +
   IsInView-Rename)
@@ -642,7 +642,7 @@ spätere Quelltext-Änderungen an Contexts.
       Descriptor, `__set_name__` setzt `attr_name`), und
       Decorator-API-Identität (`locator is not Locator`, Reject von
       Nicht-Class/Nicht-Callable).
-- [x] `docs/python-migration-status.md` Phase 3 erweitert: explizite
+- [x] `dev-docs/python-migration-status.md` Phase 3 erweitert: explizite
       To-Do-Position für die Method-Decorator-Vervollständigung.
 
 **Verifikation:**

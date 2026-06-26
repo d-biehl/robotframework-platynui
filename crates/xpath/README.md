@@ -32,10 +32,10 @@ cargo test -p platynui-xpath
 ## More information
 
 - [docs/](docs/) - current working notes for XPath coverage.
-- [../../docs/](../../docs/) - current project working notes, including architecture context.
+- [../../dev-docs/](../../dev-docs/) - project developer notes, including architecture context.
 - [../../README.md](../../README.md) - project overview.
 
-The files in these `docs/` directories are working documentation for now and will be replaced or consolidated into proper user documentation later.
+The files in `docs/` (here) and `../../dev-docs/` are developer documentation for now and will be consolidated into user-facing docs later.
 
 ## License
 

@@ -2,7 +2,7 @@
 
 <!-- This is a living document. For version history see CHANGELOG.md and git log. -->
 
-This document covers the Linux platform implementation for PlatynUI: the session mediator, X11 platform devices, AT-SPI2 provider, and EWMH WindowManager. For the platform-agnostic architecture, see `docs/architecture.md`.
+This document covers the Linux platform implementation for PlatynUI: the session mediator, X11 platform devices, AT-SPI2 provider, and EWMH WindowManager. For the platform-agnostic architecture, see `dev-docs/architecture.md`.
 
 ## 0. Session Mediator (`platynui-platform-linux`)
 

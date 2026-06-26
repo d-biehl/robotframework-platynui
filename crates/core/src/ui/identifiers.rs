@@ -77,7 +77,7 @@ impl From<Arc<str>> for TechnologyId {
     }
 }
 
-/// Identifies capability patterns (see `docs/architecture.md` §6).
+/// Identifies capability patterns (see `dev-docs/architecture.md` §6).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PatternName(Arc<str>);
 
@@ -121,7 +121,7 @@ impl From<Arc<str>> for PatternName {
 /// one of these constants (or via the `provider-mock` XML loader, which
 /// accepts the same strings verbatim). The reverse-DNS scheme keeps Rust and
 /// Python identifiers literally interchangeable — see
-/// `docs/python-library-design.md` §13.6 and §11.3.
+/// `dev-docs/python-library-design.md` §13.6 and §11.3.
 ///
 /// New patterns extend this module; do not introduce ad-hoc string literals
 /// at call sites.

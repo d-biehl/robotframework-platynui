@@ -8,7 +8,7 @@ The expand/collapse capability is split into a Read-pattern
 (`IsExpandable`) carrying state from the native adapter and an
 Action-pattern (`Expandable`) synthesised by default proxies via
 mouse double-click or keyboard arrows. See
-`docs/python-library-design.md` §5a.4 and §A.14.18.
+`dev-docs/python-library-design.md` §5a.4 and §A.14.18.
 """
 
 from abc import abstractmethod

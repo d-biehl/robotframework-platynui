@@ -110,7 +110,7 @@ include = [
     "packages/**/*.py",
     "examples/**/*.py",
     "tests/**/*.py",
-    "docs/**/*.py",
+    "dev-docs/**/*.py",
 ]
 
 [tool.ruff.lint]
@@ -188,7 +188,7 @@ quote-style = "single"
 [tool.ruff.lint.per-file-ignores]
 "examples/**/*.py" = ["D101", "D103"]
 "**/tests/**/*.py" = ["D"]
-"docs/**/*.py" = ["D"]
+"dev-docs/**/*.py" = ["D"]
 
 [tool.pyright]
 pythonVersion = "3.12"

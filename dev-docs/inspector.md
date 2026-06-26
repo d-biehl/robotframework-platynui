@@ -2,7 +2,7 @@
 
 <!-- This is a living document. For version history see CHANGELOG.md and git log. -->
 
-This document covers the PlatynUI GUI Inspector. For the platform-agnostic architecture, see `docs/architecture.md`. For planned UX and workflow improvements, see `docs/inspector-improvements.md`.
+This document covers the PlatynUI GUI Inspector. For the platform-agnostic architecture, see `dev-docs/architecture.md`. For planned UX and workflow improvements, see `dev-docs/inspector-improvements.md`.
 
 Binary: `platynui-inspector-rs` (package `platynui-inspector`, egui-based GUI)
 

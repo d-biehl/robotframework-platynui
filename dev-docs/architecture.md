@@ -141,7 +141,7 @@ This keeps each sub-platform as a standalone library; the mediator owns the one-
 ### Provider Modes
 
 - **In-process** — Rust crate linked directly (UIA, AT-SPI2, Mock)
-- **Out-of-process** — planned (see `docs/planning.md` §3.4)
+- **Out-of-process** — planned (see `dev-docs/planning.md` §3.4)
 
 ## 4. Runtime Context & Lifecycle
 
@@ -640,7 +640,7 @@ pub trait WindowManager: Send + Sync {
 - **Windows**: reads `native:NativeWindowHandle` → HWND (+ PID-fallback via `EnumWindows`)
 - **X11**: walks parent chain for `control:ProcessId`, matches via `_NET_CLIENT_LIST` + `_NET_WM_PID`; disambiguates multi-window PIDs by comparing `node.name()` against `_NET_WM_NAME`
 
-**Virtual Desktop Switching** (planned, not yet implemented) — `ensure_window_accessible()` will be added to the `WindowManager` trait and called in `bring_to_front()` before `activate()`. See `docs/planning.md` §3.2 for the design:
+**Virtual Desktop Switching** (planned, not yet implemented) — `ensure_window_accessible()` will be added to the `WindowManager` trait and called in `bring_to_front()` before `activate()`. See `dev-docs/planning.md` §3.2 for the design:
 - **X11**: read `_NET_WM_DESKTOP`, switch via `_NET_CURRENT_DESKTOP` ClientMessage if different
 - **Windows**: `IVirtualDesktopManager::MoveWindowToDesktop` to move window to current desktop
 - **macOS**: no-op (`kAXRaiseAction` implicitly switches spaces)
@@ -733,12 +733,12 @@ Context minimization before certain axes (`descendant*`, `following*`) removes o
 
 Detailed platform-specific documentation has been extracted into separate files:
 
-- **Windows** (UIA, Win32 devices, WindowManager): [`docs/platform-windows.md`](platform-windows.md)
-- **Linux** (X11 devices, AT-SPI2, EWMH WindowManager): [`docs/platform-linux.md`](platform-linux.md)
+- **Windows** (UIA, Win32 devices, WindowManager): [`dev-docs/platform-windows.md`](platform-windows.md)
+- **Linux** (X11 devices, AT-SPI2, EWMH WindowManager): [`dev-docs/platform-linux.md`](platform-linux.md)
 
 ## 11. Companion Documentation
 
-- **Python Bindings** (PyO3, type mapping, threading): [`docs/python-bindings.md`](python-bindings.md)
-- **CLI** (commands, snapshot model): [`docs/cli.md`](cli.md)
-- **Inspector** (TreeView architecture): [`docs/inspector.md`](inspector.md)
+- **Python Bindings** (PyO3, type mapping, threading): [`dev-docs/python-bindings.md`](python-bindings.md)
+- **CLI** (commands, snapshot model): [`dev-docs/cli.md`](cli.md)
+- **Inspector** (TreeView architecture): [`dev-docs/inspector.md`](inspector.md)
 - **Logging & Tracing**: [`.github/instructions/tracing.instructions.md`](../.github/instructions/tracing.instructions.md)

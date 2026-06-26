@@ -14,7 +14,7 @@
 //! - **Any other compositor**: not implemented yet, so we return
 //!   `CapabilityUnavailable`. Phase 1b will add `ext-image-copy-capture-v1`
 //!   (primary), `wlr-screencopy` (older wlroots) and the `xdg-desktop-portal`
-//!   Screenshot (Mutter/GNOME) as fallbacks — see `docs/platform-linux-wayland.md` §5.
+//!   Screenshot (Mutter/GNOME) as fallbacks — see `dev-docs/platform-linux-wayland.md` §5.
 
 use platynui_core::platform::{PixelFormat, PlatformError, Screenshot, ScreenshotProvider, ScreenshotRequest};
 use platynui_core::types::Rect;
@@ -64,7 +64,7 @@ impl ScreenshotProvider for WaylandScreenshot {
 }
 
 /// The error returned when asked to screenshot a compositor we don't support yet. Phase 1b (see
-/// `docs/platform-linux-wayland.md` §5) will replace this with `ext-image-copy-capture-v1`,
+/// `dev-docs/platform-linux-wayland.md` §5) will replace this with `ext-image-copy-capture-v1`,
 /// `wlr-screencopy` or the `xdg-desktop-portal` Screenshot, selected per compositor.
 fn unsupported_compositor(compositor: Option<CompositorType>) -> PlatformError {
     let which = compositor.map_or_else(|| "an undetected Wayland compositor".to_string(), |c| c.to_string());

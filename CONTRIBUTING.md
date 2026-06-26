@@ -24,7 +24,7 @@ This creates `.venv` and installs dev tools (ruff, mypy, maturin, robotframework
 
 - Rust workspace in `crates/*` and `apps/*` (core, xpath, runtime, providers/platforms, cli, inspector).
 - Python packages in `packages/*` (native bindings, CLI, inspector) and RF library entry in `src/PlatynUI`.
-- Working documentation and design notes live under `docs/` and component-local `docs/` directories.
+- Developer, design, and planning docs live under `dev-docs/`; `docs/` is reserved for user-facing documentation; some crates keep component-local `docs/` directories.
 - Generated artifacts such as `target/`, `.venv/`, `dist/`, `results/`, wheel files, and build caches should not be committed.
 
 ## 3) Contribution scope and expectations
@@ -220,7 +220,7 @@ Recommended verification by change type:
 Rust:
 - Edition 2024; follow existing naming (snake_case functions, PascalCase types).
 - Prefer typed errors (thiserror) in library crates; avoid panics in normal flows.
-- Error handling conventions are documented in [docs/error-handling.md](docs/error-handling.md).
+- Error handling conventions are documented in [dev-docs/error-handling.md](dev-docs/error-handling.md).
 - Keep JSON/serde usage consistent; do not add alternate JSON libs.
 - Use `rstest` for fixtures/parametrization; keep tests small and deterministic.
 - Keep public APIs documented through clear names and focused docs rather than broad comments.
@@ -250,20 +250,20 @@ CLI/Inspector (apps):
 
 ## 8) Testing guidance
 
+The test layering and the mock vs. real-provider lanes — what goes where, and why — are described in [dev-docs/testing-strategy.md](dev-docs/testing-strategy.md). This section is the operational complement: what to run, and how the build duality affects your local loop.
+
 Rust:
 - Unit tests live alongside code; integration tests under `tests/` per crate.
 - Use the mock provider/platform for deterministic tests. For manual runs, enable with `--features mock-provider` (some crates enable it via dev‑deps automatically).
 - Prefer targeted tests close to the changed behavior, then broaden to workspace tests for shared contracts.
 - Use `cargo nextest` through `just` recipes for normal local runs.
 
-Python:
-- Python tests live under `tests/PlatynUI` and package-specific test directories such as `packages/native/tests`. Prefer `just test-python`; it builds the native package with `mock-provider` before running pytest.
-- Tests that call `Runtime.new_with_mock()` require the native package to be built with `mock-provider`.
+Python / RF mock lane:
+- Python tests live under `tests/PlatynUI` and `packages/native/tests`; the deterministic RF mock suites live under `tests/BareMetal`. Run them with `just test-python` (pytest) and `just test-baremetal` (RF mock) — both build the `mock-provider` native package first.
+- Tests that call `Runtime.new_with_mock()` (or import the library with `use_mock`) need that `mock-provider` build, or they error.
 
 End‑to‑end / acceptance:
-- The suites under `tests/acceptance` (the egui app today) drive the **real** platform provider (AT-SPI on Linux, UIA on Windows) against the `platynui-test-app-egui` application, proving the full stack rather than keyword logic alone. They are tagged `real` and selected by the `real` profile in `robot.toml`; Robot Framework launches the app instance(s) itself.
-- **Build duality.** The real lane needs a **non-mock** native build — a `mock-provider` build makes `Runtime()` resolve the built-in mock tree instead of the real desktop, so the suites would fail. The `just test-acceptance*` recipes guarantee this: each depends on `just build-native`, which compiles without `mock-provider` (it is opt-in, never a default feature) and reinstalls. The mock-backed RF suites under `tests/BareMetal` are the counterpart — tagged `mock` and selected by the `mock` profile in `robot.toml`; run them with `just test-baremetal` (which builds the `mock-provider` module first). The two lanes cannot share one build, so rebuild per lane (in CI, one job each).
-- **Run it.** The recipes set up an isolated session and run the lane (it is not part of `just pre-commit`, which runs the mock lanes — run acceptance separately):
+- The real lane needs the **non-mock** native build (a `mock-provider` build would resolve the mock tree, not the real desktop); the `just test-acceptance*` recipes handle the build and an isolated session. They are **not** part of `just pre-commit` — run them separately:
 
   | Command | Scope |
   |---|---|
@@ -273,7 +273,7 @@ End‑to‑end / acceptance:
   | `just test-acceptance-windows` | Windows — on the native desktop (UIA), no isolated session. |
 
   Extra arguments pass through to robotcode (default `--profile real run`), e.g. `just test-acceptance-compositor --profile real run --suite "Auto Activate"`.
-- **Headless / CI.** `headless=true` runs the Linux backends with no visible window — the compositor uses its headless backend and X11 runs under Xvfb. It defaults to `true` when the `CI` environment variable is set (so CI needs no extra flag); force or disable it anywhere with `just headless=true test-acceptance` / `just headless=false test-acceptance`. Headless rendering needs a GPU render node or Mesa software GL so egui can draw.
+- **Headless / CI.** `headless=true` runs the Linux backends with no visible window (default under `CI`); it needs a GPU render node or Mesa software GL so egui can draw.
 - UI automation is platform-sensitive: include OS/session details (compositor vs X11, headless or not) when reporting failures or adding manual verification notes.
 
 ## 9) Adding or changing public APIs
@@ -303,8 +303,8 @@ uv tool install --prerelease allow platynui-inspector
 ## 11) Documentation
 
 - Keep README files accurate and concise. Link to package READMEs for CLI/Inspector details.
-- Architecture notes, plans, and development references live under `docs/` and component-local `docs/` directories. Many of these files are working documentation and will later be consolidated into user-facing docs. Update relevant docs with any non-trivial design change and add a brief English summary when possible.
-- Public README files should orient users; keep deep implementation notes in `docs/` or crate-specific docs.
+- Architecture, design, and planning docs live under `dev-docs/` (alongside component-local `docs/` directories); `docs/` is where user-facing documentation will live. Update relevant docs with any non-trivial design change and add a brief English summary when possible.
+- Public README files should orient users; keep deep implementation notes in `dev-docs/` or crate-specific docs.
 - When documenting commands, prefer `just` recipes for contributor workflows and package commands for end-user workflows.
 - Keep docs in English unless updating an existing German planning document.
 

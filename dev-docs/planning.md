@@ -2,7 +2,7 @@
 
 <!-- This is a living document. For version history see CHANGELOG.md and git log. -->
 
-This document tracks all open work items, decided-but-not-implemented designs, open design questions, and the complete task history. For the current architecture, see `docs/architecture.md`.
+This document tracks all open work items, decided-but-not-implemented designs, open design questions, and the complete task history. For the current architecture, see `dev-docs/architecture.md`.
 
 ## 1. Cross-Cutting Guidelines
 
@@ -135,7 +135,7 @@ Idea: allow external processes to act as UI tree providers via a JSON-RPC-like p
 
 ### 4.1.1 Cross-Platform Keyboard Name Harmonization
 
-The keyboard user guide (`docs/keyboard-input.md`) defines a canonical set of key names that should work identically on all platforms. All gaps have been closed as of 2026-02-24.
+The keyboard user guide (`dev-docs/keyboard-input.md`) defines a canonical set of key names that should work identically on all platforms. All gaps have been closed as of 2026-02-24.
 
 **Windows** (`crates/platform-windows/src/keyboard.rs`):
 - [x] `ArrowLeft`, `ArrowRight`, `ArrowUp`, `ArrowDown` (aliases for `Left`/`Right`/`Up`/`Down`)
@@ -194,7 +194,7 @@ The keyboard user guide (`docs/keyboard-input.md`) defines a canonical set of ke
 
 **WindowManager — Protocol landscape:**
 
-See `docs/architecture.md` §8.5 for the full Wayland protocol assessment table. In summary: no universal protocol exists. The strategy is to start with `wlr-foreign-toplevel-management` (Sway/Hyprland), add compositor-specific backends as needed, and fall back to no-op where unsupported.
+See `dev-docs/architecture.md` §8.5 for the full Wayland protocol assessment table. In summary: no universal protocol exists. The strategy is to start with `wlr-foreign-toplevel-management` (Sway/Hyprland), add compositor-specific backends as needed, and fall back to no-op where unsupported.
 
 **Implementation effort:** High to very high due to compositor-specific fragmentation.
 

@@ -37,10 +37,10 @@ uv run pytest -q packages/native/tests
 
 ## More information
 
-- [../../docs/](../../docs/) - current working notes for Python bindings, Robot Framework library design, and platform behavior.
+- [../../dev-docs/](../../dev-docs/) - developer notes for Python bindings, Robot Framework library design, and platform behavior.
 - [../../README.md](../../README.md) - project overview.
 
-The files in `docs/` are working documentation for now and will be replaced or consolidated into proper user documentation later.
+The files in `dev-docs/` are developer documentation for now and will be consolidated into user-facing docs (under `docs/`) later.
 
 ## License
 
