@@ -27,6 +27,7 @@ crates/
 ├─ platform-windows          # Windows devices — platynui-platform-windows
 ├─ provider-windows-uia      # UIA provider — platynui-provider-windows-uia
 ├─ platform-linux-x11        # Linux/X11 devices — platynui-platform-linux-x11
+├─ platform-linux-wayland    # Linux/Wayland devices — platynui-platform-linux-wayland
 ├─ platform-linux            # Linux session mediator — platynui-platform-linux
 ├─ provider-atspi            # AT-SPI2 provider — platynui-provider-atspi
 ├─ platform-macos            # macOS devices (stub) — platynui-platform-macos
@@ -100,6 +101,13 @@ All extensions register via `inventory`-based macros. The runtime discovers them
 - `register_platform_module!(&MODULE)` — registers a `PlatformModule` implementation
 - `register_provider!(&FACTORY)` — registers a `UiTreeProviderFactory`
 - `register_window_manager!(&PROVIDER)` — registers a `WindowManager` implementation
+- `register_pointer_device!(&DEVICE)` — registers a `PointerDevice`
+- `register_keyboard_device!(&DEVICE)` — registers a `KeyboardDevice`
+- `register_desktop_info_provider!(&PROVIDER)` — registers a `DesktopInfoProvider`
+- `register_screenshot_provider!(&PROVIDER)` — registers a `ScreenshotProvider`
+- `register_highlight_provider!(&PROVIDER)` — registers a `HighlightProvider`
+
+Each platform-side capability (pointer, keyboard, desktop info, screenshot, highlight, window manager) has its own registration macro backed by a dedicated `inventory` collection.
 
 ### Linking Strategy
 
@@ -147,14 +155,14 @@ This keeps each sub-platform as a standalone library; the mediator owns the one-
 
 ### Initialization Sequence
 
-1. `Runtime::new()` calls `initialize_platform_modules()` — invokes `PlatformModule::initialize()` for all registered modules (e.g., Windows sets Per-Monitor-V2 DPI awareness).
+1. `Runtime::new()` acquires a `PlatformModulesLease` (`PlatformModulesLease::acquire()`) — the first time a `Runtime` is created it invokes `PlatformModule::initialize()` for all registered modules (e.g., Windows sets Per-Monitor-V2 DPI awareness). The lease is reference-counted across live runtimes.
 2. Provider factories are instantiated via `ProviderRegistry`.
 3. Event listeners are wired up via `UiTreeProvider::subscribe_events(listener)`.
 
 ### Shutdown & Resource Cleanup
 
 - `Runtime::shutdown()` is called automatically via `Drop`. It is idempotent.
-- The runtime shuts down providers first (calling `UiTreeProvider::shutdown()`), then platform modules.
+- `Runtime::shutdown()` shuts down the event dispatcher first, then providers (`UiTreeProvider::shutdown()`), then releases the platform-modules lease (which shuts modules down once the last runtime is released).
 - Providers must release all resources in `shutdown()` (COM handles, D-Bus connections, overlay windows).
 
 ### Test Injection
@@ -203,7 +211,7 @@ pub trait UiPattern: Any + Send + Sync {
 - Children and attributes are returned as `Box<dyn Iterator<...> + Send + 'static>`. Providers may use custom iterator types.
 - The runtime never materializes lists upfront; `UiAttribute::value()` is called on demand.
 - `UiNodeExt` provides navigation helpers: `parent_arc()`, `ancestors()`, `top_level_or_self()`, `ancestor_pattern::<T>()`.
-- `PatternRegistry` stores patterns as `HashMap<PatternName, Arc<dyn UiPattern>>` with insertion-order tracking. `register_lazy` defers expensive platform probes until first access.
+- `PatternRegistry` stores patterns as `HashMap<PatternName, RegistryEntry>` (a `Ready`/`Lazy` enum) plus an insertion-order `Vec<PatternName>`. A `Lazy` entry holds a probe closure and a `OnceLock` cache, so `register_lazy` defers expensive platform probes until first access.
 
 ### 5.2 Namespaces
 
@@ -247,7 +255,7 @@ Providers generate deterministic IDs stable for the element's lifetime. The `pla
 
 ### 5.6 UiValue & Attribute Normalization
 
-- **UiValue** is typed: String, Bool, Integer, Float, Null, plus structured values (Rect, Point, Size, Array, Object).
+- **UiValue** is typed: String, Bool, Integer, Number (`f64`), Null, plus structured values (Rect, Point, Size, Array, Object).
 - **Alias attributes** — For structured values, the runtime/XPath layer auto-generates derived attributes: `Bounds.X`, `Bounds.Width`, `ActivationPoint.Y`, etc. Providers must not generate these aliases.
 - **PascalCase** — All attribute names use PascalCase. Native roles are normalized (e.g., `UIA_ButtonControlTypeId` → `Button`). Original roles are preserved as `native:Role`.
 - **Consistent naming constants** — `platynui-core::ui::attribute_names::<pattern>::*` provides string constants for attribute names.
@@ -268,6 +276,8 @@ Providers generate deterministic IDs stable for the element's lifetime. The `pla
 - Event-capable providers only trigger targeted updates; providers without events use full refresh before each query.
 
 ## 6. Pattern System
+
+> **This section describes the _intended_ capability model, not only what is wired up today.** Some patterns are already implemented, others are planned, and some may still change shape. The authoritative list of patterns currently present in the Rust core is `pattern_names` in [`crates/core/src/ui/identifiers.rs`](../crates/core/src/ui/identifiers.rs); the attribute-name constants live in `crates/core/src/ui/attributes.rs`.
 
 ### 6.1 Design Principles
 
@@ -328,6 +338,7 @@ pub trait ResponsivePattern: UiPattern {
 | **Desktop** | Bounds, OsVersion, Monitors | — |
 | **TextContent** | Text | IsReadOnly |
 | **TextEditable** | Text, IsReadOnly=false | MaxLength |
+| **Clearable** | — | — |
 | **TextSelection** | SelectedText, SelectionStart, SelectionEnd | — |
 | **Selectable** | IsSelected | — |
 | **SelectionProvider** | SelectedItems, CanSelectMultiple | — |
@@ -348,7 +359,7 @@ pub trait ResponsivePattern: UiPattern {
 | **Resizable** | — | — |
 | **Responsive** | — | — |
 | **DialogSurface** | — | DialogResult |
-| **Application** | ProcessId | ProcessName, ExecutablePath, CommandLine |  <!-- Note: ProcessName is the executable stem; `control:Name` (display name) is inherited from the common attribute set. On Windows, `control:Name` falls back to ProcessName since UIA has no separate app display name. On AT-SPI2, `control:Name` = Accessible.Name (display name). See planning.md §8.5. -->
+| **Application** | ProcessId | ProcessName, ExecutablePath, CommandLine |  <!-- Note: ProcessName is the executable stem; `control:Name` (display name) is inherited from the common attribute set. On Windows, `control:Name` falls back to ProcessName since UIA has no separate app display name. On AT-SPI2, `control:Name` = Accessible.Name (display name). See planning.md §8 (Open Design Questions, item 5). -->
 | **Highlightable** | — | — |
 | **Annotatable** | — | — |
 
@@ -488,14 +499,16 @@ pub trait ResponsivePattern: UiPattern {
 ### 7.1 UiTreeProvider & Factory Traits
 
 - `ProviderDescriptor` describes an implementation: `id`, display name, `TechnologyId`, `ProviderKind` (Native or External), `event_capabilities`.
-- `UiTreeProviderFactory::create()` returns `Arc<dyn UiTreeProvider>`. No additional resources are passed.
-- `UiTreeProvider::get_nodes(parent)` returns nodes for the given parent. The runtime combines them with the desktop node.
+- `UiTreeProviderFactory::create()` returns `Result<Arc<dyn UiTreeProvider>, ProviderError>` (fallible). No additional resources are passed.
+- `UiTreeProvider::get_nodes(parent: Arc<dyn UiNode>)` returns `Result<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>, ProviderError>` — a lazy iterator of child nodes. The runtime combines them with the desktop node.
+- `UiTreeProvider::subscribe_events(listener)` registers a `ProviderEventListener` (default no-op); this is how the runtime wires the event pipeline (see §7.2).
+- `UiTreeProvider::shutdown()` releases the provider's resources.
 
 ### 7.2 Provider Registry & Event Pipeline
 
 - `ProviderRegistry` (in `crates/runtime`) collects registered factories via `inventory`, groups them by technology, and creates instances.
 - `ProviderEventDispatcher` — fan-out component that synchronously relays provider events to registered sinks.
-- Per provider, a `RuntimeEventListener` (a) marks the snapshot as dirty, (b) invalidates affected `UiNode` instances, (c) forwards the event to the dispatcher.
+- Per provider, a `RuntimeEventListener` forwards events directly to the dispatcher and keeps no snapshot state. For `NodeUpdated` events it first calls `invalidate()` on the affected `UiNode` before forwarding.
 - `ProviderEventKind`: `NodeAdded`, `NodeUpdated`, `NodeRemoved`, `TreeInvalidated`.
 - External consumers (CLI, Inspector) subscribe via `Runtime::register_event_sink`.
 
@@ -574,7 +587,7 @@ The runtime builds a motion engine on top:
 - **Acceleration profiles**: constant, slow→fast, fast→slow, smooth S-curve
 - **Configurable delays**: `after_move_delay`, `press_release_delay`, `before_next_click_delay`, `multi_click_delay`
 - **Position verification**: optional check that cursor reached target
-- **PointerProfile** bundles movement and timing parameters as named presets (e.g., `default`, `fast`, `human-like`).
+- **PointerProfile** bundles movement and timing parameters; `PointerProfile::named_default()` provides the built-in preset. Per-call variation is applied through `PointerOverrides` (see below), not via additional named presets.
 - **PointerOverrides** provides per-call delta overrides via builder API. Includes optional `origin` field (`PointOrigin::Desktop`, `PointOrigin::Bounds(Rect)`, `PointOrigin::Absolute(Point)`) for relative coordinate conversion.
 
 Runtime methods: `pointer_move_to`, `pointer_click`, `pointer_multi_click`, `pointer_press`, `pointer_release`, `pointer_drag`, `pointer_scroll`. All accept optional `PointerOverrides`.
@@ -606,7 +619,7 @@ Runtime APIs:
 ### 8.3 ScreenshotProvider
 
 - `ScreenshotRequest` optionally specifies a sub-region; otherwise the full desktop is captured.
-- `Screenshot` contains width, height, raw data (`Vec<u8>`), and `PixelFormat` (`Rgba8` or `Bgra8`).
+- `Screenshot` contains `width`, `height`, a `format` (`PixelFormat`: `Rgba8` or `Bgra8`), and the raw `pixels` buffer (`Vec<u8>`).
 - Callers are responsible for encoding to PNG/JPEG.
 
 ### 8.4 HighlightProvider
@@ -651,10 +664,10 @@ provider-atspi / provider-windows-uia  ──uses──►  core::WindowManager 
                                                             ▲          ▲
                                             platform-linux-x11   platform-windows
                                               (EWMH/NetWM)       (Win32 HWND)
-                                        (future: platform-linux-wayland)
+                                      platform-linux-wayland (IPC/wlr backends)
 ```
 
-This keeps `provider-atspi` free of `x11rb` dependencies and working identically on X11 and future Wayland.
+This keeps `provider-atspi` free of `x11rb` dependencies and working identically on X11 and Wayland. Today only the PlatynUI IPC compositor backend is implemented; other Wayland compositors return `CapabilityUnavailable`.
 
 **Wayland Protocol Landscape** — Wayland has no standardized protocol for desktop/workspace switching by external clients. The following protocols exist:
 
@@ -715,7 +728,7 @@ Context minimization before certain axes (`descendant*`, `following*`) removes o
 
 ### 9.3 XDM Cache
 
-- `XdmCache` is `Rc<RefCell<Option<(RuntimeId, RuntimeXdmNode)>>>` — `Clone`, `!Send`. Created by the caller via `Runtime::create_cache()`, not held by the runtime.
+- `XdmCache` wraps `Arc<Mutex<Option<(RuntimeId, RuntimeXdmNode)>>>` — `Clone + Send + Sync`, so a single runtime-owned cache can be shared across threads. Created by the caller via `Runtime::create_cache()`, not held by the runtime constructor.
 - **Lazy Revalidation**: `is_valid()` checks provider nodes; `prepare_for_evaluation()` resets `children_validated` flags; invalid subtrees are transparently rebuilt on next access.
 - Convenience methods: `evaluate_cached()`, `evaluate_iter_cached()`, `evaluate_single_cached()`.
 - Without cache, the runtime rebuilds the desktop snapshot before every XPath evaluation.
@@ -725,6 +738,7 @@ Context minimization before certain axes (`descendant*`, `following*`) removes o
 - `evaluate(node: Option<Arc<dyn UiNode>>, xpath: &str, options)` — central interface. Without context (`None`), evaluation starts at the desktop.
 - `EvaluateOptions` supports `with_cache()` / `without_cache()`, `with_node_resolver(...)` for re-resolving context nodes by `RuntimeId`, and `with_cancel_flag(Arc<AtomicBool>)` for cooperative cancellation (checked at each XPath axis step).
 - `evaluate_iter_owned(...)` returns an owned iterator (`EvaluationStream`) for FFI bindings (no borrowed references). `evaluate_iter_owned_cancellable(...)` adds a cancel flag for interruptible streaming evaluation.
+- `is_context_dependent(xpath)` classifies whether an expression reads the context node at the top level (relative path, `.`, or a 0-arity context function), recursing through `if`/`for`/`let`/sequence/filter/union. Used by the BareMetal `Set Root` keyword to choose relative drilling vs. an absolute root.
 - Results are `EvaluationItem`: `Node`, `Attribute` (owner + name + value), or `Value` (`UiValue`).
 - `StaticContext` registers fixed prefixes: `control`, `item`, `app`, `native`.
 - `typed_value()` is mandatory and returns XDM-conformant atomics (`xs:boolean`, `xs:integer`, `xs:double`, `xs:string`). Complex structures (Rect, Point, Size) remain as JSON-encoded strings; their derived components (`Bounds.X`, etc.) are numeric atomics.
