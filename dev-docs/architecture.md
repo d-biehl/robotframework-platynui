@@ -2,21 +2,25 @@
 
 <!-- This is a living document. For version history see CHANGELOG.md and git log. -->
 
-This document describes the PlatynUI runtime architecture as it is currently implemented. It serves as the authoritative reference for the system's design, conventions, and platform-specific implementations.
+This document explains how the PlatynUI runtime is put together and, more importantly, *why* it is put together that way. It describes the system as it is implemented today and is the authoritative reference for its design and conventions. Where it touches platform specifics it stays at the level of intent; the code remains the final word on exact details.
 
 ## 1. Introduction & Goals
 
-PlatynUI is a cross-platform UI automation library whose core provides a consistent view of native UI trees (UIA, AT-SPI2, macOS AX, ...). The runtime abstracts platform APIs into a normalized node tree that is queried via XPath and exposes capabilities through Patterns.
+PlatynUI is a cross-platform UI automation library. Its job is to give you one consistent view of the native UI on whatever machine you are automating, even though every operating system exposes its controls through a different accessibility technology — UIA on Windows, AT-SPI2 on Linux, the macOS Accessibility (AX) API, and so on. The core takes those very different sources and presents them as a single, normalized tree of UI elements. You then locate elements in that tree with XPath, and you act on them through **patterns** — small, named capabilities such as "this can be focused" or "this can be activated." The point is that your automation code never has to care which platform produced an element.
 
 ### Design Philosophy
 
-- **Composition over inheritance** — Patterns describe capabilities as composable traits, not a class hierarchy.
-- **Streaming & lazy evaluation** — Children, attributes, and pattern probes are evaluated on demand. No upfront materialization.
-- **Platform-agnostic core** — `platynui-core` defines all traits; platform and provider crates implement them independently.
-- **Build-time platform selection** — `cfg(target_os)` attributes determine which platform/provider crates are linked. No runtime platform selection (but see §3 for the planned Linux mediation crate).
-- **Desktop-coordinate system** — All positions (`Bounds`, `ActivationPoint`, window geometry) use absolute desktop coordinates. DPI/scaling adjustments happen provider-side.
+A handful of principles run through the whole system. Each one is a deliberate trade-off, and knowing them up front makes the rest of this document much easier to read.
+
+- **Composition over inheritance.** Capabilities are described by patterns — composable traits a node either has or doesn't — rather than by a deep class hierarchy. An element is defined by what it can *do*, assembled from independent pieces, not by where it sits in a type tree.
+- **Streaming and lazy evaluation.** Nothing is built before it is needed. Children, attribute values, and pattern probes are all computed on demand, so opening a large UI is cheap until you actually walk into the part you care about.
+- **A platform-agnostic core.** The `platynui-core` crate defines all the traits — the shared vocabulary of the system — while the platform and provider crates implement those traits independently. The core knows nothing about UIA or AT-SPI; it only knows the abstractions.
+- **Build-time platform selection.** Which platform and provider crates get linked in is decided at compile time via `cfg(target_os)` attributes, not chosen at runtime. (The one planned exception is the Linux mediation crate — see §3.)
+- **A single desktop-coordinate system.** Every position — `Bounds`, `ActivationPoint`, window geometry — is expressed in absolute desktop coordinates, so callers never have to reason about per-window or per-monitor offsets. Any DPI or scaling adjustment is handled on the provider side, before the numbers reach you.
 
 ## 2. Crate Landscape
+
+PlatynUI is split into many small crates rather than one large one, and the split is deliberate. Each crate owns one clear responsibility, and the boundaries between them are where the platform-specific code is contained — so the parts that have to differ per operating system stay isolated from the parts that should look the same everywhere. The tree below is the whole map: the Rust workspace (`crates/`, `apps/`) and the Python packaging layer (`packages/`).
 
 ```
 crates/
@@ -51,14 +55,20 @@ packages/
 └─ inspector                 # Python wheel for Inspector binary
 ```
 
+Two distinctions in that tree are worth holding onto, because nearly everything else builds on them. First, **`core`** defines the shared vocabulary — the traits and types that describe a UI element and what you can do with it — while **`runtime`** is the engine that puts those abstractions to work, tying providers, platforms, and the XPath pipeline together. Second, the per-operating-system crates come in two flavours, and the difference is fundamental: a **provider** reads the UI tree (it answers "what elements are on screen?"), and a **platform** drives the input devices (it answers "move the mouse here, type this key"). Reading and acting are kept apart all the way down. The mock crates (`provider-mock`, `platform-mock`) mirror this same split so tests can exercise either side without a real desktop.
+
 ### Naming Conventions
 
-- Workspace crates (under `crates/`, `apps/`) use the `platynui-` package name prefix. Directory names may be shorter (e.g., `crates/runtime` → package `platynui-runtime`).
-- FFI/packaging crates outside the Cargo workspace (e.g., `packages/native`) follow target ecosystem conventions and are exempt from the prefix rule.
-- Platform crates: `crates/platform-<target>` (package `platynui-platform-<target>`)
-- Provider crates: `crates/provider-<technology>` (package `platynui-provider-<technology>`)
+The names follow a small set of rules, so that once you know the pattern you can predict a crate's name from what it does:
+
+- Workspace crates (under `crates/`, `apps/`) carry the `platynui-` prefix on their **package** name, declared in each crate's `Cargo.toml` (`[package].name`). The **directory** deliberately leaves the prefix off rather than repeating it — the prefix lives at the package level, so the folder only needs the short name (e.g., `crates/runtime` is the package `platynui-runtime`, `crates/core` is `platynui-core`).
+- FFI and packaging crates that live outside the Cargo workspace (e.g., `packages/native`) follow the conventions of the ecosystem they ship into instead, so they are exempt from the prefix rule.
+- Platform crates are named for their target: `crates/platform-<target>` (package `platynui-platform-<target>`).
+- Provider crates are named for the accessibility technology they speak: `crates/provider-<technology>` (package `platynui-provider-<technology>`).
 
 ### Dependency Graph
+
+The crate list says *what* exists; this graph says *who depends on whom*. Read it top to bottom: the three front ends — the Robot Framework library, the CLI, and the Inspector — all reach the system through the runtime, never around it. The runtime in turn rests on the `core` traits and fans out to the providers, platforms, and the XPath engine. Because every front end funnels through the same runtime and the same core model, they all see the desktop the same way.
 
 ```
 ┌────────────────────────┐
@@ -90,13 +100,15 @@ packages/
           └───────────┘  └─────────────┘  └──────────────┘
 ```
 
-Python wheels (`packages/cli`, `packages/inspector`) are packaging wrappers that bundle the Rust binaries for `pip install` distribution — they do not add Rust dependencies.
+One subtlety the arrows don't show: the Python wheels `packages/cli` and `packages/inspector` are not really part of this dependency chain. They are packaging wrappers that bundle the already-built Rust binaries so they can be installed with `pip` — they add no Rust dependencies of their own.
 
 ## 3. Registration & Extension Model
 
-All extensions register via `inventory`-based macros. The runtime discovers them at link time without knowing concrete types.
+PlatynUI is built to be extended without the runtime knowing — at compile time — which concrete platforms or providers exist. An extension makes itself known by *registering* itself, and the runtime *discovers* what has registered. The glue for this is the `inventory` crate, which lets a crate contribute entries to a global collection simply by being linked into the final binary. The practical upshot is that the runtime never names a concrete type like "the Windows UIA provider"; it asks "what pointer devices, what providers, what window managers have registered?" and works with whatever it finds. Adding support for a new technology is therefore a matter of writing a crate that registers the right things, not of editing the runtime.
 
 ### Registration Macros
+
+Each kind of extension point has its own registration macro, and each macro is backed by its own dedicated `inventory` collection — so the runtime can enumerate, say, all pointer devices independently of all providers. You register one implementation per call:
 
 - `register_platform_module!(&MODULE)` — registers a `PlatformModule` implementation
 - `register_provider!(&FACTORY)` — registers a `UiTreeProviderFactory`
@@ -107,44 +119,32 @@ All extensions register via `inventory`-based macros. The runtime discovers them
 - `register_screenshot_provider!(&PROVIDER)` — registers a `ScreenshotProvider`
 - `register_highlight_provider!(&PROVIDER)` — registers a `HighlightProvider`
 
-Each platform-side capability (pointer, keyboard, desktop info, screenshot, highlight, window manager) has its own registration macro backed by a dedicated `inventory` collection.
+The grouping mirrors the system's capabilities: the broad ones (a platform module, a UI-tree provider, a window manager) and the individual input/output facilities a platform offers — pointer, keyboard, desktop info, screenshot, highlight. Each lives in its own collection so the runtime can ask for exactly the capability it needs.
 
 ### Linking Strategy
 
-- OS-specific providers register automatically when linked.
-- Mock providers (`platynui-provider-mock`, `platynui-platform-mock`) do **not** auto-register and are only available via explicit factory handles.
-- The helper crate `platynui-link` provides macros:
-  - `platynui_link_providers!()` — feature-gated: links mock or OS providers
-  - `platynui_link_os_providers!()` — explicitly links OS-specific crates
-- Applications (CLI, Python extension) bind platform/provider crates via `cfg(target_os = ...)`.
-- Tests link mock crates explicitly: `const _: () = { use platynui_platform_mock as _; use platynui_provider_mock as _; };`
+Because discovery happens at link time, *what gets linked* decides *what is available* — and the system uses that deliberately. OS-specific providers register themselves automatically the moment their crate is linked, so a normal build for a given operating system simply lights up the right providers. The mock providers (`platynui-provider-mock`, `platynui-platform-mock`) are the exception: they intentionally do **not** auto-register, so a test or tool never gets the mock by accident — you reach for it only through an explicit factory handle.
+
+To make the common cases ergonomic, the helper crate `platynui-link` offers two macros. `platynui_link_providers!()` is feature-gated and links either the mock or the OS providers depending on how the build is configured; `platynui_link_os_providers!()` is the explicit "give me the real OS crates" form. Applications such as the CLI and the Python extension select platform and provider crates through `cfg(target_os = ...)`, while tests opt into the mock crates by linking them by hand — a small `use platynui_platform_mock as _;` / `use platynui_provider_mock as _;` that pulls the otherwise-unreferenced crates into the build so their mock factory handles become available.
 
 ### Linux Session Mediator (`platynui-platform-linux`)
 
-On Linux the display server (X11 vs Wayland) is a **runtime** property — the one exception to the "build-time platform selection" rule. The mediator crate `platynui-platform-linux` handles this:
+Everywhere else, the platform is decided when you build: a Windows build talks to Windows, a macOS build talks to macOS. Linux breaks that assumption, because the display server — X11 or Wayland — is only known when the program actually runs. Linux is therefore the one place where platform selection is a **runtime** decision, and the crate `platynui-platform-linux` exists to absorb that complication so nothing downstream has to think about it.
 
-**Architecture.** The mediator registers a single set of wrapper devices via `inventory`. Each wrapper delegates every trait method to the correct sub-platform backend based on the detected session type. The sub-platform crates `platform-linux-x11` and `platform-linux-wayland` do **not** self-register — they are plain libraries consumed by the mediator.
+**Architecture.** The mediator presents itself to the rest of the system as an ordinary platform: it registers one set of *wrapper* devices via `inventory`, exactly like any other platform would. The difference is what those wrappers do — each one simply forwards every call to the appropriate backend for the session that was detected. Behind the mediator sit two real implementations, `platform-linux-x11` and `platform-linux-wayland`, and these deliberately do **not** register themselves. They are plain libraries that only the mediator consumes, which keeps each one a self-contained X11 or Wayland implementation with no opinion about how it gets chosen.
 
-**Session detection** (`session.rs`). Cached for the process lifetime via `Mutex<Option<SessionType>>`:
+**Session detection** (`session.rs`). The mediator works out which session it is in once and remembers the answer for the lifetime of the process (cached behind a `Mutex<Option<SessionType>>`). The checks run in order of trustworthiness:
 
 1. `$XDG_SESSION_TYPE` → `"wayland"` | `"x11"` (most authoritative — `XWayland` sets both `$DISPLAY` and `$WAYLAND_DISPLAY` but `$XDG_SESSION_TYPE=wayland`)
 2. `$WAYLAND_DISPLAY` present → Wayland
 3. `$DISPLAY` present → X11
 4. None → `PlatformError::UnsupportedPlatform`
 
-**Delegation pattern.** The session is resolved once in `LinuxModule::initialize()` into a `Resolved` bundle of `&'static dyn` backend references (pointer, keyboard, desktop, screenshot, highlight, window manager, module), cached in a `static Mutex<Option<Resolved>>`. Each wrapper device then forwards every trait method to the resolved backend — no per-call session detection:
+**Delegation pattern.** Detection feeds resolution. When `LinuxModule::initialize()` runs, the mediator resolves the session exactly once and gathers static references to the chosen backend's facilities — its pointer, keyboard, desktop info, screenshot, highlight, window manager, and module — into a single `Resolved` bundle, which it caches in a `static Mutex<Option<Resolved>>`. From then on, every wrapper device is a thin pass-through: when you ask the Linux pointer for its position, it hands the question straight to the resolved backend's pointer. There is no per-call session sniffing — the cost is paid once, at initialization, and the routing afterward is just a method forward. This is what lets each sub-platform stay a standalone library: the mediator alone owns the one-time resolution, the registration, and the routing.
 
-```rust
-impl PointerDevice for LinuxPointer {
-    fn position(&self) -> Result<Point, PlatformError> {
-        resolved().pointer.position()
-    }
-}
-```
+*The delegating wrapper implementations live in `crates/platform-linux`; the code is authoritative for the exact forwarding.*
 
-This keeps each sub-platform as a standalone library; the mediator owns the one-time resolution, registration, and routing responsibility.
-
-**Consumers.** All downstream crates (CLI, Inspector, Python bindings, link) depend on `platynui-platform-linux` — never on a sub-platform directly.
+**Consumers.** Everything downstream — the CLI, the Inspector, the Python bindings, the link crate — depends on `platynui-platform-linux` and never reaches past it to a sub-platform directly. That single dependency is what lets the rest of the toolkit treat Linux as "just another platform."
 
 ### Provider Modes
 
@@ -153,65 +153,51 @@ This keeps each sub-platform as a standalone library; the mediator owns the one-
 
 ## 4. Runtime Context & Lifecycle
 
+The **runtime** is the object that holds a live automation session together. It is what you create when you want to start looking at the UI, and it owns everything that has to be set up, kept alive, and torn down again as a unit: the platform-specific groundwork, the set of providers that read the accessibility trees (see §7), and the event plumbing that watches for changes. The rest of this section follows the runtime through its life — coming up, shutting down, and the special case of standing it up inside a test.
+
 ### Initialization Sequence
 
-1. `Runtime::new()` acquires a `PlatformModulesLease` (`PlatformModulesLease::acquire()`) — the first time a `Runtime` is created it invokes `PlatformModule::initialize()` for all registered modules (e.g., Windows sets Per-Monitor-V2 DPI awareness). The lease is reference-counted across live runtimes.
-2. Provider factories are instantiated via `ProviderRegistry`.
-3. Event listeners are wired up via `UiTreeProvider::subscribe_events(listener)`.
+Creating a runtime happens in a fixed order, because each step depends on the one before it. The first step prepares the *platform*, the second prepares the *providers*, and the third connects them so changes can flow back to you.
+
+1. **Prepare the platform.** Constructing a runtime first secures a shared lease on the platform modules. The very first runtime to come up triggers one-time platform setup for every registered module — on Windows, for instance, this is where the process declares Per-Monitor-V2 DPI awareness. This setup must happen exactly once per process, so the lease is reference-counted: subsequent runtimes share the same already-initialized platform rather than redoing the work.
+2. **Bring up the providers.** The runtime instantiates its provider factories through the provider registry (see §7.2), each producing a provider that knows how to read one accessibility technology (see §7).
+3. **Wire up events.** Finally, the runtime subscribes its event listeners to the providers, so that changes observed in the underlying UI can be delivered back through the event pipeline (see §5.7, §7.2).
 
 ### Shutdown & Resource Cleanup
 
-- `Runtime::shutdown()` is called automatically via `Drop`. It is idempotent.
-- `Runtime::shutdown()` shuts down the event dispatcher first, then providers (`UiTreeProvider::shutdown()`), then releases the platform-modules lease (which shuts modules down once the last runtime is released).
-- Providers must release all resources in `shutdown()` (COM handles, D-Bus connections, overlay windows).
+Shutting a runtime down unwinds those three steps in the reverse order, and it does so automatically — the runtime tears itself down when it goes out of scope, so you do not have to remember to do it by hand. Shutdown is idempotent, meaning a second teardown (an explicit one followed by the automatic one, say) is harmless.
+
+The order matters as much on the way down as on the way up. The runtime first stops the event dispatcher, so no further change notifications arrive while things are being dismantled. It then shuts down each provider, giving it the chance to release everything it was holding on the host system — COM handles, D-Bus connections, overlay windows, and the like. Only then does it release its share of the platform-modules lease; when the last live runtime lets go, the platform modules themselves are shut down. Releasing host resources cleanly in this phase is a firm obligation on every provider, not a courtesy.
 
 ### Test Injection
 
-- `Runtime::new_with_factories(factories)` — builds runtime from explicit factories (no inventory discovery).
-- `Runtime::new_with_factories_and_platforms(factories, PlatformOverrides)` — additionally injects mock platform devices.
-- Central test helper: `runtime_with_factories_and_mock_platform(&[&FACTORY, ...])` in `crates/runtime/src/test_support.rs`.
-- `rstest` fixtures `rt_runtime_platform()` (mock devices, no providers), `rt_runtime_stub()`, and `rt_runtime_focus()` live in `crates/runtime/src/runtime/test_fixtures.rs` and delegate to the central helper.
+In tests you usually do *not* want a runtime to go discover whatever providers and platform happen to be present on the machine running the suite — that would make tests depend on the host. Instead, the runtime offers seams where you hand it exactly the pieces you want: a chosen set of provider factories, and optionally a set of mock platform devices standing in for real input and screen hardware. This lets a test run the same runtime code against a controlled, predictable tree on any platform.
+
+To keep tests from repeating that wiring, a central helper assembles a runtime from a given list of factories together with the mock platform, and a small family of shared `rstest` fixtures builds on it for the common shapes a test needs — a mock-device platform with no providers, a stub setup, and a focus-oriented setup — each delegating to that one helper.
+
+*The injection entry points and the central helper live in `crates/runtime/src/test_support.rs`; the shared fixtures live in `crates/runtime/src/runtime/test_fixtures.rs`. The code is authoritative for the exact helper and fixture names; this section explains what they are for.*
 
 ## 5. Data Model
 
 ### 5.1 UiNode, UiAttribute, UiPattern Traits
 
-```rust
-pub trait UiNode: Send + Sync {
-    fn namespace(&self) -> Namespace;
-    fn role(&self) -> &str;                // e.g., "Window", "Button", "ListItem"
-    fn name(&self) -> String;
-    fn runtime_id(&self) -> &RuntimeId;
-    fn id(&self) -> Option<String>;        // optional developer-set stable identifier
-    fn parent(&self) -> Option<Weak<dyn UiNode>>;
-    fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static>;
-    fn has_children(&self) -> bool;        // default probes children(); override with a cheaper check
-    fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static>;
-    fn attribute(&self, namespace: Namespace, name: &str) -> Option<Arc<dyn UiAttribute>>;
-    fn supported_patterns(&self) -> Vec<PatternName>;
-    fn pattern_by_name(&self, pattern: &PatternName) -> Option<Arc<dyn UiPattern>>;  // default returns None
-    fn doc_order_key(&self) -> Option<u64>;  // optional unique hint for document order
-    fn is_valid(&self) -> bool;              // default true; override with a cheap liveness check
-    fn invalidate(&self);
-}
+Everything PlatynUI sees is a tree of **nodes**. A node is a single UI element — a window, a button, a list item, the desktop itself. The model keeps every node small and uniform on purpose, so that the same query and interaction code works no matter which platform produced the node.
 
-pub trait UiAttribute: Send + Sync {
-    fn namespace(&self) -> Namespace;
-    fn name(&self) -> &str;          // PascalCase
-    fn value(&self) -> UiValue;      // lazily evaluated
-}
+A node answers three kinds of questions:
 
-pub trait UiPattern: Any + Send + Sync {
-    fn pattern_name(&self) -> PatternName;
-    fn static_pattern_name() -> PatternName where Self: Sized;
-    fn as_any(&self) -> &dyn Any;
-}
-```
+- **Who am I?** Its namespace (see §5.2), its role ("Window", "Button", "ListItem", …), its name, an optional developer-set stable id (see §5.5), and a runtime id that identifies it uniquely for its lifetime (see §5.4).
+- **Who is around me?** Its parent and its children. Children are produced *lazily* — the tree is walked only on demand, never built up front. Opening a desktop with thousands of controls is therefore cheap until you actually descend into it. A node can also report cheaply whether it has any children at all (by default this just probes the child walk, but a provider can override it with a cheaper check), and it carries an optional hint for its position in document order.
+- **What can you tell me, and what can you do?** Its **attributes** (typed values such as bounds, name, state — see §5.6) and its **patterns** (capabilities such as "focusable" or "activatable" — see §6). A node lists the patterns it supports and can hand back the implementation of a named pattern when asked.
 
-- Children and attributes are returned as `Box<dyn Iterator<...> + Send + 'static>`. Providers may use custom iterator types.
-- The runtime never materializes lists upfront; `UiAttribute::value()` is called on demand.
-- `UiNodeExt` provides navigation helpers: `parent_arc()`, `ancestors()`, `top_level_or_self()`, `ancestor_pattern::<T>()`.
-- `PatternRegistry` stores patterns as `HashMap<PatternName, RegistryEntry>` (a `Ready`/`Lazy` enum) plus an insertion-order `Vec<PatternName>`. A `Lazy` entry holds a probe closure and a `OnceLock` cache, so `register_lazy` defers expensive platform probes until first access.
+Attributes are lazy too: a node lists which attributes it has — and lets you look one up by namespace and name — but the concrete value is computed only when something reads it, because reading a value can mean a round-trip to the operating system's accessibility API.
+
+A node also manages its own freshness. It can report whether it is still **valid** (a cheap liveness check — by default a node assumes it is alive until told otherwise) and it can be **invalidated**, which tells it to discard whatever it has cached so the next access fetches fresh data from the native API. This is the hook the event pipeline (see §5.7) pulls on when the platform reports that something changed.
+
+The other two model types are deliberately minimal. An **attribute** knows its namespace, its name (always PascalCase), and how to produce its value on demand. A **pattern** knows its own name and can be downcast to its concrete capability type, which is how interaction code recovers, say, the "activatable" behavior from a generic pattern handle.
+
+Two supporting pieces round this out. **Navigation helpers** cover the common walks — reaching the parent, iterating ancestors, jumping to the enclosing top-level window, and finding the nearest ancestor that supports a given pattern — so call sites don't re-implement them. And the **pattern registry** is how a node carries its capabilities: it keeps them in insertion order and can register a pattern *lazily*, holding a small probe that runs once on first access and then caches its result, so an expensive platform probe is deferred until something actually needs that capability.
+
+*The exact trait definitions live in `crates/core/src/ui/`. The code is the source of truth for signatures; this section explains what they are for.*
 
 ### 5.2 Namespaces
 
@@ -226,16 +212,18 @@ Expressions without a prefix match only `control:` elements. Use `item:` or wild
 
 ### 5.3 Desktop Document Node
 
-- Platform crates provide a `DesktopInfoProvider` (registered via `inventory`). The runtime uses the first registered provider to build the desktop document node (XPath root).
-- If no provider is registered, the runtime creates a fallback desktop with generic values (bounds 1920x1080, empty monitor list, technology "Fallback").
-- `DesktopInfo` includes: OS version, monitor list (id, name, bounds, is_primary, scale_factor), desktop bounds.
-- Provider views:
-  1. **Flat view** — Top-level controls hang directly under the desktop in `control:` namespace.
-  2. **Grouped view** — Same controls also appear as children of `app:Application` nodes, enabling queries like `app:Application[@Name='Studio']//control:Window`.
+Every query starts somewhere, and in PlatynUI that somewhere is the **desktop document node** — the synthetic root of the tree, the element an XPath expression is evaluated against. Building it is the job of a `DesktopInfoProvider`, which each platform crate contributes and registers through `inventory`. The runtime takes the first registered provider and uses it to construct the root.
+
+If nothing registers one, the runtime still produces a usable root: it falls back to a generic desktop with placeholder values — bounds of 1920x1080, an empty monitor list, and the technology reported as "Fallback" — so queries have something to run against even on an unconfigured platform. When a real provider is present, the `DesktopInfo` it supplies is richer: the OS version, the list of monitors (each with its id, name, bounds, whether it is primary, and its scale factor), and the overall desktop bounds.
+
+A provider exposes the same top-level controls through two complementary views:
+
+1. **Flat view** — Top-level controls hang directly under the desktop in the `control:` namespace.
+2. **Grouped view** — Those same controls also appear as children of `app:Application` nodes, which is what makes process-scoped queries such as `app:Application[@Name='Studio']//control:Window` possible.
 
 ### 5.4 RuntimeId Schema
 
-Format: `prefix:value` where the prefix identifies the provider/technology.
+Every node needs an identity that stays stable for as long as the node lives, and that identity is its **RuntimeId**. It takes the form `prefix:value`, where the prefix tells you which provider or technology minted it.
 
 | Provider | Scheme | Example |
 |----------|--------|---------|
@@ -248,21 +236,21 @@ Providers generate deterministic IDs stable for the element's lifetime. The `pla
 
 ### 5.5 Developer Id (`control:Id`)
 
-- Optional, developer-set stable identifier independent of visible labels and language.
-- Platform mapping: Windows → `AutomationId`, Linux/AT-SPI2 → `accessible_id`, macOS/AX → `AXIdentifier`.
-- Only emitted as an attribute when non-empty.
-- For persistent selectors, prefer `@control:Id='...'` when available.
+Visible labels change — they get renamed, translated, or reworded — so they make brittle selectors. The **developer id** exists to give you something steadier: an optional, developer-set stable identifier that is independent of the visible label and of language. When you want a selector that survives, prefer `@control:Id='...'` wherever it is available.
+
+Each platform sources this id from its own native concept: on Windows it is the `AutomationId`, on Linux/AT-SPI2 the `accessible_id`, and on macOS/AX the `AXIdentifier`. The node only emits the attribute when the underlying value is actually set, so an empty developer id simply doesn't appear rather than showing up blank.
 
 ### 5.6 UiValue & Attribute Normalization
 
-- **UiValue** is typed: String, Bool, Integer, Number (`f64`), Null, plus structured values (Rect, Point, Size, Array, Object).
-- **Alias attributes** — For structured values, the runtime/XPath layer auto-generates derived attributes: `Bounds.X`, `Bounds.Width`, `ActivationPoint.Y`, etc. Providers must not generate these aliases.
-- **PascalCase** — All attribute names use PascalCase. Native roles are normalized (e.g., `UIA_ButtonControlTypeId` → `Button`). Original roles are preserved as `native:Role`.
-- **Consistent naming constants** — `platynui-core::ui::attribute_names::<pattern>::*` provides string constants for attribute names.
+Attribute values are **typed** rather than stringly-typed: a `UiValue` is one of String, Bool, Integer, Number (an `f64`), or Null, plus the structured values Rect, Point, Size, Array, and Object. Carrying real types means the XPath and interaction layers can compare and compute on values without re-parsing them out of text.
+
+For the structured values, the runtime makes the parts directly addressable. From a value like `Bounds` it auto-generates **alias attributes** for the components — `Bounds.X`, `Bounds.Width`, `ActivationPoint.Y`, and so on — so a query can reach a single coordinate without unpacking the whole rectangle. These aliases are synthesized by the runtime and XPath layer; providers must not generate them themselves.
+
+Naming is normalized so that queries look the same everywhere. All attribute names use **PascalCase**, and native role names are mapped onto PascalCase roles — for example UIA's `UIA_ButtonControlTypeId` becomes simply `Button` — while the untouched original role is still available as `native:Role` for when you need the platform's own term. To keep these names consistent across the codebase rather than scattered as string literals, `platynui-core::ui::attribute_names::<pattern>::*` provides the canonical string constants.
 
 ### 5.7 Event Capabilities & Invalidation
 
-`ProviderDescriptor` includes an `event_capabilities` bitset:
+Providers differ in how much they can tell the runtime about change, and the runtime adapts to whatever a given provider is capable of. A `ProviderDescriptor` advertises this with an `event_capabilities` bitset, and the runtime picks its refresh strategy accordingly:
 
 | Capability | Behavior |
 |------------|----------|
@@ -271,9 +259,9 @@ Providers generate deterministic IDs stable for the element's lifetime. The `pla
 | `Structure` | Structural events with parent/RuntimeId; runtime handles affected subtrees selectively |
 | `StructureWithProperties` | Additionally includes property change events |
 
-- `TreeInvalidated` is the fallback for drastic changes (e.g., provider restart) and triggers a full reload.
-- Providers must implement `UiNode::invalidate()` to discard cached data (children, attributes, patterns) so the next access fetches fresh data from the native API.
-- Event-capable providers only trigger targeted updates; providers without events use full refresh before each query.
+Above and beyond those levels, `TreeInvalidated` is the fallback for drastic changes — a provider restart, for instance — and triggers a full reload of the tree.
+
+The mechanism that makes all of this work is invalidation at the node level: a provider must implement `UiNode::invalidate()` (see §5.1) so that a node discards its cached data — children, attributes, and patterns — and the next access fetches fresh data from the native API. The payoff is that event-capable providers only trigger targeted updates of the affected parts of the tree, while providers without events fall back to a full refresh before each query.
 
 ## 6. Pattern System
 
@@ -281,52 +269,34 @@ Providers generate deterministic IDs stable for the element's lifetime. The `pla
 
 ### 6.1 Design Principles
 
-- **ClientPatterns** define attribute contracts (read-only capabilities): e.g., `TextContent`, `Selectable`, `ActivationTarget`.
-- **RuntimePatterns** add actions: `FocusablePattern::focus()`, `ActivatablePattern::activate()`, etc.
-- `SupportedPatterns` must be consistent: a pattern appears only if all mandatory attributes are available and a pattern instance exists.
-- Clients decide how to interact with delivered information (mouse/keyboard simulation, gestures). This preserves the same interaction possibilities a human has.
+The pattern system is how PlatynUI answers the question *"what can this element do?"* — and it does so by composition rather than by classification. Instead of deciding that something *is* a "button" and then assuming a fixed bundle of behavior, a node simply carries the small set of capabilities it actually has. A real button advertises that it has text, that it can be activated, and that it offers a point you can target; a list item advertises a slightly different mix. Same machinery, no special cases.
+
+Two kinds of capability make up the system, and the distinction between them is the heart of the design:
+
+- A **ClientPattern** is a read-only contract: it promises that certain typed attributes are available to read. `TextContent` promises there is text to read, `Selectable` promises a selected/not-selected state, `ActivationTarget` promises a point you can aim at. A ClientPattern never *does* anything — it only guarantees information.
+- A **RuntimePattern** adds an action you can perform. `Focusable` lets you focus the element, `Activatable` lets you activate it, and so on. These are the verbs of the system.
+
+A node only ever claims a capability it can genuinely back up. The list of supported patterns must stay honest: a pattern appears on a node only when every attribute it requires is actually available *and* a concrete pattern instance exists to serve it. There is no "claims to be scrollable but isn't" — if the attributes aren't there, the pattern isn't there.
+
+Finally, the system deliberately stops at *describing* and *acting*; it does not dictate *how* a client carries out an interaction. Once a node tells you it has an activation point, it is up to the client to decide whether to drive a mouse click, a keyboard activation, or a gesture to reach it. This is intentional: it preserves exactly the range of interaction a human being would have, rather than locking automation into one synthetic technique.
 
 ### 6.2 Runtime Pattern Traits
 
-Window capabilities are decomposed into separate, composable capability traits rather than a single monolithic surface trait. Each one is a distinct `UiPattern` and is registered/probed independently:
+Window behavior could have been modeled as one large "window" capability with a dozen methods on it. PlatynUI deliberately does the opposite: each window action is its own small, independent capability. A window that can be minimized but, on its platform, cannot be moved simply carries the minimize capability and omits the move one — there is no half-implemented monolith to apologize for. Each of these is a separate pattern, registered and probed on its own, so a node's advertised capabilities always match what the underlying platform can really do.
 
-```rust
-pub trait FocusablePattern: UiPattern {
-    fn focus(&self) -> Result<(), PatternError>;
-}
+The window capabilities are:
 
-pub trait ActivatablePattern: UiPattern {
-    fn activate(&self) -> Result<(), PatternError>;
-}
+- **Focusable** — give the window keyboard focus.
+- **Activatable** — bring the window to the foreground / make it the active window.
+- **Minimizable**, **Maximizable**, **Restorable** — drive the window between its minimized, maximized, and normal states.
+- **Closeable** — close the window.
+- **Movable** — move the window to a position on screen.
+- **Resizable** — change the window's size.
+- **Responsive** — ask whether the window is currently accepting user input (the answer can be "yes", "no", or "not known", since some platforms can't tell you for certain).
 
-pub trait MinimizablePattern: UiPattern {
-    fn minimize(&self) -> Result<(), PatternError>;
-}
+Each action can fail — a platform may refuse a move, or the window may have gone away — and the caller is expected to handle that.
 
-pub trait MaximizablePattern: UiPattern {
-    fn maximize(&self) -> Result<(), PatternError>;
-}
-
-pub trait RestorablePattern: UiPattern {
-    fn restore(&self) -> Result<(), PatternError>;
-}
-
-pub trait CloseablePattern: UiPattern {
-    fn close(&self) -> Result<(), PatternError>;
-}
-
-pub trait MovablePattern: UiPattern {
-    fn move_to(&self, position: Point) -> Result<(), PatternError>;
-}
-
-pub trait ResizablePattern: UiPattern {
-    fn resize(&self, size: Size) -> Result<(), PatternError>;
-}
-
-pub trait ResponsivePattern: UiPattern {
-    fn accepts_user_input(&self) -> Result<Option<bool>, PatternError>;
-}
-```
+*The exact trait definitions live in `crates/core/src/ui/`. The code is the source of truth for signatures; this section explains what they are for.*
 
 ### 6.3 Pattern Catalog
 
@@ -371,6 +341,8 @@ pub trait ResponsivePattern: UiPattern {
 - **TextBox** = TextContent + TextEditable + Focusable + ActivationTarget
 
 ### 6.4 Platform Mapping Tables
+
+Each capability is defined once, in platform-neutral terms, but it has to be satisfied differently on each accessibility technology. The tables below are the translation layer: they show, for every pattern, which concrete UIA property, AT-SPI2 call, or macOS AX attribute a platform provider reads or invokes to fulfil the contract. A dash means the platform has no direct equivalent (and the value is either computed, approximated, or simply unavailable). Read these tables when you implement or debug a provider — they are the contract a provider must honor.
 
 #### Role Mapping (Selection)
 
@@ -496,23 +468,38 @@ pub trait ResponsivePattern: UiPattern {
 
 ## 7. Provider Infrastructure
 
-### 7.1 UiTreeProvider & Factory Traits
+### 7.1 Providers and their factories
 
-- `ProviderDescriptor` describes an implementation: `id`, display name, `TechnologyId`, `ProviderKind` (Native or External), `event_capabilities`.
-- `UiTreeProviderFactory::create()` returns `Result<Arc<dyn UiTreeProvider>, ProviderError>` (fallible). No additional resources are passed.
-- `UiTreeProvider::get_nodes(parent: Arc<dyn UiNode>)` returns `Result<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>, ProviderError>` — a lazy iterator of child nodes. The runtime combines them with the desktop node.
-- `UiTreeProvider::subscribe_events(listener)` registers a `ProviderEventListener` (default no-op); this is how the runtime wires the event pipeline (see §7.2).
-- `UiTreeProvider::shutdown()` releases the provider's resources.
+A **provider** is the piece that actually knows how to read *one* accessibility technology — UIA on Windows, AT-SPI2 on Linux, the mock tree in tests. The runtime never talks to UIA or AT-SPI directly; it only ever talks to providers. That is exactly what keeps the rest of the system platform-agnostic.
 
-### 7.2 Provider Registry & Event Pipeline
+Each provider carries a **descriptor** — a small record of who it is: an id, a display name, which technology it speaks (`TechnologyId`), whether it is a real "native" provider or an external one (`ProviderKind`), and which change events it can emit (its `event_capabilities`, see §5.7). A **factory** creates the provider on demand. Creation can fail — a technology may be unavailable on the running system — and the runtime is prepared for that; nothing extra is handed to the factory at creation time.
 
-- `ProviderRegistry` (in `crates/runtime`) collects registered factories via `inventory`, groups them by technology, and creates instances.
-- `ProviderEventDispatcher` — fan-out component that synchronously relays provider events to registered sinks.
-- Per provider, a `RuntimeEventListener` forwards events directly to the dispatcher and keeps no snapshot state. For `NodeUpdated` events it first calls `invalidate()` on the affected `UiNode` before forwarding.
-- `ProviderEventKind`: `NodeAdded`, `NodeUpdated`, `NodeRemoved`, `TreeInvalidated`.
-- External consumers (CLI, Inspector) subscribe via `Runtime::register_event_sink`.
+Once created, a provider has three jobs:
 
-### 7.3 Provider Compliance Checklist
+- **Hand over children.** Asked for the children of a parent node, it returns them lazily — a stream the runtime pulls from as it descends, rather than a fully built list. The runtime stitches these results together under the desktop node.
+- **Announce changes.** A provider can subscribe the runtime to its change events through an event listener (the default does nothing) — this is what feeds the event pipeline in §7.2. Providers that cannot emit events simply don't, and the runtime re-reads the tree when needed.
+- **Clean up.** On shutdown it releases whatever it holds — COM handles, D-Bus connections, and the like.
+
+*The exact signatures live in `crates/core/src/provider/`. The code is authoritative for the types; this section is about responsibilities.*
+
+### 7.2 Provider registry and event pipeline
+
+Providers don't register themselves with the runtime by hand. The **provider registry** (in `crates/runtime`) discovers the factories automatically — they announce themselves through the `inventory` mechanism — then groups them by technology and creates instances as needed. This is why adding a new provider is mostly a matter of declaring it: the registry finds it.
+
+Change events flow through a small pipeline. Each provider gets its own **event listener** that forwards what the provider reports straight to a central **dispatcher**, which fans those events out synchronously to everyone who has asked to hear them. The per-provider listener keeps no snapshot of the tree; it only relays. The one piece of extra work it does is on a `NodeUpdated` event: before forwarding, it tells the affected node to invalidate its cached data, so that the next read goes back to the platform rather than returning a stale value.
+
+The events a provider can report are:
+
+- `NodeAdded`
+- `NodeUpdated`
+- `NodeRemoved`
+- `TreeInvalidated`
+
+External consumers — the CLI, the Inspector — don't touch the dispatcher directly. They subscribe through the runtime (`Runtime::register_event_sink`), which is the public seam for "tell me when the UI changes".
+
+### 7.3 Provider compliance checklist
+
+These are the rules every provider is expected to follow. They are listed as a checklist on purpose — it is the reference an implementer works through when bringing a provider up.
 
 All providers must:
 
@@ -574,82 +561,54 @@ All providers must:
 
 ## 8. Platform Devices
 
+A **platform device** is the part of PlatynUI that *acts on* the desktop rather than reading it. Where providers (§7) answer "what is on screen?", devices answer "make something happen on screen" — move the pointer, press keys, capture pixels, draw a highlight, manage a window. Each device is defined as a trait in `platynui-core`, and each platform supplies the implementation that knows how to drive its own operating system. The runtime layers convenience and policy on top, so that test code can say "click this" without caring whether it is talking to Windows, X11, or Wayland.
+
 ### 8.1 PointerDevice
 
-The `PointerDevice` trait in `platynui-core` provides elementary pointer input in desktop coordinates (`f64`):
+The **PointerDevice** is the lowest layer of mouse control. It deals only in raw, primitive actions expressed in desktop coordinates (as `f64`): where the pointer is, moving it to a point, pressing and releasing a button, and scrolling. A platform may also report two human-interface facts the runtime needs for correct clicking — the system's double-click time and the size of the region within which two clicks still count as a double-click. The trait is deliberately small; everything richer is built above it.
 
-- `position() -> Point`, `move_to(Point)`, `press(PointerButton)`, `release(PointerButton)`, `scroll(ScrollDelta)`
-- Optional: `double_click_time()`, `double_click_size()`
+On top of that primitive, the runtime builds a **motion engine** — the part that decides not just *where* the pointer ends up but *how* it travels there, so that automated movement can resemble a human hand when that matters. You can choose between several **motion modes**: `direct` (jump straight to the target), `linear` (move in a straight line over time), `bezier` (a curved path), `overshoot` (sail slightly past the target and settle back, the way a real hand does), and `jitter` (small natural wobble). Independently of the path, an **acceleration profile** shapes the speed along it — constant, slow→fast, fast→slow, or a smooth S-curve.
 
-The runtime builds a motion engine on top:
+Timing is just as configurable as geometry. The engine inserts delays at the natural seams of an interaction: after a move settles, between a press and its release, before the next click begins, and between the clicks of a multi-click. It can also optionally **verify** that the cursor actually reached its target before continuing.
 
-- **Motion modes**: `direct`, `linear`, `bezier`, `overshoot`, `jitter`
-- **Acceleration profiles**: constant, slow→fast, fast→slow, smooth S-curve
-- **Configurable delays**: `after_move_delay`, `press_release_delay`, `before_next_click_delay`, `multi_click_delay`
-- **Position verification**: optional check that cursor reached target
-- **PointerProfile** bundles movement and timing parameters; `PointerProfile::named_default()` provides the built-in preset. Per-call variation is applied through `PointerOverrides` (see below), not via additional named presets.
-- **PointerOverrides** provides per-call delta overrides via builder API. Includes optional `origin` field (`PointOrigin::Desktop`, `PointOrigin::Bounds(Rect)`, `PointOrigin::Absolute(Point)`) for relative coordinate conversion.
+These knobs are bundled rather than passed loose. A **PointerProfile** packages the movement and timing parameters together as a reusable preset; `PointerProfile::named_default()` provides the one built-in preset. When a single call needs to differ from the profile, you do *not* register another named preset — instead you supply **PointerOverrides**, a per-call set of deltas built up through a small builder API. Overrides also carry an optional `origin`, which says what a coordinate is measured *from*: `PointOrigin::Desktop` (absolute desktop space), `PointOrigin::Bounds(Rect)` (relative to some element's rectangle), or `PointOrigin::Absolute(Point)` (relative to an explicit anchor point). This is how "click 5 pixels inside the top-left of this button" becomes a concrete desktop coordinate.
 
-Runtime methods: `pointer_move_to`, `pointer_click`, `pointer_multi_click`, `pointer_press`, `pointer_release`, `pointer_drag`, `pointer_scroll`. All accept optional `PointerOverrides`.
+The runtime exposes the whole engine through a handful of methods — `pointer_move_to`, `pointer_click`, `pointer_multi_click`, `pointer_press`, `pointer_release`, `pointer_drag`, and `pointer_scroll` — each of which accepts an optional set of overrides.
+
+*Exact device-trait signatures and the override types live in `crates/core` and the runtime; the code is authoritative for the types, this section is about responsibilities.*
 
 ### 8.2 KeyboardDevice
 
-The `KeyboardDevice` trait provides:
+The **KeyboardDevice** is the keyboard counterpart of the pointer device, and it is just as deliberately minimal. A platform implementation does four things: it translates a human-readable key name or alias into the provider-specific code for that key (a step that can fail if the name is unknown), it sends a single key event (one press or one release), it optionally runs setup and teardown hooks around a burst of input — useful for things like switching the IME — and it can list the key names it understands. A single **KeyboardEvent** pairs a key code with its state, either Press or Release; that is the only thing a platform ever actually sends.
 
-- `key_to_code(&str) -> Result<KeyCode, KeyboardError>` — resolves key names/aliases to provider-specific key codes
-- `send_key_event(KeyboardEvent) -> Result<(), KeyboardError>` — sends a single press or release
-- `start_input()` / `end_input()` — optional hooks for keyboard-specific preparation (e.g., IME switching)
-- `known_key_names() -> Vec<String>` — lists supported key names
+What turns those bare events into something usable is the runtime's **KeyboardSequence**, the central representation of "what to type". A sequence is parsed from a single human-friendly string that freely mixes literal text with shortcut notation — for example `"text<Ctrl+a><Ctrl+Delete>Hello"`. The parser understands backslash **escapes** so the reserved characters can appear as literals: `\\<`, `\\>`, and `\\` for the delimiters and the backslash itself, plus `\\xNN` and `\\uNNNN` for characters by code point. It also understands **multi-shortcuts** — a chord followed by another chord inside one bracket, as in `<Ctrl+K Ctrl+C>`. Parsing is lazy: the sequence yields key events as they are consumed rather than expanding everything up front, and an unrecognized key name surfaces as an unsupported-key error.
 
-**KeyboardEvent** is a struct with `KeyCode` and `KeyState` (Press/Release).
+Because `+`, `-`, `<`, and `>` are meaningful inside shortcut notation, you refer to them by **symbol alias** when you mean the literal key: `PLUS` (+), `MINUS` (-), `LESS` or `LT` (<), and `GREATER` or `GT` (>).
 
-**KeyboardSequence** is the runtime's central input representation. It parses mixed inputs like `"text<Ctrl+a><Ctrl+Delete>Hello"`, backslash escapes (`\\<`, `\\>`, `\\`, `\\xNN`, `\\uNNNN`), and multi-shortcuts (`<Ctrl+K Ctrl+C>`) into a lazy sequence of key events. Unknown key names cause `KeyboardError::UnsupportedKey`.
+Key **naming conventions** aim to be both predictable and platform-honest. Names follow each platform's official terminology but drop noisy prefixes — Windows's escape key is `ESCAPE`, not `VK_ESCAPE`. Keys that exist everywhere share one name across platforms (`Enter`, `Escape`, `Shift`), while genuinely platform-specific keys keep their established OS terms: `Command` and `Option` on macOS, `Windows` on Windows, `Super` or `Meta` on Linux.
 
-**Symbol aliases** for reserved characters in shortcuts: `PLUS` (+), `MINUS` (-), `LESS`/`LT` (<), `GREATER`/`GT` (>).
+The runtime offers three entry points over a sequence: `keyboard_type`, which does a press followed by a release for each step (ordinary typing); `keyboard_press`, which only presses (useful for holding modifiers down); and `keyboard_release`, which only releases. As with the pointer, timing lives in a profile. A **KeyboardProfile** holds the timing fields — `press_delay`, `release_delay`, `between_keys_delay`, `chord_press_delay`, `chord_release_delay`, `after_sequence_delay`, and `after_text_delay` — and **KeyboardOverrides** supplies per-call deltas against it.
 
-**Key naming conventions**: Platform-official names without prefixes (e.g., Windows uses `ESCAPE`, not `VK_ESCAPE`). Common keys share names across platforms (`Enter`, `Escape`, `Shift`). Platform-specific keys use established OS terms (`Command`/`Option` on macOS, `Windows` on Windows, `Super`/`Meta` on Linux).
-
-Runtime APIs:
-- `keyboard_type(sequence, overrides)` — press→release for each step
-- `keyboard_press(sequence, overrides)` — press-only
-- `keyboard_release(sequence, overrides)` — release-only
-
-**KeyboardProfile** holds the keyboard timing profile (`press_delay`, `release_delay`, `between_keys_delay`, `chord_press_delay`, `chord_release_delay`, `after_sequence_delay`, `after_text_delay`). **KeyboardOverrides** provides per-call deltas.
+*Exact trait and type definitions live in `platynui-core` and the runtime.*
 
 ### 8.3 ScreenshotProvider
 
-- `ScreenshotRequest` optionally specifies a sub-region; otherwise the full desktop is captured.
-- `Screenshot` contains `width`, `height`, a `format` (`PixelFormat`: `Rgba8` or `Bgra8`), and the raw `pixels` buffer (`Vec<u8>`).
-- Callers are responsible for encoding to PNG/JPEG.
+The **ScreenshotProvider** captures pixels from the screen. A capture request can name a sub-region of the desktop; with no region, the whole desktop is captured. What comes back is a screenshot carrying its `width` and `height`, a `format`, and the raw pixel buffer. The format is one of two byte orderings — `Rgba8` or `Bgra8` — because different platforms hand back pixels in different channel orders, and the caller needs to know which it received. The device itself stops at raw pixels on purpose: turning them into PNG or JPEG is left to the caller, so the capture path stays cheap and encoding policy stays out of the platform layer.
+
+*Exact request and screenshot types live in `platynui-core`.*
 
 ### 8.4 HighlightProvider
 
-- `highlight(&HighlightRequest)` draws highlights; `clear()` removes them.
-- `HighlightRequest` contains one or more desktop bounding boxes (`Vec<Rect>`) and an optional duration (`Duration`).
-- Only one active highlight at a time; new requests replace the existing overlay.
-- The provider auto-clears after the requested duration (timer-based).
+The **HighlightProvider** draws the visible markers that show a human (or a video of a test run) which elements automation is touching. It has two operations: draw a highlight, and clear it. A highlight request carries one or more desktop bounding boxes — so several elements can be outlined at once — and an optional duration. Two behaviors keep highlighting unobtrusive: there is only ever **one active highlight** at a time, so a new request replaces whatever overlay was showing rather than stacking on top of it; and when a duration is given, the provider **auto-clears** itself when that timer elapses, with no follow-up call required.
+
+*Exact request type lives in `platynui-core`.*
 
 ### 8.5 WindowManager
 
-```rust
-pub struct WindowId(u64);  // Opaque: HWND, XID, Wayland surface ID
+The **WindowManager** is the device that operates on whole windows rather than on individual controls: activating a window, closing, minimizing, maximizing, restoring, moving, and resizing it, and answering where it is and whether it is currently active. Internally a window is referred to by an opaque **WindowId** — a single number that stands in for whatever the platform's real handle is (an HWND on Windows, an XID on X11, a Wayland surface id), so the rest of the system never has to know the platform's native window type.
 
-pub trait WindowManager: Send + Sync {
-    fn name(&self) -> &'static str;
-    fn resolve_window(&self, node: &dyn UiNode) -> Result<WindowId, PlatformError>;
-    fn bounds(&self, id: WindowId, toolkit_hint: Option<&str>) -> Result<Rect, PlatformError>;
-    fn is_active(&self, id: WindowId) -> Result<bool, PlatformError>;
-    fn activate(&self, id: WindowId) -> Result<(), PlatformError>;
-    fn close(&self, id: WindowId) -> Result<(), PlatformError>;
-    fn minimize(&self, id: WindowId) -> Result<(), PlatformError>;
-    fn maximize(&self, id: WindowId) -> Result<(), PlatformError>;
-    fn restore(&self, id: WindowId) -> Result<(), PlatformError>;
-    fn move_to(&self, id: WindowId, position: Point) -> Result<(), PlatformError>;
-    fn resize(&self, id: WindowId, size: Size) -> Result<(), PlatformError>;
-}
-```
+The central idea is **resolving a window from a node**. Automation finds elements as `UiNode`s in the accessibility tree (§5), but window operations need a window handle, and the relationship between "this node" and "the window it lives in" is platform-specific. So the WindowManager takes a node and figures out which window it belongs to, with each platform extracting whatever it needs:
 
-**`resolve_window` accepts `&dyn UiNode`** — each platform extracts what it needs:
 - **Windows**: reads `native:NativeWindowHandle` → HWND (+ PID-fallback via `EnumWindows`)
 - **X11**: walks parent chain for `control:ProcessId`, matches via `_NET_CLIENT_LIST` + `_NET_WM_PID`; disambiguates multi-window PIDs by comparing `node.name()` against `_NET_WM_NAME`
 
@@ -658,7 +617,8 @@ pub trait WindowManager: Send + Sync {
 - **Windows**: `IVirtualDesktopManager::MoveWindowToDesktop` to move window to current desktop
 - **macOS**: no-op (`kAXRaiseAction` implicitly switches spaces)
 
-**Layer model**:
+The reason the WindowManager is its own device — separate from the providers that read the tree — shows up in the **layer model**. A provider such as `provider-atspi` describes *what* the windows are; a platform crate knows *how* to manipulate them through the windowing system. Keeping these apart is what lets one accessibility provider work unchanged across very different windowing backends:
+
 ```
 provider-atspi / provider-windows-uia  ──uses──►  core::WindowManager (trait)
                                                             ▲          ▲
@@ -669,7 +629,7 @@ provider-atspi / provider-windows-uia  ──uses──►  core::WindowManager 
 
 This keeps `provider-atspi` free of `x11rb` dependencies and working identically on X11 and Wayland. Today only the PlatynUI IPC compositor backend is implemented; other Wayland compositors return `CapabilityUnavailable`.
 
-**Wayland Protocol Landscape** — Wayland has no standardized protocol for desktop/workspace switching by external clients. The following protocols exist:
+Wayland complicates the picture because, unlike X11 with its long-established EWMH conventions, it has **no standardized protocol** that lets an external client switch desktops or workspaces. What exists today is a scatter of compositor-specific and draft protocols, each covering only part of the problem:
 
 | Protocol / API | Compositor | Capabilities |
 |---|---|---|
@@ -681,78 +641,75 @@ This keeps `provider-atspi` free of `x11rb` dependencies and working identically
 
 Currently irrelevant since PlatynUI uses X11/XWayland. Long-term, Wayland support would require either compositor-specific backends or waiting for a cross-compositor protocol. See §4.4 in planning.md for details.
 
+*Exact trait signatures, including the full set of window operations, live in `crates/core`.*
+
 ## 9. XPath Engine
 
 ### 9.1 Architecture
 
-The XPath engine (`crates/xpath`, package `platynui-xpath`) implements XPath 2.0 evaluation in four layers:
+PlatynUI lets you address elements with **XPath** — the same path language you may know from XML — so you can write `//Window/Button[@Name='OK']` instead of hand-walking the node tree. The engine that makes this work lives in `crates/xpath` (package `platynui-xpath`) and implements XPath 2.0. It is organized as four cooperating layers, each handing its result to the next:
 
-1. **Parser** — PEG grammar (pest) produces a strongly-typed `Expr` AST
-2. **Compiler** — Transforms AST into optimized IR (pre-calculated literals, merged filter predicates, specialized axis steps)
-3. **Engine** — Evaluates IR against the XDM tree with `DynamicContext` and `StaticContext`
-4. **Model** — `XdmNode` trait enables lazy tree traversal
+1. **Parser** — reads the XPath text and turns it into a strongly-typed syntax tree. It uses a PEG grammar (via the `pest` crate), so the grammar itself is the specification of what is and isn't valid XPath here.
+2. **Compiler** — rewrites that syntax tree into an optimized intermediate form. This is where the engine does its thinking ahead of time: it pre-computes literal values, merges adjacent filter predicates, and specializes the individual axis steps so that evaluation later does less work.
+3. **Engine** — walks the optimized form against the tree, carrying two kinds of context as it goes. The *dynamic* context is what changes during evaluation (the current node, the position in a sequence); the *static* context is fixed up front (such as the namespace prefixes described in §9.4).
+4. **Model** — the abstraction the engine evaluates *against*. Rather than requiring the whole tree to exist in memory, the model is a trait that any backend can implement to expose its own tree lazily.
 
-```rust
-pub trait XdmNode: Clone + Eq + Debug {
-    // Generic Associated Types let backends return concrete iterators (no boxing).
-    type Children<'a>: Iterator<Item = Self> + 'a where Self: 'a;
-    type Attributes<'a>: Iterator<Item = Self> + 'a where Self: 'a;
-    type Namespaces<'a>: Iterator<Item = Self> + 'a where Self: 'a;
+That model trait is the key seam. It describes a node in the **XDM** (XQuery and XPath Data Model) sense — a typed, navigable tree node — without committing to how the tree is stored or where it comes from. An implementation answers what *kind* of node it is, its name, its typed and string values, and lets you walk to its parent, children, attributes, and namespaces. Crucially, the children, attributes, and namespaces are produced lazily, on demand, as the engine descends — so evaluating a query against a huge desktop tree never forces the whole tree into existence. The trait is also designed so each backend can return its own concrete iterator types rather than boxed ones, keeping traversal cheap.
 
-    fn kind(&self) -> NodeKind;
-    fn name(&self) -> Option<QName>;
-    fn typed_value(&self) -> Vec<XdmAtomicValue>;
-    fn string_value(&self) -> String;            // default: joins typed_value()
-    fn parent(&self) -> Option<Self>;
-    fn children(&self) -> Self::Children<'_>;     // lazy
-    fn attributes(&self) -> Self::Attributes<'_>; // yields attribute nodes (Self)
-    fn namespaces(&self) -> Self::Namespaces<'_>;
-    // ...
-}
-```
+*The exact trait definition lives in `crates/xpath/`. The code is the source of truth for signatures; this section explains what the layers are for.*
 
 ### 9.2 Streaming & Normalization
 
-The engine operates in streaming mode — partial results are yielded immediately and predicates are evaluated early. XPath 2.0-mandated normalization (document order + deduplication) is split into two explicit IR operations:
+The engine evaluates in **streaming** mode: instead of computing a whole result set and then handing it back, it yields partial results as soon as they are known and applies predicates early, so a query can start producing matches before it has finished walking the tree.
 
-- **`EnsureDistinct`** — removes duplicates while preserving order; implemented as a cursor (fully streaming).
-- **`EnsureOrder`** — enforces document order. Passes monotone input through directly, repairs simple inversions locally, falls back to buffering+sorting only for true disorder.
+XPath 2.0 requires that a path expression's results come back in **document order** and **without duplicates**. The engine doesn't bake that guarantee into every step; it makes it explicit as two separate operations in the intermediate form, and inserts them only where an axis can actually violate the guarantee:
 
-**Emission rules** (conservative, spec-compliant):
-- Forward axes `child`, `self`, `attribute`, `namespace`: no normalization
-- Forward axes `descendant`, `descendant-or-self`, `following`, `following-sibling`: `EnsureDistinct`
-- Reverse axes `parent`, `ancestor*`, `preceding*`: `EnsureDistinct` + `EnsureOrder`
-- Path steps and set operations are normalized before the next step
+- **`EnsureDistinct`** — removes duplicate nodes while preserving the order they arrived in. It is implemented as a cursor, so it stays fully streaming (no need to buffer everything first).
+- **`EnsureOrder`** — enforces document order. It is written to do the least work that correctness allows: input that is already monotone passes straight through, simple local inversions are repaired in place, and only genuine disorder falls back to buffering and sorting.
 
-Context minimization before certain axes (`descendant*`, `following*`) removes overlapping contexts at the source, often eliminating the need for post-hoc normalization.
+Which of these an axis needs follows conservative, spec-compliant rules:
+
+- Forward axes `child`, `self`, `attribute`, `namespace`: no normalization.
+- Forward axes `descendant`, `descendant-or-self`, `following`, `following-sibling`: `EnsureDistinct`.
+- Reverse axes `parent`, `ancestor*`, `preceding*`: `EnsureDistinct` plus `EnsureOrder`.
+- Path steps and set operations are normalized before the next step runs.
+
+There is one more trick that keeps normalization rare. Before certain axes (`descendant*`, `following*`), the engine minimizes the context set — it removes overlapping starting points at the source. Because the overlap that would have produced duplicates is gone before the axis runs, the after-the-fact normalization often isn't needed at all.
 
 ### 9.3 XDM Cache
 
-- `XdmCache` wraps `Arc<Mutex<Option<(RuntimeId, RuntimeXdmNode)>>>` — `Clone + Send + Sync`, so a single runtime-owned cache can be shared across threads. Created by the caller via `Runtime::create_cache()`, not held by the runtime constructor.
-- **Lazy Revalidation**: `is_valid()` checks provider nodes; `prepare_for_evaluation()` resets `children_validated` flags; invalid subtrees are transparently rebuilt on next access.
-- Convenience methods: `evaluate_cached()`, `evaluate_iter_cached()`, `evaluate_single_cached()`.
-- Without cache, the runtime rebuilds the desktop snapshot before every XPath evaluation.
+Building the node model is not free — it can mean reading the live UI tree from the platform — so the engine can keep a cache of it between evaluations. The **`XdmCache`** holds one cached desktop snapshot (keyed by its runtime id). It is built to be shared: it is `Clone + Send + Sync`, so a single runtime-owned cache can be handed to several threads and they all see the same snapshot. You create it explicitly through `Runtime::create_cache()`; the runtime constructor does not make one for you. If you evaluate without a cache, the runtime simply rebuilds the desktop snapshot before every single XPath evaluation.
+
+The cache stays correct through **lazy revalidation** rather than eager rebuilding. Before an evaluation, it checks whether its provider nodes are still valid and resets the per-node "children already validated" flags; any subtree that turns out to be stale is rebuilt transparently the next time something touches it, while still-valid parts are reused. For convenience there are cache-aware counterparts to the normal evaluation entry points (`evaluate_cached()`, `evaluate_iter_cached()`, `evaluate_single_cached()`).
 
 ### 9.4 Evaluation API
 
-- `evaluate(node: Option<Arc<dyn UiNode>>, xpath: &str, options)` — central interface. Without context (`None`), evaluation starts at the desktop.
-- `EvaluateOptions` supports `with_cache()` / `without_cache()`, `with_node_resolver(...)` for re-resolving context nodes by `RuntimeId`, and `with_cancel_flag(Arc<AtomicBool>)` for cooperative cancellation (checked at each XPath axis step).
-- `evaluate_iter_owned(...)` returns an owned iterator (`EvaluationStream`) for FFI bindings (no borrowed references). `evaluate_iter_owned_cancellable(...)` adds a cancel flag for interruptible streaming evaluation.
-- `is_context_dependent(xpath)` classifies whether an expression reads the context node at the top level (relative path, `.`, or a 0-arity context function), recursing through `if`/`for`/`let`/sequence/filter/union. Used by the BareMetal `Set Root` keyword to choose relative drilling vs. an absolute root.
-- Results are `EvaluationItem`: `Node`, `Attribute` (owner + name + value), or `Value` (`UiValue`).
-- `StaticContext` registers fixed prefixes: `control`, `item`, `app`, `native`.
-- `typed_value()` is mandatory and returns XDM-conformant atomics (`xs:boolean`, `xs:integer`, `xs:double`, `xs:string`). Complex structures (Rect, Point, Size) remain as JSON-encoded strings; their derived components (`Bounds.X`, etc.) are numeric atomics.
+The central entry point is `evaluate`. You give it an XPath string, a set of options, and an *optional* context node to start from — and if you pass no context, evaluation starts at the desktop root. The options let you choose whether to use a cache or not, supply a node resolver so the engine can re-resolve a context node by its `RuntimeId` (see §5), and hand in a **cancel flag**: a shared boolean the engine checks at each XPath axis step, so a long-running query can be cooperatively interrupted from another thread. For language bindings there is also an owned-iterator form (`EvaluationStream`) that returns results without any borrowed references, plus a cancellable variant of it for interruptible streaming.
+
+Whatever the query selects, each result comes back as an **`EvaluationItem`**, which is one of three kinds:
+
+- a **Node**,
+- an **Attribute** (its owner, its name, and its value), or
+- a **Value** (a plain `UiValue`).
+
+A few supporting pieces shape how expressions are understood:
+
+- **Static prefixes.** The static context registers a fixed set of namespace prefixes you can use in queries: `control`, `item`, `app`, and `native`.
+- **Context-dependence.** `is_context_dependent(xpath)` answers whether an expression reads the context node at its top level — a relative path, `.`, or a context function taking no arguments — and it recurses through `if`/`for`/`let`/sequence/filter/union to decide. The BareMetal `Set Root` keyword uses this to choose between drilling relative to a node and starting from an absolute root.
+- **Typed values.** Every node must be able to report a typed value, returned as XDM-conformant atomics (`xs:boolean`, `xs:integer`, `xs:double`, `xs:string`). Complex structures such as Rect, Point, and Size stay as JSON-encoded strings, but their derived components (`Bounds.X`, and the like) come back as numeric atomics.
 
 ## 10. Platform Implementations
 
-Detailed platform-specific documentation has been extracted into separate files:
+Up to this point the architecture has been deliberately platform-neutral: nodes, providers, patterns, and the runtime all describe *what* PlatynUI does without committing to *how* any one operating system delivers it. The platform implementations are where that abstraction finally meets reality — where a "focusable" pattern becomes a concrete UIA call on Windows or an AT-SPI2 request on Linux, and where pointer and keyboard input turn into actual device events. Because each platform brings its own accessibility technology, window manager, and input plumbing, those details are large enough to live in their own documents rather than crowd the core design here. Start with the file for the platform you are working on:
 
 - **Windows** (UIA, Win32 devices, WindowManager): [`dev-docs/platform-windows.md`](platform-windows.md)
 - **Linux** (X11 devices, AT-SPI2, EWMH WindowManager): [`dev-docs/platform-linux.md`](platform-linux.md)
 
 ## 11. Companion Documentation
 
-- **Python Bindings** (PyO3, type mapping, threading): [`dev-docs/python-bindings.md`](python-bindings.md)
-- **CLI** (commands, snapshot model): [`dev-docs/cli.md`](cli.md)
-- **Inspector** (TreeView architecture): [`dev-docs/inspector.md`](inspector.md)
-- **Logging & Tracing**: [`.github/instructions/tracing.instructions.md`](../.github/instructions/tracing.instructions.md)
+This document covers the Rust core and the cross-platform model that everything else stands on. A handful of companion docs go deeper into the parts that live at the edges of the system — where PlatynUI meets Python, the command line, the Inspector UI, and the logging infrastructure. Reach for them when your work touches one of those areas.
+
+- **Python Bindings** — how the Rust core is exposed to Python via PyO3, how types are mapped across the boundary, and how threading is handled: [`dev-docs/python-bindings.md`](python-bindings.md)
+- **CLI** — the available commands and the snapshot model the CLI works against: [`dev-docs/cli.md`](cli.md)
+- **Inspector** — the architecture of the Inspector's TreeView: [`dev-docs/inspector.md`](inspector.md)
+- **Logging & Tracing** — how the system emits diagnostics: [`.github/instructions/tracing.instructions.md`](../.github/instructions/tracing.instructions.md)
