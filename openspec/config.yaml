@@ -20,36 +20,37 @@
 schema: spec-driven
 
 context: |
-  PlatynUI is a cross-platform native UI-automation toolkit for Robot Framework —
-  a Rust core (UI model, XPath engine, runtime, platform/provider devices) with
+  PlatynUI: a cross-platform native UI-automation toolkit for Robot Framework — a
+  Rust core (UI model, XPath engine, runtime, platform/provider devices) with
   Python/PyO3 bindings.
 
-  Source of truth (read the relevant ones and conform to them; don't restate them):
-  AGENTS.md is the orientation map — the two stacked Rust/Python workspaces, the
-  Rust<->Python boundary in packages/native, task routing, the canonical `just`
-  commands, commit rules, and the English-everywhere / German-planning-docs rule.
-  README.md carries the platform & provider support table — check it before
-  promising behavior on any backend (Windows UIA, Linux X11/AT-SPI2, Wayland,
-  macOS AX, mock). dev-docs/ holds the per-area design docs (architecture,
-  error-handling, testing-strategy, python-bindings, *-input, cli, inspector,
-  platform-*), and the contributor workflow lives in CONTRIBUTING.md. When a doc and
-  the code disagree, the code is reality but the doc captures intent — flag the gap
-  rather than silently picking one.
+  Source of truth (read the relevant file and conform to it; don't restate it):
+  - AGENTS.md — orientation: the two stacked Rust/Python workspaces, the
+    Rust<->Python boundary in packages/native, task routing, the canonical `just`
+    commands, commit rules, and the English-everywhere / German-planning-docs rule.
+  - README.md — the platform & provider support table; check it before promising
+    behavior on a backend (Windows UIA, Linux X11/AT-SPI2, Wayland, macOS AX, mock).
+  - dev-docs/ — per-area design docs (architecture, error-handling, testing-strategy,
+    python-bindings, *-input, cli, inspector, platform-*).
+  - CONTRIBUTING.md — contributor workflow and `just` recipes.
 
-  Testing — the test layers and the mock vs. real-provider lanes — is governed by
-  dev-docs/testing-strategy.md; specs, design, and tasks must follow it.
+  Apply across all artifacts:
+  - Testing follows dev-docs/testing-strategy.md (test layers, mock vs. real-provider
+    lanes); specs, design, and tasks must conform to it.
+  - When a doc and the code disagree, the code is reality but the doc captures intent —
+    flag the gap rather than silently picking one.
 rules:
   proposal:
     - "Scope Impact across every layer the change touches — Rust crates, Python/RF modules, and the tests that cover them — not just the headline change."
     - "Call out cross-cutting concerns: whether it needs a native rebuild, which platforms/providers it affects and their support status, and any BREAKING behavior change."
   specs:
-    - "Write each scenario as a single, concrete acceptance criterion (Given/When/Then) — specific enough to become one automated test."
+    - "Write each scenario as one concrete acceptance criterion in Given/When/Then form — the BDD style Robot Framework supports, not full Gherkin — specific enough to become a single automated test."
     - "Cover failure and edge cases (timeouts, invalid input, fallbacks), not only the happy path."
     - "Note when a scenario can only be verified against a real provider rather than the mock."
   design:
     - "Back load-bearing claims with concrete code references (file:line), and separate what was verified against the real code from what is assumed."
     - "In the Migration Plan, state whether the change is additive or behavioral, whether it needs a native rebuild, and how to roll back."
   tasks:
-    - "Derive a test task from each spec scenario and place it before the implementation task it covers (test-first)."
+    - "Test-first: derive tests from the spec scenarios and put them before the implementation they cover. When the spec targets the Robot Framework library, its RF test (a mock suite, plus an acceptance suite when a real platform is needed) comes first — driving the keyword/API from Robot early surfaces an awkward interface before it is built."
     - "Sequence native-binding rebuilds before the Python/RF work that depends on them."
     - "Finish with a verification step that runs the relevant `just` test recipes, with real-provider-only checks in the acceptance lane."

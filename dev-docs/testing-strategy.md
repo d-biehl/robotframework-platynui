@@ -33,6 +33,12 @@ This leads to a few standing rules:
   mock deliberately simplifies some of this; that is expected, not something to rely on.
 - **Tests are behavior-first.** A suite or scenario states the expected behavior; the
   implementation makes it pass. Add the test with (or before) the change, not after.
+- **For the Robot Framework library, write the keyword test first.** When a change adds or
+  reshapes a `PlatynUI.BareMetal` keyword, write its RF test before implementing the
+  keyword — a mock-lane suite (§2.5), plus an acceptance suite when the behavior needs a
+  real platform (§2.6). Exercising the keyword and its arguments *from Robot's side* first
+  is how an awkward API surfaces before it is built, not after; the implementation then
+  makes the test pass.
 - **The mock is dev-only.** Neither the mock nor the `use_mock` argument appears in
   user-facing documentation (it is a normal part of these contributor-facing test docs).
 
@@ -216,6 +222,11 @@ concrete job list; the strategy only requires that no lane is left ungated.
   against a non-mock build of the running app — and assert that exact value. Do not infer
   it from the mock tree.
 - **Robot Framework:** keyword names in Title Case; return values instead of `print`.
+- **Mirror spec scenarios as Given/When/Then.** A delta-spec scenario is the acceptance
+  criterion; realize it as one test, one behavior per test. New RF acceptance suites write
+  that flow in Robot Framework's Given/When/Then (BDD) style — RF ignores a leading
+  `Given`/`When`/`Then`/`And`/`But` when matching keywords — so the test reads as the
+  scenario. This is RF-native BDD, **not** full Gherkin (no `.feature` files).
 - **Keep the mock out of user docs.** It is a development tool only.
 
 ## 8. Decisions
