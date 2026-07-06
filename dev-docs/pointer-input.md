@@ -63,6 +63,33 @@ platynui-cli pointer scroll 0,120 --expr "//control:List"
 ```
 
 The delta is specified as `horizontal,vertical`. One notch on a typical scroll wheel is ±120 units.
+The sign fixes the direction: **down and right are negative** — `0,-360` scrolls down three notches,
+`-120,0` scrolls right one notch. This matches `scroll_step`'s `(0, -120)` default. The higher-level
+surfaces (the `Pointer Scroll` keyword's `UP`/`DOWN`/`LEFT`/`RIGHT`) own this sign so callers never write
+signed deltas.
+
+#### Direction across platforms
+
+That single convention (down/right negative) is translated to each platform's native scroll API by its
+provider. The mapping is **not** uniform — horizontal in particular differs — so the contract is worth
+stating: a provider must make `DOWN`/`RIGHT` *visibly* scroll down/right, translating the sign as needed.
+
+| Platform | Vertical (`down = −v`) | Horizontal (`right = −h`) |
+| --- | --- | --- |
+| X11 (`platform-linux-x11`) | `−v` → wheel button 5 (down), `+v` → button 4 (up) — native match | `−h` → button 7 (right), `+h` → button 6 (left) — native match |
+| PlatynUI Wayland compositor (`apps/wayland-compositor`, control socket) | negated to Wayland's positive-is-down axis | negated to Wayland's positive-is-right axis |
+| Windows (`platform-windows`) | `MOUSEEVENTF_WHEEL` is up-positive — native match | `MOUSEEVENTF_HWHEEL` is **right-positive** (opposite), so horizontal is negated |
+
+So X11 needs no sign translation (its button map already matches), the PlatynUI compositor negates both
+axes (and injects a discrete wheel `v120` event, not a touchpad/finger axis), and Windows negates only the
+horizontal axis.
+
+#### Chunking into notches
+
+A scroll delta is emitted as a sequence of steps sized by `scroll_step` (one notch = 120 units by default).
+An axis whose `scroll_step` component is zero — horizontal, by default — falls back to **one notch per
+step**, never one-unit micro-steps: hundreds of sub-notch events are negligible on Wayland and round to
+zero wheel clicks on X11, which would silently break horizontal scrolling.
 
 ### Drag
 
@@ -398,12 +425,20 @@ Press And Release
     Pointer Press    //control:Slider    x=${0}    y=${5}
     Pointer Release    //control:Slider    x=${100}    y=${5}
 
+Scroll Down A List
+    Pointer Scroll    //control:List[@Name="Inbox"]    direction=DOWN    ticks=${3}
+
+Scroll At The Pointer
+    Pointer Scroll    ${None}    direction=UP
+
 Get Position
     ${pos}=    Get Pointer Position
     Log    Pointer at ${pos.x}, ${pos.y}
 ```
 
 The first argument (`descriptor`) targets an element via XPath. PlatynUI resolves its screen coordinates automatically. Pass coordinates directly via `x`/`y` instead, or combine both (coordinates become offsets relative to the element's bounds).
+
+`Pointer Scroll` turns the mouse wheel by a number of `ticks` (notches) in a `direction` — `UP`, `DOWN`, `LEFT` or `RIGHT` — so you never write a signed delta. With a target it moves over the element first; pass `${None}` (and no `x`/`y`) to scroll at the current pointer position.
 
 ### Configuring the Library at Import
 

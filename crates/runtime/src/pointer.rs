@@ -914,6 +914,10 @@ fn direction_vector(start: Point, target: Point) -> (f64, f64) {
     if length <= f64::EPSILON { (0.0, 0.0) } else { (dx / length, dy / length) }
 }
 
+/// One mouse-wheel notch in scroll-delta units (Win32 `WHEEL_DELTA` / Wayland `axis_value120`).
+/// Used as the fallback per-step size for an axis whose `scroll_step` component is zero.
+const WHEEL_NOTCH_UNITS: f64 = 120.0;
+
 fn scroll_steps(delta: ScrollDelta, step: ScrollDelta) -> usize {
     let horizontal_steps = component_steps(delta.horizontal, step.horizontal);
     let vertical_steps = component_steps(delta.vertical, step.vertical);
@@ -924,7 +928,10 @@ fn component_steps(value: f64, base: f64) -> usize {
     if value == 0.0 {
         0
     } else if base.abs() < f64::EPSILON {
-        value.abs().ceil() as usize
+        // No per-step size configured for this axis — `scroll_step`'s horizontal component defaults
+        // to 0. Chunk by one wheel notch per step (not 1-unit micro-steps, which would emit hundreds
+        // of sub-notch events that a wheel device rounds to zero and never actually scroll).
+        (value / WHEEL_NOTCH_UNITS).abs().ceil() as usize
     } else {
         (value / base).abs().ceil() as usize
     }
@@ -1011,6 +1018,50 @@ mod tests {
 
         engine.move_to(Point::new(10.0, 0.0), None).unwrap();
         assert!(device.moves.load(Ordering::SeqCst) >= 1);
+    }
+
+    #[rstest]
+    fn component_steps_falls_back_to_one_notch_when_step_is_zero() {
+        // `scroll_step`'s horizontal component defaults to 0. A zero step size must chunk by one
+        // wheel notch (120) per step, NOT into `value`-many 1-unit micro-steps — the latter made
+        // horizontal scroll emit hundreds of sub-notch events (negligible on Wayland, rounded to
+        // zero wheel clicks on X11) so it never actually scrolled.
+        assert_eq!(component_steps(360.0, 0.0), 3);
+        assert_eq!(component_steps(-120.0, 0.0), 1);
+        assert_eq!(component_steps(0.0, 0.0), 0);
+        // A configured (non-zero) step size still divides normally.
+        assert_eq!(component_steps(-360.0, -120.0), 3);
+        // scroll_steps takes the max across axes (vertical configured, horizontal on the fallback).
+        assert_eq!(scroll_steps(ScrollDelta::new(360.0, 0.0), ScrollDelta::new(0.0, -120.0)), 3);
+    }
+
+    #[rstest]
+    fn horizontal_scroll_chunks_into_notches_not_micro_steps() {
+        // Regression guard for the above at the engine level: a 3-notch horizontal scroll with the
+        // default scroll_step (horizontal component 0) must emit 3 notch-sized events, not 360.
+        let device = RecordingPointer::new();
+        let mut engine = PointerEngine::new(
+            &device,
+            Rect::new(0.0, 0.0, 100.0, 100.0),
+            PointerSettings::default(),
+            PointerProfile::named_default(),
+            &noop_sleep,
+        );
+
+        engine.scroll(ScrollDelta::new(-360.0, 0.0), None).unwrap();
+
+        let steps: Vec<ScrollDelta> = device
+            .take_log()
+            .into_iter()
+            .filter_map(|action| if let Action::Scroll(delta) = action { Some(delta) } else { None })
+            .collect();
+        assert_eq!(steps.len(), 3, "expected 3 notch-sized steps, got {}", steps.len());
+        let total: f64 = steps.iter().map(|delta| delta.horizontal).sum();
+        assert!((total + 360.0).abs() < 1e-6, "steps must sum to the requested delta, got {total}");
+        for delta in &steps {
+            assert!((delta.horizontal.abs() - 120.0).abs() < 1e-6, "step not one notch: {}", delta.horizontal);
+            assert_eq!(delta.vertical, 0.0);
+        }
     }
 
     #[rstest]

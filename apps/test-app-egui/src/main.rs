@@ -216,6 +216,12 @@ impl eframe::App for TestApp {
 
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| Self::show_menu_bar(ui, ctx));
         egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| self.show_status_bar(ui));
+        // The scroll-box fixture lives in its own panel, outside the central ScrollArea, so
+        // over-scrolling it clamps at the box's own edges instead of leaking to an outer area —
+        // which keeps the box (and a fixed hover point inside it) put for the acceptance suite.
+        egui::SidePanel::right("scroll_fixture").resizable(false).exact_width(250.0).show(ctx, |ui| {
+            Self::show_scroll_box(ui);
+        });
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| self.show_widgets(ui));
         });
@@ -288,6 +294,36 @@ impl TestApp {
             ui.label(format!("Slider: {:.0}", self.slider_value)).with_id("status-slider");
             ui.separator();
             ui.label(format!("Radio: {}", self.radio_selection)).with_id("status-radio");
+        });
+    }
+
+    /// Render a dedicated, fixed-size scroll box plus an external offset readout, used by the
+    /// `Pointer Scroll` acceptance suite. The box always overflows on both axes (its content is far
+    /// larger than its fixed size), and its rows are plain labels that do not consume the wheel, so a
+    /// scroll over the box drives the `ScrollArea` itself. The current offset is surfaced *outside*
+    /// the box — so it stays put while the content moves — as two `@Id`-tagged labels whose text is
+    /// the bare integer offset, ready for a numeric assertion (`number(@Name)`).
+    fn show_scroll_box(ui: &mut egui::Ui) {
+        ui.heading("Scroll Box");
+        let output = egui::ScrollArea::both()
+            .id_salt("scrollbox")
+            .max_width(220.0)
+            .max_height(120.0)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                // Disable wrapping so each row stays wide and the area overflows horizontally too.
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                for row in 0..40 {
+                    ui.label(format!("scroll row {row:02} — drag the wheel to move this content around"))
+                        .with_id(&format!("scrollbox-row-{row:02}"));
+                }
+            });
+        let offset = output.state.offset;
+        ui.horizontal(|ui| {
+            ui.label("Offset x:");
+            ui.label(format!("{:.0}", offset.x)).with_id("scrollbox-offset-x");
+            ui.label("y:");
+            ui.label(format!("{:.0}", offset.y)).with_id("scrollbox-offset-y");
         });
     }
 

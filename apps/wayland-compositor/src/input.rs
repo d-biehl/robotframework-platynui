@@ -31,9 +31,9 @@ const BTN_RIGHT: u32 = 0x111;
 /// Maximum elapsed time between two clicks to count as a double-click.
 const DOUBLE_CLICK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(400);
 /// Logical scroll pixels per discrete scroll notch.
-const SCROLL_PIXELS_PER_NOTCH: f64 = 3.0;
+pub(crate) const SCROLL_PIXELS_PER_NOTCH: f64 = 3.0;
 /// High-resolution scroll units per discrete notch (v120 standard).
-const V120_UNITS_PER_NOTCH: f64 = 120.0;
+pub(crate) const V120_UNITS_PER_NOTCH: f64 = 120.0;
 
 /// Process input events from any backend.
 pub fn process_input_event<B: InputBackend>(state: &mut State, event: InputEvent<B>) {

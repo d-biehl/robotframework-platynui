@@ -43,11 +43,18 @@ impl PointerDevice for WindowsPointerDevice {
 
     fn scroll(&self, delta: ScrollDelta) -> Result<(), PlatformError> {
         if delta.vertical != 0.0 {
+            // Win32 `MOUSEEVENTF_WHEEL`: positive = forward/up, negative = backward/down — the same
+            // convention PlatynUI uses (down is negative; `scroll_step` defaults to (0, -120)), so pass
+            // the vertical delta straight through.
             let data = scroll_data(delta.vertical);
             send_mouse_input(MOUSEEVENTF_WHEEL, data, 0, 0)?;
         }
         if delta.horizontal != 0.0 {
-            let data = scroll_data(delta.horizontal);
+            // Win32 `MOUSEEVENTF_HWHEEL`: positive = right, negative = left — the OPPOSITE of PlatynUI's
+            // horizontal convention (right is negative, matching the X11 wheel-button mapping where
+            // button 7 = right = negative delta). Negate to translate so `Pointer Scroll RIGHT` scrolls
+            // right on Windows too.
+            let data = scroll_data(-delta.horizontal);
             send_mouse_input(MOUSEEVENTF_HWHEEL, data, 0, 0)?;
         }
         Ok(())

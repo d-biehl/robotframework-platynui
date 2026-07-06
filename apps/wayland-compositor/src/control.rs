@@ -661,12 +661,31 @@ fn inject_pointer_button(state: &mut State, button: u32, pressed: bool) {
 #[allow(clippy::cast_possible_truncation)]
 fn inject_pointer_scroll(state: &mut State, dx: f64, dy: f64) {
     let time = current_time_msec(state);
-    let mut frame = AxisFrame::new(time).source(AxisSource::Finger);
-    if dx != 0.0 {
-        frame = frame.value(smithay::backend::input::Axis::Horizontal, dx);
+    // The control socket carries PlatynUI MOUSE-WHEEL deltas in v120 units (120 = one notch), in the
+    // platform's "down/right is negative" convention (matching the `scroll_step` (0, -120) default and
+    // the X11 wheel buttons). Wayland's axis convention is the opposite — positive is down/right — so
+    // negate to translate before injecting.
+    let (wl_horizontal, wl_vertical) = (-dx, -dy);
+    // Emit a wheel-source axis event carrying both the continuous pixel value and the discrete v120
+    // amount, exactly like real wheel input (see `input::handle_pointer_axis`). `AxisSource::Finger`
+    // must NOT be used here: a finger/touchpad axis carries gesture-continuity semantics (it needs an
+    // `axis_stop` when the gesture ends), which a wheel does not.
+    let mut frame = AxisFrame::new(time).source(AxisSource::Wheel);
+    if wl_horizontal != 0.0 {
+        frame = frame
+            .value(
+                smithay::backend::input::Axis::Horizontal,
+                wl_horizontal * input::SCROLL_PIXELS_PER_NOTCH / input::V120_UNITS_PER_NOTCH,
+            )
+            .v120(smithay::backend::input::Axis::Horizontal, wl_horizontal as i32);
     }
-    if dy != 0.0 {
-        frame = frame.value(smithay::backend::input::Axis::Vertical, dy);
+    if wl_vertical != 0.0 {
+        frame = frame
+            .value(
+                smithay::backend::input::Axis::Vertical,
+                wl_vertical * input::SCROLL_PIXELS_PER_NOTCH / input::V120_UNITS_PER_NOTCH,
+            )
+            .v120(smithay::backend::input::Axis::Vertical, wl_vertical as i32);
     }
     let pointer = state.pointer();
     pointer.axis(state, frame);

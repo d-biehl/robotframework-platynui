@@ -201,6 +201,40 @@ def _assertion_value(result: Any) -> Any:
     return result
 
 
+ScrollDirection = Literal['UP', 'DOWN', 'LEFT', 'RIGHT']
+"""The visually intended direction for `Pointer Scroll`."""
+
+# One mouse-wheel notch in scroll-delta units. Win32's ``WHEEL_DELTA`` and Wayland's
+# ``axis_value120`` both use 120 units per notch, so it is the cross-platform wheel step.
+_WHEEL_DELTA = 120.0
+
+# Per-direction unit sign for the native ``(horizontal, vertical)`` scroll delta. A *negative*
+# component scrolls the content the visually intended way on each axis, so both ``DOWN`` and
+# ``RIGHT`` are negative: vertical ``DOWN`` is the platform's natural negative step (``scroll_step``
+# defaults to ``(0, -120)``; X11 wheel button 5), and horizontal ``RIGHT`` matches it (X11 wheel
+# button 7). The keyword owns this sign so callers never write signed deltas; flip a row here if a
+# platform ever disagrees (the egui acceptance suite asserts the visible direction).
+_SCROLL_AXIS_SIGN: dict[ScrollDirection, tuple[float, float]] = {
+    'UP': (0.0, 1.0),
+    'DOWN': (0.0, -1.0),
+    'LEFT': (1.0, 0.0),
+    'RIGHT': (-1.0, 0.0),
+}
+
+
+def _scroll_delta(direction: ScrollDirection, ticks: int) -> tuple[float, float]:
+    """Map a `Pointer Scroll` ``direction`` and notch count to a native ``(horizontal, vertical)`` delta.
+
+    One notch is `_WHEEL_DELTA` units. The keyword owns the sign so the requested direction is the
+    one that becomes visible, freeing callers from the signed-delta convention.
+    """
+    signs = _SCROLL_AXIS_SIGN.get(direction)
+    if signs is None:
+        raise ValueError(f'Invalid scroll direction {direction!r}; expected one of UP, DOWN, LEFT, RIGHT')
+    magnitude = _WHEEL_DELTA * ticks
+    return (signs[0] * magnitude, signs[1] * magnitude)
+
+
 @library(
     scope='SUITE',
     version=__version__,
@@ -675,6 +709,19 @@ class BareMetal(OurDynamicCore):
 
     | Library    PlatynUI.BareMetal    pointer_profile={'motion': 'BEZIER', 'speed_factor': 0.5}
     | `Pointer Click`    Window[@Name="Editor"]//Button[@Name="Save"]    overrides={'speed_factor': 0.3}
+
+    == Pointer scrolling ==
+
+    `Pointer Scroll` turns the mouse wheel by a number of notches (``ticks``) in a ``direction`` —
+    ``UP``, ``DOWN``, ``LEFT`` or ``RIGHT`` — over an element, at coordinates, or at the current
+    pointer position; you never write a signed delta. Its pacing lives in ``pointer_profile`` (and a
+    per-call ``overrides``):
+
+    | = Field = | = Effect = |
+    | ``scroll_step`` | the wheel delta applied per animation step |
+    | ``scroll_delay_ms`` | the pause between scroll steps |
+
+    | `Pointer Scroll`    Window[@Name="Mail"]//List[@Name="Inbox"]    direction=DOWN    ticks=${3}
 
     = A short example =
 
@@ -1493,6 +1540,55 @@ class BareMetal(OurDynamicCore):
             raise ValueError('Coordinates x and y must be specified either directly or via node')
 
         self.runtime.pointer_move_to(point, overrides)
+
+    @keyword
+    def pointer_scroll(
+        self,
+        descriptor: UiNodeDescriptor | None = None,
+        *,
+        direction: ScrollDirection = 'DOWN',
+        ticks: int = 1,
+        x: float | None = None,
+        y: float | None = None,
+        overrides: PointerOverridesLike | None = None,
+        activate: bool | None = None,
+        query_overrides: QuerySettingsDict | None = None,
+    ) -> None:
+        """Turn the mouse wheel over an element, at coordinates, or where the pointer is.
+
+        Scrolling is expressed as a ``direction`` and a number of wheel ``ticks`` — you never deal
+        with signed deltas. With a target the pointer is moved over it first, so the wheel acts on the
+        widget under the cursor (the same targeting as `Pointer Click`); pass ``${None}`` with no
+        ``x``/``y`` to scroll wherever the pointer currently is.
+
+        One ``tick`` is one mouse-wheel notch (120 units, the cross-platform wheel step). The keyword
+        owns the sign and axis, so the requested direction is the one you see: ``DOWN``/``UP`` scroll
+        vertically, ``RIGHT``/``LEFT`` horizontally.
+
+        Args:
+            descriptor: Optional element to scroll over — a selector or an element from `Query`. See
+                `Pointer Click` for how a target and ``x``/``y`` are resolved. Pass ``${None}`` to
+                scroll at the current pointer position.
+            direction: ``UP``, ``DOWN``, ``LEFT`` or ``RIGHT`` (default ``DOWN``).
+            ticks: Number of mouse-wheel notches to turn (default 1).
+            x: X coordinate — absolute without an element, otherwise an offset from it.
+            y: Y coordinate — absolute without an element, otherwise an offset from it.
+            activate: Bring the element's window to the front first; defaults to the library's
+                ``auto_activate``.
+
+        Examples:
+            | `Pointer Scroll`    //control:List[@Name="Inbox"]    # one notch down over the list
+            | `Pointer Scroll`    //control:List[@Name="Inbox"]    direction=DOWN    ticks=${3}
+            | `Pointer Scroll`    ${None}    direction=RIGHT    ticks=${2}    # at the current position
+            | `Pointer Scroll`    x=${400}    y=${300}    direction=UP
+        """
+        if descriptor is not None:
+            descriptor.overrides = query_overrides
+        self._maybe_bring_to_front(descriptor, activate)
+        point = self._resolve_screen_point(descriptor, x, y)
+        if point is not None:
+            self.runtime.pointer_move_to(point, overrides)
+        self.runtime.pointer_scroll(_scroll_delta(direction, ticks), overrides)
 
     @keyword
     @assertable
