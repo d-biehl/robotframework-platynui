@@ -15,7 +15,6 @@
 //!    match by PID.
 
 use platynui_core::platform::{PlatformError, WindowId, WindowManager};
-use platynui_core::register_window_manager;
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::{Namespace, UiNode, UiValue};
 use tracing::debug;
@@ -139,7 +138,7 @@ fn find_hwnd_for_pid(pid: u32) -> Result<HWND, PlatformError> {
 //  WindowManager implementation
 // ---------------------------------------------------------------------------
 
-struct Win32WindowManager;
+pub(crate) struct Win32WindowManager;
 
 impl WindowManager for Win32WindowManager {
     fn name(&self) -> &'static str {
@@ -302,11 +301,3 @@ impl WindowManager for Win32WindowManager {
         .map_err(|e| PlatformError::OperationFailed { operation: "SetWindowPos resize", details: Some(e.to_string()) })
     }
 }
-
-// ---------------------------------------------------------------------------
-//  Registration
-// ---------------------------------------------------------------------------
-
-static PROVIDER: Win32WindowManager = Win32WindowManager;
-
-register_window_manager!(&PROVIDER);

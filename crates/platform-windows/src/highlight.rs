@@ -1,12 +1,9 @@
 use std::mem::size_of;
-use std::sync::Mutex;
-use std::sync::OnceLock;
 use std::sync::mpsc::{Receiver, Sender};
-use std::thread;
+use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use platynui_core::platform::{HighlightProvider, HighlightRequest, PlatformError, desktop_info_providers};
-use platynui_core::register_highlight_provider;
+use platynui_core::platform::{DesktopInfoProvider, HighlightProvider, HighlightRequest, PlatformError};
 use platynui_core::types::Rect;
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::{
@@ -21,81 +18,70 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::PCWSTR;
 
-static WINDOWS_HIGHLIGHT: WindowsHighlightProvider = WindowsHighlightProvider;
-
-register_highlight_provider!(&WINDOWS_HIGHLIGHT);
-
-/// Shuts down the highlight overlay thread by dropping the channel sender.
+/// Per-runtime Windows highlight overlay.
 ///
-/// The background thread will receive a `Disconnected` error, destroy the
-/// overlay HWND, and exit.  Subsequent highlight requests will return an error.
-pub(crate) fn shutdown_highlight() {
-    if let Ok(mut guard) = OverlayController::global().lock()
-        && let Some(ctrl) = guard.take()
-    {
-        tracing::debug!("highlight overlay controller dropped \u{2014} thread will exit");
-        drop(ctrl);
-    }
+/// Owns a background thread (through [`OverlayController`]) that draws the
+/// click-through overlay window and pumps its Win32 message loop. Each runtime's
+/// bundle builds its own provider via [`WindowsHighlightProvider::new`], so
+/// dropping the bundle stops and joins the thread — a later runtime spawns a
+/// fresh overlay instead of reusing a torn-down process-global controller.
+pub(crate) struct WindowsHighlightProvider {
+    ctrl: OverlayController,
 }
 
-pub struct WindowsHighlightProvider;
+impl WindowsHighlightProvider {
+    /// Spawn the overlay thread for this runtime's bundle.
+    pub(crate) fn new() -> Self {
+        Self { ctrl: OverlayThread::spawn() }
+    }
+}
 
 impl HighlightProvider for WindowsHighlightProvider {
     fn highlight(&self, request: &HighlightRequest) -> Result<(), PlatformError> {
         if request.rects.is_empty() {
             return self.clear();
         }
-
-        let duration = request.duration;
-        OverlayController::with(|ctrl| ctrl.show(&request.rects, duration))
+        self.ctrl.show(&request.rects, request.duration)
     }
 
     fn clear(&self) -> Result<(), PlatformError> {
-        OverlayController::with(|ctrl| ctrl.clear())
+        self.ctrl.clear()
     }
 }
-
-// per-request duration is used directly; no helper needed
 
 struct OverlayController {
     tx: Sender<Command>,
+    handle: Option<JoinHandle<()>>,
 }
 
 impl OverlayController {
-    fn global() -> &'static Mutex<Option<Self>> {
-        static CTRL: OnceLock<Mutex<Option<OverlayController>>> = OnceLock::new();
-        CTRL.get_or_init(|| Mutex::new(Some(OverlayThread::spawn())))
-    }
-
-    fn with<F, R>(f: F) -> Result<R, PlatformError>
-    where
-        F: FnOnce(&Self) -> Result<R, PlatformError>,
-    {
-        let guard = Self::global().lock().map_err(|_| PlatformError::InitializationFailed {
-            component: "windows highlight state",
-            details: Some("lock poisoned".into()),
-        })?;
-        let ctrl = guard.as_ref().ok_or_else(|| PlatformError::InitializationFailed {
-            component: "windows highlight controller",
-            details: Some("shut down".into()),
-        })?;
-        f(ctrl)
-    }
-
     fn show(&self, rects: &[Rect], duration: Option<Duration>) -> Result<(), PlatformError> {
-        self.tx.send(Command::Show { rects: rects.to_vec(), duration }).map_err(|_| {
-            PlatformError::InitializationFailed {
-                component: "windows highlight thread",
-                details: Some("stopped".into()),
-            }
+        self.tx.send(Command::Show { rects: rects.to_vec(), duration }).map_err(|_| PlatformError::OperationFailed {
+            operation: "windows highlight thread",
+            details: Some("stopped".into()),
         })
     }
 
     fn clear(&self) -> Result<(), PlatformError> {
-        self.tx.send(Command::Clear).map_err(|_| PlatformError::InitializationFailed {
-            component: "windows highlight thread",
+        self.tx.send(Command::Clear).map_err(|_| PlatformError::OperationFailed {
+            operation: "windows highlight thread",
             details: Some("stopped".into()),
         })
+    }
+}
+
+impl Drop for OverlayController {
+    fn drop(&mut self) {
+        // Close the command channel so the overlay thread's `recv` returns
+        // `Disconnected`, destroys its window, and exits. `self.tx` is a struct
+        // field we cannot move out of here, so swap it for a throwaway
+        // (already-disconnected) sender and drop the real one before joining.
+        let (dead_tx, _) = std::sync::mpsc::channel::<Command>();
+        drop(std::mem::replace(&mut self.tx, dead_tx));
+        if let Some(handle) = self.handle.take() {
+            tracing::debug!("highlight overlay controller dropped \u{2014} joining thread");
+            let _ = handle.join();
+        }
     }
 }
 
@@ -104,8 +90,8 @@ struct OverlayThread;
 impl OverlayThread {
     fn spawn() -> OverlayController {
         let (tx, rx) = std::sync::mpsc::channel::<Command>();
-        thread::spawn(move || Self::run(rx));
-        OverlayController { tx }
+        let handle = thread::spawn(move || Self::run(rx));
+        OverlayController { tx, handle: Some(handle) }
     }
 
     fn run(rx: Receiver<Command>) {
@@ -200,6 +186,11 @@ impl OverlayThread {
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             }
         }
+
+        // The controller was dropped (runtime shutting down): destroy the
+        // overlay window here, on the thread that created it, so no HWND leaks
+        // between runtimes. `DestroyWindow` also cancels any pending timer.
+        overlay.clear();
     }
 }
 
@@ -384,8 +375,10 @@ fn intersect_rect(a: &Rect, b: &Rect) -> Option<Rect> {
 }
 
 fn desktop_bounds() -> Option<Rect> {
-    // Use the first registered desktop info provider (Windows supplies one).
-    desktop_info_providers().next().and_then(|p| p.desktop_info().ok()).map(|info| info.bounds)
+    // The Windows desktop-info provider is stateless (Win32 metrics), so query
+    // it in-crate rather than through the inventory registry — the runtime no
+    // longer registers platform devices globally.
+    crate::desktop::WindowsDesktopProvider.desktop_info().ok().map(|info| info.bounds)
 }
 
 #[derive(Clone, Copy)]

@@ -18,7 +18,7 @@ struct KeyboardState {
 }
 
 impl KeyboardState {
-    const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self { started: false, log: Vec::new() }
     }
 
@@ -56,13 +56,18 @@ impl MockKeyCode {
 }
 
 #[derive(Debug)]
-pub struct MockKeyboardDevice {
-    state: Mutex<KeyboardState>,
-}
+pub struct MockKeyboardDevice;
+
+/// Shared in-memory keyboard state. Every `MockKeyboardDevice` handle — the
+/// `MOCK_KEYBOARD` static and any built by `create_mock_bundle` — observes this
+/// one state, so the `take_*`/`reset_*` helpers see calls routed through a
+/// per-runtime bundle. (Shared for observability; real per-runtime isolation is
+/// a property of the real backends, not the mock.)
+static KEYBOARD_STATE: Mutex<KeyboardState> = Mutex::new(KeyboardState::new());
 
 impl MockKeyboardDevice {
-    const fn new() -> Self {
-        Self { state: Mutex::new(KeyboardState::new()) }
+    pub(crate) const fn new() -> Self {
+        Self
     }
 }
 
@@ -86,7 +91,7 @@ impl KeyboardDevice for MockKeyboardDevice {
     }
 
     fn start_input(&self) -> Result<(), KeyboardError> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = KEYBOARD_STATE.lock().unwrap();
         if state.started {
             return Err(KeyboardError::InputInProgress);
         }
@@ -97,7 +102,7 @@ impl KeyboardDevice for MockKeyboardDevice {
     }
 
     fn send_key_event(&self, event: KeyboardEvent) -> Result<(), KeyboardError> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = KEYBOARD_STATE.lock().unwrap();
         if !state.started {
             return Err(KeyboardError::NotReady);
         }
@@ -119,7 +124,7 @@ impl KeyboardDevice for MockKeyboardDevice {
     }
 
     fn end_input(&self) -> Result<(), KeyboardError> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = KEYBOARD_STATE.lock().unwrap();
         if !state.started {
             return Err(KeyboardError::NotReady);
         }
@@ -158,12 +163,11 @@ impl KeyboardDevice for MockKeyboardDevice {
 pub static MOCK_KEYBOARD: MockKeyboardDevice = MockKeyboardDevice::new();
 
 pub fn reset_keyboard_state() {
-    let mut state = MOCK_KEYBOARD.state.lock().unwrap();
-    *state = KeyboardState::new();
+    *KEYBOARD_STATE.lock().unwrap() = KeyboardState::new();
 }
 
 pub fn take_keyboard_log() -> Vec<KeyboardLogEntry> {
-    let mut state = MOCK_KEYBOARD.state.lock().unwrap();
+    let mut state = KEYBOARD_STATE.lock().unwrap();
     let log = state.log.clone();
     state.log.clear();
     log

@@ -1,32 +1,17 @@
 use std::sync::OnceLock;
 
-use platynui_core::platform::{PlatformError, PlatformModule};
-use platynui_core::register_platform_module;
+use platynui_core::platform::PlatformError;
 use windows::Win32::Foundation::ERROR_ACCESS_DENIED;
 use windows::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext};
 use windows::core::HRESULT;
 
-struct WindowsPlatform;
-
-static WINDOWS_PLATFORM: WindowsPlatform = WindowsPlatform;
-
-register_platform_module!(&WINDOWS_PLATFORM);
-
-impl PlatformModule for WindowsPlatform {
-    fn name(&self) -> &'static str {
-        "Windows Platform"
-    }
-
-    fn initialize(&self) -> Result<(), PlatformError> {
-        ensure_dpi_awareness()
-    }
-
-    fn shutdown(&self) {
-        tracing::info!("Windows platform shutting down");
-        crate::highlight::shutdown_highlight();
-    }
-}
-
+/// Memoised result of setting the process DPI-awareness context.
+///
+/// Configuring DPI awareness is a genuine once-per-process Win32 operation, so
+/// the result is cached here and shared by every runtime bundle built in this
+/// process (see [`crate::factory::create_windows_bundle`]). This is deliberately
+/// process-global — unlike a session connection there is nothing per-runtime to
+/// rebuild.
 static DPI_AWARENESS: OnceLock<Result<(), PlatformError>> = OnceLock::new();
 
 pub(crate) fn ensure_dpi_awareness() -> Result<(), PlatformError> {

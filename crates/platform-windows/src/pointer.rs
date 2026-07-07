@@ -1,8 +1,7 @@
 use std::mem::size_of;
-use std::sync::OnceLock;
 use std::time::Duration;
 
-use platynui_core::platform::{PlatformError, PointerButton, PointerDevice, ScrollDelta, register_pointer_device};
+use platynui_core::platform::{PlatformError, PointerButton, PointerDevice, ScrollDelta};
 use platynui_core::types::{Point, Size};
 use windows::Win32::Foundation::GetLastError;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -15,7 +14,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::Error;
 
-struct WindowsPointerDevice;
+pub(crate) struct WindowsPointerDevice;
 
 impl PointerDevice for WindowsPointerDevice {
     fn position(&self) -> Result<Point, PlatformError> {
@@ -131,48 +130,6 @@ fn last_error(context: &'static str) -> PlatformError {
 
 fn win_error(context: &'static str, err: Error) -> PlatformError {
     PlatformError::CapabilityUnavailable { capability: context, details: Some(format!("failed: {err:?}")) }
-}
-
-static DEVICE: OnceLock<WindowsPointerDevice> = OnceLock::new();
-
-fn device_instance() -> &'static WindowsPointerDevice {
-    DEVICE.get_or_init(|| WindowsPointerDevice)
-}
-
-struct RegisteredPointer;
-
-static REGISTERED_POINTER: RegisteredPointer = RegisteredPointer;
-
-register_pointer_device!(&REGISTERED_POINTER);
-
-impl PointerDevice for RegisteredPointer {
-    fn position(&self) -> Result<Point, PlatformError> {
-        device_instance().position()
-    }
-
-    fn move_to(&self, point: Point) -> Result<(), PlatformError> {
-        device_instance().move_to(point)
-    }
-
-    fn press(&self, button: PointerButton) -> Result<(), PlatformError> {
-        device_instance().press(button)
-    }
-
-    fn release(&self, button: PointerButton) -> Result<(), PlatformError> {
-        device_instance().release(button)
-    }
-
-    fn scroll(&self, delta: ScrollDelta) -> Result<(), PlatformError> {
-        device_instance().scroll(delta)
-    }
-
-    fn double_click_time(&self) -> Result<Option<Duration>, PlatformError> {
-        device_instance().double_click_time()
-    }
-
-    fn double_click_size(&self) -> Result<Option<Size>, PlatformError> {
-        device_instance().double_click_size()
-    }
 }
 
 #[cfg(test)]

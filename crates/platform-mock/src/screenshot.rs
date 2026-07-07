@@ -9,10 +9,15 @@ pub static MOCK_SCREENSHOT: MockScreenshot = MockScreenshot::new();
 
 // Mock screenshot provider does NOT auto-register - only available via explicit handles
 
+/// Shared in-memory screenshot state. Every `MockScreenshot` handle — the
+/// `MOCK_SCREENSHOT` static and any built by `create_mock_bundle` — observes this
+/// one state, so the `take_*`/`reset_*` helpers see captures routed through a
+/// per-runtime bundle. (Shared for observability; real per-runtime isolation is
+/// a property of the real backends, not the mock.)
+static SCREENSHOT_LOG: Mutex<Vec<ScreenshotLogEntry>> = Mutex::new(Vec::new());
+
 #[derive(Debug)]
-pub struct MockScreenshot {
-    log: Mutex<Vec<ScreenshotLogEntry>>,
-}
+pub struct MockScreenshot;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ScreenshotLogEntry {
@@ -22,12 +27,12 @@ pub struct ScreenshotLogEntry {
 }
 
 impl MockScreenshot {
-    const fn new() -> Self {
-        Self { log: Mutex::new(Vec::new()) }
+    pub(crate) const fn new() -> Self {
+        Self
     }
 
     fn record(&self, entry: ScreenshotLogEntry) {
-        let mut log = self.log.lock().expect("screenshot log poisoned");
+        let mut log = SCREENSHOT_LOG.lock().expect("screenshot log poisoned");
         log.push(entry);
     }
 }
@@ -183,12 +188,12 @@ fn glyph_for(character: char) -> [u8; 7] {
 }
 
 pub fn take_screenshot_log() -> Vec<ScreenshotLogEntry> {
-    let mut log = MOCK_SCREENSHOT.log.lock().expect("screenshot log poisoned");
+    let mut log = SCREENSHOT_LOG.lock().expect("screenshot log poisoned");
     log.drain(..).collect()
 }
 
 pub fn reset_screenshot_state() {
-    MOCK_SCREENSHOT.log.lock().expect("screenshot log poisoned").clear();
+    SCREENSHOT_LOG.lock().expect("screenshot log poisoned").clear();
 }
 
 // Expose provider reference for explicit injection in tests/integration code.

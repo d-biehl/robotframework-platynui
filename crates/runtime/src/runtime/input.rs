@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use platynui_core::platform::{
     KeyboardDevice, KeyboardError, KeyboardOverrides, PointerButton, PointerDevice, ScrollDelta,
 };
@@ -155,10 +157,10 @@ impl Runtime {
     ) -> Result<(), KeyboardActionError> {
         let device = self.keyboard_device()?;
         let parsed = KeyboardSequence::parse(sequence)?;
-        let resolved = parsed.resolve(device)?;
+        let resolved = parsed.resolve(device.as_ref())?;
         let overrides = overrides.unwrap_or_default();
         let profile = resolve_keyboard_profile(&self.keyboard_profile(), &overrides);
-        KeyboardEngine::new(device, profile, &default_sleep)?.execute(&resolved, KeyboardMode::Press)?;
+        KeyboardEngine::new(device.as_ref(), profile, &default_sleep)?.execute(&resolved, KeyboardMode::Press)?;
         Ok(())
     }
 
@@ -169,10 +171,10 @@ impl Runtime {
     ) -> Result<(), KeyboardActionError> {
         let device = self.keyboard_device()?;
         let parsed = KeyboardSequence::parse(sequence)?;
-        let resolved = parsed.resolve(device)?;
+        let resolved = parsed.resolve(device.as_ref())?;
         let overrides = overrides.unwrap_or_default();
         let profile = resolve_keyboard_profile(&self.keyboard_profile(), &overrides);
-        KeyboardEngine::new(device, profile, &default_sleep)?.execute(&resolved, KeyboardMode::Release)?;
+        KeyboardEngine::new(device.as_ref(), profile, &default_sleep)?.execute(&resolved, KeyboardMode::Release)?;
         Ok(())
     }
 
@@ -183,10 +185,10 @@ impl Runtime {
     ) -> Result<(), KeyboardActionError> {
         let device = self.keyboard_device()?;
         let parsed = KeyboardSequence::parse(sequence)?;
-        let resolved = parsed.resolve(device)?;
+        let resolved = parsed.resolve(device.as_ref())?;
         let overrides = overrides.unwrap_or_default();
         let profile = resolve_keyboard_profile(&self.keyboard_profile(), &overrides);
-        KeyboardEngine::new(device, profile, &default_sleep)?.execute(&resolved, KeyboardMode::Type)?;
+        KeyboardEngine::new(device.as_ref(), profile, &default_sleep)?.execute(&resolved, KeyboardMode::Type)?;
         Ok(())
     }
 
@@ -196,12 +198,12 @@ impl Runtime {
         Ok(device.known_key_names())
     }
 
-    fn pointer_device(&self) -> Result<&'static dyn PointerDevice, PointerError> {
-        self.pointer.ok_or(PointerError::MissingDevice)
+    fn pointer_device(&self) -> Result<Arc<dyn PointerDevice>, PointerError> {
+        self.platform.as_ref().map(|bundle| bundle.pointer.clone()).ok_or(PointerError::MissingDevice)
     }
 
-    fn keyboard_device(&self) -> Result<&'static dyn KeyboardDevice, KeyboardError> {
-        self.keyboard.ok_or(KeyboardError::NotReady)
+    fn keyboard_device(&self) -> Result<Arc<dyn KeyboardDevice>, KeyboardError> {
+        self.platform.as_ref().map(|bundle| bundle.keyboard.clone()).ok_or(KeyboardError::NotReady)
     }
 }
 

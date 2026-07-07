@@ -92,5 +92,7 @@ impl UiTreeProvider for MockProvider {
 pub(crate) fn instantiate_test_provider() -> Arc<dyn UiTreeProvider> {
     crate::tree::reset_mock_tree();
     // Mock provider is no longer auto-registered; use factory directly for tests
-    crate::factory::MOCK_PROVIDER_FACTORY.create().expect("mock provider instantiation")
+    crate::factory::MOCK_PROVIDER_FACTORY
+        .create(&platynui_core::config::RuntimeConfig::default())
+        .expect("mock provider instantiation")
 }

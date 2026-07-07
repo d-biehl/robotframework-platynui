@@ -26,7 +26,7 @@ pub struct MockWindowManager {
 }
 
 impl MockWindowManager {
-    const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self { log: Mutex::new(Vec::new()) }
     }
 

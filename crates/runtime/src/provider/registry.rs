@@ -1,3 +1,4 @@
+use platynui_core::config::RuntimeConfig;
 use platynui_core::provider::{
     ProviderDescriptor, ProviderError, UiTreeProvider, UiTreeProviderFactory, provider_factories,
 };
@@ -13,8 +14,8 @@ pub struct ProviderEntry {
 }
 
 impl ProviderEntry {
-    pub fn instantiate(&self) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
-        self.factory.create()
+    pub fn instantiate(&self, config: &RuntimeConfig) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
+        self.factory.create(config)
     }
 }
 
@@ -54,9 +55,9 @@ impl ProviderRegistry {
             .flat_map(move |indices| indices.iter().map(|&idx| &self.entries[idx]))
     }
 
-    pub fn instantiate_all(&self) -> Result<Vec<Arc<dyn UiTreeProvider>>, ProviderError> {
+    pub fn instantiate_all(&self, config: &RuntimeConfig) -> Result<Vec<Arc<dyn UiTreeProvider>>, ProviderError> {
         tracing::debug!(count = self.entries.len(), "instantiating all providers");
-        self.entries.iter().map(|entry| entry.instantiate()).collect()
+        self.entries.iter().map(|entry| entry.instantiate(config)).collect()
     }
 
     pub fn with_factories(factories: &[&'static dyn UiTreeProviderFactory]) -> Self {
@@ -211,7 +212,7 @@ mod tests {
             Self::descriptor_static()
         }
 
-        fn create(&self) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
+        fn create(&self, _config: &RuntimeConfig) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
             Ok(Arc::new(StubProvider::new(Self::descriptor_static())))
         }
     }
@@ -233,7 +234,7 @@ mod tests {
 
         let dispatcher = Arc::new(ProviderEventDispatcher::new());
         let registry = ProviderRegistry::with_factories(&[&DUMMY_FACTORY]);
-        let providers = registry.instantiate_all().expect("providers");
+        let providers = registry.instantiate_all(&RuntimeConfig::default()).expect("providers");
         assert!(!providers.is_empty());
 
         for provider in &providers {

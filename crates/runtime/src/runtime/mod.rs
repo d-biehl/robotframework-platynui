@@ -2,14 +2,12 @@ mod desktop;
 mod error;
 mod evaluation;
 mod input;
-mod platform_modules;
 mod window;
 
 #[cfg(test)]
 mod test_fixtures;
 
 pub use error::{BringToFrontError, FocusError, KeyboardActionError};
-pub use platform_modules::PlatformOverrides;
 
 use std::sync::{
     Arc, Mutex,
@@ -17,10 +15,8 @@ use std::sync::{
 };
 use std::time::Duration;
 
-use platynui_core::platform::{
-    DesktopInfo, HighlightProvider, KeyboardDevice, KeyboardProfile, PlatformError, PointerDevice, ScreenshotProvider,
-    desktop_info_providers, highlight_providers, keyboard_devices, pointer_devices, screenshot_providers,
-};
+use platynui_core::config::RuntimeConfig;
+use platynui_core::platform::{DesktopInfo, KeyboardProfile, PlatformBundle, PlatformError, platform_factories};
 use platynui_core::provider::{
     ProviderError, ProviderEvent, ProviderEventKind, ProviderEventListener, UiTreeProvider, UiTreeProviderFactory,
 };
@@ -33,23 +29,23 @@ use crate::provider::ProviderRegistry;
 use crate::provider::event::{ProviderEventDispatcher, ProviderEventSink};
 
 use desktop::DesktopNode;
-use platform_modules::{PlatformModulesLease, platform_overrides_require_global_modules};
 
-/// Central orchestrator that owns provider instances and the provider event dispatcher.
+/// Central orchestrator that owns provider instances, its per-runtime platform
+/// bundle, and the provider event dispatcher.
+///
+/// The runtime owns its [`PlatformBundle`] and drops it on shutdown, so it shares
+/// no platform connection or mutable global with any other runtime.
 pub struct Runtime {
     pub(super) registry: ProviderRegistry,
     pub(super) providers: Vec<Arc<dyn UiTreeProvider>>,
     pub(super) dispatcher: Arc<ProviderEventDispatcher>,
-    platform_guard: Option<PlatformModulesLease>,
+    config: RuntimeConfig,
+    platform: Option<PlatformBundle>,
     desktop: Arc<DesktopNode>,
-    pub(super) highlight: Option<&'static dyn HighlightProvider>,
-    pub(super) screenshot: Option<&'static dyn ScreenshotProvider>,
-    pub(super) pointer: Option<&'static dyn PointerDevice>,
     pub(super) pointer_engine: Mutex<Option<PointerEngine<'static>>>,
     pub(super) xpath_cache: Mutex<crate::xpath::XdmCache>,
     pub(super) pointer_settings: Mutex<PointerSettings>,
     pub(super) pointer_profile: Mutex<PointerProfile>,
-    pub(super) keyboard: Option<&'static dyn KeyboardDevice>,
     pub(super) keyboard_profile: Mutex<KeyboardProfile>,
     pub(super) is_shutdown: AtomicBool,
 }
@@ -78,49 +74,48 @@ impl ProviderEventListener for RuntimeEventListener {
 
 impl Runtime {
     /// Discovers all registered providers, instantiates them and prepares the event pipeline.
+    ///
+    /// Uses an empty [`RuntimeConfig`], so every backend falls back to the
+    /// environment — today's behaviour.
     pub fn new() -> Result<Self, ProviderError> {
-        let platform_guard = PlatformModulesLease::acquire()?;
         let registry = ProviderRegistry::discover();
-        Self::from_registry_with_platforms(registry, None, Some(platform_guard))
+        Self::from_registry_with_config(registry, RuntimeConfig::default())
     }
 
     /// Builds a Runtime that only includes providers with the given `ids`.
     /// This is useful for tests to restrict the active providers deterministically.
     pub fn new_with_provider_ids(ids: &[&str]) -> Result<Self, ProviderError> {
-        let platform_guard = PlatformModulesLease::acquire()?;
         let registry = ProviderRegistry::discover().filter_by_ids(ids);
-        Self::from_registry_with_platforms(registry, None, Some(platform_guard))
+        Self::from_registry_with_config(registry, RuntimeConfig::default())
     }
 
     /// Builds a Runtime from an explicit list of provider factories.
     /// No inventory discovery is performed.
     pub fn new_with_factories(factories: &[&'static dyn UiTreeProviderFactory]) -> Result<Self, ProviderError> {
-        let platform_guard = PlatformModulesLease::acquire()?;
         let registry = ProviderRegistry::with_factories(factories);
-        Self::from_registry_with_platforms(registry, None, Some(platform_guard))
+        Self::from_registry_with_config(registry, RuntimeConfig::default())
     }
 
-    /// Builds a Runtime from factories plus explicit platform provider overrides.
-    pub fn new_with_factories_and_platforms(
+    /// Discovers all registered providers and binds the runtime to the session
+    /// described by `config` (platform backend selection + per-component settings).
+    pub fn new_with_config(config: RuntimeConfig) -> Result<Self, ProviderError> {
+        let registry = ProviderRegistry::discover();
+        Self::from_registry_with_config(registry, config)
+    }
+
+    /// Builds a Runtime from an explicit list of provider factories bound to the
+    /// session described by `config`.
+    pub fn new_with_factories_and_config(
         factories: &[&'static dyn UiTreeProviderFactory],
-        platforms: PlatformOverrides,
+        config: RuntimeConfig,
     ) -> Result<Self, ProviderError> {
-        let platform_guard = if platform_overrides_require_global_modules(&platforms) {
-            Some(PlatformModulesLease::acquire()?)
-        } else {
-            None
-        };
         let registry = ProviderRegistry::with_factories(factories);
-        Self::from_registry_with_platforms(registry, Some(platforms), platform_guard)
+        Self::from_registry_with_config(registry, config)
     }
 
-    fn from_registry_with_platforms(
-        registry: ProviderRegistry,
-        platforms: Option<PlatformOverrides>,
-        platform_guard: Option<PlatformModulesLease>,
-    ) -> Result<Self, ProviderError> {
+    fn from_registry_with_config(registry: ProviderRegistry, config: RuntimeConfig) -> Result<Self, ProviderError> {
         let dispatcher = Arc::new(ProviderEventDispatcher::new());
-        let provider_instances = registry.instantiate_all()?;
+        let provider_instances = registry.instantiate_all(&config)?;
         tracing::debug!(count = provider_instances.len(), "instantiated providers");
         let mut providers: Vec<Arc<dyn UiTreeProvider>> = Vec::with_capacity(provider_instances.len());
         for provider in provider_instances {
@@ -129,54 +124,39 @@ impl Runtime {
             providers.push(provider);
         }
 
-        // Build desktop info first
-        let desktop = if let Some(p) = &platforms {
-            if let Some(provider) = p.desktop_info {
-                provider.desktop_info().map_err(map_desktop_error)?
-            } else {
-                build_desktop_info().map_err(map_desktop_error)?
-            }
-        } else {
-            build_desktop_info().map_err(map_desktop_error)?
-        };
+        // Select and build the per-runtime platform bundle for this session.
+        let platform = select_platform(&config)?;
+        tracing::debug!(platform = platform.is_some(), "platform bundle selected");
 
-        let (highlight, screenshot, pointer, keyboard) = if let Some(p) = platforms {
-            (
-                p.highlight.or_else(|| highlight_providers().next()),
-                p.screenshot.or_else(|| screenshot_providers().next()),
-                p.pointer.or_else(|| pointer_devices().next()),
-                p.keyboard.or_else(|| keyboard_devices().next()),
-            )
-        } else {
-            (
-                highlight_providers().next(),
-                screenshot_providers().next(),
-                pointer_devices().next(),
-                keyboard_devices().next(),
-            )
+        // Thread this session's window manager into every provider so provider
+        // nodes target this runtime's session, not a process-global one.
+        if let Some(bundle) = &platform {
+            for provider in &providers {
+                provider.set_window_manager(bundle.window_manager.clone());
+            }
+        }
+
+        // Desktop info comes from the bundle when a platform is available, else a
+        // fallback (headless / provider-only runtimes).
+        let desktop = match &platform {
+            Some(bundle) => bundle.desktop_info.desktop_info().map_err(map_desktop_error)?,
+            None => fallback_desktop_info(),
         };
-        tracing::debug!(
-            highlight = highlight.is_some(),
-            screenshot = screenshot.is_some(),
-            pointer = pointer.is_some(),
-            keyboard = keyboard.is_some(),
-            "platform devices discovered",
-        );
 
         let mut pointer_settings = PointerSettings::default();
-        if let Some(device) = pointer {
-            if let Ok(Some(time)) = device.double_click_time() {
+        if let Some(bundle) = &platform {
+            if let Ok(Some(time)) = bundle.pointer.double_click_time() {
                 pointer_settings.double_click_time = time;
             }
-            if let Ok(Some(size)) = device.double_click_size() {
+            if let Ok(Some(size)) = bundle.pointer.double_click_size() {
                 pointer_settings.double_click_size = size;
             }
         }
         let pointer_profile = PointerProfile::named_default();
         let keyboard_profile = KeyboardProfile::default();
-        let pointer_engine = pointer.map(|device| {
+        let pointer_engine = platform.as_ref().map(|bundle| {
             PointerEngine::new(
-                device,
+                bundle.pointer.clone(),
                 desktop.bounds,
                 pointer_settings.clone(),
                 pointer_profile.clone(),
@@ -191,23 +171,36 @@ impl Runtime {
             registry,
             providers,
             dispatcher,
-            platform_guard,
+            config,
+            platform,
             desktop: {
                 let node = DesktopNode::new(desktop, providers_for_desktop);
                 DesktopNode::init_self(&node);
                 node
             },
-            highlight,
-            screenshot,
-            pointer,
             pointer_engine: Mutex::new(pointer_engine),
             xpath_cache: Mutex::new(crate::xpath::XdmCache::new()),
             pointer_settings: Mutex::new(pointer_settings),
             pointer_profile: Mutex::new(pointer_profile),
-            keyboard,
             keyboard_profile: Mutex::new(keyboard_profile),
             is_shutdown: AtomicBool::new(false),
         };
+
+        // Surface config sections that no registered backend / active provider
+        // claimed — a portability aid (a dict may carry every OS's keys) and a
+        // typo hint. Tolerant by design: unclaimed ids are ignored, not errors.
+        let registered_platform_ids: Vec<&str> = platform_factories().map(|factory| factory.id()).collect();
+        for id in runtime.config.platform_component_ids() {
+            if !registered_platform_ids.contains(&id) {
+                tracing::debug!(id, "config platform.<id> matched no registered platform backend");
+            }
+        }
+        for id in runtime.config.provider_component_ids() {
+            if !runtime.providers.iter().any(|provider| provider.descriptor().id == id) {
+                tracing::debug!(id, "config providers.<id> matched no active provider");
+            }
+        }
+
         tracing::info!(providers = provider_count, "Runtime initialized");
         Ok(runtime)
     }
@@ -245,7 +238,7 @@ impl Runtime {
         self.dispatcher.dispatch(event);
     }
 
-    /// Invokes shutdown on dispatcher and providers.
+    /// Invokes shutdown on dispatcher and providers, then tears down the platform.
     pub fn shutdown(&mut self) {
         if self.is_shutdown.swap(true, Ordering::AcqRel) {
             return; // already shut down
@@ -255,9 +248,14 @@ impl Runtime {
         for provider in &self.providers {
             provider.shutdown();
         }
-        if let Some(mut platform_guard) = self.platform_guard.take() {
-            platform_guard.release();
+        // Tear down the platform deterministically: drop the pointer engine's
+        // device clone first, then the bundle. Dropping the bundle releases this
+        // runtime's platform connection (e.g. closes the X11 FD and joins the
+        // highlight thread) — no shared global to reference-count.
+        if let Ok(mut guard) = self.pointer_engine.lock() {
+            *guard = None;
         }
+        self.platform = None;
     }
 }
 
@@ -268,10 +266,46 @@ impl Drop for Runtime {
     }
 }
 
-fn build_desktop_info() -> Result<DesktopInfo, PlatformError> {
-    let mut providers = desktop_info_providers();
-    let info = if let Some(provider) = providers.next() { provider.desktop_info()? } else { fallback_desktop_info() };
-    Ok(info)
+/// Selects and builds the per-runtime [`PlatformBundle`] for this session.
+///
+/// When `config` forces a backend (`platform.backend`), that backend must be
+/// registered and able to serve the environment, or construction fails. Without
+/// a forced backend, the first factory whose `can_serve` accepts the environment
+/// wins; if none does, the runtime has no platform (`Ok(None)`) — e.g. a headless
+/// provider-only test.
+fn select_platform(config: &RuntimeConfig) -> Result<Option<PlatformBundle>, ProviderError> {
+    let factories: Vec<_> = platform_factories().collect();
+
+    if let Some(id) = config.platform_backend() {
+        let Some(factory) = factories.iter().find(|factory| factory.id() == id) else {
+            return Err(ProviderError::InitializationFailed {
+                provider: "runtime",
+                details: Some(format!("no platform backend '{id}' is registered")),
+            });
+        };
+        if !factory.can_serve(config) {
+            return Err(ProviderError::InitializationFailed {
+                provider: "runtime",
+                details: Some(format!("platform backend '{id}' cannot serve this environment")),
+            });
+        }
+        let bundle = factory.create(config).map_err(|err| ProviderError::InitializationFailed {
+            provider: "runtime",
+            details: Some(err.to_string()),
+        })?;
+        Ok(Some(bundle))
+    } else {
+        for factory in &factories {
+            if factory.can_serve(config) {
+                let bundle = factory.create(config).map_err(|err| ProviderError::InitializationFailed {
+                    provider: "runtime",
+                    details: Some(err.to_string()),
+                })?;
+                return Ok(Some(bundle));
+            }
+        }
+        Ok(None)
+    }
 }
 
 fn map_desktop_error(err: PlatformError) -> ProviderError {
@@ -312,111 +346,20 @@ pub(super) fn default_sleep(duration: Duration) {
 
 #[cfg(test)]
 mod tests {
-    use super::platform_modules::PLATFORM_MODULES_STATE;
     use super::test_fixtures::*;
     use super::*;
-    use platynui_core::platform::{PlatformError, PlatformModule};
     use platynui_core::provider::{
         ProviderDescriptor, ProviderEvent, ProviderEventKind, ProviderEventListener, ProviderKind,
         UiTreeProviderFactory,
     };
-    use platynui_core::register_platform_module;
     use platynui_core::ui::identifiers::TechnologyId;
     use platynui_core::ui::{Namespace, UiNode};
     use platynui_platform_mock as _;
     use platynui_provider_mock as _;
     use rstest::rstest;
-    use serial_test::serial;
     use std::sync::atomic::AtomicUsize;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::Ordering;
     use std::sync::{Arc, LazyLock};
-
-    // --- Platform init order test infrastructure ---
-
-    static TEST_PLATFORM_INITIALIZED: LazyLock<AtomicBool> = LazyLock::new(|| AtomicBool::new(false));
-
-    struct TestInitOrderPlatform;
-    impl PlatformModule for TestInitOrderPlatform {
-        fn name(&self) -> &'static str {
-            "test-init-order-platform"
-        }
-        fn initialize(&self) -> Result<(), PlatformError> {
-            TEST_PLATFORM_INITIALIZED.store(true, Ordering::SeqCst);
-            Ok(())
-        }
-    }
-    static TEST_PLATFORM: TestInitOrderPlatform = TestInitOrderPlatform;
-    register_platform_module!(&TEST_PLATFORM);
-
-    static TEST_LEASE_INITIALIZE_COUNT: LazyLock<AtomicUsize> = LazyLock::new(|| AtomicUsize::new(0));
-    static TEST_LEASE_SHUTDOWN_COUNT: LazyLock<AtomicUsize> = LazyLock::new(|| AtomicUsize::new(0));
-
-    struct TestLeasePlatform;
-    impl PlatformModule for TestLeasePlatform {
-        fn name(&self) -> &'static str {
-            "test-runtime-platform-lease"
-        }
-
-        fn initialize(&self) -> Result<(), PlatformError> {
-            TEST_LEASE_INITIALIZE_COUNT.fetch_add(1, Ordering::SeqCst);
-            Ok(())
-        }
-
-        fn shutdown(&self) {
-            TEST_LEASE_SHUTDOWN_COUNT.fetch_add(1, Ordering::SeqCst);
-        }
-    }
-
-    static TEST_LEASE_PLATFORM: TestLeasePlatform = TestLeasePlatform;
-    register_platform_module!(&TEST_LEASE_PLATFORM);
-
-    struct InitOrderProviderFactory;
-    impl InitOrderProviderFactory {
-        fn descriptor_static() -> &'static ProviderDescriptor {
-            static DESCRIPTOR: LazyLock<ProviderDescriptor> = LazyLock::new(|| {
-                ProviderDescriptor::new(
-                    "runtime-init-order",
-                    "Runtime InitOrder",
-                    TechnologyId::from("Runtime"),
-                    ProviderKind::Native,
-                )
-            });
-            &DESCRIPTOR
-        }
-    }
-
-    impl UiTreeProviderFactory for InitOrderProviderFactory {
-        fn descriptor(&self) -> &ProviderDescriptor {
-            Self::descriptor_static()
-        }
-
-        fn create(&self) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
-            assert!(
-                TEST_PLATFORM_INITIALIZED.load(Ordering::SeqCst),
-                "platform modules must be initialized before providers are created"
-            );
-            struct NoopProvider {
-                desc: &'static ProviderDescriptor,
-            }
-            impl UiTreeProvider for NoopProvider {
-                fn descriptor(&self) -> &ProviderDescriptor {
-                    self.desc
-                }
-                fn get_nodes(
-                    &self,
-                    _parent: Arc<dyn UiNode>,
-                ) -> Result<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>, ProviderError> {
-                    Ok(Box::new(std::iter::empty()))
-                }
-                fn subscribe_events(&self, _listener: Arc<dyn ProviderEventListener>) -> Result<(), ProviderError> {
-                    Ok(())
-                }
-                fn shutdown(&self) {}
-            }
-            Ok(Arc::new(NoopProvider { desc: Self::descriptor_static() }))
-        }
-    }
-    static INIT_ORDER_PROVIDER: InitOrderProviderFactory = InitOrderProviderFactory;
 
     // --- Drop counter test infrastructure ---
 
@@ -460,77 +403,16 @@ mod tests {
         fn descriptor(&self) -> &ProviderDescriptor {
             Self::descriptor_static()
         }
-        fn create(&self) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
+        fn create(
+            &self,
+            _config: &platynui_core::config::RuntimeConfig,
+        ) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
             Ok(Arc::new(DropCounterProvider { desc: Self::descriptor_static() }))
         }
     }
     static DROP_COUNTER_FACTORY: DropCounterFactory = DropCounterFactory;
 
     // --- Tests ---
-
-    #[test]
-    fn platform_init_happens_before_provider_instantiation() {
-        // The assertions happen inside the provider factory `create()`.
-        let _runtime = Runtime::new_with_factories(&[&INIT_ORDER_PROVIDER]).expect("runtime initializes");
-    }
-
-    #[test]
-    #[serial]
-    fn platform_modules_remain_active_until_last_runtime_is_released() {
-        TEST_LEASE_INITIALIZE_COUNT.store(0, Ordering::SeqCst);
-        TEST_LEASE_SHUTDOWN_COUNT.store(0, Ordering::SeqCst);
-
-        {
-            let mut first = Runtime::new_with_factories(&[]).expect("first runtime initializes");
-            let second = Runtime::new_with_factories(&[]).expect("second runtime initializes");
-
-            assert_eq!(TEST_LEASE_INITIALIZE_COUNT.load(Ordering::SeqCst), 1);
-            assert_eq!(TEST_LEASE_SHUTDOWN_COUNT.load(Ordering::SeqCst), 0);
-
-            first.shutdown();
-
-            assert_eq!(TEST_LEASE_INITIALIZE_COUNT.load(Ordering::SeqCst), 1);
-            assert_eq!(TEST_LEASE_SHUTDOWN_COUNT.load(Ordering::SeqCst), 0);
-
-            drop(second);
-        }
-
-        assert_eq!(TEST_LEASE_INITIALIZE_COUNT.load(Ordering::SeqCst), 1);
-        assert_eq!(TEST_LEASE_SHUTDOWN_COUNT.load(Ordering::SeqCst), 1);
-
-        let state = PLATFORM_MODULES_STATE.lock().expect("platform state lock");
-        assert_eq!(state.active_runtimes, 0);
-    }
-
-    #[test]
-    #[serial]
-    fn explicit_platform_overrides_do_not_initialize_global_modules() {
-        TEST_LEASE_INITIALIZE_COUNT.store(0, Ordering::SeqCst);
-        TEST_LEASE_SHUTDOWN_COUNT.store(0, Ordering::SeqCst);
-
-        let runtime = Runtime::new_with_factories_and_platforms(
-            &[&platynui_provider_mock::MOCK_PROVIDER_FACTORY],
-            PlatformOverrides {
-                desktop_info: Some(&platynui_platform_mock::MOCK_PLATFORM),
-                highlight: Some(&platynui_platform_mock::MOCK_HIGHLIGHT),
-                screenshot: Some(&platynui_platform_mock::MOCK_SCREENSHOT),
-                pointer: Some(&platynui_platform_mock::MOCK_POINTER),
-                keyboard: Some(&platynui_platform_mock::MOCK_KEYBOARD),
-            },
-        )
-        .expect("runtime initializes with explicit platforms");
-
-        assert_eq!(TEST_LEASE_INITIALIZE_COUNT.load(Ordering::SeqCst), 0);
-        assert_eq!(TEST_LEASE_SHUTDOWN_COUNT.load(Ordering::SeqCst), 0);
-
-        drop(runtime);
-
-        assert_eq!(TEST_LEASE_INITIALIZE_COUNT.load(Ordering::SeqCst), 0);
-        assert_eq!(TEST_LEASE_SHUTDOWN_COUNT.load(Ordering::SeqCst), 0);
-
-        let state = PLATFORM_MODULES_STATE.lock().expect("platform state lock");
-        assert_eq!(state.active_runtimes, 0);
-    }
 
     #[test]
     fn runtime_is_send() {

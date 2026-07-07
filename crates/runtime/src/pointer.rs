@@ -1,4 +1,5 @@
 use std::f64::consts::PI;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use platynui_core::platform::{
@@ -266,7 +267,7 @@ pub enum PointerError {
 }
 
 pub(crate) struct PointerEngine<'a> {
-    device: &'a dyn PointerDevice,
+    device: Arc<dyn PointerDevice>,
     desktop_bounds: Rect,
     settings: PointerSettings,
     profile: PointerProfile,
@@ -288,7 +289,7 @@ struct EffectiveProfile<'a> {
 
 impl<'a> PointerEngine<'a> {
     pub fn new(
-        device: &'a dyn PointerDevice,
+        device: Arc<dyn PointerDevice>,
         desktop_bounds: Rect,
         settings: PointerSettings,
         profile: PointerProfile,
@@ -942,9 +943,10 @@ mod tests {
     use super::*;
     use super::{ClickStamp, PointerOverrides, PointerProfile, PointerSettings};
     use platynui_core::types::{Rect, Size};
-    use platynui_platform_mock::{MOCK_POINTER, PointerLogEntry, reset_pointer_state, take_pointer_log};
+    use platynui_platform_mock::{PointerLogEntry, create_mock_bundle, reset_pointer_state, take_pointer_log};
     use rstest::rstest;
     use serial_test::serial;
+    use std::sync::Arc;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Instant;
@@ -1008,13 +1010,14 @@ mod tests {
 
     #[rstest]
     fn linear_move_generates_steps() {
-        let device = RecordingPointer::new();
+        let device = Arc::new(RecordingPointer::new());
         let settings = PointerSettings::default();
         let mut profile = PointerProfile::named_default();
         profile.after_move_delay = Duration::ZERO;
         profile.ensure_move_position = false;
         profile.acceleration_profile = PointerAccelerationProfile::Constant;
-        let mut engine = PointerEngine::new(&device, Rect::new(0.0, 0.0, 100.0, 100.0), settings, profile, &noop_sleep);
+        let mut engine =
+            PointerEngine::new(device.clone(), Rect::new(0.0, 0.0, 100.0, 100.0), settings, profile, &noop_sleep);
 
         engine.move_to(Point::new(10.0, 0.0), None).unwrap();
         assert!(device.moves.load(Ordering::SeqCst) >= 1);
@@ -1039,9 +1042,9 @@ mod tests {
     fn horizontal_scroll_chunks_into_notches_not_micro_steps() {
         // Regression guard for the above at the engine level: a 3-notch horizontal scroll with the
         // default scroll_step (horizontal component 0) must emit 3 notch-sized events, not 360.
-        let device = RecordingPointer::new();
+        let device = Arc::new(RecordingPointer::new());
         let mut engine = PointerEngine::new(
-            &device,
+            device.clone(),
             Rect::new(0.0, 0.0, 100.0, 100.0),
             PointerSettings::default(),
             PointerProfile::named_default(),
@@ -1066,11 +1069,12 @@ mod tests {
 
     #[rstest]
     fn bounds_origin_translates_coordinates() {
-        let device = RecordingPointer::new();
+        let device = Arc::new(RecordingPointer::new());
         let settings = PointerSettings::default();
         let profile = PointerProfile::named_default();
         let overrides = PointerOverrides::new().origin(PointOrigin::Bounds(Rect::new(100.0, 200.0, 50.0, 50.0)));
-        let mut engine = PointerEngine::new(&device, Rect::new(0.0, 0.0, 500.0, 500.0), settings, profile, &noop_sleep);
+        let mut engine =
+            PointerEngine::new(device.clone(), Rect::new(0.0, 0.0, 500.0, 500.0), settings, profile, &noop_sleep);
 
         engine.move_to(Point::new(5.0, 10.0), Some(&overrides)).unwrap();
         let log = device.take_log();
@@ -1079,11 +1083,12 @@ mod tests {
 
     #[rstest]
     fn absolute_origin_translates_coordinates() {
-        let device = RecordingPointer::new();
+        let device = Arc::new(RecordingPointer::new());
         let settings = PointerSettings::default();
         let profile = PointerProfile::named_default();
         let overrides = PointerOverrides::new().origin(PointOrigin::Absolute(Point::new(50.0, 75.0)));
-        let mut engine = PointerEngine::new(&device, Rect::new(0.0, 0.0, 500.0, 500.0), settings, profile, &noop_sleep);
+        let mut engine =
+            PointerEngine::new(device.clone(), Rect::new(0.0, 0.0, 500.0, 500.0), settings, profile, &noop_sleep);
 
         engine.move_to(Point::new(-10.0, 25.0), Some(&overrides)).unwrap();
         let log = device.take_log();
@@ -1092,7 +1097,7 @@ mod tests {
 
     #[rstest]
     fn motion_respects_max_duration() {
-        let device = RecordingPointer::new();
+        let device = Arc::new(RecordingPointer::new());
         let settings = PointerSettings::default();
         let mut profile = PointerProfile::named_default();
         profile.after_move_delay = Duration::ZERO;
@@ -1115,7 +1120,7 @@ mod tests {
         let max_move_duration = profile.max_move_duration;
 
         let mut engine =
-            PointerEngine::new(&device, Rect::new(-4000.0, -2000.0, 8000.0, 4000.0), settings, profile, &sleep);
+            PointerEngine::new(device.clone(), Rect::new(-4000.0, -2000.0, 8000.0, 4000.0), settings, profile, &sleep);
 
         engine.move_to(Point::new(4.0, 0.0), None).unwrap();
         let recorded = sleeps.lock().unwrap().clone();
@@ -1138,7 +1143,7 @@ mod tests {
 
     #[rstest]
     fn motion_scales_with_distance() {
-        let device = RecordingPointer::new();
+        let device = Arc::new(RecordingPointer::new());
         let settings = PointerSettings::default();
         let mut profile = PointerProfile::named_default();
         profile.after_move_delay = Duration::ZERO;
@@ -1155,7 +1160,7 @@ mod tests {
         };
 
         let mut engine =
-            PointerEngine::new(&device, Rect::new(-4000.0, -2000.0, 8000.0, 4000.0), settings, profile, &sleep);
+            PointerEngine::new(device.clone(), Rect::new(-4000.0, -2000.0, 8000.0, 4000.0), settings, profile, &sleep);
 
         engine.move_to(Point::new(2.0, 0.0), None).unwrap();
         let short_duration = *total_sleep.lock().unwrap();
@@ -1175,7 +1180,7 @@ mod tests {
             }
         };
 
-        let slow_device = RecordingPointer::new();
+        let slow_device = Arc::new(RecordingPointer::new());
         let mut slow_profile = PointerProfile::named_default();
         slow_profile.after_move_delay = Duration::ZERO;
         slow_profile.after_input_delay = Duration::ZERO;
@@ -1187,7 +1192,7 @@ mod tests {
         slow_profile.acceleration_profile = PointerAccelerationProfile::Constant;
 
         let mut slow_engine = PointerEngine::new(
-            &slow_device,
+            slow_device.clone(),
             Rect::new(-4000.0, -2000.0, 8000.0, 4000.0),
             PointerSettings::default(),
             slow_profile.clone(),
@@ -1199,12 +1204,12 @@ mod tests {
 
         *total_sleep.lock().unwrap() = Duration::ZERO;
 
-        let fast_device = RecordingPointer::new();
+        let fast_device = Arc::new(RecordingPointer::new());
         let mut fast_profile = slow_profile;
         fast_profile.speed_factor = 2.0;
 
         let mut fast_engine = PointerEngine::new(
-            &fast_device,
+            fast_device.clone(),
             Rect::new(-4000.0, -2000.0, 8000.0, 4000.0),
             PointerSettings::default(),
             fast_profile,
@@ -1228,7 +1233,7 @@ mod tests {
             }
         };
 
-        let device = RecordingPointer::new();
+        let device = Arc::new(RecordingPointer::new());
         let mut profile = PointerProfile::named_default();
         profile.after_move_delay = Duration::ZERO;
         profile.after_input_delay = Duration::ZERO;
@@ -1240,7 +1245,7 @@ mod tests {
         profile.acceleration_profile = PointerAccelerationProfile::EaseIn;
         let profile_clone = profile.clone();
         let mut engine = PointerEngine::new(
-            &device,
+            device.clone(),
             Rect::new(-4000.0, -2000.0, 8000.0, 4000.0),
             PointerSettings::default(),
             profile,
@@ -1284,7 +1289,7 @@ mod tests {
             }
         };
 
-        let device = RecordingPointer::new();
+        let device = Arc::new(RecordingPointer::new());
         let mut profile = PointerProfile::named_default();
         profile.after_move_delay = Duration::ZERO;
         profile.after_input_delay = Duration::ZERO;
@@ -1296,7 +1301,7 @@ mod tests {
         profile.acceleration_profile = PointerAccelerationProfile::EaseOut;
         let profile_clone = profile.clone();
         let mut engine = PointerEngine::new(
-            &device,
+            device.clone(),
             Rect::new(-4000.0, -2000.0, 8000.0, 4000.0),
             PointerSettings::default(),
             profile,
@@ -1340,7 +1345,7 @@ mod tests {
             }
         };
 
-        let device = RecordingPointer::new();
+        let device = Arc::new(RecordingPointer::new());
         let mut profile = PointerProfile::named_default();
         profile.after_move_delay = Duration::ZERO;
         profile.after_input_delay = Duration::ZERO;
@@ -1353,7 +1358,7 @@ mod tests {
         profile.max_move_duration = Duration::ZERO;
 
         let mut engine = PointerEngine::new(
-            &device,
+            device.clone(),
             Rect::new(-4000.0, -2000.0, 8000.0, 4000.0),
             PointerSettings::default(),
             profile,
@@ -1392,7 +1397,7 @@ mod tests {
             }
         };
 
-        let device = RecordingPointer::new();
+        let device = Arc::new(RecordingPointer::new());
         let settings = PointerSettings { double_click_size: Size::new(4.0, 4.0), ..PointerSettings::default() };
 
         let mut profile = PointerProfile::named_default();
@@ -1407,7 +1412,7 @@ mod tests {
         profile.max_move_duration = Duration::ZERO;
 
         let mut engine =
-            PointerEngine::new(&device, Rect::new(-4000.0, -2000.0, 8000.0, 4000.0), settings, profile, &sleep);
+            PointerEngine::new(device.clone(), Rect::new(-4000.0, -2000.0, 8000.0, 4000.0), settings, profile, &sleep);
 
         engine.last_click =
             Some(ClickStamp { time: Instant::now() - Duration::from_millis(20), position: Point::new(0.0, 0.0) });
@@ -1422,7 +1427,7 @@ mod tests {
     #[serial]
     fn mock_pointer_speed_factor_scales_duration() {
         reset_pointer_state();
-        let device = &MOCK_POINTER;
+        let device = create_mock_bundle().pointer;
 
         let slow_sleeps = Mutex::new(Vec::new());
         let slow_sleep = |duration: Duration| {
@@ -1442,7 +1447,7 @@ mod tests {
         base_profile.acceleration_profile = PointerAccelerationProfile::Constant;
 
         let mut slow_engine = PointerEngine::new(
-            device,
+            device.clone(),
             Rect::new(-4000.0, -2000.0, 8000.0, 4000.0),
             PointerSettings::default(),
             base_profile.clone(),
@@ -1465,7 +1470,7 @@ mod tests {
         fast_profile.speed_factor = 2.0;
 
         let mut fast_engine = PointerEngine::new(
-            device,
+            device.clone(),
             Rect::new(-4000.0, -2000.0, 8000.0, 4000.0),
             PointerSettings::default(),
             fast_profile,
@@ -1497,7 +1502,7 @@ mod tests {
     #[serial]
     fn mock_pointer_acceleration_ease_in_trends_upwards() {
         reset_pointer_state();
-        let device = &MOCK_POINTER;
+        let device = create_mock_bundle().pointer;
         let sleeps = Mutex::new(Vec::new());
         let sleep = |duration: Duration| {
             if duration > Duration::ZERO {
@@ -1516,7 +1521,7 @@ mod tests {
         profile.acceleration_profile = PointerAccelerationProfile::EaseIn;
 
         let mut engine = PointerEngine::new(
-            device,
+            device.clone(),
             Rect::new(-4000.0, -2000.0, 8000.0, 4000.0),
             PointerSettings::default(),
             profile,
@@ -1533,7 +1538,7 @@ mod tests {
     #[serial]
     fn mock_pointer_acceleration_ease_out_trends_downwards() {
         reset_pointer_state();
-        let device = &MOCK_POINTER;
+        let device = create_mock_bundle().pointer;
         let sleeps = Mutex::new(Vec::new());
         let sleep = |duration: Duration| {
             if duration > Duration::ZERO {
@@ -1552,7 +1557,7 @@ mod tests {
         profile.acceleration_profile = PointerAccelerationProfile::EaseOut;
 
         let mut engine = PointerEngine::new(
-            device,
+            device.clone(),
             Rect::new(-4000.0, -2000.0, 8000.0, 4000.0),
             PointerSettings::default(),
             profile,
@@ -1569,7 +1574,7 @@ mod tests {
     #[serial]
     fn mock_pointer_click_enforces_before_next_delay() {
         reset_pointer_state();
-        let device = &MOCK_POINTER;
+        let device = create_mock_bundle().pointer;
         let sleeps = Mutex::new(Vec::new());
         let sleep = |duration: Duration| {
             if duration > Duration::ZERO {
@@ -1590,7 +1595,7 @@ mod tests {
         profile.multi_click_delay = Duration::from_millis(200);
 
         let mut engine = PointerEngine::new(
-            device,
+            device.clone(),
             Rect::new(-10.0, -10.0, 20.0, 20.0),
             PointerSettings::default(),
             profile,
@@ -1623,7 +1628,7 @@ mod tests {
 
     #[rstest]
     fn multi_click_emits_multiple_events() {
-        let device = RecordingPointer::new();
+        let device = Arc::new(RecordingPointer::new());
         let settings = PointerSettings::default();
         let mut profile = PointerProfile::named_default();
         profile.after_move_delay = Duration::ZERO;
@@ -1636,7 +1641,7 @@ mod tests {
         profile.max_move_duration = Duration::ZERO;
 
         let mut engine =
-            PointerEngine::new(&device, Rect::new(-100.0, -100.0, 200.0, 200.0), settings, profile, &noop_sleep);
+            PointerEngine::new(device.clone(), Rect::new(-100.0, -100.0, 200.0, 200.0), settings, profile, &noop_sleep);
 
         engine.multi_click(Some(Point::new(5.0, 5.0)), Some(PointerButton::Right), 3, None).unwrap();
 
@@ -1650,7 +1655,7 @@ mod tests {
 
     #[rstest]
     fn overrides_can_switch_motion_mode() {
-        let device = RecordingPointer::new();
+        let device = Arc::new(RecordingPointer::new());
         let settings = PointerSettings::default();
         let mut profile = PointerProfile::named_default();
         profile.after_move_delay = Duration::ZERO;
@@ -1661,7 +1666,7 @@ mod tests {
         let overrides = PointerOverrides::new().motion_mode(PointerMotionMode::Direct);
 
         let mut engine =
-            PointerEngine::new(&device, Rect::new(-100.0, -100.0, 200.0, 200.0), settings, profile, &noop_sleep);
+            PointerEngine::new(device.clone(), Rect::new(-100.0, -100.0, 200.0, 200.0), settings, profile, &noop_sleep);
 
         engine.move_to(Point::new(15.0, 0.0), Some(&overrides)).unwrap();
 
@@ -1670,7 +1675,7 @@ mod tests {
 
     #[rstest]
     fn multi_click_rejects_zero_count() {
-        let device = RecordingPointer::new();
+        let device = Arc::new(RecordingPointer::new());
         let settings = PointerSettings::default();
         let mut profile = PointerProfile::named_default();
         profile.after_move_delay = Duration::ZERO;
@@ -1683,7 +1688,7 @@ mod tests {
         profile.max_move_duration = Duration::ZERO;
 
         let mut engine =
-            PointerEngine::new(&device, Rect::new(-50.0, -50.0, 100.0, 100.0), settings, profile, &noop_sleep);
+            PointerEngine::new(device.clone(), Rect::new(-50.0, -50.0, 100.0, 100.0), settings, profile, &noop_sleep);
 
         let error = engine.multi_click(Some(Point::new(0.0, 0.0)), None, 0, None).unwrap_err();
         match error {
@@ -1694,7 +1699,7 @@ mod tests {
 
     #[rstest]
     fn multi_click_limits_post_click_delay() {
-        let device = RecordingPointer::new();
+        let device = Arc::new(RecordingPointer::new());
         let settings = PointerSettings {
             double_click_time: Duration::from_millis(250),
             double_click_size: Size::new(10.0, 10.0),
@@ -1719,7 +1724,8 @@ mod tests {
             }
         };
 
-        let mut engine = PointerEngine::new(&device, Rect::new(-10.0, -10.0, 20.0, 20.0), settings, profile, &sleep);
+        let mut engine =
+            PointerEngine::new(device.clone(), Rect::new(-10.0, -10.0, 20.0, 20.0), settings, profile, &sleep);
 
         engine.multi_click(Some(Point::new(0.0, 0.0)), None, 3, None).unwrap();
 
@@ -1738,7 +1744,7 @@ mod tests {
 
     #[rstest]
     fn single_click_emits_only_after_click_delay() {
-        let device = RecordingPointer::new();
+        let device = Arc::new(RecordingPointer::new());
         let settings = PointerSettings { double_click_time: Duration::from_millis(250), ..PointerSettings::default() };
 
         let mut profile = PointerProfile::named_default();
@@ -1759,7 +1765,8 @@ mod tests {
             }
         };
 
-        let mut engine = PointerEngine::new(&device, Rect::new(-10.0, -10.0, 20.0, 20.0), settings, profile, &sleep);
+        let mut engine =
+            PointerEngine::new(device.clone(), Rect::new(-10.0, -10.0, 20.0, 20.0), settings, profile, &sleep);
 
         engine.click(Some(Point::new(0.0, 0.0)), None, None).unwrap();
 
@@ -1776,12 +1783,13 @@ mod tests {
 
     #[rstest]
     fn drag_executes_press_and_release() {
-        let device = RecordingPointer::new();
+        let device = Arc::new(RecordingPointer::new());
         let settings = PointerSettings::default();
         let mut profile = PointerProfile::named_default();
         profile.after_move_delay = Duration::ZERO;
         profile.ensure_move_position = false;
-        let mut engine = PointerEngine::new(&device, Rect::new(0.0, 0.0, 300.0, 300.0), settings, profile, &noop_sleep);
+        let mut engine =
+            PointerEngine::new(device.clone(), Rect::new(0.0, 0.0, 300.0, 300.0), settings, profile, &noop_sleep);
 
         engine.drag(Point::new(10.0, 10.0), Point::new(20.0, 20.0), Some(PointerButton::Right), None).unwrap();
 

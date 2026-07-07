@@ -158,7 +158,7 @@ impl UiTreeProviderFactory for StubFactory {
         Self::descriptor_static()
     }
 
-    fn create(&self) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
+    fn create(&self, _config: &platynui_core::config::RuntimeConfig) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
         Ok(Arc::new(StubProvider::new(Self::descriptor_static())))
     }
 }
@@ -326,7 +326,7 @@ impl UiTreeProviderFactory for FocusFactory {
     fn descriptor(&self) -> &ProviderDescriptor {
         Self::descriptor_static()
     }
-    fn create(&self) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
+    fn create(&self, _config: &platynui_core::config::RuntimeConfig) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
         Ok(Arc::new(FocusProvider::new(Self::descriptor_static())))
     }
 }

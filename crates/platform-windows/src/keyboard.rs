@@ -1,6 +1,4 @@
-use platynui_core::platform::{
-    KeyCode, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent, register_keyboard_device,
-};
+use platynui_core::platform::{KeyCode, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent};
 
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP,
@@ -233,10 +231,6 @@ impl KeyboardDevice for WindowsKeyboardDevice {
         names
     }
 }
-
-static DEVICE: WindowsKeyboardDevice = WindowsKeyboardDevice;
-
-register_keyboard_device!(&DEVICE);
 
 // Global VK_* name → VK code mapping (exact VK_* strings only)
 #[derive(Clone, Copy, Debug)]

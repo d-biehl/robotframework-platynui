@@ -3,24 +3,29 @@ use std::sync::Mutex;
 
 pub static MOCK_HIGHLIGHT: MockHighlight = MockHighlight::new();
 
+/// Shared in-memory highlight state. Every `MockHighlight` handle — the
+/// `MOCK_HIGHLIGHT` static and any built by `create_mock_bundle` — observes this
+/// one state, so the `take_*`/`reset_*` helpers see calls routed through a
+/// per-runtime bundle. (Shared for observability; real per-runtime isolation is
+/// a property of the real backends, not the mock.)
+static HIGHLIGHT_LOG: Mutex<Vec<HighlightRequest>> = Mutex::new(Vec::new());
+static HIGHLIGHT_CLEAR_CALLS: Mutex<usize> = Mutex::new(0);
+
 #[derive(Debug)]
-pub struct MockHighlight {
-    log: Mutex<Vec<HighlightRequest>>,
-    clear_calls: Mutex<usize>,
-}
+pub struct MockHighlight;
 
 impl MockHighlight {
-    const fn new() -> Self {
-        Self { log: Mutex::new(Vec::new()), clear_calls: Mutex::new(0) }
+    pub(crate) const fn new() -> Self {
+        Self
     }
 
     fn record(&self, request: &HighlightRequest) {
-        let mut log = self.log.lock().expect("highlight log poisoned");
+        let mut log = HIGHLIGHT_LOG.lock().expect("highlight log poisoned");
         log.push(request.clone());
     }
 
     fn mark_clear(&self) {
-        let mut count = self.clear_calls.lock().expect("highlight clear count poisoned");
+        let mut count = HIGHLIGHT_CLEAR_CALLS.lock().expect("highlight clear count poisoned");
         *count += 1;
     }
 }
@@ -38,17 +43,17 @@ impl HighlightProvider for MockHighlight {
 }
 
 pub fn take_highlight_log() -> Vec<HighlightRequest> {
-    let mut log = MOCK_HIGHLIGHT.log.lock().expect("highlight log poisoned");
+    let mut log = HIGHLIGHT_LOG.lock().expect("highlight log poisoned");
     log.drain(..).collect()
 }
 
 pub fn highlight_clear_count() -> usize {
-    *MOCK_HIGHLIGHT.clear_calls.lock().expect("highlight clear count poisoned")
+    *HIGHLIGHT_CLEAR_CALLS.lock().expect("highlight clear count poisoned")
 }
 
 pub fn reset_highlight_state() {
-    MOCK_HIGHLIGHT.log.lock().expect("highlight log poisoned").clear();
-    *MOCK_HIGHLIGHT.clear_calls.lock().expect("highlight clear count poisoned") = 0;
+    HIGHLIGHT_LOG.lock().expect("highlight log poisoned").clear();
+    *HIGHLIGHT_CLEAR_CALLS.lock().expect("highlight clear count poisoned") = 0;
 }
 
 // Expose provider reference for explicit injection in tests/integration code.

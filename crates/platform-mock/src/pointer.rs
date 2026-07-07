@@ -18,7 +18,7 @@ struct PointerState {
 }
 
 impl PointerState {
-    const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self { position: (0.0, 0.0), log: Vec::new() }
     }
 
@@ -31,23 +31,28 @@ impl PointerState {
     }
 }
 
-pub struct MockPointerDevice {
-    state: Mutex<PointerState>,
-}
+pub struct MockPointerDevice;
+
+/// Shared in-memory pointer state. Every `MockPointerDevice` handle — the
+/// `MOCK_POINTER` static and any built by `create_mock_bundle` — observes this
+/// one state, so the `take_*`/`reset_*` helpers see calls routed through a
+/// per-runtime bundle. (The mock deliberately shares state for observability;
+/// true per-runtime isolation is a property of the real backends, not the mock.)
+static POINTER_STATE: Mutex<PointerState> = Mutex::new(PointerState::new());
 
 impl MockPointerDevice {
-    const fn new() -> Self {
-        Self { state: Mutex::new(PointerState::new()) }
+    pub(crate) const fn new() -> Self {
+        Self
     }
 }
 
 impl PointerDevice for MockPointerDevice {
     fn position(&self) -> Result<Point, PlatformError> {
-        Ok(self.state.lock().unwrap().point())
+        Ok(POINTER_STATE.lock().unwrap().point())
     }
 
     fn move_to(&self, point: Point) -> Result<(), PlatformError> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = POINTER_STATE.lock().unwrap();
         state.position = (point.x(), point.y());
         state.push(PointerLogEntry::Move(point));
         debug!(x = point.x(), y = point.y(), "mock-pointer: move");
@@ -55,19 +60,19 @@ impl PointerDevice for MockPointerDevice {
     }
 
     fn press(&self, button: PointerButton) -> Result<(), PlatformError> {
-        self.state.lock().unwrap().push(PointerLogEntry::Press(button));
+        POINTER_STATE.lock().unwrap().push(PointerLogEntry::Press(button));
         debug!(?button, "mock-pointer: press");
         Ok(())
     }
 
     fn release(&self, button: PointerButton) -> Result<(), PlatformError> {
-        self.state.lock().unwrap().push(PointerLogEntry::Release(button));
+        POINTER_STATE.lock().unwrap().push(PointerLogEntry::Release(button));
         debug!(?button, "mock-pointer: release");
         Ok(())
     }
 
     fn scroll(&self, delta: ScrollDelta) -> Result<(), PlatformError> {
-        self.state.lock().unwrap().push(PointerLogEntry::Scroll(delta));
+        POINTER_STATE.lock().unwrap().push(PointerLogEntry::Scroll(delta));
         debug!(h = delta.horizontal, v = delta.vertical, "mock-pointer: scroll");
         Ok(())
     }
@@ -87,13 +92,12 @@ pub static MOCK_POINTER: MockPointerDevice = MockPointerDevice::new();
 
 /// Clears the recorded pointer log and resets the cursor position to the origin.
 pub fn reset_pointer_state() {
-    let mut state = MOCK_POINTER.state.lock().unwrap();
-    *state = PointerState::new();
+    *POINTER_STATE.lock().unwrap() = PointerState::new();
 }
 
 /// Returns the recorded pointer log since the last reset and clears the buffer.
 pub fn take_pointer_log() -> Vec<PointerLogEntry> {
-    let mut state = MOCK_POINTER.state.lock().unwrap();
+    let mut state = POINTER_STATE.lock().unwrap();
     let entries = state.log.clone();
     state.log.clear();
     entries

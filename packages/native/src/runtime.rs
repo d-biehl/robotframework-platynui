@@ -684,17 +684,18 @@ impl PyRuntime {
     fn new_with_mock() -> PyResult<Self> {
         #[cfg(feature = "mock-provider")]
         {
+            // Link the mock platform crate so its `PlatformFactory` (id "mock")
+            // is registered for the config-driven selection below.
+            use platynui_platform_mock as _;
             let factories: [&'static dyn core_rs::provider::UiTreeProviderFactory; 1] =
                 [&platynui_provider_mock::MOCK_PROVIDER_FACTORY];
-            let platforms = runtime_rs::runtime::PlatformOverrides {
-                desktop_info: Some(&platynui_platform_mock::MOCK_PLATFORM),
-                highlight: Some(&platynui_platform_mock::MOCK_HIGHLIGHT),
-                screenshot: Some(&platynui_platform_mock::MOCK_SCREENSHOT),
-                pointer: Some(&platynui_platform_mock::MOCK_POINTER),
-                keyboard: Some(&platynui_platform_mock::MOCK_KEYBOARD),
-            };
+            // `use_mock` is sugar for selecting the mock platform backend.
+            let config = core_rs::config::RuntimeConfig::new(
+                core_rs::config::ConfigMap::new().with("backend", "mock"),
+                core_rs::config::ConfigMap::new(),
+            );
             #[allow(clippy::needless_return)]
-            return runtime_rs::Runtime::new_with_factories_and_platforms(&factories, platforms)
+            return runtime_rs::Runtime::new_with_factories_and_config(&factories, config)
                 .map(|inner| Self { inner: Mutex::new(inner) })
                 .map_err(map_provider_err);
         }

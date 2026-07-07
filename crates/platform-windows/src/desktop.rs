@@ -3,7 +3,6 @@ use std::env;
 use std::mem::size_of;
 
 use platynui_core::platform::{DesktopInfo, DesktopInfoProvider, MonitorInfo, PlatformError};
-use platynui_core::register_desktop_info_provider;
 use platynui_core::types::Rect;
 use platynui_core::ui::{RuntimeId, TechnologyId};
 use windows::Win32::Devices::Display::{
@@ -23,11 +22,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::BOOL;
 
-static WINDOWS_DESKTOP_PROVIDER: WindowsDesktopProvider = WindowsDesktopProvider;
-
-register_desktop_info_provider!(&WINDOWS_DESKTOP_PROVIDER);
-
-struct WindowsDesktopProvider;
+pub(crate) struct WindowsDesktopProvider;
 
 impl DesktopInfoProvider for WindowsDesktopProvider {
     fn desktop_info(&self) -> Result<DesktopInfo, PlatformError> {
@@ -222,7 +217,7 @@ mod tests {
     // about environment-specific layouts (RDP/headless).
     #[test]
     fn windows_desktop_info_smoke() {
-        let info = WINDOWS_DESKTOP_PROVIDER.desktop_info().expect("desktop info");
+        let info = WindowsDesktopProvider.desktop_info().expect("desktop info");
         assert!(info.bounds.width() > 0.0 && info.bounds.height() > 0.0, "desktop bounds must be positive");
 
         let count = info.display_count();

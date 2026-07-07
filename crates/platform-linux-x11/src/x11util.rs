@@ -1,90 +1,62 @@
+use platynui_core::config::RuntimeConfig;
 use platynui_core::platform::PlatformError;
 use std::env;
-use std::sync::Mutex;
-use std::sync::OnceLock;
+use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::Duration;
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::Window;
 use x11rb::rust_connection::RustConnection;
 
-pub struct X11Handle {
+/// An owned X11 connection bound to one display.
+///
+/// Held by the devices of a single runtime through an `Arc` (each device keeps
+/// a clone); when the last clone drops, the connection — and its file
+/// descriptor to the X server — is closed. This replaces the former process-
+/// global `OnceLock` connection, so a new runtime always establishes a fresh
+/// connection and teardown never leaves a cell that cannot be rebuilt.
+///
+/// `RustConnection` is `Send + Sync` and serialises its own requests, so the
+/// devices share it directly without an extra `Mutex`.
+pub struct X11Connection {
     pub conn: RustConnection,
     pub root: Window,
 }
 
-static X11: OnceLock<Mutex<Option<X11Handle>>> = OnceLock::new();
-
-pub fn connection() -> Result<X11Guard, PlatformError> {
-    let disp = env::var("DISPLAY").map_err(|_| PlatformError::UnsupportedPlatform {
-        platform: "X11",
-        details: Some("DISPLAY is not set".into()),
-    })?;
-
-    let cell = X11.get_or_init(|| {
+impl X11Connection {
+    /// Connect to `display` (falling back to `$DISPLAY` when `None`) and resolve
+    /// the root window of its default screen.
+    pub fn connect(display: Option<&str>) -> Result<Arc<X11Connection>, PlatformError> {
+        let disp = resolve_display(display)?;
         tracing::debug!(display = %disp, "establishing X11 connection");
-        match connect_raw(&disp) {
-            Ok((conn, screen_num)) => {
-                let root = conn.setup().roots[screen_num].root;
-                tracing::info!(display = %disp, screen = screen_num, root, "X11 connection established");
-                Mutex::new(Some(X11Handle { conn, root }))
-            }
-            Err(err) => {
-                tracing::error!(display = %disp, %err, "X11 connection failed");
-                Mutex::new(None)
-            }
-        }
-    });
-
-    let guard = cell.lock().map_err(|_| PlatformError::InitializationFailed {
-        component: "x11 connection state",
-        details: Some("mutex poisoned".into()),
-    })?;
-
-    if guard.is_none() {
-        return Err(PlatformError::InitializationFailed {
+        let (conn, screen_num) = connect_raw(&disp).map_err(|details| PlatformError::InitializationFailed {
             component: "x11 connection",
-            details: Some("not available after shutdown or failed connect".into()),
-        });
-    }
-
-    Ok(X11Guard(guard))
-}
-
-/// RAII guard that dereferences to [`X11Handle`].  Returned by [`connection()`].
-pub struct X11Guard(std::sync::MutexGuard<'static, Option<X11Handle>>);
-
-impl std::ops::Deref for X11Guard {
-    type Target = X11Handle;
-    fn deref(&self) -> &X11Handle {
-        // SAFETY: `connection()` only returns `X11Guard` when the `Option` is `Some`.
-        self.0.as_ref().expect("X11Guard created with None")
+            details: Some(details),
+        })?;
+        let root = conn.setup().roots[screen_num].root;
+        tracing::info!(display = %disp, screen = screen_num, root, "X11 connection established");
+        Ok(Arc::new(X11Connection { conn, root }))
     }
 }
 
-impl std::ops::DerefMut for X11Guard {
-    fn deref_mut(&mut self) -> &mut X11Handle {
-        self.0.as_mut().expect("X11Guard created with None")
+/// Resolve the X11 display name for a runtime: the `platform.x11.display`
+/// config value if present, else the `DISPLAY` environment variable.
+pub fn resolve_display(display: Option<&str>) -> Result<String, PlatformError> {
+    if let Some(disp) = display {
+        return Ok(disp.to_owned());
     }
+    env::var("DISPLAY")
+        .map_err(|_| PlatformError::UnsupportedPlatform { platform: "X11", details: Some("DISPLAY is not set".into()) })
 }
 
-/// Drops the shared X11 connection, closing the file descriptor to the
-/// X display server.  Subsequent calls to [`connection()`] will return an
-/// error.
-pub fn shutdown_connection() {
-    if let Some(cell) = X11.get()
-        && let Ok(mut guard) = cell.lock()
-        && let Some(handle) = guard.take()
-    {
-        tracing::debug!("X11 connection closed");
-        drop(handle);
-    }
+/// The X11 display named by `config` (`platform.x11.display`), if any. The
+/// caller falls back to the environment via [`resolve_display`].
+pub fn configured_display(config: &RuntimeConfig) -> Option<String> {
+    config.platform("x11").and_then(|x11| x11.get_str("display")).map(str::to_owned)
 }
 
-pub fn root_window_from(handle: &X11Handle) -> Window {
-    handle.root
-}
-
+/// Open a raw `RustConnection` to `disp_name`, bounding the connect attempt with
+/// a timeout so a dead or firewalled display cannot hang startup.
 pub fn connect_raw(disp_name: &str) -> Result<(RustConnection, usize), String> {
     let (tx, rx) = mpsc::channel();
     let disp = disp_name.to_owned();

@@ -16,7 +16,7 @@ use atspi_proxies::table::TableProxy;
 use atspi_proxies::table_cell::TableCellProxy;
 use atspi_proxies::text::TextProxy;
 use atspi_proxies::value::ValueProxy;
-use platynui_core::platform::{WindowId, WindowManager, window_manager};
+use platynui_core::platform::{WindowId, WindowManager};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::attribute_names::{
     activation_target, application, common, element, focusable, text_content, window_state as window_state_attr,
@@ -47,6 +47,13 @@ static TOOLKIT_NAME_CACHE: LazyLock<Mutex<HashMap<String, Option<String>>>> =
 
 pub struct AtspiNode {
     conn: Arc<AccessibilityConnection>,
+    /// Per-runtime window manager threaded in from the provider (which received
+    /// it via `set_window_manager`). `None` when the provider was created
+    /// without a runtime-injected window manager (e.g. some tests); window
+    /// operations then report [`AtspiError::NoWindowManager`] instead of
+    /// panicking. Propagated unchanged to every descendant node, exactly like
+    /// `conn`.
+    window_manager: Option<Arc<dyn WindowManager>>,
     obj: ObjectRefOwned,
     parent: Mutex<Option<Weak<dyn UiNode>>>,
     /// Whether the parent is an `Application` accessible.  Resolved at
@@ -70,10 +77,16 @@ pub struct AtspiNode {
 }
 
 impl AtspiNode {
-    pub fn new(conn: Arc<AccessibilityConnection>, obj: ObjectRefOwned, parent: Option<&Arc<dyn UiNode>>) -> Arc<Self> {
+    pub fn new(
+        conn: Arc<AccessibilityConnection>,
+        obj: ObjectRefOwned,
+        parent: Option<&Arc<dyn UiNode>>,
+        window_manager: Option<Arc<dyn WindowManager>>,
+    ) -> Arc<Self> {
         let parent_is_application = parent.map(|p| p.namespace() == Namespace::App).unwrap_or(false);
         let node = Arc::new(Self {
             conn,
+            window_manager,
             obj,
             parent: Mutex::new(parent.map(Arc::downgrade)),
             parent_is_application,
@@ -261,11 +274,12 @@ impl UiNode for AtspiNode {
 
         let parent = self.self_weak.get().and_then(|weak| weak.upgrade());
         let conn = self.conn.clone();
+        let window_manager = self.window_manager.clone();
         Box::new(children.into_iter().filter_map(move |child| {
             if AtspiNode::is_null_object(&child) {
                 return None;
             }
-            Some(AtspiNode::new(conn.clone(), child, parent.as_ref()) as Arc<dyn UiNode>)
+            Some(AtspiNode::new(conn.clone(), child, parent.as_ref(), window_manager.clone()) as Arc<dyn UiNode>)
         }))
     }
 
@@ -317,7 +331,12 @@ impl UiNode for AtspiNode {
                 return None;
             }
             let weak = self.self_weak.get().cloned()?;
-            let core = Arc::new(AtspiWindowSurface { node: weak, conn: self.conn.clone(), obj: self.obj.clone() });
+            let core = Arc::new(AtspiWindowSurface {
+                node: weak,
+                conn: self.conn.clone(),
+                obj: self.obj.clone(),
+                window_manager: self.window_manager.clone(),
+            });
             Some(make_window_pattern(id, core))
         } else {
             None
@@ -435,19 +454,23 @@ fn grab_focus(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Result<()
 /// Shared resolver for AT-SPI window-surface sub-patterns.
 ///
 /// Holds a single [`Weak`] reference to the owning [`UiNode`] and delegates
-/// all operations to the registered [`WindowManager`]. Wrapped by
-/// [`make_window_pattern`] into the eight orthogonal sub-pattern actions.
+/// all operations to the per-runtime [`WindowManager`] injected into that node.
+/// Wrapped by [`make_window_pattern`] into the eight orthogonal sub-pattern
+/// actions.
 struct AtspiWindowSurface {
     node: Weak<dyn UiNode>,
     conn: Arc<AccessibilityConnection>,
     obj: ObjectRefOwned,
+    /// Per-runtime window manager cloned from the owning node; `None` yields
+    /// [`AtspiError::NoWindowManager`] from [`AtspiWindowSurface::resolve`].
+    window_manager: Option<Arc<dyn WindowManager>>,
 }
 
 impl AtspiWindowSurface {
     /// Upgrade the weak node reference and resolve the window manager + window ID.
-    fn resolve(&self) -> Result<(&'static dyn WindowManager, WindowId), AtspiError> {
+    fn resolve(&self) -> Result<(Arc<dyn WindowManager>, WindowId), AtspiError> {
         let node = self.node.upgrade().ok_or(AtspiError::NodeDropped)?;
-        let wm = window_manager().ok_or(AtspiError::NoWindowManager)?;
+        let wm = self.window_manager.clone().ok_or(AtspiError::NoWindowManager)?;
         let wid = wm.resolve_window(node.as_ref()).map_err(|e| AtspiError::dbus("resolve_window", e))?;
         Ok((wm, wid))
     }
@@ -837,6 +860,7 @@ impl AttrsIter {
             node.obj.clone(),
             node.self_weak.get().cloned(),
             node.is_window_surface(),
+            node.window_manager.clone(),
         ));
         // Standard attributes always live in the Control namespace,
         // regardless of the node's own namespace (e.g. App for
@@ -1167,6 +1191,10 @@ struct LazyNodeData {
     obj: ObjectRefOwned,
     /// Weak reference to the owning UiNode, used for window manager queries.
     owner: Option<Weak<dyn UiNode>>,
+    /// Per-runtime window manager cloned from the owning node; `None` when no
+    /// runtime-injected window manager is present, in which case
+    /// window-manager-backed attributes resolve to their fallback values.
+    window_manager: Option<Arc<dyn WindowManager>>,
     /// Whether this node is a real platform top-level window.  Cached at
     /// construction so the answer is robust against the parent `Weak` (on
     /// the owning `AtspiNode`) becoming dangling later.
@@ -1186,12 +1214,14 @@ impl LazyNodeData {
         obj: ObjectRefOwned,
         owner: Option<Weak<dyn UiNode>>,
         is_real_toplevel: bool,
+        window_manager: Option<Arc<dyn WindowManager>>,
     ) -> Self {
         Self {
             conn,
             obj,
             owner,
             is_real_toplevel,
+            window_manager,
             state: OnceLock::new(),
             extents: OnceLock::new(),
             name: OnceLock::new(),
@@ -1286,9 +1316,9 @@ impl LazyNodeData {
     }
 
     /// Resolve the window manager and window ID for this node.
-    fn resolve_window(&self) -> Option<(&'static dyn WindowManager, WindowId)> {
+    fn resolve_window(&self) -> Option<(Arc<dyn WindowManager>, WindowId)> {
         let node = self.owner.as_ref()?.upgrade()?;
-        let wm = window_manager()?;
+        let wm = self.window_manager.clone()?;
         let wid = wm.resolve_window(node.as_ref()).ok()?;
         Some((wm, wid))
     }

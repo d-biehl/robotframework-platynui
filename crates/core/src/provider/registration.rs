@@ -132,7 +132,7 @@ mod tests {
             &DESCRIPTOR
         }
 
-        fn create(&self) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
+        fn create(&self, _config: &crate::config::RuntimeConfig) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
             Ok(Arc::new(DummyProvider::new()))
         }
     }

@@ -1,69 +1,49 @@
 use crate::x11util::connect_raw;
-use platynui_core::platform::{HighlightProvider, HighlightRequest, PlatformError, desktop_info_providers};
+use platynui_core::platform::{HighlightProvider, HighlightRequest, PlatformError};
 use platynui_core::types::Rect;
-use std::env;
-use std::sync::Mutex;
-use std::sync::OnceLock;
 use std::sync::mpsc::{Receiver, Sender};
-use std::thread;
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{self as x, ConnectionExt as XProtoExt, Rectangle, Window};
 
-pub struct LinuxHighlightProvider;
+/// Per-runtime X11 highlight overlay.
+///
+/// Owns a background thread (through [`OverlayController`]) that draws the
+/// overlay windows on its own dedicated X11 connection. The thread's display
+/// is supplied at construction (rather than read from `$DISPLAY`) so the
+/// overlay binds to the same session as the runtime that created it. Dropping
+/// the provider stops and joins the thread.
+pub struct LinuxHighlightProvider {
+    ctrl: OverlayController,
+}
+
+impl LinuxHighlightProvider {
+    /// Spawn the overlay thread bound to `display`.
+    pub fn new(display: String) -> Self {
+        Self { ctrl: OverlayThread::spawn(display) }
+    }
+}
 
 impl HighlightProvider for LinuxHighlightProvider {
     fn highlight(&self, request: &HighlightRequest) -> Result<(), PlatformError> {
         if request.rects.is_empty() {
             return self.clear();
         }
-        OverlayController::with(|ctrl| ctrl.show(&request.rects, request.duration))
+        self.ctrl.show(&request.rects, request.duration)
     }
 
     fn clear(&self) -> Result<(), PlatformError> {
-        OverlayController::with(|ctrl| ctrl.clear())
-    }
-}
-
-/// Shuts down the highlight overlay thread by dropping the channel sender.
-///
-/// The background thread will receive a `Disconnected` error, destroy all
-/// overlay windows, and exit.  Subsequent highlight requests will return an
-/// error.
-pub(crate) fn shutdown_highlight() {
-    if let Ok(mut guard) = OverlayController::global().lock()
-        && let Some(ctrl) = guard.take()
-    {
-        tracing::debug!("highlight overlay controller dropped \u{2014} thread will exit");
-        drop(ctrl);
+        self.ctrl.clear()
     }
 }
 
 struct OverlayController {
     tx: Sender<Command>,
+    handle: Option<JoinHandle<()>>,
 }
 
 impl OverlayController {
-    fn global() -> &'static Mutex<Option<Self>> {
-        static CTRL: OnceLock<Mutex<Option<OverlayController>>> = OnceLock::new();
-        CTRL.get_or_init(|| Mutex::new(Some(OverlayThread::spawn())))
-    }
-
-    fn with<F, R>(f: F) -> Result<R, PlatformError>
-    where
-        F: FnOnce(&Self) -> Result<R, PlatformError>,
-    {
-        let guard = Self::global().lock().map_err(|_| PlatformError::OperationFailed {
-            operation: "x11 highlight lock",
-            details: Some("poisoned".into()),
-        })?;
-        let ctrl = guard.as_ref().ok_or_else(|| PlatformError::OperationFailed {
-            operation: "x11 highlight controller",
-            details: Some("shut down".into()),
-        })?;
-        f(ctrl)
-    }
-
     fn show(&self, rects: &[Rect], duration: Option<Duration>) -> Result<(), PlatformError> {
         self.tx.send(Command::Show { rects: rects.to_vec(), duration }).map_err(|_| PlatformError::OperationFailed {
             operation: "x11 highlight thread",
@@ -79,6 +59,21 @@ impl OverlayController {
     }
 }
 
+impl Drop for OverlayController {
+    fn drop(&mut self) {
+        // Close the command channel so the overlay thread's `recv` returns
+        // `Disconnected`, destroys its windows, and exits. `self.tx` is a
+        // struct field we cannot move out of here, so swap it for a throwaway
+        // (already-disconnected) sender and drop the real one before joining.
+        let (dead_tx, _) = std::sync::mpsc::channel::<Command>();
+        drop(std::mem::replace(&mut self.tx, dead_tx));
+        if let Some(handle) = self.handle.take() {
+            tracing::debug!("highlight overlay controller dropped \u{2014} joining thread");
+            let _ = handle.join();
+        }
+    }
+}
+
 enum Command {
     Show { rects: Vec<Rect>, duration: Option<Duration> },
     Clear,
@@ -87,21 +82,14 @@ enum Command {
 struct OverlayThread;
 
 impl OverlayThread {
-    fn spawn() -> OverlayController {
+    fn spawn(display: String) -> OverlayController {
         let (tx, rx) = std::sync::mpsc::channel::<Command>();
-        thread::spawn(move || Self::run(rx));
-        OverlayController { tx }
+        let handle = thread::spawn(move || Self::run(rx, display));
+        OverlayController { tx, handle: Some(handle) }
     }
 
-    fn run(rx: Receiver<Command>) {
-        // Separate X11 connection in this thread
-        let display = match env::var("DISPLAY") {
-            Ok(val) => val,
-            Err(_) => {
-                tracing::warn!("DISPLAY not set — highlight thread exiting");
-                return;
-            }
-        };
+    fn run(rx: Receiver<Command>, display: String) {
+        // Separate X11 connection in this thread, bound to the runtime's display.
         let (conn, screen_num) = match connect_raw(&display) {
             Ok(v) => v,
             Err(err) => {
@@ -136,7 +124,7 @@ impl OverlayThread {
                     }
                     // Match Windows style: expand by 1px gap with 3px frame and clamp to desktop bounds if present
                     let expanded: Vec<Rect> = rects.iter().map(|r| expand_rect(r, 3, 1)).collect();
-                    let bounds = desktop_bounds();
+                    let bounds = root_bounds(&conn, root);
                     let mut clamped_pairs: Vec<(Rect, Rect)> = Vec::new();
                     for r in &expanded {
                         if let Some(b) = bounds.as_ref() {
@@ -262,6 +250,14 @@ impl OverlayThread {
 
 // Geometry helpers ------------------------------------------------------------------------------
 
+/// Root-window bounds of the overlay thread's own connection, used to clamp
+/// highlight rectangles. Returns `None` when the geometry cannot be read, in
+/// which case rectangles are drawn unclamped.
+fn root_bounds<C: Connection>(conn: &C, root: Window) -> Option<Rect> {
+    let geom = conn.get_geometry(root).ok()?.reply().ok()?;
+    Some(Rect::new(0.0, 0.0, f64::from(geom.width), f64::from(geom.height)))
+}
+
 fn intersect_rect(a: &Rect, b: &Rect) -> Option<Rect> {
     let left = a.x().max(b.x());
     let top = a.y().max(b.y());
@@ -356,8 +352,4 @@ fn frame_segments(pairs: &[(Rect, Rect)], thickness: i32) -> Vec<Rect> {
         push_vline(&mut result, y0, y0 + h, x0 + w - t, t, styles.right);
     }
     result
-}
-
-fn desktop_bounds() -> Option<Rect> {
-    desktop_info_providers().next().and_then(|p| p.desktop_info().ok()).map(|info| info.bounds)
 }

@@ -3,6 +3,7 @@ use std::sync::Arc;
 // Windows UIAutomation provider: registers the UIA technology and streams root
 // children via the RawView walker.
 
+use platynui_core::config::RuntimeConfig;
 use platynui_core::provider::{ProviderDescriptor, ProviderError, ProviderKind, UiTreeProvider, UiTreeProviderFactory};
 use platynui_core::register_provider;
 use platynui_core::ui::{TechnologyId, UiNode};
@@ -172,7 +173,7 @@ impl UiTreeProviderFactory for WindowsUiaFactory {
         &DESCRIPTOR
     }
 
-    fn create(&self) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
+    fn create(&self, _config: &RuntimeConfig) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
         Ok(Arc::new(WindowsUiaProvider::new()))
     }
 }

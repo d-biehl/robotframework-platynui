@@ -1,45 +1,26 @@
-use crate::x11util::{connection, root_window_from};
+use crate::x11util::X11Connection;
 use platynui_core::platform::{DesktopInfo, DesktopInfoProvider, MonitorInfo, PlatformError};
 use platynui_core::types::Rect;
 use platynui_core::ui::{DESKTOP_RUNTIME_ID, RuntimeId, TechnologyId};
 use std::env;
+use std::sync::Arc;
 use x11rb::protocol::randr::ConnectionExt as _;
 use x11rb::protocol::xproto::ConnectionExt as _;
 
-pub struct LinuxDesktopInfo;
+pub struct LinuxDesktopInfo {
+    conn: Arc<X11Connection>,
+}
+
+impl LinuxDesktopInfo {
+    pub fn new(conn: Arc<X11Connection>) -> Self {
+        Self { conn }
+    }
+}
 
 impl DesktopInfoProvider for LinuxDesktopInfo {
     fn desktop_info(&self) -> Result<DesktopInfo, PlatformError> {
-        let guard = match connection() {
-            Ok(g) => g,
-            Err(_) => {
-                tracing::warn!("X11 connection failed — using fallback desktop info");
-                // Fallback when no X11 display is available
-                let bounds = Rect::new(0.0, 0.0, 1920.0, 1080.0);
-                let os_name = env::consts::OS.to_string();
-                let os_version = env::consts::ARCH.to_string();
-                let technology = TechnologyId::from("Fallback");
-                let runtime_id = RuntimeId::from(DESKTOP_RUNTIME_ID);
-                let monitors = vec![MonitorInfo {
-                    id: "fallback".into(),
-                    name: Some("Fallback".into()),
-                    bounds,
-                    is_primary: true,
-                    scale_factor: Some(1.0),
-                }];
-                return Ok(DesktopInfo {
-                    runtime_id,
-                    name: "Fallback Desktop".into(),
-                    technology,
-                    bounds,
-                    os_name,
-                    os_version,
-                    monitors,
-                });
-            }
-        };
-        let root = root_window_from(&guard);
-        let (bounds, monitors) = match monitors_via_randr(&guard.conn, root) {
+        let root = self.conn.root;
+        let (bounds, monitors) = match monitors_via_randr(&self.conn.conn, root) {
             Ok(ms) if !ms.is_empty() => {
                 tracing::debug!(monitor_count = ms.len(), "RANDR monitors enumerated");
                 // Compute union bounds across monitors
@@ -59,7 +40,7 @@ impl DesktopInfoProvider for LinuxDesktopInfo {
             _ => {
                 tracing::debug!("RANDR unavailable or empty — falling back to root window geometry");
                 // Fallback to root geometry as a single monitor
-                let geom = guard.conn.get_geometry(root).map_err(to_pf)?.reply().map_err(to_pf)?;
+                let geom = self.conn.conn.get_geometry(root).map_err(to_pf)?.reply().map_err(to_pf)?;
                 let width = f64::from(geom.width);
                 let height = f64::from(geom.height);
                 let b = Rect::new(0.0, 0.0, width, height);

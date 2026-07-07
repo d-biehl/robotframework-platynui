@@ -1,14 +1,20 @@
 //! EWMH-based [`WindowManager`] for X11.
 //!
-//! Migrated from `provider-atspi/src/ewmh.rs`.  Uses the shared X11
-//! connection from [`crate::x11util`] and registers as a platform-level
-//! window manager provider so any accessibility provider can resolve and
-//! manage native windows without a direct `x11rb` dependency.
+//! Migrated from `provider-atspi/src/ewmh.rs`.  Holds the runtime's owned X11
+//! connection ([`crate::x11util::X11Connection`]) and acts as a platform-level
+//! window manager so any accessibility provider can resolve and manage native
+//! windows without a direct `x11rb` dependency.
+//!
+//! The interned-atom cache ([`ATOMS`]) stays a process-global `OnceLock`: atoms
+//! are stable for the lifetime of the X server, so caching them across runtimes
+//! is safe and it is never cleared on shutdown. Only the connection is
+//! per-instance.
 
-use crate::x11util;
+use crate::x11util::X11Connection;
 use platynui_core::platform::{PlatformError, WindowId, WindowManager};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::{Namespace, UiNode};
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use tracing::{debug, trace, warn};
@@ -53,15 +59,14 @@ fn intern(conn: &RustConnection, name: &[u8]) -> Result<Atom, PlatformError> {
         })
 }
 
-fn atoms() -> Result<std::sync::MutexGuard<'static, EwmhAtoms>, PlatformError> {
+fn atoms(x11: &X11Connection) -> Result<std::sync::MutexGuard<'static, EwmhAtoms>, PlatformError> {
     if let Some(cell) = ATOMS.get() {
         return cell.lock().map_err(|_| PlatformError::OperationFailed {
             operation: "ewmh atoms lock",
             details: Some("poisoned".into()),
         });
     }
-    let guard = x11util::connection()?;
-    let conn = &guard.conn;
+    let conn = &x11.conn;
     let a = EwmhAtoms {
         net_client_list: intern(conn, b"_NET_CLIENT_LIST")?,
         net_wm_pid: intern(conn, b"_NET_WM_PID")?,
@@ -139,9 +144,8 @@ fn get_window_name(conn: &RustConnection, win: Window, atoms: &EwmhAtoms) -> Opt
 /// Find X11 windows belonging to the given PID.  When multiple candidates
 /// exist, disambiguate by comparing the AT-SPI window `name` against
 /// `_NET_WM_NAME`.
-fn find_xid_for_pid(pid: u32, window_name: Option<&str>) -> Result<Window, PlatformError> {
-    let atoms = atoms()?;
-    let x11 = x11util::connection()?;
+fn find_xid_for_pid(x11: &X11Connection, pid: u32, window_name: Option<&str>) -> Result<Window, PlatformError> {
+    let atoms = atoms(x11)?;
     let client_list = get_client_list(&x11.conn, x11.root, atoms.net_client_list)?;
 
     let mut candidates: Vec<Window> = Vec::new();
@@ -278,7 +282,15 @@ fn pid_from_attr(node: &dyn UiNode) -> Option<u32> {
 //  WindowManager implementation
 // ---------------------------------------------------------------------------
 
-pub struct X11EwmhWindowManager;
+pub struct X11EwmhWindowManager {
+    conn: Arc<X11Connection>,
+}
+
+impl X11EwmhWindowManager {
+    pub fn new(conn: Arc<X11Connection>) -> Self {
+        Self { conn }
+    }
+}
 
 impl WindowManager for X11EwmhWindowManager {
     fn name(&self) -> &'static str {
@@ -294,14 +306,14 @@ impl WindowManager for X11EwmhWindowManager {
         let node_name = node.name();
         let name_hint = if node_name.is_empty() { None } else { Some(node_name.as_str()) };
 
-        let xid = find_xid_for_pid(pid, name_hint)?;
+        let xid = find_xid_for_pid(&self.conn, pid, name_hint)?;
         trace!(pid, xid, "resolved WindowId");
         Ok(WindowId::new(u64::from(xid)))
     }
 
     fn bounds(&self, id: WindowId, _toolkit_hint: Option<&str>) -> Result<Rect, PlatformError> {
         let xid = id.raw() as Window;
-        let x11 = x11util::connection()?;
+        let x11 = &self.conn;
         let geom = x11
             .conn
             .get_geometry(xid)
@@ -322,8 +334,8 @@ impl WindowManager for X11EwmhWindowManager {
 
     fn is_active(&self, id: WindowId) -> Result<bool, PlatformError> {
         let xid = id.raw() as Window;
-        let atoms = atoms()?;
-        let x11 = x11util::connection()?;
+        let atoms = atoms(&self.conn)?;
+        let x11 = &self.conn;
         let reply = x11
             .conn
             .get_property(false, x11.root, atoms.net_active_window, AtomEnum::WINDOW, 0, 1)
@@ -343,8 +355,8 @@ impl WindowManager for X11EwmhWindowManager {
     fn activate(&self, id: WindowId) -> Result<(), PlatformError> {
         let xid = id.raw() as Window;
         debug!(xid, "EWMH activate");
-        let atoms = atoms()?;
-        let x11 = x11util::connection()?;
+        let atoms = atoms(&self.conn)?;
+        let x11 = &self.conn;
         send_client_message(&x11.conn, x11.root, xid, atoms.net_active_window, [2, 0, 0, 0, 0])?;
         flush(&x11.conn)
     }
@@ -352,8 +364,8 @@ impl WindowManager for X11EwmhWindowManager {
     fn close(&self, id: WindowId) -> Result<(), PlatformError> {
         let xid = id.raw() as Window;
         debug!(xid, "EWMH close");
-        let atoms = atoms()?;
-        let x11 = x11util::connection()?;
+        let atoms = atoms(&self.conn)?;
+        let x11 = &self.conn;
         send_client_message(&x11.conn, x11.root, xid, atoms.net_close_window, [0, 2, 0, 0, 0])?;
         flush(&x11.conn)
     }
@@ -361,7 +373,7 @@ impl WindowManager for X11EwmhWindowManager {
     fn minimize(&self, id: WindowId) -> Result<(), PlatformError> {
         let xid = id.raw() as Window;
         debug!(xid, "EWMH minimize (iconify)");
-        let x11 = x11util::connection()?;
+        let x11 = &self.conn;
         // XIconifyWindow equivalent: use ClientMessage WM_CHANGE_STATE with IconicState.
         let wm_change_state = intern(&x11.conn, b"WM_CHANGE_STATE")?;
         send_client_message(&x11.conn, x11.root, xid, wm_change_state, [3 /* IconicState */, 0, 0, 0, 0])?;
@@ -371,8 +383,8 @@ impl WindowManager for X11EwmhWindowManager {
     fn maximize(&self, id: WindowId) -> Result<(), PlatformError> {
         let xid = id.raw() as Window;
         debug!(xid, "EWMH maximize");
-        let atoms = atoms()?;
-        let x11 = x11util::connection()?;
+        let atoms = atoms(&self.conn)?;
+        let x11 = &self.conn;
         // _NET_WM_STATE add _NET_WM_STATE_MAXIMIZED_VERT + _NET_WM_STATE_MAXIMIZED_HORZ
         send_client_message(
             &x11.conn,
@@ -393,8 +405,8 @@ impl WindowManager for X11EwmhWindowManager {
     fn restore(&self, id: WindowId) -> Result<(), PlatformError> {
         let xid = id.raw() as Window;
         debug!(xid, "EWMH restore");
-        let atoms = atoms()?;
-        let x11 = x11util::connection()?;
+        let atoms = atoms(&self.conn)?;
+        let x11 = &self.conn;
         // Remove maximised state.
         send_client_message(
             &x11.conn,
@@ -419,7 +431,7 @@ impl WindowManager for X11EwmhWindowManager {
     fn move_to(&self, id: WindowId, position: Point) -> Result<(), PlatformError> {
         let xid = id.raw() as Window;
         debug!(xid, x = position.x(), y = position.y(), "EWMH move_to");
-        let x11 = x11util::connection()?;
+        let x11 = &self.conn;
         let aux = ConfigureWindowAux::new().x(position.x() as i32).y(position.y() as i32);
         x11.conn.configure_window(xid, &aux).map_err(|e| PlatformError::OperationFailed {
             operation: "x11 configure_window move",
@@ -431,7 +443,7 @@ impl WindowManager for X11EwmhWindowManager {
     fn resize(&self, id: WindowId, size: Size) -> Result<(), PlatformError> {
         let xid = id.raw() as Window;
         debug!(xid, w = size.width(), h = size.height(), "EWMH resize");
-        let x11 = x11util::connection()?;
+        let x11 = &self.conn;
         let aux = ConfigureWindowAux::new().width(size.width() as u32).height(size.height() as u32);
         x11.conn.configure_window(xid, &aux).map_err(|e| PlatformError::OperationFailed {
             operation: "x11 configure_window resize",
@@ -442,21 +454,16 @@ impl WindowManager for X11EwmhWindowManager {
 }
 
 // ---------------------------------------------------------------------------
-//  Registration
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-//  EWMH WM detection — called during PlatformModule::initialize()
+//  EWMH WM detection — called from the platform bundle factory
 // ---------------------------------------------------------------------------
 
 /// Check whether an EWMH-compatible window manager is running and log the
 /// result.  Returns `Ok(true)` when a WM was detected, `Ok(false)` when the
 /// check cannot confirm WM presence (non-fatal).
-pub fn check_ewmh_wm_support() -> Result<bool, PlatformError> {
-    // Initialize atoms first (needs its own connection lock) before acquiring
-    // the x11 guard below — otherwise we deadlock on the non-reentrant Mutex.
-    let atoms = atoms()?;
-    let x11 = x11util::connection()?;
+///
+/// Called once from [`crate::create_x11_bundle`] on the runtime's connection.
+pub fn check_ewmh_wm_support(x11: &X11Connection) -> Result<bool, PlatformError> {
+    let atoms = atoms(x11)?;
 
     // 1. _NET_SUPPORTING_WM_CHECK on root → child window
     let child_reply = x11

@@ -13,12 +13,14 @@ mod process;
 mod timeout;
 
 use crate::clearable_cell::ClearableCell;
-use crate::connection::connect_a11y_bus;
+use crate::connection::connect_a11y_bus_with;
 use crate::error::AtspiError;
 use crate::node::AtspiNode;
 use atspi_common::Role;
 use atspi_connection::AccessibilityConnection;
 use atspi_proxies::accessible::AccessibleProxy;
+use platynui_core::config::RuntimeConfig;
+use platynui_core::platform::WindowManager;
 use platynui_core::provider::{ProviderDescriptor, ProviderError, ProviderKind, UiTreeProvider, UiTreeProviderFactory};
 use platynui_core::ui::{TechnologyId, UiNode};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -49,8 +51,18 @@ impl UiTreeProviderFactory for AtspiFactory {
         &DESCRIPTOR
     }
 
-    fn create(&self) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
-        Ok(Arc::new(AtspiProvider::new()))
+    fn create(&self, config: &RuntimeConfig) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
+        Ok(Arc::new(self.build(config)))
+    }
+}
+
+impl AtspiFactory {
+    /// Build a concrete provider from `config` — split out from `create` so the
+    /// config → `bus_address` wiring is unit-testable without a live bus.
+    fn build(&self, config: &RuntimeConfig) -> AtspiProvider {
+        let bus_address =
+            config.provider(PROVIDER_ID).and_then(|atspi| atspi.get_str("bus_address")).map(str::to_owned);
+        AtspiProvider::new(bus_address)
     }
 }
 
@@ -58,24 +70,46 @@ pub struct AtspiProvider {
     descriptor: &'static ProviderDescriptor,
     conn: ClearableCell<Arc<AccessibilityConnection>>,
     is_shutdown: AtomicBool,
+    /// Explicit AT-SPI bus address from `providers.atspi.bus_address`; `None`
+    /// falls back to `AT_SPI_BUS_ADDRESS` / default discovery.
+    bus_address: Option<String>,
+    /// Per-runtime window manager injected via [`UiTreeProvider::set_window_manager`]
+    /// after the runtime builds its platform bundle. Threaded into every
+    /// top-level window node so window operations target this runtime's session
+    /// instead of a process-global. Empty until injected (e.g. when the
+    /// provider is used without a runtime).
+    window_manager: ClearableCell<Arc<dyn WindowManager>>,
 }
 
 impl AtspiProvider {
-    fn new() -> Self {
-        Self { descriptor: &DESCRIPTOR, conn: ClearableCell::new(), is_shutdown: AtomicBool::new(false) }
+    fn new(bus_address: Option<String>) -> Self {
+        Self {
+            descriptor: &DESCRIPTOR,
+            conn: ClearableCell::new(),
+            is_shutdown: AtomicBool::new(false),
+            bus_address,
+            window_manager: ClearableCell::new(),
+        }
     }
 
     fn connection(&self) -> Result<Arc<AccessibilityConnection>, AtspiError> {
         if self.is_shutdown.load(Ordering::Acquire) {
             return Err(AtspiError::Shutdown);
         }
-        self.conn.get_or_try_init(|| Ok(Arc::new(connect_a11y_bus()?)))
+        let bus_address = self.bus_address.as_deref();
+        self.conn.get_or_try_init(|| Ok(Arc::new(connect_a11y_bus_with(bus_address)?)))
     }
 }
 
 impl UiTreeProvider for AtspiProvider {
     fn descriptor(&self) -> &ProviderDescriptor {
         self.descriptor
+    }
+
+    fn set_window_manager(&self, window_manager: Arc<dyn WindowManager>) {
+        // Set-once (first-writer-wins via ClearableCell); the runtime calls
+        // this exactly once after building its platform bundle.
+        self.window_manager.set(window_manager);
     }
 
     fn shutdown(&self) {
@@ -109,6 +143,7 @@ impl UiTreeProvider for AtspiProvider {
 
         let parent = Arc::clone(&parent);
         let conn = conn.clone();
+        let window_manager = self.window_manager.get();
         Ok(Box::new(children.into_iter().filter_map(move |child| {
             if AtspiNode::is_null_object(&child) {
                 return None;
@@ -162,7 +197,7 @@ impl UiTreeProvider for AtspiProvider {
             let role = block_on_timeout_call(proxy.get_role()).and_then(|r| r.ok()).unwrap_or(Role::Invalid);
             let node_name = block_on_timeout_call(proxy.name()).and_then(|r| r.ok()).and_then(node::normalize_value);
 
-            let node = AtspiNode::new(conn.clone(), child, Some(&parent));
+            let node = AtspiNode::new(conn.clone(), child, Some(&parent), window_manager.clone());
             // Seed caches directly — no additional D-Bus calls inside.
             node.cached_child_count.set(Some(child_count));
             node.interfaces.set(interfaces);
@@ -196,3 +231,23 @@ pub static ATSPI_FACTORY: AtspiFactory = AtspiFactory;
 
 // Auto-register the AT-SPI provider when linked.
 platynui_core::register_provider!(&ATSPI_FACTORY);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use platynui_core::config::{ConfigMap, RuntimeConfig};
+
+    #[test]
+    fn factory_reads_configured_bus_address() {
+        let providers = ConfigMap::new()
+            .with("atspi", ConfigMap::new().with("bus_address", "unix:path=/run/user/1000/at-spi/bus_1"));
+        let config = RuntimeConfig::new(ConfigMap::new(), providers);
+        assert_eq!(AtspiFactory.build(&config).bus_address.as_deref(), Some("unix:path=/run/user/1000/at-spi/bus_1"));
+    }
+
+    #[test]
+    fn factory_defaults_to_env_discovery_without_config() {
+        // No providers.atspi.bus_address → None → connect_a11y_bus_with falls back to env/default.
+        assert_eq!(AtspiFactory.build(&RuntimeConfig::default()).bus_address, None);
+    }
+}

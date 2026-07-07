@@ -1,5 +1,6 @@
 use crate::events;
 use crate::provider::MockProvider;
+use platynui_core::config::RuntimeConfig;
 use platynui_core::provider::{
     ProviderDescriptor, ProviderError, ProviderEventCapabilities, ProviderKind, UiTreeProvider, UiTreeProviderFactory,
 };
@@ -36,7 +37,7 @@ impl UiTreeProviderFactory for MockProviderFactory {
         Self::descriptor_static()
     }
 
-    fn create(&self) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
+    fn create(&self, _config: &RuntimeConfig) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
         let provider: Arc<MockProvider> = Arc::new(MockProvider::new(Self::descriptor_static()));
         events::register_active_instance(&provider);
         Ok(provider)

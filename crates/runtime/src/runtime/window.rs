@@ -109,10 +109,10 @@ impl Runtime {
         }
     }
 
-    /// Highlights the given regions using the registered highlight provider.
+    /// Highlights the given regions using this runtime's platform highlight device.
     pub fn highlight(&self, request: &HighlightRequest) -> Result<(), PlatformError> {
-        match self.highlight {
-            Some(provider) => provider.highlight(request),
+        match self.platform.as_ref() {
+            Some(bundle) => bundle.highlight.highlight(request),
             None => Err(PlatformError::UnsupportedPlatform {
                 platform: "highlight provider registry",
                 details: Some("no HighlightProvider registered".into()),
@@ -120,10 +120,10 @@ impl Runtime {
         }
     }
 
-    /// Clears an active highlight overlay if a provider is available.
+    /// Clears an active highlight overlay if a platform is available.
     pub fn clear_highlight(&self) -> Result<(), PlatformError> {
-        match self.highlight {
-            Some(provider) => provider.clear(),
+        match self.platform.as_ref() {
+            Some(bundle) => bundle.highlight.clear(),
             None => Err(PlatformError::UnsupportedPlatform {
                 platform: "highlight provider registry",
                 details: Some("no HighlightProvider registered".into()),
@@ -131,10 +131,10 @@ impl Runtime {
         }
     }
 
-    /// Captures a screenshot using the registered screenshot provider.
+    /// Captures a screenshot using this runtime's platform screenshot device.
     pub fn screenshot(&self, request: &ScreenshotRequest) -> Result<Screenshot, PlatformError> {
-        match self.screenshot {
-            Some(provider) => provider.capture(request),
+        match self.platform.as_ref() {
+            Some(bundle) => bundle.screenshot.capture(request),
             None => Err(PlatformError::UnsupportedPlatform {
                 platform: "screenshot provider registry",
                 details: Some("no ScreenshotProvider registered".into()),
@@ -165,7 +165,7 @@ mod tests {
     fn runtime_focus_succeeds_on_focusable(rt_runtime_focus: Runtime) {
         let mut runtime = rt_runtime_focus;
         let desktop = runtime.desktop_node();
-        let focus = FOCUS_FACTORY.create().expect("focus provider");
+        let focus = FOCUS_FACTORY.create(&platynui_core::config::RuntimeConfig::default()).expect("focus provider");
         let nodes = focus.get_nodes(desktop).expect("children");
         let mut button = None;
         for node in nodes {
@@ -182,7 +182,7 @@ mod tests {
     fn runtime_focus_requires_focusable_pattern(rt_runtime_focus: Runtime) {
         let mut runtime = rt_runtime_focus;
         let desktop = runtime.desktop_node();
-        let focus = FOCUS_FACTORY.create().expect("focus provider");
+        let focus = FOCUS_FACTORY.create(&platynui_core::config::RuntimeConfig::default()).expect("focus provider");
         let nodes = focus.get_nodes(desktop).expect("children");
         let mut panel = None;
         for node in nodes {

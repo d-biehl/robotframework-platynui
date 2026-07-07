@@ -216,7 +216,7 @@ pub(crate) struct WaylandSession {
 }
 
 /// Process-global Wayland state populated during
-/// [`crate::init::WaylandModule::initialize`].
+/// [`create_wayland_bundle`](crate::create_wayland_bundle).
 struct WaylandGlobal {
     compositor: CompositorType,
     shutdown: Arc<AtomicBool>,

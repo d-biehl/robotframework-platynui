@@ -4,11 +4,15 @@
 //! management primitives so integration tests can run without native APIs.
 
 mod desktop;
+mod factory;
 mod highlight;
 mod keyboard;
 mod pointer;
 mod screenshot;
 mod window_manager;
+
+// Per-runtime platform factory (opt-in via config.platform.backend = "mock").
+pub use factory::{MOCK_PLATFORM_FACTORY, MockPlatformFactory, create_mock_bundle};
 
 // Export mock components as public static references for direct use
 pub use desktop::MOCK_PLATFORM;

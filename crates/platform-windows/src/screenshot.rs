@@ -1,7 +1,6 @@
 use platynui_core::platform::{
-    PixelFormat, PlatformError, Screenshot, ScreenshotProvider, ScreenshotRequest, desktop_info_providers,
+    DesktopInfoProvider, PixelFormat, PlatformError, Screenshot, ScreenshotProvider, ScreenshotRequest,
 };
-use platynui_core::register_screenshot_provider;
 use platynui_core::types::Rect;
 use std::mem::size_of;
 // no HWND import needed with Option<HWND> calls
@@ -10,11 +9,7 @@ use windows::Win32::Graphics::Gdi::{
     DeleteObject, GetDC, HBITMAP, HDC, ReleaseDC, SRCCOPY, SelectObject,
 };
 
-static WINDOWS_SCREENSHOT: WindowsScreenshotProvider = WindowsScreenshotProvider;
-
-register_screenshot_provider!(&WINDOWS_SCREENSHOT);
-
-pub struct WindowsScreenshotProvider;
+pub(crate) struct WindowsScreenshotProvider;
 
 impl ScreenshotProvider for WindowsScreenshotProvider {
     fn capture(&self, request: &ScreenshotRequest) -> Result<Screenshot, PlatformError> {
@@ -121,5 +116,8 @@ fn intersect_rect(a: &Rect, b: &Rect) -> Option<Rect> {
 }
 
 fn desktop_bounds() -> Option<Rect> {
-    desktop_info_providers().next().and_then(|p| p.desktop_info().ok()).map(|info| info.bounds)
+    // The Windows desktop-info provider is stateless (it queries Win32 metrics
+    // directly), so query it in-crate rather than through the inventory registry
+    // — the runtime no longer registers platform devices globally.
+    crate::desktop::WindowsDesktopProvider.desktop_info().ok().map(|info| info.bounds)
 }

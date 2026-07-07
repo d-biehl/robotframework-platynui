@@ -11,9 +11,10 @@
 //! - CapsLock-aware shift management for alphabetic characters
 //! - Dynamic keycode remapping for characters outside the active layout
 
-use crate::x11util::{X11Handle, connection, root_window_from};
+use crate::x11util::X11Connection;
 use platynui_core::platform::{KeyCode, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent, PlatformError};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::{LazyLock, Mutex, OnceLock};
 use tracing::{debug, trace};
 use x11rb::connection::Connection;
@@ -363,13 +364,13 @@ struct KeymapInfo {
 
 impl KeymapInfo {
     /// Load the keyboard mapping from the X11 server.
-    fn load(guard: &X11Handle) -> Result<Self, KeyboardError> {
-        let setup = guard.conn.setup();
+    fn load(x11: &X11Connection) -> Result<Self, KeyboardError> {
+        let setup = x11.conn.setup();
         let min_kc = setup.min_keycode;
         let max_kc = setup.max_keycode;
         let count = max_kc - min_kc + 1;
 
-        let reply = guard.conn.get_keyboard_mapping(min_kc, count).map_err(to_kb)?.reply().map_err(to_kb)?;
+        let reply = x11.conn.get_keyboard_mapping(min_kc, count).map_err(to_kb)?.reply().map_err(to_kb)?;
 
         let kpk = reply.keysyms_per_keycode;
         let keysyms = &reply.keysyms;
@@ -438,6 +439,10 @@ impl KeymapInfo {
 //  Global keyboard state
 // ---------------------------------------------------------------------------
 
+// The keymap cache stays a process-global `OnceLock`: the X11 keyboard mapping
+// is a property of the server, stable across runtimes, so caching it globally
+// is safe. Only the connection is per-instance — the loader takes the runtime's
+// `&X11Connection`.
 struct KeyboardState {
     keymap: Option<KeymapInfo>,
 }
@@ -447,11 +452,10 @@ fn keyboard_state() -> &'static Mutex<KeyboardState> {
     STATE.get_or_init(|| Mutex::new(KeyboardState { keymap: None }))
 }
 
-/// Ensure the keymap is loaded, returning a reference to it.
+/// Ensure the keymap is loaded, fetching it over `x11` on first use.
 ///
-/// Acquires and releases the X11 connection lock to fetch the mapping.
 /// The resulting `KeymapInfo` is stored in global state for reuse.
-fn ensure_keymap() -> Result<(), KeyboardError> {
+fn ensure_keymap(x11: &X11Connection) -> Result<(), KeyboardError> {
     let mut state = keyboard_state().lock().map_err(|_| {
         KeyboardError::Platform(PlatformError::OperationFailed {
             operation: "x11 keyboard state lock",
@@ -463,8 +467,7 @@ fn ensure_keymap() -> Result<(), KeyboardError> {
         return Ok(());
     }
 
-    let guard = connection().map_err(KeyboardError::Platform)?;
-    let keymap = KeymapInfo::load(&guard)?;
+    let keymap = KeymapInfo::load(x11)?;
     state.keymap = Some(keymap);
     Ok(())
 }
@@ -504,11 +507,9 @@ fn char_to_keysym(ch: char) -> u32 {
 
 /// Check whether CapsLock is currently active by querying the X11 modifier
 /// mask.
-fn is_caps_lock_on(guard: &X11Handle) -> bool {
-    let root = root_window_from(guard);
-    guard
-        .conn
-        .query_pointer(root)
+fn is_caps_lock_on(x11: &X11Connection) -> bool {
+    x11.conn
+        .query_pointer(x11.root)
         .ok()
         .and_then(|c| c.reply().ok())
         .map(|r| u32::from(r.mask) & u32::from(KeyButMask::LOCK) != 0)
@@ -516,9 +517,8 @@ fn is_caps_lock_on(guard: &X11Handle) -> bool {
 }
 
 /// Return the current modifier mask from `QueryPointer`.
-fn query_modifier_mask(guard: &X11Handle) -> u32 {
-    let root = root_window_from(guard);
-    guard.conn.query_pointer(root).ok().and_then(|c| c.reply().ok()).map(|r| u32::from(r.mask)).unwrap_or(0)
+fn query_modifier_mask(x11: &X11Connection) -> u32 {
+    x11.conn.query_pointer(x11.root).ok().and_then(|c| c.reply().ok()).map(|r| u32::from(r.mask)).unwrap_or(0)
 }
 
 // ---------------------------------------------------------------------------
@@ -530,16 +530,16 @@ const XTEST_KEY_PRESS: u8 = 2;
 const XTEST_KEY_RELEASE: u8 = 3;
 
 /// Inject a raw key event via XTest.
-fn inject_key(guard: &X11Handle, type_code: u8, keycode: u8, root: u32) -> Result<(), KeyboardError> {
-    xtest::fake_input(&guard.conn, type_code, keycode, 0, root, 0, 0, 0).map_err(to_kb)?;
-    guard.conn.flush().map_err(to_kb)?;
+fn inject_key(x11: &X11Connection, type_code: u8, keycode: u8, root: u32) -> Result<(), KeyboardError> {
+    xtest::fake_input(&x11.conn, type_code, keycode, 0, root, 0, 0, 0).map_err(to_kb)?;
+    x11.conn.flush().map_err(to_kb)?;
     Ok(())
 }
 
 /// Sync with the X server — ensures all preceding requests have been
 /// processed.  Used after `ChangeKeyboardMapping` before sending key events.
-fn x_sync(guard: &X11Handle) -> Result<(), KeyboardError> {
-    guard.conn.get_input_focus().map_err(to_kb)?.reply().map_err(to_kb)?;
+fn x_sync(x11: &X11Connection) -> Result<(), KeyboardError> {
+    x11.conn.get_input_focus().map_err(to_kb)?.reply().map_err(to_kb)?;
     Ok(())
 }
 
@@ -554,7 +554,7 @@ fn x_sync(guard: &X11Handle) -> Result<(), KeyboardError> {
 /// after release.  This matches the Windows platform behaviour for typed
 /// characters that require Shift.
 fn send_event_direct(
-    guard: &X11Handle,
+    x11: &X11Connection,
     keycode: u8,
     shift_required: bool,
     state: KeyState,
@@ -566,23 +566,23 @@ fn send_event_direct(
     match state {
         KeyState::Press => {
             if shift_required {
-                let mods = query_modifier_mask(guard);
+                let mods = query_modifier_mask(x11);
                 let in_chord = mods & ctrl_alt_mask != 0;
                 if !in_chord && let Some(shift_kc) = shift_keycode {
                     trace!(shift_kc, "auto-injecting Shift press");
-                    inject_key(guard, XTEST_KEY_PRESS, shift_kc, root)?;
+                    inject_key(x11, XTEST_KEY_PRESS, shift_kc, root)?;
                 }
             }
-            inject_key(guard, XTEST_KEY_PRESS, keycode, root)?;
+            inject_key(x11, XTEST_KEY_PRESS, keycode, root)?;
         }
         KeyState::Release => {
-            inject_key(guard, XTEST_KEY_RELEASE, keycode, root)?;
+            inject_key(x11, XTEST_KEY_RELEASE, keycode, root)?;
             if shift_required {
-                let mods = query_modifier_mask(guard);
+                let mods = query_modifier_mask(x11);
                 let in_chord = mods & ctrl_alt_mask != 0;
                 if !in_chord && let Some(shift_kc) = shift_keycode {
                     trace!(shift_kc, "auto-releasing Shift");
-                    inject_key(guard, XTEST_KEY_RELEASE, shift_kc, root)?;
+                    inject_key(x11, XTEST_KEY_RELEASE, shift_kc, root)?;
                 }
             }
         }
@@ -596,7 +596,7 @@ fn send_event_direct(
 /// Temporarily remaps a spare keycode to the desired keysym, sends the
 /// event, and restores the original (empty) mapping.
 fn send_event_remap(
-    guard: &X11Handle,
+    x11: &X11Connection,
     keysym: u32,
     state: KeyState,
     root: u32,
@@ -614,18 +614,18 @@ fn send_event_remap(
             new_keysyms[0] = keysym;
 
             trace!(spare, keysym, "remap spare keycode for press");
-            guard.conn.change_keyboard_mapping(1, spare, kpk, &new_keysyms).map_err(to_kb)?;
-            x_sync(guard)?;
-            inject_key(guard, XTEST_KEY_PRESS, spare, root)?;
+            x11.conn.change_keyboard_mapping(1, spare, kpk, &new_keysyms).map_err(to_kb)?;
+            x_sync(x11)?;
+            inject_key(x11, XTEST_KEY_PRESS, spare, root)?;
         }
         KeyState::Release => {
-            inject_key(guard, XTEST_KEY_RELEASE, spare, root)?;
+            inject_key(x11, XTEST_KEY_RELEASE, spare, root)?;
 
             // Restore the spare keycode to unmapped (all zeros).
             let zero_keysyms = vec![0u32; usize::from(kpk)];
             trace!(spare, keysym, "restoring spare keycode after release");
-            guard.conn.change_keyboard_mapping(1, spare, kpk, &zero_keysyms).map_err(to_kb)?;
-            x_sync(guard)?;
+            x11.conn.change_keyboard_mapping(1, spare, kpk, &zero_keysyms).map_err(to_kb)?;
+            x_sync(x11)?;
         }
     }
 
@@ -636,11 +636,19 @@ fn send_event_remap(
 //  LinuxKeyboardDevice
 // ---------------------------------------------------------------------------
 
-pub struct LinuxKeyboardDevice;
+pub struct LinuxKeyboardDevice {
+    conn: Arc<X11Connection>,
+}
+
+impl LinuxKeyboardDevice {
+    pub fn new(conn: Arc<X11Connection>) -> Self {
+        Self { conn }
+    }
+}
 
 impl KeyboardDevice for LinuxKeyboardDevice {
     fn key_to_code(&self, name: &str) -> Result<KeyCode, KeyboardError> {
-        ensure_keymap()?;
+        ensure_keymap(&self.conn)?;
 
         let state = keyboard_state().lock().map_err(|_| {
             KeyboardError::Platform(PlatformError::OperationFailed {
@@ -678,7 +686,7 @@ impl KeyboardDevice for LinuxKeyboardDevice {
         if let Some(ch) = chars.next()
             && chars.next().is_none()
         {
-            return Self::resolve_char(ch, keymap);
+            return Self::resolve_char(&self.conn, ch, keymap);
         }
 
         Err(KeyboardError::UnsupportedKey(name.to_owned()))
@@ -687,9 +695,7 @@ impl KeyboardDevice for LinuxKeyboardDevice {
     fn start_input(&self) -> Result<(), KeyboardError> {
         // Refresh the keyboard mapping at the start of each input sequence
         // to pick up any layout changes.
-        let guard = connection().map_err(KeyboardError::Platform)?;
-        let keymap = KeymapInfo::load(&guard)?;
-        drop(guard);
+        let keymap = KeymapInfo::load(&self.conn)?;
 
         let mut state = keyboard_state().lock().map_err(|_| {
             KeyboardError::Platform(PlatformError::OperationFailed {
@@ -719,13 +725,12 @@ impl KeyboardDevice for LinuxKeyboardDevice {
             (km.shift_keycode, km.spare_keycode, km.keysyms_per_keycode)
         };
 
-        let guard = connection().map_err(KeyboardError::Platform)?;
-        let root = root_window_from(&guard);
+        let root = self.conn.root;
 
         match &x11kc.0 {
             X11Key::Direct { keycode, shift_required } => {
                 trace!(keycode, shift_required, state = ?event.state, "send direct key");
-                send_event_direct(&guard, *keycode, *shift_required, event.state, root, shift_keycode)?;
+                send_event_direct(&self.conn, *keycode, *shift_required, event.state, root, shift_keycode)?;
             }
             X11Key::Modifier { keycode } => {
                 let type_code = match event.state {
@@ -733,14 +738,14 @@ impl KeyboardDevice for LinuxKeyboardDevice {
                     KeyState::Release => XTEST_KEY_RELEASE,
                 };
                 trace!(keycode, state = ?event.state, "send modifier key");
-                inject_key(&guard, type_code, *keycode, root)?;
+                inject_key(&self.conn, type_code, *keycode, root)?;
             }
             X11Key::DynamicRemap { keysym } => {
                 // Build a minimal KeymapInfo view for the remap function.
                 let mini =
                     KeymapInfo { keysyms_per_keycode, keysym_to_keycode: HashMap::new(), spare_keycode, shift_keycode };
                 trace!(keysym, state = ?event.state, "send dynamic-remap key");
-                send_event_remap(&guard, *keysym, event.state, root, &mini)?;
+                send_event_remap(&self.conn, *keysym, event.state, root, &mini)?;
             }
         }
 
@@ -753,17 +758,24 @@ impl KeyboardDevice for LinuxKeyboardDevice {
     }
 
     fn known_key_names(&self) -> Vec<String> {
-        let mut names: Vec<String> = named_key_table().keys().cloned().collect();
-        for ch in 'A'..='Z' {
-            names.push(ch.to_string());
-        }
-        for ch in '0'..='9' {
-            names.push(ch.to_string());
-        }
-        names.sort_unstable();
-        names.dedup();
-        names
+        collect_known_key_names()
     }
+}
+
+/// Collect the names the device advertises: every named-key alias plus the
+/// single-character `A`–`Z` and `0`–`9` keys, sorted and de-duplicated. Free
+/// function (no connection needed) so it is unit-testable without an X server.
+fn collect_known_key_names() -> Vec<String> {
+    let mut names: Vec<String> = named_key_table().keys().cloned().collect();
+    for ch in 'A'..='Z' {
+        names.push(ch.to_string());
+    }
+    for ch in '0'..='9' {
+        names.push(ch.to_string());
+    }
+    names.sort_unstable();
+    names.dedup();
+    names
 }
 
 impl LinuxKeyboardDevice {
@@ -772,7 +784,7 @@ impl LinuxKeyboardDevice {
     /// Accounts for CapsLock: when CapsLock is active and the character is
     /// ASCII-alphabetic, the shift requirement is inverted so the correct
     /// case is produced.
-    fn resolve_char(ch: char, keymap: &KeymapInfo) -> Result<KeyCode, KeyboardError> {
+    fn resolve_char(x11: &X11Connection, ch: char, keymap: &KeymapInfo) -> Result<KeyCode, KeyboardError> {
         let keysym = char_to_keysym(ch);
 
         // Try direct lookup in the keymap.
@@ -780,11 +792,8 @@ impl LinuxKeyboardDevice {
             let mut shift = col == 1;
 
             // CapsLock compensation for ASCII letters.
-            if ch.is_ascii_alphabetic() {
-                let guard = connection().map_err(KeyboardError::Platform)?;
-                if is_caps_lock_on(&guard) {
-                    shift = !shift;
-                }
+            if ch.is_ascii_alphabetic() && is_caps_lock_on(x11) {
+                shift = !shift;
             }
 
             trace!(ch = %ch, keysym, keycode = kc, shift, "resolved character");
@@ -797,8 +806,7 @@ impl LinuxKeyboardDevice {
             let lower = ch.to_ascii_lowercase();
             let lower_ks = char_to_keysym(lower);
             if let Some((kc, _)) = keymap.find_keycode(lower_ks) {
-                let guard = connection().map_err(KeyboardError::Platform)?;
-                let caps_on = is_caps_lock_on(&guard);
+                let caps_on = is_caps_lock_on(x11);
                 // With CapsLock off, need Shift; with CapsLock on, no Shift needed.
                 let shift = !caps_on;
                 trace!(ch = %ch, keysym, keycode = kc, shift, "resolved uppercase via lowercase");
@@ -823,10 +831,6 @@ impl LinuxKeyboardDevice {
 fn to_kb<E: std::fmt::Display>(e: E) -> KeyboardError {
     KeyboardError::Platform(PlatformError::OperationFailed { operation: "x11 keyboard", details: Some(e.to_string()) })
 }
-
-// ---------------------------------------------------------------------------
-//  Registration
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 //  Tests
@@ -917,8 +921,7 @@ mod tests {
 
     #[test]
     fn known_key_names_includes_chars_and_named() {
-        let device = LinuxKeyboardDevice;
-        let names = device.known_key_names();
+        let names = collect_known_key_names();
         // Should contain named keys
         assert!(names.contains(&"ENTER".to_string()));
         assert!(names.contains(&"SHIFT".to_string()));

@@ -110,7 +110,15 @@ pub(crate) fn initialize(compositor: CompositorType) {
 }
 
 /// Shut down the input backend and release resources.
-pub(crate) fn shutdown() {
+///
+/// Kept `pub` alongside the sibling teardown functions
+/// (`connection::clear_global`, `desktop::clear_outputs`) for the deferred
+/// per-instance teardown; `create_wayland_bundle` does not call it yet.
+///
+/// # Panics
+///
+/// Panics if the internal mutex is poisoned.
+pub fn shutdown() {
     let mut guard = BACKEND.lock().expect("input backend mutex poisoned");
     *guard = None;
 }
