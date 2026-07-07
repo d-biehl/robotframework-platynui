@@ -36,6 +36,7 @@ from ..patterns.readable import Readable
 from ..patterns.resizable import Resizable
 from ..patterns.responsive import Responsive
 from ..patterns.restorable import Restorable
+from ..patterns.text import TextContent
 from ..patterns.window_state import WindowState
 from ..runtime import runtime
 from ..types import Point, Rect, Size
@@ -226,6 +227,20 @@ class _NativeReadable(Readable):
         return _bool_attr(self._adapter, 'IsReadOnly')
 
 
+class _NativeTextContent(TextContent):
+    """`TextContent` reads the read-only ``control:Text`` attribute."""
+
+    __slots__ = ('_adapter',)
+
+    def __init__(self, adapter: 'UiNodeAdapter') -> None:
+        self._adapter = adapter
+
+    @property
+    @override
+    def text(self) -> str:
+        return str(self._adapter.attribute_value('Text'))
+
+
 class _NativeMinimizable(Minimizable):
     __slots__ = ('_adapter', '_native')
 
@@ -395,6 +410,14 @@ def _build_readable(adapter: 'UiNodeAdapter') -> PatternBase | None:
     return _NativeReadable(adapter)
 
 
+def _build_textcontent(adapter: 'UiNodeAdapter') -> PatternBase | None:
+    # No native pattern object — capability is derived from the presence of
+    # the read-only `control:Text` attribute the providers synthesise.
+    if not _has_attribute(adapter, 'Text'):
+        return None
+    return _NativeTextContent(adapter)
+
+
 def _build_minimizable(adapter: 'UiNodeAdapter') -> PatternBase | None:
     try:
         native = adapter._node.get_pattern(Minimizable.pattern_name)
@@ -473,6 +496,7 @@ _NATIVE_PATTERN_BUILDERS: dict[str, object] = {
     Element.pattern_name: _build_element,
     ActivationTarget.pattern_name: _build_activation_target,
     Readable.pattern_name: _build_readable,
+    TextContent.pattern_name: _build_textcontent,
     Focusable.pattern_name: _build_focusable,
     Activatable.pattern_name: _build_activatable,
     WindowState.pattern_name: _build_window_state,
@@ -510,6 +534,7 @@ _ATTRIBUTE_ONLY_PATTERNS: tuple[tuple[type[PatternBase], str], ...] = (
     (Element, 'Bounds'),
     (ActivationTarget, 'ActivationPoint'),
     (Readable, 'IsReadOnly'),
+    (TextContent, 'Text'),
     (WindowState, 'IsActive'),
 )
 

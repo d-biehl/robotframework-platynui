@@ -282,13 +282,14 @@ mod geometry_tests {
 mod expectation_tests {
     use super::*;
     use crate::types::Rect;
-    use crate::ui::attribute_names::{activatable, common, element};
+    use crate::ui::attribute_names::{activatable, common, element, text_content};
     use crate::ui::pattern::{PatternRegistry, UiPattern};
     use crate::ui::{UiAttribute, UiNode, pattern_names};
     use rstest::rstest;
     use std::sync::{Arc, Mutex, Weak};
 
-    const TEXT_CONTENT_ATTRS: &[AttributeExpectation] = &[AttributeExpectation::required(Namespace::Control, "Text")];
+    const TEXT_CONTENT_ATTRS: &[AttributeExpectation] =
+        &[AttributeExpectation::required(Namespace::Control, text_content::TEXT)];
     const ELEMENT_ATTRS: &[AttributeExpectation] = &[
         AttributeExpectation::required(Namespace::Control, element::BOUNDS),
         AttributeExpectation::required(Namespace::Control, element::IS_VISIBLE),

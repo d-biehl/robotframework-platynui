@@ -19,18 +19,6 @@ class Text(Control):
         self.ensure_that(self._application_is_ready)
         return self.adapter.get_pattern(patterns.TextContent).text
 
-    @property
-    def is_truncated(self) -> bool:
-        """Whether the displayed text is shortened (e.g. with an ellipsis)."""
-        self.ensure_that(self._application_is_ready)
-        return self.adapter.get_pattern(patterns.TextContent).is_truncated
-
-    @property
-    def locale(self) -> str:
-        """The BCP-47 locale tag for ``text``, or empty if unknown."""
-        self.ensure_that(self._application_is_ready)
-        return self.adapter.get_pattern(patterns.TextContent).locale
-
 
 class Edit(Control):
     """An editable text input widget."""

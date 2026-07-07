@@ -21,16 +21,6 @@ class TextContent(PatternBase):
     def text(self) -> str:
         """The current text content."""
 
-    @property
-    @abstractmethod
-    def locale(self) -> str:
-        """The BCP-47 locale tag for `text`, or empty if unknown."""
-
-    @property
-    @abstractmethod
-    def is_truncated(self) -> bool:
-        """Whether the displayed text is shortened (e.g. with an ellipsis)."""
-
 
 class TextEditable(PatternBase):
     """An element that accepts a new text value and exposes editing constraints."""

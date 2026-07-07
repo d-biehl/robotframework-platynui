@@ -93,23 +93,6 @@ class ComboBoxProxy(
                 value = ''
         return value if isinstance(value, str) else ''
 
-    @property
-    @override
-    def locale(self) -> str:
-        try:
-            value = self.adapter.attribute_value('Locale')
-        except KeyError:
-            return ''
-        return value if isinstance(value, str) else ''
-
-    @property
-    @override
-    def is_truncated(self) -> bool:
-        try:
-            return bool(self.adapter.attribute_value('IsTruncated'))
-        except KeyError:
-            return False
-
     # ----- TextEditable -----------------------------------------------
 
     @override

@@ -85,17 +85,11 @@ def _control_adapter(
 def _text_adapter(
     *,
     text: str = '',
-    locale: str = '',
-    is_truncated: bool = False,
     with_text_content: bool = True,
 ) -> Adapter:
     extra: dict[type, object] = {}
     if with_text_content:
-        extra[patterns.TextContent] = TextContentStub(
-            text,
-            locale=locale,
-            is_truncated=is_truncated,
-        )
+        extra[patterns.TextContent] = TextContentStub(text)
     return _control_adapter(role='Text', extra=extra)
 
 
@@ -143,14 +137,6 @@ def test_text_raises_when_text_content_pattern_missing() -> None:
     """`Text` requires the provider to expose `TextContent`."""
     with pytest.raises(PatternNotSupportedError):
         _ = Text(adapter=_text_adapter(with_text_content=False)).text
-
-
-def test_text_is_truncated_returns_pattern_value() -> None:
-    assert Text(adapter=_text_adapter(is_truncated=True)).is_truncated is True
-
-
-def test_text_locale_returns_pattern_value() -> None:
-    assert Text(adapter=_text_adapter(locale='de-DE')).locale == 'de-DE'
 
 
 def test_text_is_auto_registered() -> None:

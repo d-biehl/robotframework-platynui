@@ -47,16 +47,6 @@ class EditProxy(ControlProxy, patterns.TextContent, patterns.TextEditable, patte
     def text(self) -> str:
         return _read_str(self.adapter, 'Value') or _read_str(self.adapter, 'Text')
 
-    @property
-    @override
-    def locale(self) -> str:
-        return _read_str(self.adapter, 'Locale')
-
-    @property
-    @override
-    def is_truncated(self) -> bool:
-        return _read_bool(self.adapter, 'IsTruncated')
-
     # ----- TextEditable -----------------------------------------------
 
     @override

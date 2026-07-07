@@ -19,7 +19,7 @@ use atspi_proxies::value::ValueProxy;
 use platynui_core::platform::{WindowId, WindowManager, window_manager};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::attribute_names::{
-    activation_target, application, common, element, focusable, window_state as window_state_attr,
+    activation_target, application, common, element, focusable, text_content, window_state as window_state_attr,
 };
 use platynui_core::ui::{
     ActivatableAction, CloseableAction, FocusableAction, MaximizableAction, MinimizableAction, MovableAction,
@@ -809,6 +809,9 @@ struct AttrsIter {
     namespace: Namespace,
     rid_str: String,
     supports_component: bool,
+    /// Whether this node exposes the AT-SPI `Text` interface, gating the
+    /// canonical `control:Text` attribute (TextContent).
+    supports_text: bool,
     /// Pre-resolved role string (avoids re-querying D-Bus).
     role: String,
     /// Shared lazy-resolution context for standard attributes.
@@ -844,6 +847,7 @@ impl AttrsIter {
         // supported interfaces.  No D-Bus calls here — the interface set
         // is already cached on AtspiNode.
         let interfaces = node.resolve_interfaces();
+        let supports_text = interfaces.as_ref().map(|ifaces| ifaces.contains(Interface::Text)).unwrap_or(false);
         let mut native_props: Vec<&'static str> = vec![
             "Accessible.Name",
             "Accessible.Description",
@@ -976,6 +980,7 @@ impl AttrsIter {
             namespace,
             rid_str,
             supports_component,
+            supports_text,
             role,
             ctx,
             process_id,
@@ -1111,6 +1116,17 @@ impl Iterator for AttrsIter {
                         None
                     }
                 }
+                21 => {
+                    if self.supports_text {
+                        Some(Arc::new(LazyStdAttr {
+                            namespace: self.namespace,
+                            kind: StdAttrKind::Text,
+                            ctx: self.ctx.clone(),
+                        }))
+                    } else {
+                        None
+                    }
+                }
                 // Yield lazy native properties — D-Bus is only called
                 // when the consumer invokes `.value()` on the attribute.
                 _ => {
@@ -1131,7 +1147,7 @@ impl Iterator for AttrsIter {
             match item {
                 Some(attr) => return Some(attr),
                 None => {
-                    if self.idx > 21 {
+                    if self.idx > 22 {
                         return None;
                     }
                     continue;
@@ -1159,6 +1175,9 @@ struct LazyNodeData {
     extents: OnceLock<Option<Rect>>,
     name: OnceLock<String>,
     id: OnceLock<Option<String>>,
+    /// Cached full text content (`GetText(0,-1)`) for text-bearing nodes.
+    /// `Some("")` for an empty field; `None` only when the D-Bus read fails.
+    text: OnceLock<Option<String>>,
 }
 
 impl LazyNodeData {
@@ -1177,6 +1196,7 @@ impl LazyNodeData {
             extents: OnceLock::new(),
             name: OnceLock::new(),
             id: OnceLock::new(),
+            text: OnceLock::new(),
         }
     }
 
@@ -1185,6 +1205,19 @@ impl LazyNodeData {
             accessible_proxy(&self.conn, &self.obj)
                 .and_then(|proxy| block_on_timeout_call(proxy.get_state()).and_then(|r| r.ok()))
         })
+    }
+
+    /// Resolve the element's full text content via the AT-SPI `Text`
+    /// interface (`GetText(0,-1)`), verbatim. Callers gate this on the
+    /// interface being present. Returns `Some("")` for an empty field and
+    /// `None` only when the D-Bus read fails.
+    fn resolve_text(&self) -> Option<String> {
+        self.text
+            .get_or_init(|| {
+                text_proxy(&self.conn, &self.obj)
+                    .and_then(|proxy| block_on_timeout_call(proxy.get_text(0, -1)).and_then(|r| r.ok()))
+            })
+            .clone()
     }
 
     /// Returns `true` if this node is a real platform top-level window
@@ -1303,6 +1336,7 @@ enum StdAttrKind {
     SupportedPatterns,
     IsActive,
     IsModal,
+    Text,
 }
 
 /// A lazily-evaluated standard attribute.
@@ -1336,6 +1370,7 @@ impl UiAttribute for LazyStdAttr {
             StdAttrKind::SupportedPatterns => common::SUPPORTED_PATTERNS,
             StdAttrKind::IsActive => window_state_attr::IS_ACTIVE,
             StdAttrKind::IsModal => window_state_attr::IS_MODAL,
+            StdAttrKind::Text => text_content::TEXT,
         }
     }
 
@@ -1409,6 +1444,13 @@ impl UiAttribute for LazyStdAttr {
             StdAttrKind::IsModal => {
                 let modal = self.ctx.resolve_state().map(|s| s.contains(State::Modal)).unwrap_or(false);
                 UiValue::from(modal)
+            }
+            StdAttrKind::Text => {
+                // Verbatim GetText(0,-1); preserve empty strings (an empty
+                // text field must stay present-and-empty, not collapse to
+                // Null) — so this deliberately bypasses `fetch_str`'s
+                // empty-to-Null normalization used for names.
+                self.ctx.resolve_text().map(UiValue::from).unwrap_or(UiValue::Null)
             }
         }
     }

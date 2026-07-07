@@ -277,28 +277,12 @@ class ReadableStub(patterns.Readable):
 class TextContentStub(patterns.TextContent):
     """`patterns.TextContent` stub with a fixed text value."""
 
-    def __init__(
-        self,
-        text: str = '',
-        *,
-        locale: str = '',
-        is_truncated: bool = False,
-    ) -> None:
+    def __init__(self, text: str = '') -> None:
         self._text = text
-        self._locale = locale
-        self._truncated = is_truncated
 
     @property
     def text(self) -> str:
         return self._text
-
-    @property
-    def locale(self) -> str:
-        return self._locale
-
-    @property
-    def is_truncated(self) -> bool:
-        return self._truncated
 
 
 class TextEditableStub(patterns.TextEditable):

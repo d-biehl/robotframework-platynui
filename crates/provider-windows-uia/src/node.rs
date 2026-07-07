@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex, Weak};
 // no name cache atomics needed
 
 use platynui_core::types::{Point as UiPoint, Rect};
+use platynui_core::ui::attribute_names::text_content;
 use platynui_core::ui::pattern::{
     ActivatableAction, CloseableAction, FocusableAction, MaximizableAction, MinimizableAction, MovableAction,
     PatternError, ResizableAction, ResponsiveAction, RestorableAction, UiPattern,
@@ -244,6 +245,9 @@ impl UiNode for UiaNode {
                 "IsInView" => Some(Arc::new(IsInViewAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 "IsVisible" => Some(Arc::new(IsVisibleAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 "IsFocused" => Some(Arc::new(IsFocusedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                "Text" if crate::map::supports_text_content(elem) => {
+                    Some(Arc::new(TextAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                }
                 "IsMinimized" if self.has_window_surface() => {
                     Some(Arc::new(IsMinimizedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                 }
@@ -769,8 +773,18 @@ impl Iterator for AttrsIter {
                         None
                     }
                 }
-                // Native property attributes (dynamic): build once, then stream
                 17 => {
+                    // Canonical read-only `control:Text` (TextContent), gated on
+                    // the element supporting a UIA Text/Value pattern. Absent
+                    // otherwise — never sourced from the accessible name.
+                    if crate::map::supports_text_content(&elem) {
+                        Some(Arc::new(TextAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                    } else {
+                        None
+                    }
+                }
+                // Native property attributes (dynamic): build once, then stream
+                18 => {
                     if self.native_cache.is_none() {
                         let pairs = crate::map::collect_native_properties(&elem);
                         let attrs: Vec<Arc<dyn UiAttribute>> = pairs
@@ -794,7 +808,7 @@ impl Iterator for AttrsIter {
             match item {
                 Some(attr) => return Some(attr),
                 None => {
-                    if self.idx > 17 && self.native_cache.is_some() {
+                    if self.idx > 18 && self.native_cache.is_some() {
                         // Continue streaming native cache until exhausted
                         if let Some(list) = self.native_cache.as_ref()
                             && self.native_pos < list.len()
@@ -806,11 +820,11 @@ impl Iterator for AttrsIter {
                             return Some(attr);
                         }
                     }
-                    if self.idx > 17 && self.native_cache.is_none() {
+                    if self.idx > 18 && self.native_cache.is_none() {
                         // No native props at all
                         return None;
                     }
-                    if self.idx > 17 && self.native_cache.as_ref().map(|v| self.native_pos >= v.len()).unwrap_or(false)
+                    if self.idx > 18 && self.native_cache.as_ref().map(|v| self.native_pos >= v.len()).unwrap_or(false)
                     {
                         return None;
                     }
@@ -844,6 +858,27 @@ impl UiAttribute for IsFocusedAttr {
 }
 unsafe impl Send for IsFocusedAttr {}
 unsafe impl Sync for IsFocusedAttr {}
+
+/// Canonical read-only `control:Text` (TextContent): the element's current
+/// textual content, from the UIA `TextPattern` document text (preferred) or
+/// the `ValuePattern` value (fallback). Never the accessible name. Preserves
+/// an empty string; only yields `Null` when both pattern reads fail.
+struct TextAttr {
+    elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
+}
+impl UiAttribute for TextAttr {
+    fn namespace(&self) -> Namespace {
+        Namespace::Control
+    }
+    fn name(&self) -> &str {
+        text_content::TEXT
+    }
+    fn value(&self) -> UiValue {
+        crate::map::get_text_content(&self.elem).map(UiValue::from).unwrap_or(UiValue::Null)
+    }
+}
+unsafe impl Send for TextAttr {}
+unsafe impl Sync for TextAttr {}
 
 struct NativePropAttr {
     name: String,

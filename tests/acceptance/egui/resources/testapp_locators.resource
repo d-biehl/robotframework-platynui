@@ -38,6 +38,7 @@ ${LINK_PLATYNUI}        //(Link|Hyperlink)[@Id="link-platynui"]
 ${RADIO_OPTION_C}       //RadioButton[@Id="radio-option-c"]
 ${STATUS_CLICKS}        //(Label|Text)[@Id="status-clicks"]
 ${STATUS_RADIO}         //(Label|Text)[@Id="status-radio"]
+${INPUT_NAME}           //(Entry|Edit)[@Id="input-name"]
 
 
 *** Keywords ***

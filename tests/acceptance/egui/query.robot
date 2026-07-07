@@ -43,3 +43,16 @@ Set Root Scopes Subsequent Relative Queries
     BM.Set Root    ${WINDOW}
     ${b}=    BM.Query    .${BTN_CLICK_ME}    only_first=${True}
     Should Not Be Equal    ${b}    ${None}    msg=relative query under Set Root did not resolve
+
+Text Input Exposes Its Content Via control:Text
+    [Documentation]    A text-bearing widget (the TextEdit exposes the AT-SPI Text interface) surfaces
+    ...    its current content as the canonical read-only ``control:Text`` attribute (TextContent).
+    BM.Get Attribute    ${WINDOW}${INPUT_NAME}    control:Text    ==    PlatynUI
+
+Non-Text Widget Has No control:Text
+    [Documentation]    ``control:Text`` is sourced only from a genuine text interface, never the
+    ...    accessible name — a button (no text interface) exposes no ``control:Text`` even though it
+    ...    has a label in ``control:Name``.
+    BM.Get Attribute    ${WINDOW}${BTN_CLICK_ME}    Name    ==    Click Me
+    Run Keyword And Expect Error    *attribute not found*Text*
+    ...    BM.Get Attribute    ${WINDOW}${BTN_CLICK_ME}    control:Text

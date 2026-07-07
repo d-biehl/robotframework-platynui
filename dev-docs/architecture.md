@@ -306,7 +306,7 @@ Each action can fail — a platform may refuse a move, or the window may have go
 |---------|-------------------|-------------------|
 | **Element** | Bounds, IsVisible, IsEnabled | IsInView, Technology |
 | **Desktop** | Bounds, OsVersion, Monitors | — |
-| **TextContent** | Text | IsReadOnly |
+| **TextContent** | Text | — |
 | **TextEditable** | Text, IsReadOnly=false | MaxLength |
 | **Clearable** | — | — |
 | **TextSelection** | SelectedText, SelectionStart, SelectionEnd | — |
@@ -369,8 +369,9 @@ Each capability is defined once, in platform-neutral terms, but it has to be sat
 
 | Attribute | UIA | AT-SPI2 | macOS AX |
 |-----------|-----|---------|----------|
-| Text | NameProperty → ValuePattern.Value → TextPattern.DocumentRange.GetText | Text.GetText(0, -1) | AXValue / AXTitle |
-| IsReadOnly | ValuePattern.IsReadOnly | Text.NCharacters == 0 hint | AXEditable (inverted) |
+| Text | TextPattern.DocumentRange.GetText → ValuePattern.Value | Text.GetText(0, -1) | AXValue / AXTitle |
+
+`Text` is sourced only from a genuine text interface — never the accessible name — so a plain label or button (no text interface) exposes no `control:Text`; its label stays in `control:Name`. `TextContent` has no provider attribute of its own beyond `Text`: it is surfaced on the client side by attribute-only synthesis (the presence of `control:Text`), not advertised in a provider's supported-patterns list. Read-only is **not** a `TextContent` attribute — it is a client-side derivation (`TextContent ∧ ¬TextEditable`) that belongs with `TextEditable`.
 
 **TextEditable** — extends TextContent with write access:
 
@@ -524,7 +525,7 @@ All providers must:
 
 - Bounds from `BoundingRectangle` in desktop coordinates (Per-Monitor-V2 DPI active).
 - ActivationPoint via `GetClickablePoint()` or center of bounds as fallback.
-- Text priority: `NameProperty` → `ValuePattern.Value` → `TextPattern.DocumentRange.GetText`.
+- `control:Text` (TextContent) priority: `TextPattern.DocumentRange.GetText` → `ValuePattern.Value`; never the accessible name. Absent when the element supports neither pattern.
 - Window capability patterns (Activatable, Minimizable, Maximizable, Restorable, Closeable, Movable, Resizable) via `WindowPattern`/`TransformPattern`; `ResponsivePattern::accepts_user_input()` via `IsEnabled && IsInView` + `WaitForInputIdle`.
 - Application node: process metadata (`ProcessId`, `Name`, `ExecutablePath`, `CommandLine`, `UserName`, `StartTime`, `Architecture`).
 - `SelectionItemPattern`/`SelectionPattern` sync verified.

@@ -179,7 +179,7 @@ impl TestApp {
             start_time: Instant::now(),
             auto_close_secs,
             title,
-            text_input: String::new(),
+            text_input: String::from("PlatynUI"),
             text_area: String::from("Hello,\nWorld!"),
             checkbox_checked: false,
             checkbox_enabled: true,

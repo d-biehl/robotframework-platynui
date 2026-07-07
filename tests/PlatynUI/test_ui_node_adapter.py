@@ -36,7 +36,7 @@ import pytest
 from PlatynUI.core.adapter import Adapter
 from PlatynUI.core.adapters import UiNodeAdapter
 from PlatynUI.core.exceptions import PatternNotSupportedError
-from PlatynUI.core.patterns import ActivationTarget, Element, Focusable, Readable, Toggleable
+from PlatynUI.core.patterns import ActivationTarget, Element, Focusable, Readable, TextContent, Toggleable
 from PlatynUI.core.runtime import runtime
 from PlatynUI.core.types import Point, Rect
 
@@ -402,3 +402,38 @@ def test_supports_pattern_false_for_readable_without_attribute(
     ok_button_adapter: UiNodeAdapter,
 ) -> None:
     assert ok_button_adapter.supports_pattern(Readable) is False
+
+
+# ----------------------------------------------------------------------
+# TextContent native wrapper (attribute-only synthesis on `control:Text`)
+# ----------------------------------------------------------------------
+
+
+def test_supports_pattern_true_for_text_content(native_runtime: _pn.Runtime) -> None:
+    node = native_runtime.evaluate_single("//control:Text[@Name='Status']")
+    assert isinstance(node, _pn.UiNode), 'mock tree must expose Status text'
+    adapter = UiNodeAdapter.from_node(node)
+    assert adapter.supports_pattern(TextContent) is True
+
+
+def test_text_content_reads_native_text_attribute(native_runtime: _pn.Runtime) -> None:
+    node = native_runtime.evaluate_single("//control:Text[@Name='Status']")
+    assert isinstance(node, _pn.UiNode), 'mock tree must expose Status text'
+    adapter = UiNodeAdapter.from_node(node)
+    pattern = adapter.get_pattern(TextContent)
+    # mock_tree.xml: <text>Ready</text> is surfaced as the control:Text attribute.
+    assert pattern.text == 'Ready'
+
+
+def test_supports_pattern_false_for_text_content_without_attribute(
+    main_window_adapter: UiNodeAdapter,
+) -> None:
+    # The Operations Console window has no <text> element, so it exposes
+    # no control:Text attribute and TextContent is not synthesized.
+    assert main_window_adapter.supports_pattern(TextContent) is False
+
+
+def test_get_pattern_text_content_none_without_attribute(
+    main_window_adapter: UiNodeAdapter,
+) -> None:
+    assert main_window_adapter.get_pattern(TextContent, raise_exception=False) is None

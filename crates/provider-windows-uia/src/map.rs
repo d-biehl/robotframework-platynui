@@ -477,6 +477,46 @@ fn read_uia_property(elem: &IUIAutomationElement, id: UIA_PROPERTY_ID) -> Option
     result
 }
 
+/// Whether this element exposes readable text content for the canonical
+/// `control:Text` attribute (TextContent) — i.e. it supports the UIA
+/// `TextPattern` or `ValuePattern`. Used to gate the attribute so it is
+/// absent (not empty) on elements with neither pattern. Never considers the
+/// accessible name.
+pub fn supports_text_content(elem: &IUIAutomationElement) -> bool {
+    is_pattern_available(elem, UIA_IsTextPatternAvailablePropertyId)
+        || is_pattern_available(elem, UIA_IsValuePatternAvailablePropertyId)
+}
+
+fn is_pattern_available(elem: &IUIAutomationElement, id: UIA_PROPERTY_ID) -> bool {
+    matches!(read_uia_property(elem, id), Some(UiValue::Bool(true)))
+}
+
+/// Reads the element's textual content for the canonical `control:Text`
+/// attribute: the UIA `TextPattern` document text first (the actually
+/// displayed text via `DocumentRange().GetText(-1)`), falling back to the
+/// `ValuePattern` value (which may be a formatted/adapted string) when there
+/// is no `TextPattern`. Never falls back to the accessible name. Returns
+/// `Some("")` for an empty text field and `None` only when the element
+/// supports neither pattern (or both reads fail).
+pub fn get_text_content(elem: &IUIAutomationElement) -> Option<String> {
+    unsafe {
+        if let Ok(unk) = elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TextPatternId.0))
+            && let Ok(text_pattern) = unk.cast::<IUIAutomationTextPattern>()
+            && let Ok(range) = text_pattern.DocumentRange()
+            && let Ok(text) = range.GetText(-1)
+        {
+            return Some(text.to_string());
+        }
+        if let Ok(unk) = elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_ValuePatternId.0))
+            && let Ok(value_pattern) = unk.cast::<IUIAutomationValuePattern>()
+            && let Ok(value) = value_pattern.CurrentValue()
+        {
+            return Some(value.to_string());
+        }
+        None
+    }
+}
+
 /// Categorized UIA property catalog: separates base element properties from
 /// pattern-specific properties so we only query pattern properties when the
 /// pattern is actually supported by the element.

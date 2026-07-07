@@ -53,6 +53,13 @@ pub mod pattern {
         pub const IS_FOCUSED: &str = "IsFocused";
     }
 
+    /// Read-only text content (TextContent-Pattern).
+    pub mod text_content {
+        /// Current textual content of a text-bearing element, sourced only from
+        /// a genuine accessibility text interface (never the accessible name).
+        pub const TEXT: &str = "Text";
+    }
+
     pub mod minimizable {
         pub const IS_MINIMIZED: &str = "IsMinimized";
         pub const CAN_MINIMIZE: &str = "CanMinimize";

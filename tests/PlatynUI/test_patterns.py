@@ -242,18 +242,8 @@ def test_concrete_text_content_implementation() -> None:
         def text(self) -> str:
             return 'hi'
 
-        @property
-        def locale(self) -> str:
-            return 'en_US'
-
-        @property
-        def is_truncated(self) -> bool:
-            return False
-
     lbl = Label()
     assert lbl.text == 'hi'
-    assert lbl.locale == 'en_US'
-    assert lbl.is_truncated is False
 
 
 def test_concrete_clearable_implementation() -> None:
