@@ -110,6 +110,12 @@ behavior under test.
 
 - **For:** proving the full stack on a real platform — real provider, real input, real
   timing — what the mock cannot reproduce.
+- **Also guards per-runtime isolation.** Because each suite builds and tears down its own
+  runtime, a *multi-suite* run exercises what a single suite cannot: a runtime constructed
+  after an earlier one has been dropped must establish a fresh platform connection. This is
+  the guard for the per-runtime platform architecture — the mock cannot stand in for it
+  (it shares process-global state and holds no real connection), so the real `…-x11` /
+  `…-compositor` lanes run *several* suites in one process on purpose.
 - **Where:** `tests/acceptance` (egui app); tagged `real`, selected by the `real` profile.
 - **How:** unlike a mock suite (static tree, no setup), an acceptance suite **owns its
   app instance**: launch it in `Suite Setup` and terminate it in `Suite Teardown`, pin the

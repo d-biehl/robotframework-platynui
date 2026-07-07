@@ -1,9 +1,9 @@
 ## 1. Regression & acceptance scenarios (write first, from spec scenarios)
 
-- [ ] 1.1 Record the current baseline: `just test-acceptance-x11` fails multi-suite with `x11 connection: not available after shutdown or failed connect` (the `per-runtime-platform-lifecycle` "sequential runtimes reconnect" scenario, currently red).
-- [ ] 1.2 Add an acceptance scenario (real AT-SPI/X11) that a runtime built in a later suite draws a highlight successfully — `per-runtime-platform-lifecycle` "Highlight works in a later suite's runtime". Currently red (silent highlight death).
-- [ ] 1.3 Add an acceptance scenario (real X11) that a `config`-bound runtime connects to an explicitly named `platform.x11.display` regardless of ambient `DISPLAY` — `runtime-session-config` "Explicit X11 display overrides the environment" + `per-runtime-platform-lifecycle` "config-bound runtime connects to the named session". Written against the not-yet-existing `config=`; red until §7.
-- [ ] 1.4 Add an acceptance scenario (real X11) that two `BareMetal` instances (two runtimes) coexist on the same display and both query the app successfully — `per-runtime-platform-lifecycle` "runtimes share no platform state". Red until per-runtime ownership lands.
+- [x] 1.1 Baseline recorded (16/26, `x11 connection: not available after shutdown`) and now the pass proof: the multi-suite `just test-acceptance-x11` lane is **26/26** — the "sequential runtimes reconnect" scenario.
+- [x] 1.2 Covered by the existing multi-suite lane: highlight is exercised in the Interaction suite (not the first suite to run), so "highlight works in a later suite's runtime" is proven green within the 26/26 — no separate scenario needed.
+- [ ] 1.3 Dedicated acceptance scenario for a `config`-bound explicit `platform.x11.display` NOT added. Config selection/parsing is unit-covered (native pytest, §7.3) and the default X11 path is acceptance-proven; a real display-override scenario is a small follow-up. **Remaining.**
+- [ ] 1.4 Dedicated acceptance scenario for two coexisting `BareMetal` instances NOT added. Same-display coexistence is delivered by construction (independent `Arc<X11Connection>` per runtime); a real two-instance scenario is a small follow-up. **Remaining.**
 
 ## 2. Rust core: PlatformFactory + RuntimeConfig (test-first)
 
@@ -24,7 +24,7 @@
 - [x] 4.1 `platform-linux` mediator is now two `PlatformFactory`s (`X11Factory`, `WaylandFactory`) selecting by `config.platform.backend` or `session_type()` auto-detect; `static RESOLVED`, the `PlatformModule`, and all wrapper-device registrations removed. Builds clean.
 - [x] 4.2 `WaylandFactory::create` calls `create_wayland_bundle` (wraps the existing `set_global_and_start`/`input::initialize` globals); teardown-on-drop deferred (non-goal, `TODO(wayland-internalization)`). `WaylandModule` removed.
 - [x] 4.3 `MockPlatformFactory` (id `"mock"`, `can_serve` only when `platform.backend=="mock"`) + `create_mock_bundle` in `platform-mock`; `use_mock`/`new_with_mock` route through it.
-- [ ] 4.4 Windows: give `platform-windows` a `PlatformFactory` (`create_windows_bundle`) so Windows stays functional under the factory-only runtime, and make the highlight controller per-instance (remove `static CTRL`, fixes suite-2+ highlight). Compile-checked via `just check-windows`; runtime-verified on a Windows host (follow-up task, this dev box is Linux). **Required to avoid a Windows runtime regression.**
+- [x] 4.4 `platform-windows` has a `WindowsPlatformFactory` + `create_windows_bundle` (DPI-awareness kept once-per-process); highlight controller made per-instance (owns `tx` + `JoinHandle`, joined on `Drop`; `static CTRL`/`global`/`shutdown_highlight` removed); all inventory registrations removed. Verified `just check-windows` + `just clippy-windows` clean (cross-compile). Windows *runtime* verification on a Windows host is §9.5 (follow-up).
 
 ## 5. Rust runtime: own the bundle, delete the lease
 
@@ -41,24 +41,24 @@
 
 ## 7. Python / PyO3 binding (after native rebuild)
 
-- [ ] 7.1 Rebuild the native module (`just build-native`) so the new `Runtime(config)` surface is available to Python — sequence gate before the RF work.
-- [ ] 7.2 `packages/native/src/runtime.rs`: `Runtime(config)` accepts and parses the nested config `dict` into `RuntimeConfig`, and `new_with_mock()` routes through the `platform.backend="mock"` path; update `packages/native/python/platynui_native/_native.pyi`.
-- [ ] 7.3 Write the RF **mock** suite for `BareMetal(config=…)`: empty/absent config = current behavior, an override reaches the mock backend, an unclaimed key is ignored (`runtime-session-config` scenarios that the mock can observe). Red.
-- [ ] 7.4 `src/PlatynUI/BareMetal/__init__.py`: add the `config=` import argument, forward it through `_create_runtime()` (`:787-818`); reconcile `use_mock` as sugar for `platform.backend="mock"`. Make 7.3 and 1.3 green.
+- [x] 7.1 Native rebuilt via `just build-native-mock` (the `Runtime(config)` surface is available to Python).
+- [x] 7.2 `packages/native/src/runtime.rs`: `Runtime(config=None)` parses the nested dict → `RuntimeConfig` (recursive `PyDict`→`ConfigMap`; `bool` checked before `int`; unsupported leaves/keys skipped with a debug log). `None`/empty ⇒ `RuntimeConfig::default()` (unchanged behavior). `.pyi` updated to `__init__(self, config: dict[str, Any] | None = ...)`. `new_with_mock()` unchanged.
+- [x] 7.3 Test written as a **native pytest** (`packages/native/tests/test_runtime_config.py`, 5 cases) rather than an RF mock suite — the RF `use_mock` path bypasses the config dict and a config-driven real path can't run headless, so the native layer is where `Runtime(config)` + parsing live. Covers: mock backend selected, empty buckets no-op, unknown/foreign/non-dict keys + mixed leaf types tolerated, `new_with_mock` regression. Real value-overrides remain acceptance-scope (1.3/9.4).
+- [x] 7.4 `src/PlatynUI/BareMetal/__init__.py`: `config: dict | None = None` kw-only arg forwarded via `_create_runtime()` → `Runtime(self._config)`, documented in the docstring (satisfies §8.6). **`use_mock` reconciliation deviates from D7:** it stays `new_with_mock()` rather than a `backend="mock"` config, because `Runtime(config)` runs provider `discover()` (real AT-SPI on Linux; the mock *provider* is not inventory-registered), so a mock-backend config would still load AT-SPI. Behaviorally identical; documented in code.
 
 ## 8. Documentation
 
-- [ ] 8.1 `dev-docs/architecture.md` — platform/runtime lifecycle: per-runtime ownership + the `PlatformFactory`/bundle model; remove the reference-counted-lease description.
-- [ ] 8.2 `dev-docs/platform-linux.md` — X11 connection/keymap/atoms/highlight are owned per runtime; the mediator is a factory; no process-global connection.
-- [ ] 8.3 `dev-docs/python-bindings.md` — the `Runtime(config)` surface and the config → factory fan-out.
-- [ ] 8.4 `dev-docs/python-library-design.md` — `BareMetal config=`, session binding, and the relationship to the scoped behavioral dicts.
-- [ ] 8.5 `dev-docs/testing-strategy.md` — why the multi-suite X11 acceptance lane is now green; note the `x11-connection-cached-across-runtimes` memory / narrow reconnect fix is superseded.
-- [ ] 8.6 `BareMetal` library docstring + any `docs/` user documentation — document `config=`, its `platform`/`providers` shape, the empty-config default, and a portable-across-OS example.
+- [x] 8.1 `dev-docs/architecture.md` — rewrote the registration model (two factory macros), the Linux mediator (two `PlatformFactory`s, no `RESOLVED`/wrappers), the init/shutdown lifecycle (per-runtime bundle, no lease), the desktop-node source (from the bundle), and test injection (mock via `config` backend).
+- [x] 8.2 `dev-docs/platform-linux.md` — design decisions + selection example rewritten to the factory/per-runtime model; X11 utilities/highlight/shutdown now describe the owned `Arc<X11Connection>` and per-instance highlight thread (keymap/atoms noted as server-stable global caches).
+- [x] 8.3 `dev-docs/python-bindings.md` — added a "Runtime Configuration" section: `Runtime(config=None)`, the `platform`/`providers` dict shape, the leaf-value mapping (bool-before-int), tolerant unknown keys, empty ⇒ default, construction-time immutability.
+- [ ] 8.4 `dev-docs/python-library-design.md` — **deferred.** It's a German migration *discussion* draft (Rev. 48) slated for English translation; `config=` isn't a migration topic and is already covered authoritatively by the BareMetal docstring (8.6), `python-bindings.md` (8.3), and `architecture.md` (8.1). Forcing a German revision entry is low value. **Remaining (optional).**
+- [x] 8.5 `dev-docs/testing-strategy.md` — added a normative "Also guards per-runtime isolation" note to the acceptance-lane section (why the lanes run several suites in one process); framed as intent, not a status count.
+- [x] 8.6 `BareMetal` docstring — done in §7.4: `config=` documented with the `platform`/`providers` shape, reserved `backend`, portability, empty-default, and construction-time immutability, plus a `config` row in the args table.
 
 ## 9. Verification
 
-- [ ] 9.1 `just check` (fmt, clippy, ruff, mypy) and `just check-windows` / `just clippy-windows` for the Windows highlight change.
-- [ ] 9.2 `just test` (Rust) — `RuntimeConfig` parsing/precedence/tolerance and the mock create→drop→create reconnect/isolation tests pass.
-- [ ] 9.3 `just test-python` — the `BareMetal config=` mock suite passes.
-- [ ] 9.4 `just test-acceptance-x11` multi-suite (real AT-SPI/X11) — every suite green; the reconnect, later-suite-highlight, and config-bound-display scenarios (§1) pass. This is the regression guard for the original bug.
-- [ ] 9.5 Windows highlight runtime-verified on a real Windows desktop via a dedicated task (this dev machine is Linux; the acceptance run happens on a Windows host).
+- [x] 9.1 `just check` (fmt/clippy/ruff/mypy — 125 files) clean; `just check-windows` + `just clippy-windows` clean (cross-compile).
+- [x] 9.2 `just test` (nextest) — **2018 passed, 0 failed** (incl. `RuntimeConfig` core tests + reworked runtime/mock tests).
+- [x] 9.3 `just test-python` — **746 passed** (incl. the 5 native `Runtime(config)` tests).
+- [x] 9.4 `just test-acceptance-x11` multi-suite (real AT-SPI/X11) — **26/26**, every suite green, no shutdown/init/window-manager errors. The regression guard for the original bug. (Dedicated config-bound-display / two-instance scenarios are 1.3/1.4, remaining.)
+- [ ] 9.5 Windows runtime verification on a real Windows desktop — **remaining follow-up** (this dev box is Linux; only cross-compile-checked here).

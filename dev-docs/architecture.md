@@ -108,18 +108,12 @@ PlatynUI is built to be extended without the runtime knowing — at compile time
 
 ### Registration Macros
 
-Each kind of extension point has its own registration macro, and each macro is backed by its own dedicated `inventory` collection — so the runtime can enumerate, say, all pointer devices independently of all providers. You register one implementation per call:
+A crate registers *factories*, and there are two kinds — each backed by its own `inventory` collection, so the runtime can enumerate providers independently of platforms:
 
-- `register_platform_module!(&MODULE)` — registers a `PlatformModule` implementation
-- `register_provider!(&FACTORY)` — registers a `UiTreeProviderFactory`
-- `register_window_manager!(&PROVIDER)` — registers a `WindowManager` implementation
-- `register_pointer_device!(&DEVICE)` — registers a `PointerDevice`
-- `register_keyboard_device!(&DEVICE)` — registers a `KeyboardDevice`
-- `register_desktop_info_provider!(&PROVIDER)` — registers a `DesktopInfoProvider`
-- `register_screenshot_provider!(&PROVIDER)` — registers a `ScreenshotProvider`
-- `register_highlight_provider!(&PROVIDER)` — registers a `HighlightProvider`
+- `register_provider!(&FACTORY)` — a `UiTreeProviderFactory`, which builds a UI-tree provider for one accessibility technology (UIA, AT-SPI2, mock).
+- `register_platform_factory!(&FACTORY)` — a `PlatformFactory`, which builds a runtime's *platform bundle* for one display/input backend (X11, Wayland, Windows, mock): the pointer, keyboard, screenshot, highlight, window manager, and desktop-info devices it drives, all bound to one session.
 
-The grouping mirrors the system's capabilities: the broad ones (a platform module, a UI-tree provider, a window manager) and the individual input/output facilities a platform offers — pointer, keyboard, desktop info, screenshot, highlight. Each lives in its own collection so the runtime can ask for exactly the capability it needs.
+Both kinds share the same shape — a factory the runtime discovers and *calls to create an owned instance per runtime* — so a platform backend and a provider are registered and instantiated the same way (this symmetry is deliberate; the platform layer used to be the exception and no longer is). The runtime never names a concrete backend: it asks which factories registered and selects one (platforms — see §4; providers — see §7.2). The individual input/output facilities (pointer, keyboard, …) are no longer registered one by one — a `PlatformFactory` assembles them into the bundle it returns.
 
 ### Linking Strategy
 
@@ -131,7 +125,7 @@ To make the common cases ergonomic, the helper crate `platynui-link` offers two 
 
 Everywhere else, the platform is decided when you build: a Windows build talks to Windows, a macOS build talks to macOS. Linux breaks that assumption, because the display server — X11 or Wayland — is only known when the program actually runs. Linux is therefore the one place where platform selection is a **runtime** decision, and the crate `platynui-platform-linux` exists to absorb that complication so nothing downstream has to think about it.
 
-**Architecture.** The mediator presents itself to the rest of the system as an ordinary platform: it registers one set of *wrapper* devices via `inventory`, exactly like any other platform would. The difference is what those wrappers do — each one simply forwards every call to the appropriate backend for the session that was detected. Behind the mediator sit two real implementations, `platform-linux-x11` and `platform-linux-wayland`, and these deliberately do **not** register themselves. They are plain libraries that only the mediator consumes, which keeps each one a self-contained X11 or Wayland implementation with no opinion about how it gets chosen.
+**Architecture.** The mediator registers two `PlatformFactory`s — one for X11, one for Wayland — and nothing else. Behind it sit two real implementations, `platform-linux-x11` and `platform-linux-wayland`, which deliberately do **not** register themselves; each exposes a plain `create_*_bundle(config)` function that the mediator's factory calls. They stay self-contained X11/Wayland libraries with no opinion about how they get chosen; the mediator owns only the choice.
 
 **Session detection** (`session.rs`). The mediator works out which session it is in once and remembers the answer for the lifetime of the process (cached behind a `Mutex<Option<SessionType>>`). The checks run in order of trustworthiness:
 
@@ -140,9 +134,9 @@ Everywhere else, the platform is decided when you build: a Windows build talks t
 3. `$DISPLAY` present → X11
 4. None → `PlatformError::UnsupportedPlatform`
 
-**Delegation pattern.** Detection feeds resolution. When `LinuxModule::initialize()` runs, the mediator resolves the session exactly once and gathers static references to the chosen backend's facilities — its pointer, keyboard, desktop info, screenshot, highlight, window manager, and module — into a single `Resolved` bundle, which it caches in a `static Mutex<Option<Resolved>>`. From then on, every wrapper device is a thin pass-through: when you ask the Linux pointer for its position, it hands the question straight to the resolved backend's pointer. There is no per-call session sniffing — the cost is paid once, at initialization, and the routing afterward is just a method forward. This is what lets each sub-platform stay a standalone library: the mediator alone owns the one-time resolution, the registration, and the routing.
+**Selection pattern.** Detection feeds selection. Each of the two factories answers `can_serve(config)` — true when the runtime's `config` names that backend explicitly (`platform.backend`), or, absent that, when session detection matches (X11 factory serves an X11 session, Wayland factory a Wayland one). The runtime asks each registered platform factory in turn and calls `create(config)` on the first that can serve, which builds that backend's per-runtime bundle by delegating to the sub-crate's `create_*_bundle`. There are no cached wrapper devices and no process-global resolution: the chosen backend's real devices go straight into the runtime's own bundle, and a second runtime makes the choice again from scratch.
 
-*The delegating wrapper implementations live in `crates/platform-linux`; the code is authoritative for the exact forwarding.*
+*The two factories live in `crates/platform-linux`; the code is authoritative for the exact selection.*
 
 **Consumers.** Everything downstream — the CLI, the Inspector, the Python bindings, the link crate — depends on `platynui-platform-linux` and never reaches past it to a sub-platform directly. That single dependency is what lets the rest of the toolkit treat Linux as "just another platform."
 
@@ -159,19 +153,19 @@ The **runtime** is the object that holds a live automation session together. It 
 
 Creating a runtime happens in a fixed order, because each step depends on the one before it. The first step prepares the *platform*, the second prepares the *providers*, and the third connects them so changes can flow back to you.
 
-1. **Prepare the platform.** Constructing a runtime first secures a shared lease on the platform modules. The very first runtime to come up triggers one-time platform setup for every registered module — on Windows, for instance, this is where the process declares Per-Monitor-V2 DPI awareness. This setup must happen exactly once per process, so the lease is reference-counted: subsequent runtimes share the same already-initialized platform rather than redoing the work.
-2. **Bring up the providers.** The runtime instantiates its provider factories through the provider registry (see §7.2), each producing a provider that knows how to read one accessibility technology (see §7).
+1. **Build the platform bundle.** Constructing a runtime selects one `PlatformFactory` — the backend named by its `config` (`platform.backend`), or the first that can serve the detected session — and calls it to build a *platform bundle*: this runtime's own pointer, keyboard, screenshot, highlight, window manager, and desktop-info devices, all sharing that session's connection. The bundle is owned by the runtime, not shared; a second runtime builds its own. (Genuinely once-per-process host state still lives behind its own guard inside a factory — on Windows, declaring Per-Monitor-V2 DPI awareness — but the *devices and their connection* are per-runtime.) If no backend can serve, the runtime comes up without a platform (providers-only, e.g. a headless test); if a named backend cannot serve, construction fails.
+2. **Bring up the providers.** The runtime instantiates its provider factories through the provider registry (see §7.2), each producing a provider that knows how to read one accessibility technology (see §7), and hands each the bundle's window manager so a provider's window nodes drive *this* runtime's session rather than a global.
 3. **Wire up events.** Finally, the runtime subscribes its event listeners to the providers, so that changes observed in the underlying UI can be delivered back through the event pipeline (see §5.7, §7.2).
 
 ### Shutdown & Resource Cleanup
 
 Shutting a runtime down unwinds those three steps in the reverse order, and it does so automatically — the runtime tears itself down when it goes out of scope, so you do not have to remember to do it by hand. Shutdown is idempotent, meaning a second teardown (an explicit one followed by the automatic one, say) is harmless.
 
-The order matters as much on the way down as on the way up. The runtime first stops the event dispatcher, so no further change notifications arrive while things are being dismantled. It then shuts down each provider, giving it the chance to release everything it was holding on the host system — COM handles, D-Bus connections, overlay windows, and the like. Only then does it release its share of the platform-modules lease; when the last live runtime lets go, the platform modules themselves are shut down. Releasing host resources cleanly in this phase is a firm obligation on every provider, not a courtesy.
+The order matters as much on the way down as on the way up. The runtime first stops the event dispatcher, so no further change notifications arrive while things are being dismantled. It then shuts down each provider, giving it the chance to release everything it was holding on the host system — COM handles, D-Bus connections, and the like. Only then does it drop its own platform bundle: because the bundle's devices own that runtime's connection (an `Arc`) and its per-session threads (such as the highlight overlay, joined on drop), dropping it closes the connection and stops those threads — no shared lease to release, and nothing left running for another runtime to trip over. Releasing host resources cleanly in this phase is a firm obligation on every provider, not a courtesy.
 
 ### Test Injection
 
-In tests you usually do *not* want a runtime to go discover whatever providers and platform happen to be present on the machine running the suite — that would make tests depend on the host. Instead, the runtime offers seams where you hand it exactly the pieces you want: a chosen set of provider factories, and optionally a set of mock platform devices standing in for real input and screen hardware. This lets a test run the same runtime code against a controlled, predictable tree on any platform.
+In tests you usually do *not* want a runtime to go discover whatever providers and platform happen to be present on the machine running the suite — that would make tests depend on the host. Instead, the runtime offers seams where you hand it exactly the pieces you want: a chosen set of provider factories, plus a `config` selecting the `mock` platform backend so its factory supplies deterministic stand-ins for real input and screen hardware. This lets a test run the same runtime code against a controlled, predictable tree on any platform. (The mock backend is opt-in — it only serves when `config` names it — so a real runtime never selects it by accident.)
 
 To keep tests from repeating that wiring, a central helper assembles a runtime from a given list of factories together with the mock platform, and a small family of shared `rstest` fixtures builds on it for the common shapes a test needs — a mock-device platform with no providers, a stub setup, and a focus-oriented setup — each delegating to that one helper.
 
@@ -212,7 +206,7 @@ Expressions without a prefix match only `control:` elements. Use `item:` or wild
 
 ### 5.3 Desktop Document Node
 
-Every query starts somewhere, and in PlatynUI that somewhere is the **desktop document node** — the synthetic root of the tree, the element an XPath expression is evaluated against. Building it is the job of a `DesktopInfoProvider`, which each platform crate contributes and registers through `inventory`. The runtime takes the first registered provider and uses it to construct the root.
+Every query starts somewhere, and in PlatynUI that somewhere is the **desktop document node** — the synthetic root of the tree, the element an XPath expression is evaluated against. Building it is the job of a `DesktopInfoProvider`, which is one of the devices in the runtime's platform bundle. The runtime asks its bundle's desktop-info device to describe the desktop and uses that to construct the root (falling back to a synthetic desktop when the runtime has no platform, as in a providers-only test).
 
 If nothing registers one, the runtime still produces a usable root: it falls back to a generic desktop with placeholder values — bounds of 1920x1080, an empty monitor list, and the technology reported as "Fallback" — so queries have something to run against even on an unconfigured platform. When a real provider is present, the `DesktopInfo` it supplies is richer: the OS version, the list of monitors (each with its id, name, bounds, whether it is primary, and its scale factor), and the overall desktop bounds.
 

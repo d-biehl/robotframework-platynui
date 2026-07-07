@@ -26,6 +26,19 @@ Single native wheel `platynui_native` built with PyO3 + maturin. All types are r
 | Array | `list` |
 | Object | `dict` |
 
+## Runtime Configuration
+
+`Runtime(config=None)` takes an optional construction-time dict that binds the runtime to a specific session. `None` or an empty dict reproduces the environment-derived default (platform auto-detected, each provider discovers its own connection). The dict has two id-keyed buckets — `platform` and `providers` — fanned out to the matching platform/provider factory (see `architecture.md` §3–§4):
+
+```python
+Runtime({
+    "platform": {"backend": "x11", "x11": {"display": ":1"}},
+    "providers": {"atspi": {"bus_address": "unix:path=…"}},
+})
+```
+
+Leaf values convert `str`→string, `bool`→boolean (checked *before* `int`, since Python `bool` subclasses `int`), `int`→integer, `float`→float, `dict`→nested map, `list`/`tuple`→list. Keys, ids, or whole sections a backend does not recognize — another OS's block, a typo, a non-dict section — are ignored with a debug-level log rather than raising, so one dict stays portable across platforms. The config is consumed once at construction and is immutable for the runtime's life; there is no re-bind. The Robot Framework surface exposes it as `BareMetal(config=…)`.
+
 ## Threading & GIL
 
 - `Runtime`: `Send + Sync`

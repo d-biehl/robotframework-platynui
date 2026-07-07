@@ -12,11 +12,11 @@ The mediator crate sits between consumers (CLI, Inspector, Python bindings) and 
 
 1. **Runtime session detection** — Linux sessions can be X11 or Wayland; this is a runtime property (unlike Windows/macOS which have a single display system). The mediator detects the session once via environment variables and caches the result for the process lifetime.
 
-2. **Sub-platforms are libraries, not plugins** — Sub-platform crates do not self-register. They export their device types as public structs and let the mediator decide when and whether to use them. This avoids unnecessary initialization and inventory pollution.
+2. **Sub-platforms are libraries, not plugins** — Sub-platform crates do not self-register. Each exports a `create_*_bundle(config)` function (and the device types it assembles) and lets the mediator decide when to call it. This avoids unnecessary initialization and inventory pollution.
 
-3. **Resolve once, delegate via static references** — Session detection runs exactly once. `LinuxModule::initialize()` resolves the session type and populates a `Resolved` struct that bundles one `&'static dyn` trait-object reference per platform trait (`module`, `pointer`, `keyboard`, `desktop`, `screenshot`, `highlight`, `window_manager`), each pointing at the chosen sub-platform's `static` device. The struct is stored in `Mutex<Option<Resolved>>` (`RESOLVED`); every wrapper device then routes through `resolved().pointer`, `resolved().keyboard`, etc. without re-detecting the session per call. The sub-platform device structs themselves carry no state — expensive resources (e.g., X11 connections) are lazily acquired inside method bodies.
+3. **Select a backend per runtime, build an owned bundle** — The mediator registers one `PlatformFactory` per session type (X11, Wayland). A factory's `can_serve(config)` is true when the runtime's `config` names that backend (`platform.backend`) or, absent that, when session detection matches. The runtime calls `create(config)` on the first factory that can serve, and the factory builds *that runtime's own* bundle of devices — pointer, keyboard, screenshot, highlight, window manager, desktop info — by calling the sub-crate's `create_*_bundle`. Each runtime owns its bundle and its X11/Wayland connection; there is no cached `Resolved`, no process-global routing, and no per-call session check (the choice is made once, when the bundle is built). A later runtime makes the choice again from scratch.
 
-4. **Single registration point** — The mediator registers exactly one implementation per platform trait. Consumers never see the sub-platform crates in the `inventory` registry, which prevents double-registration or ordering issues.
+4. **Single selection point** — The mediator is the only place the X11-vs-Wayland choice is made. Consumers never see the sub-platform crates in the registry, and each sub-crate stays a standalone implementation.
 
 ### Session Detection (`session.rs`)
 
@@ -35,20 +35,30 @@ $DISPLAY set?          ──→ X11
 
 The result is cached in `Mutex<Option<SessionType>>`. `XWayland` environments have both `$DISPLAY` and `$WAYLAND_DISPLAY` set, but `$XDG_SESSION_TYPE=wayland` — hence step 1 takes priority.
 
-### Delegation Example
+### Selection Example
+
+Each factory answers `can_serve` from the config/session and, when chosen, delegates to its sub-crate's bundle builder:
 
 ```rust
-struct LinuxPointer;   // mediator's own wrapper, registered via inventory
+struct X11Factory;   // registered via register_platform_factory!
 
-impl PointerDevice for LinuxPointer {
-    fn position(&self) -> Result<Point, PlatformError> {
-        resolved().pointer.position()   // dispatch via the resolved static reference
+impl PlatformFactory for X11Factory {
+    fn id(&self) -> &'static str { "x11" }
+
+    fn can_serve(&self, config: &RuntimeConfig) -> bool {
+        match config.platform_backend() {
+            Some(backend) => backend == "x11",
+            None => matches!(session_type(), Ok(SessionType::X11)),
+        }
     }
-    // … other methods follow the same pattern
+
+    fn create(&self, config: &RuntimeConfig) -> Result<PlatformBundle, PlatformError> {
+        platynui_platform_linux_x11::create_x11_bundle(config)   // owned, per-runtime
+    }
 }
 ```
 
-`resolved()` returns the `Resolved` struct populated at initialization, so the `pointer` reference already points at either the X11 or the Wayland sub-platform device — no per-call session check is needed.
+The Wayland factory is identical but for its id, its session match, and `create_wayland_bundle`. `crates/platform-linux` is authoritative for the exact selection.
 
 ### Crate Dependencies
 
@@ -89,11 +99,11 @@ Other C0 control characters (U+0000–U+001F) have no standard keyboard equivale
 
 **Screenshot**: `XGetImage` returning BGRA8 (X11 ZPixmap 32bpp is typically BGRX/BGRA). Optional XShm acceleration planned.
 
-**Highlight**: Multiple small override-redirect windows per segment (solid red borders). Clamping to desktop bounds; clipped edges drawn dashed (8px on / 4px off). Thread + `mpsc` channel for show/clear with deadline-based duration timer.
+**Highlight**: Multiple small override-redirect windows per segment (solid red borders). Clamping to desktop bounds; clipped edges drawn dashed (8px on / 4px off). Thread + `mpsc` channel for show/clear with deadline-based duration timer. The overlay controller is owned by the runtime's highlight device (not a process-global), so its thread is spawned per runtime and joined when the bundle drops — a runtime built after an earlier one still highlights.
 
-**Shutdown**: Highlight thread cleanup + X11 connection FD close.
+**Shutdown**: Per-runtime — dropping the runtime drops its platform bundle, which joins the highlight thread and closes the X11 connection FD. No process-global teardown.
 
-**X11 Utilities**: Connection pooling via `Mutex<X11Handle>` in `x11util.rs`.
+**X11 Utilities** (`x11util.rs`): `X11Connection { conn, root }` is built per runtime by `create_x11_bundle` (`X11Connection::connect(display)`, display from `platform.x11.display` config → `$DISPLAY`) and shared among the bundle's devices via `Arc`; the connection closes when the last device drops. There is no process-global connection cell — a new runtime always connects fresh. (The keymap and EWMH-atom lookup tables remain process-global caches: they are server-stable and never torn down, so they don't affect reconnection.)
 
 ## 2. AT-SPI2 Provider
 
