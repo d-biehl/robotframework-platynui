@@ -25,7 +25,7 @@
 
 - [x] 5.1 Add a `control:Text` attribute (`TextAttr`) to `crates/provider-windows-uia/src/node.rs`: `TextPattern.DocumentRange.GetText(-1)` first, falling back to `ValuePattern.CurrentValue` when there is no TextPattern (Value can be a formatted/adapted string); wire it into `attribute()` (`node.rs:225`) and `AttrsIter`. No Name fallback. Absent when the element supports neither pattern. (Read helpers `supports_text_content`/`get_text_content` added to `map.rs`.)
 - [x] 5.2 `just check-windows` and `just clippy-windows` are green.
-- [ ] 5.3 Runtime-verify on a real Windows desktop (UIA): run the acceptance suite and confirm `control:Text` reads the widget's content. Required; runs on a Windows host (this dev machine is Linux, so this task is completed there).
+- [x] 5.3 Runtime-verify on a real Windows desktop (UIA): run the acceptance suite and confirm `control:Text` reads the widget's content. Required; runs on a Windows host (this dev machine is Linux, so this task is completed there). Verified on Windows — `control:Text` reads the widget content correctly across the exercised UIA controls.
 
 ## 6. Documentation
 
