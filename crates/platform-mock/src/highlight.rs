@@ -62,20 +62,15 @@ pub fn reset_highlight_state() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use platynui_core::platform::{HighlightRequest, highlight_providers};
+    use platynui_core::platform::HighlightRequest;
     use platynui_core::types::Rect;
     use rstest::rstest;
     use serial_test::serial;
 
     #[rstest]
     #[serial]
-    fn highlight_provider_not_auto_registered() {
+    fn highlight_logs_and_clears() {
         reset_highlight_state();
-        let providers: Vec<_> = highlight_providers().collect();
-        // Mock provider should NOT be in the registry
-        let mock_in_registry = providers.iter().any(|p| std::ptr::eq(*p, &MOCK_HIGHLIGHT as &dyn HighlightProvider));
-        assert!(!mock_in_registry, "Mock highlight provider should not be auto-registered");
-
         // Use direct reference for testing the provider itself
         let request = HighlightRequest::new(Rect::new(0.0, 0.0, 100.0, 50.0));
         MOCK_HIGHLIGHT.highlight(&request).unwrap();

@@ -72,50 +72,9 @@ pub trait ScreenshotProvider: Send + Sync {
     fn capture(&self, request: &ScreenshotRequest) -> Result<Screenshot, PlatformError>;
 }
 
-pub struct ScreenshotRegistration {
-    pub provider: &'static dyn ScreenshotProvider,
-}
-
-inventory::collect!(ScreenshotRegistration);
-
-pub fn screenshot_providers() -> impl Iterator<Item = &'static dyn ScreenshotProvider> {
-    inventory::iter::<ScreenshotRegistration>.into_iter().map(|entry| entry.provider)
-}
-
-#[macro_export]
-macro_rules! register_screenshot_provider {
-    ($provider:expr) => {
-        inventory::submit! {
-            $crate::platform::ScreenshotRegistration { provider: $provider }
-        }
-    };
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    struct StubScreenshotProvider;
-
-    impl ScreenshotProvider for StubScreenshotProvider {
-        fn capture(&self, request: &ScreenshotRequest) -> Result<Screenshot, PlatformError> {
-            let region = request.region.unwrap_or(Rect::new(0.0, 0.0, 2.0, 2.0));
-            let width = region.width().round() as u32;
-            let height = region.height().round() as u32;
-            let pixels = vec![0u8; (width * height * 4) as usize];
-            Ok(Screenshot::new(width, height, PixelFormat::Rgba8, pixels))
-        }
-    }
-
-    static PROVIDER: StubScreenshotProvider = StubScreenshotProvider;
-
-    register_screenshot_provider!(&PROVIDER);
-
-    #[test]
-    fn registration_exposes_provider() {
-        let providers: Vec<_> = screenshot_providers().collect();
-        assert!(providers.iter().any(|provider| { provider.capture(&ScreenshotRequest::entire_display()).is_ok() }));
-    }
 
     #[test]
     fn pixel_format_reports_bpp() {

@@ -312,30 +312,13 @@ fn resolve_symbol_alias(input: &str) -> Option<KeyCode> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use platynui_core::platform::{KeyState, KeyboardEvent, keyboard_devices};
+    use platynui_core::platform::{KeyState, KeyboardEvent};
     use rstest::rstest;
     use std::sync::LazyLock;
     use std::sync::Mutex;
 
     // Serialize tests that touch the global MOCK_KEYBOARD state to avoid races.
     static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
-
-    #[rstest]
-    fn keyboard_device_not_auto_registered() {
-        let _guard = TEST_LOCK.lock().unwrap();
-        reset_keyboard_state();
-        // Mock keyboard should NOT auto-register
-        let devices: Vec<_> = keyboard_devices().collect();
-        // Mock device should NOT be in the registry
-        let mock_in_registry =
-            devices.iter().any(|device| std::ptr::eq(*device, &MOCK_KEYBOARD as &dyn KeyboardDevice));
-        assert!(!mock_in_registry, "Mock keyboard device should not be auto-registered");
-
-        // Use direct reference for testing the device itself
-        let device = &MOCK_KEYBOARD;
-        let control = device.key_to_code("Control").unwrap();
-        assert!(control.downcast_ref::<MockKeyCode>().is_some());
-    }
 
     #[rstest]
     fn key_to_code_accepts_named_and_chars() {

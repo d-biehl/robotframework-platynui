@@ -229,25 +229,6 @@ pub trait KeyboardDevice: Send + Sync {
     }
 }
 
-pub struct KeyboardRegistration {
-    pub device: &'static dyn KeyboardDevice,
-}
-
-inventory::collect!(KeyboardRegistration);
-
-pub fn keyboard_devices() -> impl Iterator<Item = &'static dyn KeyboardDevice> {
-    inventory::iter::<KeyboardRegistration>.into_iter().map(|entry| entry.device)
-}
-
-#[macro_export]
-macro_rules! register_keyboard_device {
-    ($device:expr) => {
-        inventory::submit! {
-            $crate::platform::KeyboardRegistration { device: $device }
-        }
-    };
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -280,8 +261,6 @@ mod tests {
     }
 
     static STUB_KEYBOARD: StubKeyboard = StubKeyboard::new();
-
-    register_keyboard_device!(&STUB_KEYBOARD);
 
     #[rstest]
     fn keyboard_overrides_builder_sets_values() {

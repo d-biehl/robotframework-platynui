@@ -104,19 +104,8 @@ pub fn reset_window_manager_state() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use platynui_core::platform::window_managers;
     use rstest::rstest;
     use serial_test::serial;
-
-    #[rstest]
-    #[serial]
-    fn window_manager_not_auto_registered() {
-        reset_window_manager_state();
-        let registered: Vec<_> = window_managers().collect();
-        let mock_in_registry =
-            registered.iter().any(|wm| std::ptr::eq(*wm, &MOCK_WINDOW_MANAGER as &dyn WindowManager));
-        assert!(!mock_in_registry, "Mock window manager should not be auto-registered");
-    }
 
     #[rstest]
     #[serial]

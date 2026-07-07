@@ -202,19 +202,13 @@ pub fn reset_screenshot_state() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use platynui_core::platform::{ScreenshotRequest, screenshot_providers};
+    use platynui_core::platform::ScreenshotRequest;
     use platynui_core::types::Rect;
     use rstest::rstest;
 
     #[rstest]
-    fn screenshot_provider_not_auto_registered() {
+    fn screenshot_captures_full_and_region() {
         reset_screenshot_state();
-        let providers: Vec<_> = screenshot_providers().collect();
-        // Mock provider should NOT be in the registry
-        // On most test systems this will be empty, or contain OS providers
-        let mock_in_registry = providers.iter().any(|p| std::ptr::eq(*p, &MOCK_SCREENSHOT as &dyn ScreenshotProvider));
-        assert!(!mock_in_registry, "Mock screenshot provider should not be auto-registered");
-
         // Use direct reference for testing the provider itself
         let provider = &MOCK_SCREENSHOT;
 

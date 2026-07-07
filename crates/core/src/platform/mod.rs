@@ -3,44 +3,21 @@ mod error;
 mod factory;
 mod highlight;
 mod keyboard;
-mod module;
 mod pointer;
-mod registration;
 mod screenshot;
 mod window_manager;
 
-pub use desktop::{DesktopInfo, DesktopInfoProvider, DesktopInfoRegistration, MonitorInfo, desktop_info_providers};
+pub use desktop::{DesktopInfo, DesktopInfoProvider, MonitorInfo};
 pub use error::PlatformError;
 pub use factory::{PlatformBundle, PlatformFactory, PlatformFactoryRegistration, platform_factories};
-pub use highlight::{HighlightProvider, HighlightRegistration, HighlightRequest, highlight_providers};
+pub use highlight::{HighlightProvider, HighlightRequest};
 pub use keyboard::{
     KeyCode, KeyCodeError, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent, KeyboardOverrides, KeyboardProfile,
-    KeyboardRegistration, keyboard_devices,
 };
-pub use module::PlatformModule;
 pub use pointer::{
-    PointOrigin, PointerAccelerationProfile, PointerButton, PointerDevice, PointerMotionMode, PointerRegistration,
-    ScrollDelta, pointer_devices,
+    PointOrigin, PointerAccelerationProfile, PointerButton, PointerDevice, PointerMotionMode, ScrollDelta,
 };
-pub use registration::{PlatformRegistration, platform_modules};
-pub use screenshot::{
-    PixelFormat, Screenshot, ScreenshotProvider, ScreenshotRegistration, ScreenshotRequest, screenshot_providers,
-};
-pub use window_manager::{WindowId, WindowManager, WindowManagerRegistration, window_manager, window_managers};
+pub use screenshot::{PixelFormat, Screenshot, ScreenshotProvider, ScreenshotRequest};
+pub use window_manager::{WindowId, WindowManager};
 
-#[macro_export]
-macro_rules! register_platform_module {
-    ($module:expr) => {
-        inventory::submit! {
-            $crate::platform::PlatformRegistration { module: $module }
-        }
-    };
-}
-
-pub use crate::register_highlight_provider;
-pub use crate::register_keyboard_device;
 pub use crate::register_platform_factory;
-pub use crate::register_pointer_device;
-pub use crate::register_screenshot_provider;
-pub use crate::register_window_manager;
-pub use register_platform_module;

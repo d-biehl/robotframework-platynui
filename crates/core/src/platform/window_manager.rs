@@ -2,9 +2,7 @@
 //!
 //! The [`WindowManager`] trait decouples accessibility providers from
 //! platform-specific windowing APIs.  Each platform crate implements the trait
-//! and registers it via [`register_window_manager!`]; providers
-//! discover the implementation through [`window_managers()`] at
-//! runtime.
+//! and exposes it through its [`PlatformBundle`](crate::platform::PlatformBundle).
 
 use crate::platform::PlatformError;
 use crate::types::{Point, Rect, Size};
@@ -40,7 +38,8 @@ impl fmt::Display for WindowId {
 /// Platform-native window management operations.
 ///
 /// Implementations live in platform crates (e.g. `platform-linux-x11`,
-/// `platform-windows`) and are registered via inventory.  Accessibility
+/// `platform-windows`) and are provided via the platform's
+/// [`PlatformBundle`](crate::platform::PlatformBundle).  Accessibility
 /// providers call [`resolve_window`](WindowManager::resolve_window)
 /// to obtain a [`WindowId`] and then invoke the desired operation.
 pub trait WindowManager: Send + Sync {
@@ -84,36 +83,6 @@ pub trait WindowManager: Send + Sync {
 
     /// Resize the window.
     fn resize(&self, id: WindowId, size: Size) -> Result<(), PlatformError>;
-}
-
-/// Inventory registration entry for [`WindowManager`].
-pub struct WindowManagerRegistration {
-    pub provider: &'static dyn WindowManager,
-}
-
-inventory::collect!(WindowManagerRegistration);
-
-/// Iterate over all registered [`WindowManager`] implementations.
-pub fn window_managers() -> impl Iterator<Item = &'static dyn WindowManager> {
-    inventory::iter::<WindowManagerRegistration>.into_iter().map(|entry| entry.provider)
-}
-
-/// Return the first registered [`WindowManager`], if any.
-///
-/// This is a convenience shortcut for `window_managers().next()` and is
-/// appropriate when exactly one window manager is expected at runtime.
-pub fn window_manager() -> Option<&'static dyn WindowManager> {
-    window_managers().next()
-}
-
-/// Register a [`WindowManager`] implementation.
-#[macro_export]
-macro_rules! register_window_manager {
-    ($provider:expr) => {
-        inventory::submit! {
-            $crate::platform::WindowManagerRegistration { provider: $provider }
-        }
-    };
 }
 
 #[cfg(test)]

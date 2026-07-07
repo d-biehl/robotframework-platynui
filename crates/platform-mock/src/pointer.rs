@@ -109,16 +109,6 @@ pub fn take_pointer_log() -> Vec<PointerLogEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use platynui_core::platform::pointer_devices;
-
-    #[test]
-    fn pointer_not_auto_registered() {
-        let providers: Vec<_> = pointer_devices().collect();
-        // Mock pointer should NOT be in the registry
-        let mock_in_registry =
-            providers.iter().any(|device| std::ptr::eq(*device, &MOCK_POINTER as &dyn PointerDevice));
-        assert!(!mock_in_registry, "Mock pointer should not be auto-registered");
-    }
 
     #[test]
     fn pointer_log_records_events() {

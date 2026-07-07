@@ -45,56 +45,10 @@ pub trait HighlightProvider: Send + Sync {
     fn clear(&self) -> Result<(), PlatformError>;
 }
 
-pub struct HighlightRegistration {
-    pub provider: &'static dyn HighlightProvider,
-}
-
-inventory::collect!(HighlightRegistration);
-
-pub fn highlight_providers() -> impl Iterator<Item = &'static dyn HighlightProvider> {
-    inventory::iter::<HighlightRegistration>.into_iter().map(|entry| entry.provider)
-}
-
-#[macro_export]
-macro_rules! register_highlight_provider {
-    ($provider:expr) => {
-        inventory::submit! {
-            $crate::platform::HighlightRegistration { provider: $provider }
-        }
-    };
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::platform::PlatformError;
     use crate::types::Rect;
-
-    struct StubHighlightProvider;
-
-    impl HighlightProvider for StubHighlightProvider {
-        fn highlight(&self, _request: &HighlightRequest) -> Result<(), PlatformError> {
-            Ok(())
-        }
-
-        fn clear(&self) -> Result<(), PlatformError> {
-            Err(PlatformError::CapabilityUnavailable {
-                capability: "highlight clear",
-                details: Some("clear not supported".into()),
-            })
-        }
-    }
-
-    static PROVIDER: StubHighlightProvider = StubHighlightProvider;
-
-    register_highlight_provider!(&PROVIDER);
-
-    #[test]
-    fn registration_exposes_provider() {
-        let providers: Vec<_> = highlight_providers().collect();
-        let req = HighlightRequest::new(Rect::new(0.0, 0.0, 1.0, 1.0));
-        assert!(providers.iter().any(|provider| provider.highlight(&req).is_ok()));
-    }
 
     #[test]
     fn highlight_request_builder_assigns_style() {
