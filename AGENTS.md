@@ -17,7 +17,7 @@ PlatynUI is a cross-platform UI automation toolkit for Robot Framework, built on
 	- `packages/native` — Maturin bindings (`platynui_native._native`)
 	- `packages/cli`, `packages/inspector` — Python wrappers around the Rust binaries
 
-The Python native package lives outside the Cargo workspace and uses `platynui_native` to follow Python conventions. Platform/provider status (which OS is real, stub, or experimental) is in the README's platform-support table — consult it before promising behavior.
+The Python native package (`packages/native`) is a Cargo workspace member (the root `Cargo.toml` has `members = ["crates/*", "apps/*", "packages/*"]`), so the workspace-wide gates — `just check` (`clippy --workspace`) and `just test` (`nextest --workspace`) — cover it; it is only *named* `platynui_native` (underscore) to follow Python conventions rather than the crates' `platynui-` prefix. Platform/provider status (which OS is real, stub, or experimental) is in the README's platform-support table — consult it before promising behavior.
 
 ## Task Routing
 
