@@ -29,7 +29,7 @@
 - [x] 5.2 Run `just test-baremetal` and confirm the new mock suite is green. → 82/82, including the 5 `Pointer Scroll` tests.
 - [x] 5.3 Run the egui acceptance lane (`just headless=true test-acceptance-compositor` and `-x11`) and confirm the scroll suite is green on both backends. → **both green, both directions**: Wayland compositor 2/2, X11 2/2 (verified headless and visible). This is what exposed the platform-layer scroll bugs in §6.
 - [x] 5.4 `openspec validate add-baremetal-pointer-scroll` passes.
-- [ ] 5.5 Windows acceptance (`just test-acceptance-windows`, UIA provider on a real desktop): confirm the scroll suite is green — the `platform-windows` HWHEEL sign fix (§6.3) is reasoned + cross-compiled, but not runtime-verified here (no Windows host).
+- [x] 5.5 Windows acceptance (`just test-acceptance-windows`, UIA provider on a real desktop): confirm the scroll suite is green — the `platform-windows` HWHEEL sign fix (§6.3) is reasoned + cross-compiled, but not runtime-verified here (no Windows host). → verified on Windows by the user: scroll works in all directions (incl. horizontal HWHEEL sign).
 
 ## 6. Platform scroll-injection fixes (exposed by the first real scroll keyword)
 
@@ -60,8 +60,9 @@ work end-to-end (the acceptance suite) required these; they are part of this cha
 - [x] 7.2 Fold the cross-platform scroll convention (sign + notch + per-provider translation) into the
   *durable* docs — `dev-docs/pointer-input.md` § Scroll gains a "Direction across platforms" table and a
   chunking note. (It previously lived only in this change's `design.md`, which archives away.)
-- [ ] 7.3 Windows `HWHEEL` horizontal-sign (6.3): verify on a real desktop — **owner: user** (tested under
+- [x] 7.3 Windows `HWHEEL` horizontal-sign (6.3): verify on a real desktop — **owner: user** (tested under
   Windows; folds into 5.5). A pure unit test for the sign is possible but low value next to the real run.
+  → confirmed by the user on Windows: `Pointer Scroll RIGHT`/`LEFT` scroll the correct way.
 - [x] 7.4 Descriptor-based acceptance case in `tests/acceptance/egui/scroll.robot` — scroll *over an
   element* (not coordinates), the real-platform counterpart to the mock move-to-target check. Green on the
   compositor (3/3).
