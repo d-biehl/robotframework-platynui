@@ -21,6 +21,7 @@ mock-provider = [
 [dependencies]
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py312"] }
 png = "0.18"
+tracing = { version = "0.1", default-features = false, features = ["std"] }
 
 
 # Internal crates

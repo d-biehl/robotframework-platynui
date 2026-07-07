@@ -3691,6 +3691,7 @@ dependencies = [
  "platynui-runtime",
  "png",
  "pyo3",
+ "tracing",
 ]
 
 [[package]]

@@ -739,6 +739,7 @@ class BareMetal(OurDynamicCore):
         pointer_profile: PointerProfileLike | None = None,
         auto_activate: bool = True,
         query_settings: QuerySettingsDict | None = None,
+        config: dict[str, Any] | None = None,
         use_mock: bool = False,
     ) -> None:
         """Import the library, optionally tuning window activation and input behaviour.
@@ -757,16 +758,37 @@ class BareMetal(OurDynamicCore):
         | ``keyboard_profile`` | keyboard *timing*: delays around key presses, chords and whole sequences |
         | ``pointer_settings`` | pointer *behaviour*: double-click interval and size, and the default button |
         | ``pointer_profile`` | pointer *motion*: speed, acceleration, curve, overshoot and jitter |
+        | ``config`` | *session* binding: which display server and accessibility bus this runtime drives |
 
         | Library    PlatynUI.BareMetal    auto_activate=${False}    query_settings={'timeout': 60}
 
+        ``config`` binds this runtime to a specific session and is separate from the behavioural
+        dictionaries above: where those tune *how* input and waiting behave, ``config`` selects *what*
+        the runtime connects to. It is a nested dict with two buckets, each keyed by a
+        backend/provider id — ``platform`` (the display server) and ``providers`` (the accessibility
+        technology). For example, to pin the X11 display a runtime drives:
+
+        | Library    PlatynUI.BareMetal    config={'platform': {'x11': {'display': ':1'}}}
+
+        The ``platform`` bucket also accepts a reserved ``backend`` selector (``'x11'``, ``'wayland'``,
+        ``'windows'`` …) that forces a backend instead of auto-detecting it from the environment, and
+        the ``providers`` bucket carries per-provider settings — chiefly ``providers.atspi.bus_address``
+        to bind to a chosen session's AT-SPI bus. One dict is portable across operating systems: a
+        backend simply ignores the ids and keys it does not recognise, so you may carry every
+        platform's block in the same dict. An absent or empty ``config`` reproduces the default
+        behaviour — the platform is auto-detected and the accessibility bus is discovered from the
+        environment. ``config`` is fixed at construction time (a live connection cannot be re-pointed
+        at another display), so there is no per-call override.
+
         ``use_mock`` exists only for PlatynUI's own development and test suites — it drives a built-in
-        stand-in tree instead of the real desktop. Leave it at its default; it is not meant for
-        automating applications.
+        stand-in tree instead of the real desktop, selecting the in-memory mock backend regardless of
+        ``config``. Leave it at its default; it is not meant for automating applications.
         """
         super().__init__([])
         self._screenshot_counter = 1
         self.use_mock = use_mock
+        # Construction-time session binding (immutable); consumed once in _create_runtime().
+        self._config = config
         self.auto_activate = auto_activate
         # Library-import defaults — the fallback when no scoped ${PLATYNUI_QUERY_SETTINGS} is set.
         self._default_query_settings = replace(QuerySettings(), **query_settings) if query_settings else QuerySettings()
@@ -795,10 +817,13 @@ class BareMetal(OurDynamicCore):
         Returns:
             Runtime: An instance of the PlatynUI runtime, either a real one or a mock based on configuration.
         """
+        # ``use_mock`` is sugar for the in-memory mock backend: it routes through the mock-only
+        # provider+platform path, ignoring ``config`` (the mock has no real session to bind to).
         if self.use_mock:
             return Runtime.new_with_mock()
 
-        return Runtime()
+        # Real path: bind to the session named by ``config`` (None ⇒ default, environment-driven).
+        return Runtime(self._config)
 
     @cached_property
     def runtime(self) -> Runtime:

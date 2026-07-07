@@ -3,7 +3,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use pyo3::IntoPyObject;
 use pyo3::exceptions::{PyException, PyTypeError};
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyAnyMethods, PyDict, PyIterator, PyList, PyModule, PyStringMethods, PyTuple, PyType};
+use pyo3::types::{
+    PyAny, PyAnyMethods, PyBool, PyDict, PyIterator, PyList, PyModule, PyString, PyStringMethods, PyTuple, PyType,
+};
 use std::str::FromStr;
 
 use core_rs::ui::UiNodeExt;
@@ -669,9 +671,24 @@ impl PyRuntime {
 #[pymethods]
 impl PyRuntime {
     #[new]
+    #[pyo3(signature = (config=None), text_signature = "(config=None)")]
     /// Creates a runtime that discovers platform providers automatically.
-    fn new() -> PyResult<Self> {
-        runtime_rs::Runtime::new().map(|inner| Self { inner: Mutex::new(inner) }).map_err(map_provider_err)
+    ///
+    /// ``config`` is an optional construction-time session configuration: a
+    /// nested dict with two buckets — ``platform`` and ``providers`` — each
+    /// keyed by a backend/provider id (for example
+    /// ``{'platform': {'backend': 'x11', 'x11': {'display': ':1'}},
+    /// 'providers': {'atspi': {'bus_address': '...'}}}``). Absent or empty ⇒
+    /// today's environment-driven behaviour. Unknown buckets/ids/keys are
+    /// tolerated (ignored). The configuration is fixed at construction time.
+    fn new(config: Option<&Bound<'_, PyDict>>) -> PyResult<Self> {
+        let cfg = match config {
+            Some(dict) => parse_runtime_config(dict),
+            None => core_rs::config::RuntimeConfig::default(),
+        };
+        runtime_rs::Runtime::new_with_config(cfg)
+            .map(|inner| Self { inner: Mutex::new(inner) })
+            .map_err(map_provider_err)
     }
 
     // ---------------- Static builder (mock only) ----------------
@@ -1287,6 +1304,103 @@ fn encode_png(shot: &core_rs::platform::Screenshot) -> PyResult<Vec<u8>> {
     writer.write_image_data(&rgba).map_err(|e| PyTypeError::new_err(format!("png encode error: {e}")))?;
     drop(writer);
     Ok(data)
+}
+
+// ---------------- RuntimeConfig parsing ----------------
+
+/// Parse the construction-time ``config`` dict into a [`RuntimeConfig`].
+///
+/// Reads the two top-level buckets ``platform`` and ``providers``; any other
+/// top-level key is ignored. An absent bucket yields an empty section, so an
+/// empty (or `None`) dict is equivalent to [`RuntimeConfig::default`] — today's
+/// environment-driven behaviour.
+fn parse_runtime_config(config: &Bound<'_, PyDict>) -> core_rs::config::RuntimeConfig {
+    core_rs::config::RuntimeConfig::new(config_section(config, "platform"), config_section(config, "providers"))
+}
+
+/// Read one top-level bucket (`platform` / `providers`) as a [`ConfigMap`].
+/// A missing bucket, or one whose value is not a dict, yields an empty map.
+fn config_section(config: &Bound<'_, PyDict>, key: &str) -> core_rs::config::ConfigMap {
+    match config.get_item(key) {
+        Ok(Some(value)) => match value.cast::<PyDict>() {
+            Ok(dict) => pydict_to_config_map(dict),
+            Err(_) => {
+                tracing::debug!(key, "runtime config: top-level section is not a dict; ignoring");
+                core_rs::config::ConfigMap::new()
+            }
+        },
+        _ => core_rs::config::ConfigMap::new(),
+    }
+}
+
+/// Convert a Python `dict` into a [`ConfigMap`], recursively.
+///
+/// Non-string keys and values of an unsupported type are skipped with a
+/// debug-level log — tolerant resolution, never an error.
+fn pydict_to_config_map(dict: &Bound<'_, PyDict>) -> core_rs::config::ConfigMap {
+    let mut map = core_rs::config::ConfigMap::new();
+    for (key, value) in dict.iter() {
+        let Ok(key) = key.extract::<String>() else {
+            tracing::debug!("runtime config: skipping non-string dict key");
+            continue;
+        };
+        match py_to_config_value(&value) {
+            Some(parsed) => map.insert(key, parsed),
+            None => tracing::debug!(key, "runtime config: skipping value of unsupported type"),
+        }
+    }
+    map
+}
+
+/// Convert a single Python value into a [`ConfigValue`], or `None` when the type
+/// is not representable.
+fn py_to_config_value(value: &Bound<'_, PyAny>) -> Option<core_rs::config::ConfigValue> {
+    use core_rs::config::ConfigValue;
+    // `str`
+    if let Ok(text) = value.cast::<PyString>() {
+        return Some(ConfigValue::Str(text.to_string_lossy().into_owned()));
+    }
+    // `bool` MUST be checked before `int`: Python `bool` is a subclass of `int`,
+    // so an `int` extraction would otherwise capture `True`/`False` as `1`/`0`.
+    if value.is_instance_of::<PyBool>() {
+        return value.extract::<bool>().ok().map(ConfigValue::Bool);
+    }
+    // `int`
+    if let Ok(int) = value.extract::<i64>() {
+        return Some(ConfigValue::Int(int));
+    }
+    // `float`
+    if let Ok(float) = value.extract::<f64>() {
+        return Some(ConfigValue::Float(float));
+    }
+    // nested `dict`
+    if let Ok(dict) = value.cast::<PyDict>() {
+        return Some(ConfigValue::Map(pydict_to_config_map(dict)));
+    }
+    // `list` / `tuple`
+    if let Ok(list) = value.cast::<PyList>() {
+        return Some(ConfigValue::List(py_sequence_to_config_values(list.iter())));
+    }
+    if let Ok(tuple) = value.cast::<PyTuple>() {
+        return Some(ConfigValue::List(py_sequence_to_config_values(tuple.iter())));
+    }
+    None
+}
+
+/// Convert an iterator of Python values into a `Vec<ConfigValue>`, skipping
+/// elements of an unsupported type (debug-logged).
+fn py_sequence_to_config_values<'py>(
+    items: impl Iterator<Item = Bound<'py, PyAny>>,
+) -> Vec<core_rs::config::ConfigValue> {
+    items
+        .filter_map(|item| {
+            let parsed = py_to_config_value(&item);
+            if parsed.is_none() {
+                tracing::debug!("runtime config: skipping sequence element of unsupported type");
+            }
+            parsed
+        })
+        .collect()
 }
 
 // ---------------- Error mapping ----------------
