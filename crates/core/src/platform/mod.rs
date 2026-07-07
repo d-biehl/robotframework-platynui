@@ -1,5 +1,6 @@
 mod desktop;
 mod error;
+mod factory;
 mod highlight;
 mod keyboard;
 mod module;
@@ -10,6 +11,7 @@ mod window_manager;
 
 pub use desktop::{DesktopInfo, DesktopInfoProvider, DesktopInfoRegistration, MonitorInfo, desktop_info_providers};
 pub use error::PlatformError;
+pub use factory::{PlatformBundle, PlatformFactory, PlatformFactoryRegistration, platform_factories};
 pub use highlight::{HighlightProvider, HighlightRegistration, HighlightRequest, highlight_providers};
 pub use keyboard::{
     KeyCode, KeyCodeError, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent, KeyboardOverrides, KeyboardProfile,
@@ -37,6 +39,7 @@ macro_rules! register_platform_module {
 
 pub use crate::register_highlight_provider;
 pub use crate::register_keyboard_device;
+pub use crate::register_platform_factory;
 pub use crate::register_pointer_device;
 pub use crate::register_screenshot_provider;
 pub use crate::register_window_manager;

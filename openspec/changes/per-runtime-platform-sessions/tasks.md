@@ -7,10 +7,10 @@
 
 ## 2. Rust core: PlatformFactory + RuntimeConfig (test-first)
 
-- [ ] 2.1 Write core unit tests for `RuntimeConfig` parsing and resolution: `platform`/`providers` grouped by component id; precedence config value → env → auto-detect; unclaimed bucket/id/key ignored with a `tracing::debug!` (the `runtime-session-config` scenarios). Red.
-- [ ] 2.2 Define the `RuntimeConfig { platform, providers }` type, the loosely-typed leaf value, and typed accessors (`get_str`, …) in `crates/core`.
-- [ ] 2.3 Define the `PlatformFactory` trait (`id` / `can_serve(&RuntimeConfig)` / `create(&RuntimeConfig) -> Result<PlatformBundle, PlatformError>`), the `PlatformBundle` owned-device struct, and `inventory` registration — mirroring `crates/core/src/platform/` device registration against `crates/core/src/provider/` factories.
-- [ ] 2.4 Make 2.1 green.
+- [x] 2.1 Write core unit tests for `RuntimeConfig` parsing and resolution: `platform`/`providers` grouped by component id; unclaimed bucket/id/key retained-but-unclaimed and type-mismatch degrades to `None` (the core-testable `runtime-session-config` scenarios). The config-value → env → auto-detect precedence is verified at the backend level (3.1, 6.1), where env is actually read.
+- [x] 2.2 Define the `RuntimeConfig { platform, providers }` type, the loosely-typed leaf value (`ConfigValue`/`ConfigMap`), and typed accessors (`get_str`, `get_bool`, …) in `crates/core/src/config.rs`.
+- [x] 2.3 Define the `PlatformFactory` trait (`id` / `can_serve(&RuntimeConfig)` / `create(&RuntimeConfig) -> Result<PlatformBundle, PlatformError>`), the `PlatformBundle` owned-device struct (`Arc<dyn …>` fields — see design D1/D2), and `inventory` registration + `register_platform_factory!` in `crates/core/src/platform/factory.rs`.
+- [x] 2.4 Make 2.1 green (`cargo test -p platynui-core` — config + factory tests pass; clippy/fmt clean).
 
 ## 3. Rust X11 backend: per-instance ownership
 
