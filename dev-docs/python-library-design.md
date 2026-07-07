@@ -4,9 +4,28 @@
      aus dem Altprojekt (`/home/daniel/develop/tmp/robotframework-PlatynUI`) auf
      den neuen Rust-basierten Kern. Keine Entscheidung ist final. -->
 
-> **Status:** Diskussionsentwurf, **Revision 48**.
+> **Status:** Diskussionsentwurf, **Revision 49**.
 >
 > **Änderungen seit Rev. 4:**
+> - **Rev. 49** — **Session-Bindung über ein `config`-Dict am
+>   Runtime-Konstruktor (per-runtime platform sessions).** Der Kern
+>   besitzt seine Plattform jetzt pro Runtime statt über einen
+>   prozessglobalen Lease; jede Runtime öffnet, hält und schließt ihre
+>   eigene Session (Display-Server + Accessibility-Bus). `BareMetal`
+>   bekommt dafür ein konstruktions-zeitliches, unveränderliches
+>   Argument `config: dict | None = None` (neben — nicht vermischt mit —
+>   den skopierten Verhaltens-Dicts `query_settings`/`pointer_profile`/
+>   `keyboard_profile`): zwei Buckets `platform`/`providers`, je nach
+>   Komponenten-Id geschlüsselt (`platform.x11.display`,
+>   `providers.atspi.bus_address`, reservierter `platform.backend`-
+>   Selektor); leeres/fehlendes `config` reproduziert exakt das heutige
+>   umgebungs-abgeleitete Verhalten. **Migrationsrelevanz:** wenn die
+>   High-Level-`PlatynUI`-Library auf `scope='SUITE'` umgestellt wird
+>   (offene Frage, s.u.), teilt sie sich dieselbe `config`-Plumbing.
+>   Autoritativ dokumentiert im BareMetal-Docstring,
+>   [`python-bindings.md`](python-bindings.md) („Runtime Configuration")
+>   und [`architecture.md`](architecture.md); hier nur als Migrations-
+>   Notiz verlinkt, nicht dupliziert.
 > - **Rev. 48** — **Adapter-bezogene Devices in eigenes Modul gezogen,
 >   `_mixins.py` aufgelöst, `MouseProxy.ctrl_click()` als echte
 >   Methode.** `core/devices.py` enthält jetzt nur noch die rein
