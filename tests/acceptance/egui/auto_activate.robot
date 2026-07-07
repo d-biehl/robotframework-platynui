@@ -43,17 +43,15 @@ Activate Window Switches The Active Window Exclusively
 
 Move And Resize Window Change The Window Bounds
     [Documentation]    The window-control keywords used to arrange the instances actually move and
-    ...    resize a real window: resize sets the size exactly, move shifts the position.
+    ...    resize a real window: resize sets the size exactly, move shifts the position. The compositor
+    ...    applies both asynchronously — a move is composited server-side, but a resize is a full
+    ...    configure/ack/commit round-trip with the client — so poll @Bounds until the change lands
+    ...    rather than reading it once (a fixed settle sleep would be both flaky and needlessly slow).
     ${b0}=    Get Bounds    ${ALPHA}
     BM.Move Window    ${ALPHA}    ${260}    ${180}
-    # Sleep    0.3s
-    ${b1}=    Get Bounds    ${ALPHA}
-    Should Be True    $b1.x != $b0.x or $b1.y != $b0.y    msg=Move Window did not change the position
+    Wait Until Keyword Succeeds    3s    0.1s    Window Position Changed    ${ALPHA}    ${b0}
     BM.Resize Window    ${ALPHA}    ${640}    ${360}
-    # Sleep    0.3s
-    ${b2}=    Get Bounds    ${ALPHA}
-    Should Be Equal As Numbers    ${b2.width}     640    msg=Resize Window did not set the width
-    Should Be Equal As Numbers    ${b2.height}    360    msg=Resize Window did not set the height
+    Wait Until Keyword Succeeds    3s    0.1s    Window Size Is    ${ALPHA}    ${640}    ${360}
 
 Auto Activate Raises The Background Window For A Pointer Click
     [Documentation]    With auto_activate on (default), clicking an element in the backgrounded window
@@ -132,3 +130,18 @@ Get Bounds
     [Arguments]    ${window}
     ${bounds}=    BM.Get Attribute    ${window}    Bounds
     RETURN    ${bounds}
+
+Window Position Changed
+    [Documentation]    Predicate for Wait Until Keyword Succeeds: pass once the window's top-left has
+    ...    moved away from its original position — the asynchronously-applied effect of Move Window.
+    [Arguments]    ${window}    ${origin}
+    ${b}=    Get Bounds    ${window}
+    Should Be True    $b.x != $origin.x or $b.y != $origin.y    msg=Move Window did not change the position
+
+Window Size Is
+    [Documentation]    Predicate for Wait Until Keyword Succeeds: pass once the window reports exactly the
+    ...    target width and height — the asynchronously-applied effect of Resize Window.
+    [Arguments]    ${window}    ${width}    ${height}
+    ${b}=    Get Bounds    ${window}
+    Should Be Equal As Numbers    ${b.width}     ${width}     msg=Resize Window did not set the width
+    Should Be Equal As Numbers    ${b.height}    ${height}    msg=Resize Window did not set the height
