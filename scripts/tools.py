@@ -1,5 +1,6 @@
 import os
 import re
+import tomllib
 from pathlib import Path
 from typing import NamedTuple
 
@@ -34,7 +35,12 @@ def determine_version_bump(repo_path: str ='.') -> str | None:
         patch_change = False
 
         for commit in commits:
-            message = commit.message.strip()
+            raw_message = commit.message
+            message = (
+                raw_message.decode('utf-8', 'replace')
+                if isinstance(raw_message, bytes)
+                else raw_message
+            ).strip()
 
             if any(
                 re.match(rf'^{ignored_type}(\([^\)]+\))?:', message)
@@ -51,8 +57,8 @@ def determine_version_bump(repo_path: str ='.') -> str | None:
                 minor_change = True
 
             if any(
-                re.match(rf'^{patch_types}(\([^\)]+\))?:', message)
-                for ignored_type in ignored_types
+                re.match(rf'^{patch_type}(\([^\)]+\))?:', message)
+                for patch_type in patch_types
             ):
                 patch_change = True
 
@@ -64,6 +70,20 @@ def determine_version_bump(repo_path: str ='.') -> str | None:
 
     except Exception as e:
         raise RuntimeError(f'Error: {e}')
+
+
+def major_version_zero() -> bool:
+    """Whether the project caps breaking changes at a minor bump while on 0.x.
+
+    Mirrors commitizen's ``[tool.commitizen] major_version_zero`` so dev-build
+    versions and ``cz bump`` agree on when to escalate to 1.0.0.
+    """
+    try:
+        with Path('pyproject.toml').open('rb') as f:
+            data = tomllib.load(f)
+        return bool(data.get('tool', {}).get('commitizen', {}).get('major_version_zero', False))
+    except Exception:
+        return False
 
 
 def get_current_version_from_git() -> Version:
@@ -79,6 +99,10 @@ def get_current_version_from_git() -> Version:
         version = Version(git_version.version[1:])
         if git_version.commits is not None and git_version.commits != '0':
             next_version = determine_version_bump()
+            if next_version == 'major' and version.major == 0 and major_version_zero():
+                # Pre-1.0: a breaking change caps at a minor bump, matching the
+                # commitizen major_version_zero policy instead of forcing 1.0.0.
+                next_version = 'minor'
             if next_version == 'major':
                 version = version.next_major()
             elif next_version == 'minor':
