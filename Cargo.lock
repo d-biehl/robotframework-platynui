@@ -3367,7 +3367,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "platynui-cli"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -3396,14 +3396,14 @@ dependencies = [
 
 [[package]]
 name = "platynui-cli-bin"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 dependencies = [
  "platynui-cli",
 ]
 
 [[package]]
 name = "platynui-core"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 dependencies = [
  "bitflags 2.13.0",
  "inventory",
@@ -3415,7 +3415,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-eis-test-client"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -3431,7 +3431,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-inspector"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 dependencies = [
  "clap",
  "eframe",
@@ -3458,18 +3458,18 @@ dependencies = [
 
 [[package]]
 name = "platynui-inspector-bin"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 dependencies = [
  "platynui-inspector",
 ]
 
 [[package]]
 name = "platynui-link"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 
 [[package]]
 name = "platynui-platform-linux"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 dependencies = [
  "inventory",
  "platynui-core",
@@ -3481,7 +3481,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-platform-linux-wayland"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 dependencies = [
  "enumflags2",
  "platynui-core",
@@ -3501,7 +3501,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-platform-linux-x11"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 dependencies = [
  "platynui-core",
  "tracing",
@@ -3510,11 +3510,11 @@ dependencies = [
 
 [[package]]
 name = "platynui-platform-macos"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 
 [[package]]
 name = "platynui-platform-mock"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 dependencies = [
  "inventory",
  "platynui-core",
@@ -3525,7 +3525,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-platform-windows"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 dependencies = [
  "inventory",
  "platynui-core",
@@ -3535,7 +3535,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-provider-atspi"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 dependencies = [
  "atspi-common 0.14.0",
  "atspi-connection",
@@ -3552,7 +3552,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-provider-macos-ax"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 dependencies = [
  "inventory",
  "platynui-core",
@@ -3560,7 +3560,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-provider-mock"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 dependencies = [
  "inventory",
  "platynui-core",
@@ -3573,7 +3573,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-provider-windows-uia"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 dependencies = [
  "inventory",
  "platynui-core",
@@ -3584,7 +3584,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-runtime"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 dependencies = [
  "inventory",
  "pest",
@@ -3604,7 +3604,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-test-app-egui"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 dependencies = [
  "clap",
  "eframe",
@@ -3614,7 +3614,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-wayland-compositor"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 dependencies = [
  "calloop 0.14.4",
  "clap",
@@ -3638,7 +3638,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-wayland-compositor-ctl"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 dependencies = [
  "clap",
  "serde_json",
@@ -3646,7 +3646,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-xkb-util"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 dependencies = [
  "pkg-config",
  "tracing",
@@ -3655,7 +3655,7 @@ dependencies = [
 
 [[package]]
 name = "platynui-xpath"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 dependencies = [
  "base64",
  "chrono",
@@ -3676,7 +3676,7 @@ dependencies = [
 
 [[package]]
 name = "platynui_native"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 dependencies = [
  "platynui-core",
  "platynui-link",
@@ -3696,7 +3696,7 @@ dependencies = [
 
 [[package]]
 name = "playground"
-version = "0.12.0-dev.7"
+version = "0.13.0-dev.1"
 dependencies = [
  "anyhow",
  "platynui-core",
