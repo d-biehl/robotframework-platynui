@@ -15,11 +15,9 @@ use platynui_core::ui::pattern::{
 use platynui_core::ui::{Namespace, PatternName, RuntimeId, UiAttribute, UiNode, UiValue, pattern_names};
 use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, WaitForInputIdle};
-use windows::Win32::System::Variant::{VARIANT, VT_I4};
 use windows::Win32::UI::Accessibility::{
-    IUIAutomationCacheRequest, IUIAutomationElement, IUIAutomationTransformPattern, IUIAutomationTreeWalker,
-    IUIAutomationVirtualizedItemPattern, IUIAutomationWindowPattern, UIA_ProcessIdPropertyId,
-    WindowVisualState_Maximized, WindowVisualState_Minimized,
+    IUIAutomationElement, IUIAutomationTransformPattern, IUIAutomationVirtualizedItemPattern,
+    IUIAutomationWindowPattern, WindowVisualState_Maximized, WindowVisualState_Minimized,
 };
 use windows::core::Interface;
 
@@ -342,6 +340,26 @@ impl UiNode for UiaNode {
                 unsafe fn set_focus(&self) -> Result<(), crate::error::UiaError> {
                     crate::error::uia_api("IUIAutomationElement::SetFocus", unsafe { self.elem.SetFocus() })
                 }
+                /// Activate the window and wait (bounded) until it is actually the
+                /// foreground window. `SetFocus`/foreground changes are asynchronous
+                /// on Windows, so without this a caller reading the active state
+                /// immediately afterwards could observe the pre-activation state.
+                unsafe fn activate(&self) -> Result<(), crate::error::UiaError> {
+                    use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+                    unsafe { self.set_focus()? };
+                    if let Ok(hwnd) = unsafe { self.elem.CurrentNativeWindowHandle() }
+                        && !hwnd.0.is_null()
+                    {
+                        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1000);
+                        while std::time::Instant::now() < deadline {
+                            if unsafe { GetForegroundWindow() }.0 == hwnd.0 {
+                                break;
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(20));
+                        }
+                    }
+                    Ok(())
+                }
                 unsafe fn window_set_state(&self, state: WindowVisualState) -> Result<(), crate::error::UiaError> {
                     let unk = crate::error::uia_api("IUIAutomationElement::GetCurrentPattern(Window)", unsafe {
                         self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0))
@@ -382,7 +400,7 @@ impl UiNode for UiaNode {
             if pid == pattern_names::ACTIVATABLE {
                 let e = es.clone();
                 let action = ActivatableAction::new(move || unsafe {
-                    e.set_focus().map_err(|err| PatternError::new(err.to_string()))
+                    e.activate().map_err(|err| PatternError::new(err.to_string()))
                 });
                 return Some(Arc::new(action) as Arc<dyn UiPattern>);
             }
@@ -1389,66 +1407,23 @@ impl ApplicationNode {
     }
 }
 
+/// Iterates one application's top-level windows.
+///
+/// Uses the shared `EnumWindows`-based enumeration ([`crate::provider::ready_top_level_elements`])
+/// filtered to `pid`, rather than a UIA `ProcessId` tree walk from the desktop
+/// root: navigating the root's children through UIA materialises other top-level
+/// windows and can stall ~10 s on OLEACC's `WM_GETOBJECT` bridge for a window
+/// that has not registered its provider yet.
 struct AppWindowIter {
     pid: i32,
-    walker: Option<IUIAutomationTreeWalker>,
-    cache_req: Option<IUIAutomationCacheRequest>,
-    root: Option<IUIAutomationElement>,
-    current: Option<IUIAutomationElement>,
-    first: bool,
+    elements: std::vec::IntoIter<IUIAutomationElement>,
     parent: Option<Arc<dyn UiNode>>,
 }
 
 impl AppWindowIter {
     fn new(pid: i32, parent: Option<Arc<dyn UiNode>>) -> Self {
-        let (walker, root) = match Self::create_walker(pid) {
-            Ok((walker, root)) => (Some(walker), Some(root)),
-            Err(()) => (None, None),
-        };
-        let cache_req = crate::com::traversal_cache_request().ok();
-        Self { pid, walker, cache_req, root, current: None, first: true, parent }
+        Self { pid, elements: crate::provider::ready_top_level_elements(Some(pid)).into_iter(), parent }
     }
-
-    fn create_walker(pid: i32) -> Result<(IUIAutomationTreeWalker, IUIAutomationElement), ()> {
-        let uia = crate::com::uia().map_err(|_| ())?;
-        let root = unsafe { uia.GetRootElement() }.map_err(|_| ())?;
-        let pid_value = variant_i4(pid);
-        let condition = unsafe { uia.CreatePropertyCondition(UIA_ProcessIdPropertyId, &pid_value) }.map_err(|_| ())?;
-        let walker = unsafe { uia.CreateTreeWalker(&condition) }.map_err(|_| ())?;
-        Ok((walker, root))
-    }
-
-    fn next_element(&mut self) -> Option<IUIAutomationElement> {
-        let walker = self.walker.as_ref()?;
-        let root = self.root.as_ref()?;
-        if self.first {
-            self.first = false;
-            self.current = if let Some(ref req) = self.cache_req {
-                unsafe { walker.GetFirstChildElementBuildCache(root, req).ok() }
-            } else {
-                unsafe { walker.GetFirstChildElement(root).ok() }
-            };
-        } else if let Some(ref elem) = self.current {
-            let cur = elem.clone();
-            self.current = if let Some(ref req) = self.cache_req {
-                unsafe { walker.GetNextSiblingElementBuildCache(&cur, req).ok() }
-            } else {
-                unsafe { walker.GetNextSiblingElement(&cur).ok() }
-            };
-        } else {
-            return None;
-        }
-        self.current.clone()
-    }
-}
-
-fn variant_i4(value: i32) -> VARIANT {
-    let mut variant = VARIANT::default();
-    unsafe {
-        (*variant.Anonymous.Anonymous).vt = VT_I4;
-        (*variant.Anonymous.Anonymous).Anonymous.lVal = value;
-    }
-    variant
 }
 
 unsafe impl Send for AppWindowIter {}
@@ -1457,11 +1432,8 @@ impl Iterator for AppWindowIter {
     type Item = Arc<dyn UiNode>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let elem = self.next_element()?;
+        let elem = self.elements.next()?;
         let node = UiaNode::from_elem_with_scope(elem, crate::map::UiaIdScope::App { pid: self.pid });
-        if self.cache_req.is_some() {
-            node.populate_cached_properties();
-        }
         UiaNode::init_self(&node);
         if let Some(ref parent) = self.parent {
             node.set_parent(parent);
