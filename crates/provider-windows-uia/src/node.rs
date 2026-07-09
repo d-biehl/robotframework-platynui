@@ -505,15 +505,13 @@ impl ElementChildrenIter {
                 unsafe { walker.GetFirstChildElement(&self.parent_elem).ok() }
             };
             self.current.as_ref()?;
-        } else if let Some(ref elem) = self.current {
-            let cur = elem.clone();
+        } else {
+            let cur = self.current.as_ref()?.clone();
             self.current = if let Some(ref req) = self.cache_req {
                 unsafe { walker.GetNextSiblingElementBuildCache(&cur, req).ok() }
             } else {
                 unsafe { walker.GetNextSiblingElement(&cur).ok() }
             };
-        } else {
-            return None;
         }
         let elem = self.current.as_ref()?.clone();
         // Note: virtualized-item realization is deferred to UiaNode::children()

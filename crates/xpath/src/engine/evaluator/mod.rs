@@ -1382,16 +1382,10 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     let lhs_stream = self.pop_stream();
                     let lhs = self.first_node_from_stream(lhs_stream);
                     let b = match (lhs, rhs) {
-                        (Some(a), Some(b)) => match a.compare_document_order(&b) {
-                            Ok(ord) => {
-                                if after {
-                                    ord.is_gt()
-                                } else {
-                                    ord.is_lt()
-                                }
-                            }
-                            Err(e) => return Err(e),
-                        },
+                        (Some(a), Some(b)) => {
+                            let ord = a.compare_document_order(&b)?;
+                            if after { ord.is_gt() } else { ord.is_lt() }
+                        }
                         _ => false,
                     };
                     self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);

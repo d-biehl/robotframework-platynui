@@ -323,7 +323,7 @@ fn contains_default<N: 'static + crate::model::XdmNode + Clone>(
 ) -> Result<XdmSequence<N>, Error> {
     let s = item_to_string(s_seq);
     let sub = item_to_string(sub_seq);
-    let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
+    let uri_opt = collation_uri.filter(|&u| !u.is_empty());
     let k = crate::engine::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
     let c = k.as_trait();
     let b = c.key(&s).contains(&*c.key(&sub));
@@ -338,7 +338,7 @@ fn starts_with_default<N: 'static + crate::model::XdmNode + Clone>(
 ) -> Result<XdmSequence<N>, Error> {
     let s = item_to_string(s_seq);
     let sub = item_to_string(sub_seq);
-    let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
+    let uri_opt = collation_uri.filter(|&u| !u.is_empty());
     let k = crate::engine::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
     let c = k.as_trait();
     let b = c.key(&s).starts_with(&*c.key(&sub));
@@ -353,7 +353,7 @@ fn ends_with_default<N: 'static + crate::model::XdmNode + Clone>(
 ) -> Result<XdmSequence<N>, Error> {
     let s = item_to_string(s_seq);
     let sub = item_to_string(sub_seq);
-    let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
+    let uri_opt = collation_uri.filter(|&u| !u.is_empty());
     let k = crate::engine::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
     let c = k.as_trait();
     let b = c.key(&s).ends_with(&*c.key(&sub));

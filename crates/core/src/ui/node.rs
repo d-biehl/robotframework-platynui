@@ -117,9 +117,7 @@ pub trait UiNodeExt {
 
 impl UiNodeExt for Arc<dyn UiNode> {
     fn parent_arc(&self) -> Option<Arc<dyn UiNode>> {
-        self.parent()
-            .and_then(|weak| weak.upgrade())
-            .and_then(|parent| if is_desktop(&parent) { None } else { Some(parent) })
+        self.parent().and_then(|weak| weak.upgrade()).filter(|parent| !is_desktop(parent))
     }
 
     fn ancestors(&self) -> UiNodeAncestorIter {

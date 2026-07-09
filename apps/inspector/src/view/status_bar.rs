@@ -18,13 +18,14 @@ pub fn show_status_bar(ui: &mut egui::Ui, has_active_tasks: bool, status_text: O
                 ui.painter().circle_stroke(
                     rect.center(),
                     5.0,
-                    egui::Stroke::new(1.0, egui::Color32::from_rgb(200, 50, 50)),
+                    egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(200, 50, 50)),
                 );
 
                 let indicator_length = 3.5;
                 let start = rect.center() + egui::Vec2::angled(angle) * indicator_length;
                 let end = rect.center() + egui::Vec2::angled(angle) * 5.0;
-                ui.painter().line_segment([start, end], egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 100, 100)));
+                ui.painter()
+                    .line_segment([start, end], egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(255, 100, 100)));
 
                 ui.ctx().request_repaint();
             } else {

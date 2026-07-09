@@ -286,7 +286,7 @@ pub(super) fn deep_equal_default<N: crate::model::XdmNode>(
     let k = crate::engine::collation::resolve_collation(
         ctx.dyn_ctx,
         ctx.default_collation.as_ref(),
-        collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) }),
+        collation_uri.filter(|&u| !u.is_empty()),
     )?;
     let b = deep_equal_with_collation(a, b, Some(k.as_trait()))?;
     Ok(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))])
@@ -547,7 +547,7 @@ pub(super) fn compare_default<N: 'static + crate::model::XdmNode + Clone>(
     }
     let sa = item_to_string(a);
     let sb = item_to_string(b);
-    let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
+    let uri_opt = collation_uri.filter(|&u| !u.is_empty());
     let k = crate::engine::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
     let c = k.as_trait();
     let ord = c.compare(&sa, &sb);
@@ -568,7 +568,7 @@ pub(super) fn index_of_default<N: 'static + crate::model::XdmNode + Clone>(
 ) -> Result<XdmSequence<N>, Error> {
     use crate::engine::eq::{EqKey, build_eq_key};
     let mut out: XdmSequence<N> = Vec::new();
-    let uri_opt = collation_uri.and_then(|u| if u.is_empty() { None } else { Some(u) });
+    let uri_opt = collation_uri.filter(|&u| !u.is_empty());
     let coll_kind = crate::engine::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
     let coll: Option<&dyn crate::engine::collation::Collation> = Some(coll_kind.as_trait());
     let needle_opt = search.first();

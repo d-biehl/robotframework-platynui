@@ -74,7 +74,7 @@ pub(super) fn qname_stream<N: 'static + crate::model::XdmNode + Clone>(
     };
     let (prefix_opt, local) =
         parse_qname_lexical(&qn_lex).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid QName lexical"))?;
-    let ns_uri = ns_opt.and_then(|s| if s.is_empty() { None } else { Some(s) });
+    let ns_uri = ns_opt.filter(|s| !s.is_empty());
     let result = vec![XdmItem::Atomic(XdmAtomicValue::QName { ns_uri, prefix: prefix_opt, local })];
     Ok(XdmSequenceStream::from_vec(result))
 }

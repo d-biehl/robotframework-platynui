@@ -804,10 +804,7 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
             if let Some(sib) = Self::next_sibling_in_doc(&cur) {
                 return Some(sib);
             }
-            match cur.parent() {
-                Some(p) => cur = p,
-                None => return None,
-            }
+            cur = cur.parent()?;
         }
     }
     /// Return the first node in document order that follows the entire
@@ -820,10 +817,7 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
             if let Some(sib) = Self::next_sibling_in_doc(&cur) {
                 return Some(sib);
             }
-            match cur.parent() {
-                Some(p) => cur = p,
-                None => return None,
-            }
+            cur = cur.parent()?;
         }
     }
     fn prev_sibling_in_doc(node: &N) -> Option<N> {

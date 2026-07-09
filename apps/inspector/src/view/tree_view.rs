@@ -159,9 +159,9 @@ impl<'a, R: TreeRowData> TreeView<'a, R> {
                 };
 
                 let stroke = if tree_had_focus && (is_selected || is_focused) {
-                    egui::Stroke::new(1.0, ui.visuals().selection.stroke.color)
+                    egui::Stroke::new(1.0_f32, ui.visuals().selection.stroke.color)
                 } else {
-                    egui::Stroke::new(1.0, egui::Color32::TRANSPARENT)
+                    egui::Stroke::new(1.0_f32, egui::Color32::TRANSPARENT)
                 };
 
                 let row_frame = egui::Frame::NONE

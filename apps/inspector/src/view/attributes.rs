@@ -595,7 +595,7 @@ fn render_namespace_header_row(
         if ui.is_rect_visible(cell_rect) {
             ui.painter().rect_filled(cell_rect, 0.0, fill);
             let y = cell_rect.center().y;
-            ui.painter().hline(cell_rect.x_range(), y, egui::Stroke::new(1.0, separator_color));
+            ui.painter().hline(cell_rect.x_range(), y, egui::Stroke::new(1.0_f32, separator_color));
         }
     });
 
