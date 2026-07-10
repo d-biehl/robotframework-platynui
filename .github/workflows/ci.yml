@@ -233,7 +233,16 @@ jobs:
             x11-xkb-utils \
             libxkbcommon-x11-0 \
             fuse3 \
-            libgl1-mesa-dri
+            libgl1-mesa-dri \
+            libegl1 \
+            libxcb-cursor0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-shape0 \
+            libxcb-xinerama0
 
       - name: Set up Python and uv
         uses: astral-sh/setup-uv@v7
@@ -262,13 +271,13 @@ jobs:
       - name: Run acceptance lane (${{ matrix.backend }}, headless)
         run: just test-acceptance-${{ matrix.backend }}
 
-      - name: Dump egui app logs on failure
+      - name: Dump test app logs on failure
         if: failure()
         run: |
-          echo "=== egui app logs (stdout+stderr merged) ==="
-          mapfile -t logs < <(find /tmp /var/tmp /home /run -maxdepth 6 -name 'egui-*.log' 2>/dev/null | sort -u)
+          echo "=== test app logs (stdout+stderr merged) ==="
+          mapfile -t logs < <(find /tmp /var/tmp /home /run -maxdepth 6 \( -name 'egui-*.log' -o -name 'qt-*.log' \) 2>/dev/null | sort -u)
           if [ ${#logs[@]} -eq 0 ]; then
-            echo "(no egui-*.log found under /tmp /var/tmp /home /run)"
+            echo "(no egui-*.log / qt-*.log found under /tmp /var/tmp /home /run)"
           fi
           for f in "${logs[@]}"; do
             echo "----- $f -----"
