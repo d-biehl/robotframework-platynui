@@ -136,9 +136,9 @@ clippy-macos-arm: _check-macos-cross-tools
 ruff:
     uv run ruff check
 
-# Type-check Python code
+# Type-check Python code (scope comes from [tool.mypy] files in pyproject.toml)
 mypy:
-    uv run mypy .
+    uv run mypy
 
 # Run all checks (format, clippy, ruff, mypy)
 check: fmt clippy ruff mypy
@@ -252,12 +252,15 @@ test-acceptance-compositor *ARGS: build-native
 test-acceptance-x11 *ARGS: build-native
     uv run scripts/startxsession.sh {{ if headless == "true" { "--backend headless" } else { "" } }} -- scripts/platynui-robot-session.sh {{ ARGS }}
 
-# Run the egui acceptance lane on the native Windows desktop (UIA provider). No
-# isolated session — the suites launch the app on the real desktop.
+# Run the acceptance lane on the native Windows desktop (UIA provider). No
+# isolated session — the suites launch the apps on the real desktop. Builds the
+# egui binary; PySide6 (a dev dependency) is already in the project venv from the
+# build-native sync. Both apps are handed over via the PLATYNUI_TEST_APP_* env
+# vars (Robot Framework launches them).
 [windows]
 test-acceptance-windows *ARGS: build-native
     cargo build -p platynui-test-app-egui
-    $env:PLATYNUI_TEST_APP_BIN = "{{ egui_test_app }}"; uv run --no-sync robotcode {{ if ARGS != "" { ARGS } else { "--profile real run" } }}
+    $env:PLATYNUI_TEST_APP_BIN = "{{ egui_test_app }}"; $env:PLATYNUI_TEST_APP_QT_PYTHON = ".venv/Scripts/python.exe"; $env:PLATYNUI_TEST_APP_QT_MAIN = "apps/test-app-qt/main.py"; uv run --no-sync robotcode {{ if ARGS != "" { ARGS } else { "--profile real run" } }}
 
 # ─── Desktop Integration ────────────────────────────────────────────────────────
 

@@ -142,9 +142,23 @@ fn get_window_name(conn: &RustConnection, win: Window, atoms: &EwmhAtoms) -> Opt
 }
 
 /// Find X11 windows belonging to the given PID.  When multiple candidates
-/// exist, disambiguate by comparing the AT-SPI window `name` against
+/// exist (e.g. a main window plus dialogs, all sharing one process), correlate
+/// the node's AT-SPI screen extents with each candidate's client rect
+/// (`node_extents`), falling back to matching the accessible `name` against
 /// `_NET_WM_NAME`.
-fn find_xid_for_pid(x11: &X11Connection, pid: u32, window_name: Option<&str>) -> Result<Window, PlatformError> {
+///
+/// Geometry is the primary key on purpose: the accessible name and the window
+/// title frequently diverge (e.g. a Qt dialog whose `accessibleName` differs
+/// from its `windowTitle`), which defeats name matching. When neither key
+/// disambiguates, this returns an error rather than guessing a candidate —
+/// silently picking the wrong window yields another window's bounds (typically
+/// the main window's), which is worse than an explicit failure.
+fn find_xid_for_pid(
+    x11: &X11Connection,
+    pid: u32,
+    window_name: Option<&str>,
+    node_extents: Option<Rect>,
+) -> Result<Window, PlatformError> {
     let atoms = atoms(x11)?;
     let client_list = get_client_list(&x11.conn, x11.root, atoms.net_client_list)?;
 
@@ -170,23 +184,80 @@ fn find_xid_for_pid(x11: &X11Connection, pid: u32, window_name: Option<&str>) ->
             Ok(candidates[0])
         }
         _ => {
-            // Multiple windows for same PID — try to match by window title.
+            // Primary: correlate the node's AT-SPI screen extents with the
+            // candidates' client rects. Robust even when names diverge.
+            if let Some(target) = node_extents
+                && let Some(xid) = best_geometry_match(x11, &candidates, target)
+            {
+                debug!(pid, xid, "resolved XID by geometry match");
+                return Ok(xid);
+            }
+
+            // Secondary: match the accessible name against _NET_WM_NAME.
             if let Some(name) = window_name
                 && !name.is_empty()
+                && let Some(xid) = best_name_match(&x11.conn, &candidates, name, &atoms)
             {
-                debug!(pid, count = candidates.len(), name, "multiple X11 windows for PID — matching by name");
-                if let Some(xid) = best_name_match(&x11.conn, &candidates, name, &atoms) {
-                    debug!(pid, xid, name, "resolved XID by name match");
-                    return Ok(xid);
-                }
-                warn!(pid, name, "name match failed, using first candidate");
-            } else {
-                debug!(pid, count = candidates.len(), "multiple X11 windows for PID — no name hint, using first");
+                debug!(pid, xid, name, "resolved XID by name match");
+                return Ok(xid);
             }
-            // Last resort: return the first candidate.
-            Ok(candidates[0])
+
+            warn!(pid, count = candidates.len(), "could not disambiguate window for PID (no geometry or name match)");
+            Err(PlatformError::OperationFailed {
+                operation: "disambiguate X11 window for PID",
+                details: Some(format!(
+                    "{} candidate windows for PID {pid}, none matched by geometry or name",
+                    candidates.len()
+                )),
+            })
         }
     }
+}
+
+/// Maximum summed absolute difference (in pixels, over x/y/w/h) between a
+/// candidate's client rect and the node's AT-SPI screen extents for the two to
+/// be considered the same window. On X11 both describe the client area, so a
+/// match is near-exact; the tolerance only absorbs rounding / off-by-a-pixel
+/// and guards against selecting an unrelated window.
+const GEOMETRY_MATCH_TOLERANCE: f64 = 64.0;
+
+/// Pick the candidate whose client rect is closest to `target` (the node's
+/// AT-SPI screen extents), provided the closest is within
+/// [`GEOMETRY_MATCH_TOLERANCE`]. Returns `None` if no candidate is close enough.
+fn best_geometry_match(x11: &X11Connection, candidates: &[Window], target: Rect) -> Option<Window> {
+    let mut best: Option<Window> = None;
+    let mut best_dist = f64::MAX;
+    for &win in candidates {
+        let Ok(rect) = client_rect(x11, win) else { continue };
+        let dist = (rect.x() - target.x()).abs()
+            + (rect.y() - target.y()).abs()
+            + (rect.width() - target.width()).abs()
+            + (rect.height() - target.height()).abs();
+        if dist < best_dist {
+            best_dist = dist;
+            best = Some(win);
+        }
+    }
+    if best_dist <= GEOMETRY_MATCH_TOLERANCE { best } else { None }
+}
+
+/// Compute a window's client rect: screen position of its client origin
+/// (`translate_coordinates`) plus its client size (`get_geometry`). Shared by
+/// [`X11EwmhWindowManager::bounds`] and [`best_geometry_match`].
+fn client_rect(x11: &X11Connection, xid: Window) -> Result<Rect, PlatformError> {
+    let geom = x11
+        .conn
+        .get_geometry(xid)
+        .map_err(|e| PlatformError::OperationFailed { operation: "x11 get_geometry", details: Some(e.to_string()) })?
+        .reply()
+        .map_err(|e| PlatformError::OperationFailed {
+            operation: "x11 get_geometry reply",
+            details: Some(e.to_string()),
+        })?;
+    let coords = x11.conn.translate_coordinates(xid, x11.root, 0, 0).ok().and_then(|c| c.reply().ok());
+    let (wx, wy) =
+        coords.map(|c| (f64::from(c.dst_x), f64::from(c.dst_y))).unwrap_or((f64::from(geom.x), f64::from(geom.y)));
+    Ok(Rect::new(wx, wy, f64::from(geom.width), f64::from(geom.height)))
 }
 
 /// Find the candidate whose `_NET_WM_NAME` best matches the AT-SPI name.
@@ -264,6 +335,22 @@ fn extract_pid(node: &dyn UiNode) -> Option<u32> {
     }
 }
 
+/// Read the node's AT-SPI screen extents via the raw `Component.Extents.Screen`
+/// native attribute. This query goes straight to the accessibility provider and
+/// does **not** route through this window manager, so it is safe to call from
+/// [`X11EwmhWindowManager::resolve_window`] without recursing.
+///
+/// Returns `None` when the extents are unavailable or degenerate (zero-sized) —
+/// e.g. on Wayland, where AT-SPI reports `0,0,0,0` — so geometry matching is
+/// simply skipped and name matching takes over.
+fn extract_screen_extents(node: &dyn UiNode) -> Option<Rect> {
+    let attr = node.attribute(Namespace::Native, "Component.Extents.Screen")?;
+    match attr.value() {
+        platynui_core::ui::UiValue::Rect(rect) if rect.width() > 0.0 && rect.height() > 0.0 => Some(rect),
+        _ => None,
+    }
+}
+
 /// Try to read `control:ProcessId` from a single node.
 fn pid_from_attr(node: &dyn UiNode) -> Option<u32> {
     let attr = node.attribute(Namespace::Control, "ProcessId")?;
@@ -301,35 +388,22 @@ impl WindowManager for X11EwmhWindowManager {
         let pid = extract_pid(node)
             .ok_or(PlatformError::OperationFailed { operation: "extract PID from UiNode", details: None })?;
 
-        // Use the node's accessible name for window title matching when
-        // multiple windows share the same PID.
+        // Primary disambiguation key when multiple windows share the PID: the
+        // node's AT-SPI screen extents. This is a raw Component query that does
+        // NOT go through this window manager, so it is recursion-safe here.
+        let node_extents = extract_screen_extents(node);
+
+        // Secondary key: the node's accessible name, matched against _NET_WM_NAME.
         let node_name = node.name();
         let name_hint = if node_name.is_empty() { None } else { Some(node_name.as_str()) };
 
-        let xid = find_xid_for_pid(&self.conn, pid, name_hint)?;
+        let xid = find_xid_for_pid(&self.conn, pid, name_hint, node_extents)?;
         trace!(pid, xid, "resolved WindowId");
         Ok(WindowId::new(u64::from(xid)))
     }
 
     fn bounds(&self, id: WindowId, _toolkit_hint: Option<&str>) -> Result<Rect, PlatformError> {
-        let xid = id.raw() as Window;
-        let x11 = &self.conn;
-        let geom = x11
-            .conn
-            .get_geometry(xid)
-            .map_err(|e| PlatformError::OperationFailed {
-                operation: "x11 get_geometry",
-                details: Some(e.to_string()),
-            })?
-            .reply()
-            .map_err(|e| PlatformError::OperationFailed {
-                operation: "x11 get_geometry reply",
-                details: Some(e.to_string()),
-            })?;
-        let coords = x11.conn.translate_coordinates(xid, x11.root, 0, 0).ok().and_then(|c| c.reply().ok());
-        let (wx, wy) =
-            coords.map(|c| (f64::from(c.dst_x), f64::from(c.dst_y))).unwrap_or((f64::from(geom.x), f64::from(geom.y)));
-        Ok(Rect::new(wx, wy, f64::from(geom.width), f64::from(geom.height)))
+        client_rect(&self.conn, id.raw() as Window)
     }
 
     fn is_active(&self, id: WindowId) -> Result<bool, PlatformError> {

@@ -63,6 +63,19 @@ fi
 export PLATYNUI_TEST_APP_BIN="$PROJECT_DIR/target/debug/platynui-test-app-egui"
 echo "Test app binary: $PLATYNUI_TEST_APP_BIN (Robot Framework launches it)" >&2
 
+# Hand the Qt (PySide6) test app's interpreter + entrypoint to Robot Framework.
+# PySide6 is a normal dev dependency, already installed by the outer `uv run`
+# sync, so we just point at the project interpreter. Robot Framework launches
+# that Python DIRECTLY — via `uv run` the started PID would differ from the app's
+# PID (uv spawns Python as a child), breaking the @ProcessId window pinning.
+export PLATYNUI_TEST_APP_QT_PYTHON="$PROJECT_DIR/.venv/bin/python"
+export PLATYNUI_TEST_APP_QT_MAIN="$PROJECT_DIR/apps/test-app-qt/main.py"
+# Qt only exposes its AT-SPI bridge when accessibility is enabled. The
+# screen-reader status enabled above covers AccessKit; these cover Qt.
+export QT_ACCESSIBILITY=1
+export QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1
+echo "Qt test app: $PLATYNUI_TEST_APP_QT_PYTHON $PLATYNUI_TEST_APP_QT_MAIN (Robot Framework launches it)" >&2
+
 # Default RobotCode command if none was supplied.
 if [ "$#" -eq 0 ]; then
   set -- --profile real run

@@ -16,6 +16,9 @@ struct WindowSelector {
     compositor_window_id: u64,
     title: String,
     pid: Option<u32>,
+    /// AT-SPI size of the node, used to re-disambiguate on refresh (see
+    /// [`match_best_window`]) when the title alone is not enough.
+    size: Option<(f64, f64)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -64,17 +67,23 @@ impl CompositorBackend for PlatynUiIpcBackend {
     fn resolve_window(&self, node: &dyn UiNode) -> Result<WindowId, PlatformError> {
         let pid = extract_pid(node);
         let title = extract_window_title(node);
-        let window =
-            match_best_window(&list_windows()?, pid, &title).ok_or_else(|| PlatformError::OperationFailed {
+        // AT-SPI reports a correct size even on Wayland (only the position is
+        // unavailable, i.e. 0,0), so size is the usable geometric key to
+        // disambiguate windows whose accessible name differs from their
+        // window title. Read recursion-safely via the raw native attribute.
+        let node_size = extract_screen_size(node);
+        let window = match_best_window(&list_windows()?, pid, &title, node_size).ok_or_else(|| {
+            PlatformError::OperationFailed {
                 operation: "resolve window via control socket",
-                details: Some(format!("no matching window found for pid={pid:?}, title={title:?}")),
-            })?;
+                details: Some(format!("no matching window found for pid={pid:?}, title={title:?}, size={node_size:?}")),
+            }
+        })?;
 
         let local_id = NEXT_WINDOW_ID.fetch_add(1, Ordering::Relaxed);
         RESOLVED_WINDOWS
             .lock()
             .expect("resolved windows mutex poisoned")
-            .insert(local_id, WindowSelector { compositor_window_id: window.window_id, title, pid });
+            .insert(local_id, WindowSelector { compositor_window_id: window.window_id, title, pid, size: node_size });
         Ok(WindowId::new(local_id))
     }
 
@@ -175,16 +184,22 @@ fn resolve_window_info(id: WindowId) -> Result<ControlWindowInfo, PlatformError>
         return Ok(info);
     }
 
-    let window = match_best_window(&list_windows()?, selector.pid, &selector.title).ok_or_else(|| {
-        PlatformError::OperationFailed {
-            operation: "refresh window via control socket",
-            details: Some(format!("window {id:?} is no longer present")),
-        }
-    })?;
+    let window =
+        match_best_window(&list_windows()?, selector.pid, &selector.title, selector.size).ok_or_else(|| {
+            PlatformError::OperationFailed {
+                operation: "refresh window via control socket",
+                details: Some(format!("window {id:?} is no longer present")),
+            }
+        })?;
 
     RESOLVED_WINDOWS.lock().expect("resolved windows mutex poisoned").insert(
         id.raw(),
-        WindowSelector { compositor_window_id: window.window_id, title: selector.title, pid: selector.pid },
+        WindowSelector {
+            compositor_window_id: window.window_id,
+            title: selector.title,
+            pid: selector.pid,
+            size: selector.size,
+        },
     );
 
     Ok(window)
@@ -211,7 +226,18 @@ fn list_windows() -> Result<Vec<ControlWindowInfo>, PlatformError> {
     windows.iter().map(decode_window).collect()
 }
 
-fn match_best_window(windows: &[ControlWindowInfo], pid: Option<u32>, title: &str) -> Option<ControlWindowInfo> {
+/// Max per-axis difference (px) between a node's AT-SPI size and a compositor
+/// window's content size for the two to be considered the same window. The two
+/// describe the same client area, so the match is near-exact; the tolerance only
+/// absorbs rounding.
+const SIZE_MATCH_TOLERANCE: f64 = 2.0;
+
+fn match_best_window(
+    windows: &[ControlWindowInfo],
+    pid: Option<u32>,
+    title: &str,
+    node_size: Option<(f64, f64)>,
+) -> Option<ControlWindowInfo> {
     let pid_candidates: Vec<&ControlWindowInfo> = match pid {
         Some(pid) => windows.iter().filter(|window| window.pid == Some(pid)).collect(),
         None => Vec::new(),
@@ -236,6 +262,23 @@ fn match_best_window(windows: &[ControlWindowInfo], pid: Option<u32>, title: &st
             candidates.iter().copied().find(|window| window.title.to_ascii_lowercase().contains(&title_lower))
         };
         if let Some(window) = contains {
+            return Some(window.clone());
+        }
+    }
+
+    // Title did not disambiguate (e.g. the node's accessible name differs from
+    // the window title): fall back to correlating by size. Only accept a UNIQUE
+    // size match, so we never guess between equally-sized windows.
+    if let Some((w, h)) = node_size {
+        let pool: Vec<&ControlWindowInfo> =
+            if candidates.is_empty() { windows.iter().collect() } else { candidates.to_vec() };
+        let mut size_matches = pool.into_iter().filter(|window| {
+            (window.content_width - w).abs() <= SIZE_MATCH_TOLERANCE
+                && (window.content_height - h).abs() <= SIZE_MATCH_TOLERANCE
+        });
+        if let Some(window) = size_matches.next()
+            && size_matches.next().is_none()
+        {
             return Some(window.clone());
         }
     }
@@ -292,6 +335,22 @@ fn extract_pid(node: &dyn UiNode) -> Option<u32> {
     }
 
     None
+}
+
+/// Read the node's AT-SPI screen extents size via the raw
+/// `Component.Extents.Screen` native attribute. This goes straight to the
+/// accessibility provider (not through this window manager), so it is safe to
+/// call from `resolve_window` without recursing. Returns `(width, height)`;
+/// `None` when unavailable or degenerate. On Wayland the position is (0,0) but
+/// the size is correct, which is why size is the usable geometric key here.
+fn extract_screen_size(node: &dyn UiNode) -> Option<(f64, f64)> {
+    let attr = node.attribute(Namespace::Native, "Component.Extents.Screen")?;
+    match attr.value() {
+        platynui_core::ui::UiValue::Rect(rect) if rect.width() > 0.0 && rect.height() > 0.0 => {
+            Some((rect.width(), rect.height()))
+        }
+        _ => None,
+    }
 }
 
 fn pid_from_attr(node: &dyn UiNode) -> Option<u32> {
@@ -462,8 +521,67 @@ mod tests {
             },
         ];
 
-        let matched = match_best_window(&windows, Some(11), "Target").expect("expected match");
+        let matched = match_best_window(&windows, Some(11), "Target", None).expect("expected match");
         assert_eq!(matched.window_id, 2);
+    }
+
+    #[test]
+    fn match_best_window_falls_back_to_size_when_title_diverges() {
+        // Two windows share a PID; the node's accessible name ("child-dialog-1")
+        // matches neither window title. Size then uniquely selects the dialog.
+        let windows = vec![
+            ControlWindowInfo {
+                window_id: 1,
+                title: "PlatynUI Test App (Qt)".into(),
+                app_id: "org.platynui.test.qt".into(),
+                pid: Some(42),
+                x: 0.0,
+                y: 0.0,
+                width: 900.0,
+                height: 640.0,
+                content_x: 0.0,
+                content_y: 0.0,
+                content_width: 900.0,
+                content_height: 640.0,
+                geometry_x: 0.0,
+                geometry_y: 0.0,
+                focused: false,
+                decoration_mode: None,
+                opaque_region: None,
+            },
+            ControlWindowInfo {
+                window_id: 2,
+                title: "Dialog 1".into(),
+                app_id: "org.platynui.test.qt".into(),
+                pid: Some(42),
+                x: 0.0,
+                y: 0.0,
+                width: 260.0,
+                height: 180.0,
+                content_x: 0.0,
+                content_y: 0.0,
+                content_width: 260.0,
+                content_height: 180.0,
+                geometry_x: 0.0,
+                geometry_y: 0.0,
+                focused: false,
+                decoration_mode: None,
+                opaque_region: None,
+            },
+        ];
+
+        let matched = match_best_window(&windows, Some(42), "child-dialog-1", Some((260.0, 180.0)))
+            .expect("expected size-based match");
+        assert_eq!(matched.window_id, 2);
+
+        // Two windows of the SAME size must NOT be guessed by size alone.
+        let mut same_size = windows.clone();
+        same_size[0].content_width = 260.0;
+        same_size[0].content_height = 180.0;
+        assert!(
+            match_best_window(&same_size, Some(42), "child-dialog-1", Some((260.0, 180.0))).is_none(),
+            "must not guess between equally-sized windows"
+        );
     }
 
     #[test]

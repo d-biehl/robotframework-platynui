@@ -1,6 +1,7 @@
 [workspace]
 members = ["crates/*", "apps/*", "packages/*"]
-#exclude = ["packages/native", "packages/inspector", "packages/cli"]
+# apps/test-app-qt is a Python (PySide6) test fixture, not a Cargo crate.
+exclude = ["apps/test-app-qt"]
 default-members = ["crates/playground"]
 resolver = "3"
 

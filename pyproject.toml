@@ -74,6 +74,8 @@ dev = [
     "pyright[nodejs]>=1.1.408",
     "pre-commit>=4.6.0",
     "robotcode[analyze,repl,runner]>=2.6.2",
+    # Powers the Qt test app (apps/test-app-qt) driven by the qt acceptance suite.
+    "PySide6>=6.7",
 ]
 
 [tool.cibuildwheel.macos.environment]
@@ -108,6 +110,7 @@ target-version = "py312"
 include = [
     "src/**/*.py",
     "packages/**/*.py",
+    "apps/**/*.py",
     "examples/**/*.py",
     "tests/**/*.py",
     "dev-docs/**/*.py",
@@ -229,7 +232,13 @@ namespace_packages = true
 # returned to the caller. Pyright (also part of CI) does not raise this
 # diagnostic, so no real coverage is lost.
 disable_error_code = ["type-abstract"]
-files = ["src", "packages/native/python"]
+files = [
+    "src",
+    "packages/native/python",
+    "packages/native/tests",
+    "tests",
+    "apps/test-app-qt",
+]
 exclude = [
     '^\.mypy_cache/',
     '^\.venv/',

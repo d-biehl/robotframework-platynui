@@ -1,0 +1,122 @@
+*** Settings ***
+Documentation     Launch and tear down platynui-test-app-qt instances from Robot Framework, so each
+...               suite owns the instance(s) it needs and starts from a known state — the top-level
+...               suite launches nothing.
+...
+...               The app is a standalone uv project. Its interpreter and entrypoint are handed over via
+...               PLATYNUI_TEST_APP_QT_PYTHON / PLATYNUI_TEST_APP_QT_MAIN (prepared by
+...               scripts/platynui-robot-session.sh on Linux, the test-acceptance-windows recipe on
+...               Windows; set them yourself when launching outside those, e.g. the repl). Robot launches
+...               the interpreter DIRECTLY — never via ``uv run``, which spawns Python as a child whose
+...               PID differs from uv's and would break the @ProcessId pinning below.
+...
+...               Each instance is pinned by its launched ProcessId (``${APP}`` =
+...               ``/app:Application[@ProcessId=...]``), so its window locators address exactly that copy
+...               of the program regardless of window title or stacking. Re-exports the page-object
+...               locators.
+Library           Process
+Library           PlatynUI.BareMetal    AS    BM
+
+Resource          ${CURDIR}/testapp_locators.resource
+
+
+*** Variables ***
+${QT_APP_PYTHON}       %{PLATYNUI_TEST_APP_QT_PYTHON=apps/test-app-qt/.venv/bin/python}
+${QT_APP_MAIN}         %{PLATYNUI_TEST_APP_QT_MAIN=apps/test-app-qt/main.py}
+${APP_WAIT_TIMEOUT}    15s
+# Handle of the instance started by Launch Default Qt Instance — read by Terminate Default Qt Instance.
+${QT_APP_HANDLE}       ${None}
+
+
+*** Keywords ***
+Launch Qt Test App
+    [Documentation]    Start one Qt instance (distinct app id + window title) by launching its
+    ...    interpreter directly, and wait until its main window — pinned by the launched ProcessId — is
+    ...    on the accessibility tree. Extra CLI args (e.g. ``--open-modal``) are forwarded to the app.
+    ...    Returns the Process handle; get its app root with ``App Root``.
+    [Arguments]    ${title}    ${app_id}    @{extra_args}
+    ${handle}=    Start Process    ${QT_APP_PYTHON}    ${QT_APP_MAIN}    --app-id    ${app_id}    --title    ${title}
+    ...    @{extra_args}    stdout=${TEMPDIR}/qt-${app_id}.log    stderr=STDOUT
+    ${root}=    App Root    ${handle}
+    Wait Until Keyword Succeeds    ${APP_WAIT_TIMEOUT}    0.25s    Node Is Present    ${root}${MAIN_WINDOW}
+    RETURN    ${handle}
+
+App Root
+    [Documentation]    App root locator for a launched instance, pinned by its ProcessId:
+    ...    ``/app:Application[@ProcessId=<pid>]``. Prepend it to the window locators from the page object.
+    [Arguments]    ${handle}
+    ${pid}=    Get Process Id    ${handle}
+    RETURN    /app:Application[@ProcessId=${pid}]
+
+Node Is Present
+    [Documentation]    Assert a node is currently resolvable on the accessibility tree (predicate for
+    ...    Wait Until Keyword Succeeds).
+    [Arguments]    ${locator}
+    ${node}=    BM.Query    ${locator}    only_first=${True}
+    Should Not Be Equal    ${node}    ${None}    msg=not on the accessibility tree yet: ${locator}
+
+Node Is Absent
+    [Documentation]    Assert a node does NOT currently resolve on the accessibility tree.
+    [Arguments]    ${locator}
+    ${node}=    BM.Query    ${locator}    only_first=${True}
+    Should Be Equal    ${node}    ${None}    msg=node unexpectedly present: ${locator}
+
+Get Bounds
+    [Documentation]    Read a node's Bounds attribute (has .x/.y/.width/.height).
+    [Arguments]    ${locator}
+    ${bounds}=    BM.Get Attribute    ${locator}    Bounds
+    RETURN    ${bounds}
+
+Bounds Agree With Screen Extents
+    [Documentation]    Cross-check a window's @Bounds (from the window manager / compositor) against its
+    ...    AT-SPI screen extents (from the toolkit) — two independent sources. Size is compared on every
+    ...    platform. Position is compared ONLY when the extents carry a real (non-zero) position: on
+    ...    Wayland a client cannot know its global position, so AT-SPI reports (0,0) there and @Bounds
+    ...    (real, from the compositor) legitimately differs — only size is checkable in that case.
+    [Arguments]    ${locator}    ${tol}    ${msg}
+    ${b}=    Get Bounds    ${locator}
+    ${e}=    BM.Get Attribute    ${locator}    native:Component.Extents.Screen
+    Should Be True    abs($b.width - $e.width) <= ${tol}      msg=${msg} — width ${b.width} vs ${e.width}
+    Should Be True    abs($b.height - $e.height) <= ${tol}    msg=${msg} — height ${b.height} vs ${e.height}
+    IF    $e.x != 0 or $e.y != 0
+        Should Be True    abs($b.x - $e.x) <= ${tol}    msg=${msg} — x ${b.x} vs ${e.x}
+        Should Be True    abs($b.y - $e.y) <= ${tol}    msg=${msg} — y ${b.y} vs ${e.y}
+    END
+
+Launch Default Qt Instance
+    [Documentation]    Suite Setup helper: launch the default Qt instance, pin it by ProcessId, expose
+    ...    its app root as the suite variable ``${APP}``, remember the handle, and wait for the child
+    ...    dialogs (opened right after the main window) to appear.
+    ${handle}=    Launch Qt Test App    PlatynUI Test App (Qt)    org.platynui.test.qt
+    ${root}=    App Root    ${handle}
+    VAR    ${APP}    ${root}    scope=SUITE
+    VAR    ${QT_APP_HANDLE}    ${handle}    scope=SUITE
+    FOR    ${dialog}    IN    ${DIALOG_1}    ${DIALOG_2}    ${DIALOG_3}
+        Wait Until Keyword Succeeds    ${APP_WAIT_TIMEOUT}    0.25s    Node Is Present    ${APP}${dialog}
+    END
+
+Launch Single Dialog Qt Instance
+    [Documentation]    Suite Setup helper for the interaction suite: launch an instance with exactly one
+    ...    child dialog (``--dialogs 1``), pin it by ProcessId as ``${APP}``, and wait for the dialog.
+    ...    A single dialog avoids sibling occlusion, so a pointer click reliably reaches its widgets on
+    ...    every backend (on Wayland all windows stack at the origin).
+    ${handle}=    Launch Qt Test App    PlatynUI Test App (Qt Single)    org.platynui.test.qt.single    --dialogs    1
+    ${root}=    App Root    ${handle}
+    VAR    ${APP}    ${root}    scope=SUITE
+    VAR    ${QT_APP_HANDLE}    ${handle}    scope=SUITE
+    Wait Until Keyword Succeeds    ${APP_WAIT_TIMEOUT}    0.25s    Node Is Present    ${APP}${DIALOG_1}
+
+Launch Qt Instance With Modal
+    [Documentation]    Suite Setup helper for the modal-bounds suite: launch an instance that also opens
+    ...    a modal dialog at startup (``--open-modal``), pin it by ProcessId as ``${APP}``, and wait for
+    ...    the modal dialog to appear. A dedicated instance keeps the modal's input grab out of the
+    ...    other suites.
+    ${handle}=    Launch Qt Test App    PlatynUI Test App (Qt Modal)    org.platynui.test.qt.modal    --open-modal
+    ${root}=    App Root    ${handle}
+    VAR    ${APP}    ${root}    scope=SUITE
+    VAR    ${QT_APP_HANDLE}    ${handle}    scope=SUITE
+    Wait Until Keyword Succeeds    ${APP_WAIT_TIMEOUT}    0.25s    Node Is Present    ${APP}${DIALOG_MODAL}
+
+Terminate Default Qt Instance
+    [Documentation]    Suite Teardown helper: terminate the instance started by Launch Default Qt Instance.
+    Run Keyword And Ignore Error    Terminate Process    ${QT_APP_HANDLE}
