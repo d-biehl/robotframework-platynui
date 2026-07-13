@@ -53,3 +53,7 @@ wheelhouse/
 
 .agents
 skills-lock.json
+
+# Claude Code per-developer local settings (permissions etc.); shared settings
+# live in the tracked .claude/settings.json.
+.claude/settings.local.json
