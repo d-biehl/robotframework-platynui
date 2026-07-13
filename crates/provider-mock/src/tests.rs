@@ -1,8 +1,8 @@
 use crate::factory::{self, MockProviderFactory};
 use crate::provider::{self, MockProvider};
 use crate::tree::{NodeSpec, StaticMockTree, install_mock_tree, reset_mock_tree};
-use platynui_core::provider::{UiTreeProvider, provider_factories};
-use platynui_core::types::{Point, Size};
+use platynui_core::provider::{ProviderDescriptor, ProviderError, UiTreeProvider, provider_factories};
+use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::attribute_names::{
     activation_target, element, focusable, maximizable, minimizable, movable, resizable,
 };
@@ -360,4 +360,161 @@ fn focusable_pattern_switches_focus() {
 
     assert_eq!(button_focus, UiValue::from(false));
     assert_eq!(cancel_focus, UiValue::from(true));
+}
+
+// ---------------------------------------------------------------------------
+//  Hit-test (element_at_point)
+// ---------------------------------------------------------------------------
+
+/// Build a mock provider from an explicit set of root specs (with bounds).
+fn provider_from_roots(roots: Vec<NodeSpec>) -> MockProvider {
+    let guard = install_mock_tree(StaticMockTree::new(roots));
+    let provider = MockProvider::new(MockProviderFactory::descriptor_static());
+    drop(guard);
+    provider
+}
+
+fn with_bounds(spec: NodeSpec, rect: Rect) -> NodeSpec {
+    spec.with_attribute((Namespace::Control, element::BOUNDS, UiValue::Rect(rect)))
+}
+
+#[rstest]
+#[serial]
+fn hit_test_returns_deepest_node() {
+    let window = with_bounds(
+        NodeSpec::new(Namespace::Control, "Window", "W", "mock://ht/window"),
+        Rect::new(0.0, 0.0, 100.0, 100.0),
+    )
+    .with_child(with_bounds(
+        NodeSpec::new(Namespace::Control, "Button", "B", "mock://ht/button"),
+        Rect::new(10.0, 10.0, 20.0, 20.0),
+    ));
+    let provider = provider_from_roots(vec![window]);
+
+    let hit = provider.element_at_point(Point::new(15.0, 15.0)).expect("supported").expect("hit");
+    assert_eq!(hit.runtime_id().as_str(), "mock://ht/button", "point inside child resolves to the child");
+
+    let hit = provider.element_at_point(Point::new(60.0, 60.0)).expect("supported").expect("hit");
+    assert_eq!(
+        hit.runtime_id().as_str(),
+        "mock://ht/window",
+        "point inside window but outside child resolves to window"
+    );
+}
+
+#[rstest]
+#[serial]
+fn hit_test_overlapping_siblings_topmost_wins() {
+    // Two overlapping siblings; the later-declared one is on top.
+    let window = with_bounds(
+        NodeSpec::new(Namespace::Control, "Window", "W", "mock://ht/window"),
+        Rect::new(0.0, 0.0, 100.0, 100.0),
+    )
+    .with_child(with_bounds(
+        NodeSpec::new(Namespace::Control, "Pane", "under", "mock://ht/under"),
+        Rect::new(10.0, 10.0, 40.0, 40.0),
+    ))
+    .with_child(with_bounds(
+        NodeSpec::new(Namespace::Control, "Pane", "over", "mock://ht/over"),
+        Rect::new(20.0, 20.0, 40.0, 40.0),
+    ));
+    let provider = provider_from_roots(vec![window]);
+
+    let hit = provider.element_at_point(Point::new(30.0, 30.0)).expect("supported").expect("hit");
+    assert_eq!(hit.runtime_id().as_str(), "mock://ht/over", "the later-declared (topmost) sibling wins in the overlap");
+}
+
+#[rstest]
+#[serial]
+fn hit_test_skips_hidden_node() {
+    // A child whose bounds contain the point but which is hidden
+    // (Control:IsVisible = false) must not be returned; the resolver falls
+    // through to the visible ancestor.
+    let window = with_bounds(
+        NodeSpec::new(Namespace::Control, "Window", "W", "mock://ht/window"),
+        Rect::new(0.0, 0.0, 100.0, 100.0),
+    )
+    .with_child(
+        with_bounds(
+            NodeSpec::new(Namespace::Control, "Button", "hidden", "mock://ht/hidden"),
+            Rect::new(10.0, 10.0, 20.0, 20.0),
+        )
+        .with_attribute((Namespace::Control, element::IS_VISIBLE, UiValue::from(false))),
+    );
+    let provider = provider_from_roots(vec![window]);
+
+    let hit = provider.element_at_point(Point::new(15.0, 15.0)).expect("supported").expect("hit");
+    assert_eq!(
+        hit.runtime_id().as_str(),
+        "mock://ht/window",
+        "a hidden node containing the point is skipped; the visible ancestor wins"
+    );
+}
+
+#[rstest]
+#[serial]
+fn hit_test_hidden_topmost_falls_through_to_visible_beneath() {
+    // The topmost (later-declared) sibling covers the point but is hidden, so
+    // the visible sibling beneath it wins instead.
+    let window = with_bounds(
+        NodeSpec::new(Namespace::Control, "Window", "W", "mock://ht/window"),
+        Rect::new(0.0, 0.0, 100.0, 100.0),
+    )
+    .with_child(with_bounds(
+        NodeSpec::new(Namespace::Control, "Pane", "under", "mock://ht/under"),
+        Rect::new(10.0, 10.0, 40.0, 40.0),
+    ))
+    .with_child(
+        with_bounds(
+            NodeSpec::new(Namespace::Control, "Pane", "over-hidden", "mock://ht/over-hidden"),
+            Rect::new(20.0, 20.0, 40.0, 40.0),
+        )
+        .with_attribute((Namespace::Control, element::IS_VISIBLE, UiValue::from(false))),
+    );
+    let provider = provider_from_roots(vec![window]);
+
+    let hit = provider.element_at_point(Point::new(30.0, 30.0)).expect("supported").expect("hit");
+    assert_eq!(
+        hit.runtime_id().as_str(),
+        "mock://ht/under",
+        "the hidden topmost sibling is skipped; the visible sibling beneath wins"
+    );
+}
+
+#[rstest]
+#[serial]
+fn hit_test_miss_returns_none() {
+    let window = with_bounds(
+        NodeSpec::new(Namespace::Control, "Window", "W", "mock://ht/window"),
+        Rect::new(0.0, 0.0, 100.0, 100.0),
+    );
+    let provider = provider_from_roots(vec![window]);
+
+    let result = provider.element_at_point(Point::new(500.0, 500.0)).expect("supported");
+    assert!(result.is_none(), "a point outside all bounds resolves to nothing");
+}
+
+#[rstest]
+#[serial]
+fn hit_test_unsupported_default_is_detectable() {
+    // A provider that does not override element_at_point reports it as unsupported.
+    struct NoHitTestProvider;
+    impl UiTreeProvider for NoHitTestProvider {
+        fn descriptor(&self) -> &ProviderDescriptor {
+            MockProviderFactory::descriptor_static()
+        }
+        fn get_nodes(
+            &self,
+            _parent: Arc<dyn UiNode>,
+        ) -> Result<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>, ProviderError> {
+            Ok(Box::new(std::iter::empty()))
+        }
+    }
+
+    let provider = NoHitTestProvider;
+    match provider.element_at_point(Point::new(1.0, 1.0)) {
+        Err(ProviderError::UnsupportedOperation { operation: "element_at_point", .. }) => {}
+        Ok(_) => panic!("default hit-test must not report a hit or miss"),
+        Err(other) => panic!("unsupported must be a distinct, detectable signal, got: {other:?}"),
+    }
 }

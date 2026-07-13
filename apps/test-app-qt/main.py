@@ -44,13 +44,14 @@ import logging
 import sys
 
 from PySide6.QtCore import QPoint, Qt, QTimer
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QAction, QContextMenuEvent, QGuiApplication
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QDialogButtonBox,
     QLabel,
     QMainWindow,
+    QMenu,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -134,14 +135,24 @@ class MainWindow(QMainWindow):
         self._dialog_count = dialog_count
         self._dialogs: list[QDialog] = []
 
-        central = QLabel(
+        central = QWidget()
+        _tag(central, 'central')
+        central_layout = QVBoxLayout(central)
+        label = QLabel(
             'Main window. Child dialogs are parented to this window and shown\n'
             'at known positions. Compare the readout below against @Bounds.'
         )
-        central.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        _tag(central, 'central-label')
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        _tag(label, 'central-label')
+        central_layout.addWidget(label)
+        # A button in the single top-level window — used by hit-test acceptance
+        # to resolve a known widget without multi-top-level frame ambiguity.
+        pick_button = QPushButton('Pick Me')
+        _tag(pick_button, 'main-pick-button')
+        central_layout.addWidget(pick_button)
         self.setCentralWidget(central)
 
+        self._build_menus()
         self._build_readout()
 
         # The main window's final geometry is only known once it is shown, so
@@ -153,6 +164,55 @@ class MainWindow(QMainWindow):
         self._timer.timeout.connect(self._refresh_readout)
         self._timer.start(250)
         self._refresh_readout()
+
+    def _build_menus(self) -> None:
+        """Add a menu bar (File menu) and a right-click context menu.
+
+        Qt renders both as ``QMenu`` popups, which on X11 are separate
+        override-redirect top-level windows. Menu items are tagged so tests can
+        address them by ``@Name`` (their action text).
+
+        The menu-bar's File menu is exposed on the AT-SPI accessibility tree
+        (its items appear even while closed), so the hit-test acceptance suite
+        picks one of its items to exercise the resolver's popup path.
+
+        The right-click context menu is a harder case, kept as realistic UI: Qt
+        exposes the transient popup ``QMenu`` on AT-SPI only *event-driven* —
+        while an AT client is registered for events, a ``PopupMenu`` appears as
+        a child of the ``Application`` (reachable via the item's ``parent()``
+        chain and via ``getChildren`` down from the popup), but it is NOT listed
+        in the ``Application``'s own ``getChildren``. A top-down tree walk (the
+        current hit-test) therefore misses it, while a screen reader following
+        children-changed / state-changed:showing events finds it. Picking it
+        needs the event-driven tree update tracked in the ``atspi-event-driven-tree``
+        change, not this suite.
+        """
+        menubar = self.menuBar()
+        menubar.setObjectName('main-menubar')
+        file_menu = menubar.addMenu('File')
+        file_menu.setObjectName('menu-file')
+        for ident in ('menu-file-new', 'menu-file-open', 'menu-file-quit'):
+            action = QAction(ident, self)
+            action.setObjectName(ident)
+            file_menu.addAction(action)
+
+        self._context_menu = QMenu(self)
+        self._context_menu.setObjectName('context-menu')
+        for ident in ('ctx-cut', 'ctx-copy', 'ctx-paste'):
+            action = QAction(ident, self)
+            action.setObjectName(ident)
+            self._context_menu.addAction(action)
+
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:  # noqa: N802 (Qt override)
+        """Open the right-click context menu at the cursor.
+
+        Overriding ``contextMenuEvent`` (rather than the ``CustomContextMenu``
+        signal) means the event reliably reaches the main window as it
+        propagates up from whichever child widget was right-clicked.
+        ``popup()`` shows the pre-built menu non-blocking, so it stays open for
+        the picker / hit-test instead of a modal ``exec`` the release dismisses.
+        """
+        self._context_menu.popup(event.globalPos())
 
     def _build_readout(self) -> None:
         self.readout = QLabel()

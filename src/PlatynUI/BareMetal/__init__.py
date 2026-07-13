@@ -1629,6 +1629,21 @@ class BareMetal(OurDynamicCore):
         return self.runtime.pointer_position()
 
     @keyword
+    def get_element_at_point(self, x: float, y: float) -> Any:
+        """Resolve the deepest UI element at the given screen coordinates.
+
+        Uses the platform hit-test: UI Automation ``ElementFromPoint`` on Windows;
+        window-manager window selection plus AT-SPI descent on Linux. Returns the
+        resolved ``UiNode``, or ``None`` when nothing is at the point. Raises if the
+        active platform cannot hit-test (e.g. a generic Wayland session).
+
+        Args:
+            x: Screen X coordinate.
+            y: Screen Y coordinate.
+        """
+        return self.runtime.element_at_point(float(x), float(y))
+
+    @keyword
     def focus(
         self,
         descriptor: UiNodeDescriptor,

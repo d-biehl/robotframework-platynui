@@ -501,6 +501,7 @@ checksum = "8fab8e4f574f5a7d3af280b38eff25fb6f47a537dac9ae39ce152f52b19fb10b"
 dependencies = [
  "atspi-common 0.14.0",
  "atspi-proxies 0.14.0",
+ "futures-lite",
  "zbus",
 ]
 
@@ -3452,8 +3453,10 @@ dependencies = [
  "platynui-runtime",
  "tracing",
  "tracing-subscriber",
+ "windows",
  "winreg",
  "winresource",
+ "x11rb",
 ]
 
 [[package]]
@@ -3541,6 +3544,7 @@ dependencies = [
  "atspi-connection",
  "atspi-proxies 0.14.0",
  "chrono",
+ "futures-lite",
  "inventory",
  "libc",
  "platynui-core",
@@ -5287,6 +5291,7 @@ version = "1.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ddd74a9687298c6858e9b88ec8935ec45d22e8fd5e6394fa1bd4e99a87789c76"
 dependencies = [
+ "getrandom 0.4.2",
  "js-sys",
  "serde_core",
  "wasm-bindgen",

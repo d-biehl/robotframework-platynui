@@ -16,12 +16,13 @@ use crate::clearable_cell::ClearableCell;
 use crate::connection::connect_a11y_bus_with;
 use crate::error::AtspiError;
 use crate::node::AtspiNode;
-use atspi_common::Role;
+use atspi_common::{ObjectRefOwned, Role};
 use atspi_connection::AccessibilityConnection;
 use atspi_proxies::accessible::AccessibleProxy;
 use platynui_core::config::RuntimeConfig;
-use platynui_core::platform::WindowManager;
+use platynui_core::platform::{WindowId, WindowManager};
 use platynui_core::provider::{ProviderDescriptor, ProviderError, ProviderKind, UiTreeProvider, UiTreeProviderFactory};
+use platynui_core::types::{Point, Rect};
 use platynui_core::ui::{TechnologyId, UiNode};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
@@ -225,6 +226,253 @@ impl UiTreeProvider for AtspiProvider {
             Some(node as Arc<dyn UiNode>)
         })))
     }
+
+    fn element_at_point(&self, point: Point) -> Result<Option<Arc<dyn UiNode>>, ProviderError> {
+        if self.is_shutdown.load(Ordering::Acquire) {
+            return Err(ProviderError::CommunicationFailure {
+                channel: "atspi",
+                details: Some(AtspiError::Shutdown.to_string()),
+            });
+        }
+
+        // Window-level z-order is authoritative from the platform window manager
+        // (X11 EWMH stacking / the PlatynUI compositor). AT-SPI has no
+        // cross-application window-stacking view, so without a window manager we
+        // cannot pick the correct application and report the hit-test unsupported.
+        let Some(window_manager) = self.window_manager.get() else {
+            return Err(ProviderError::UnsupportedOperation {
+                operation: "element_at_point",
+                details: Some("no window manager for window-level hit-test".into()),
+            });
+        };
+        let hit = window_manager.window_at_point(point).map_err(|err| ProviderError::CommunicationFailure {
+            channel: "window manager",
+            details: Some(err.to_string()),
+        })?;
+        let Some(hit) = hit else {
+            return Ok(None);
+        };
+        // Correlating the native window to its AT-SPI application needs a PID.
+        let Some(pid) = hit.pid else {
+            debug!(?point, "window_at_point returned a window without a PID; cannot correlate to AT-SPI");
+            return Ok(None);
+        };
+        // Never resolve the host process's own UI (consistent with get_nodes,
+        // which skips SELF_PID). A picker over its own window picks nothing.
+        if pid == *SELF_PID {
+            return Ok(None);
+        }
+
+        let conn = self.connection()?;
+        let Some(app_obj) = application_for_pid(&conn, pid) else {
+            debug!(pid, ?point, "no AT-SPI application matched the window PID");
+            return Ok(None);
+        };
+
+        let window_manager = Some(window_manager);
+        let app_node: Arc<dyn UiNode> = AtspiNode::new(conn.clone(), app_obj.clone(), None, window_manager.clone());
+        // Geometric subtree search within the WM-selected application, scoped to
+        // the hit window's frame when one matches (see `descend_to_point`).
+        Ok(Some(descend_to_point(&conn, &window_manager, app_node, app_obj, point, hit.id)))
+    }
+}
+
+/// Resolve the AT-SPI application accessible whose D-Bus connection belongs to
+/// `target_pid`, by enumerating the registry's application children.
+fn application_for_pid(conn: &Arc<AccessibilityConnection>, target_pid: u32) -> Option<ObjectRefOwned> {
+    let proxy = block_on_timeout_init(
+        AccessibleProxy::builder(conn.connection())
+            .cache_properties(CacheProperties::No)
+            .destination(REGISTRY_BUS)
+            .ok()?
+            .path(ROOT_PATH)
+            .ok()?
+            .build(),
+    )?
+    .ok()?;
+    let children = block_on_timeout_init(proxy.get_children())?.ok()?;
+    // A single process can register more than one AT-SPI application root
+    // (Qt notably registers an empty/transient root alongside the real one).
+    // Prefer the populated registration — the same reason `get_nodes` skips
+    // 0-child apps — and only fall back to an empty match if none has children.
+    let mut fallback: Option<ObjectRefOwned> = None;
+    for child in children {
+        if AtspiNode::is_null_object(&child) {
+            continue;
+        }
+        let Some(bus_name) = child.name_as_str().map(str::to_owned) else {
+            continue;
+        };
+        let conn_inner = conn.connection().clone();
+        let app_pid = block_on_timeout_call(async move {
+            let dbus = zbus::fdo::DBusProxy::new(&conn_inner).await.ok()?;
+            dbus.get_connection_unix_process_id(zbus::names::BusName::try_from(bus_name.as_str()).ok()?).await.ok()
+        })
+        .flatten();
+        if app_pid != Some(target_pid) {
+            continue;
+        }
+        if node::accessible_children(conn.as_ref(), &child).is_empty() {
+            fallback.get_or_insert(child);
+        } else {
+            return Some(child);
+        }
+    }
+    fallback
+}
+
+/// Resolve the accessible under `point` within the application by searching its
+/// AT-SPI tree for the smallest-area node whose screen bounds contain the point.
+///
+/// Scope: when a top-level frame maps to the window `window_at_point` selected
+/// (`target_window`), the search is confined to that frame — this keeps
+/// multi-window apps correct (hovering a child dialog resolves the dialog, not
+/// the main window). Otherwise — notably when the hit window is an
+/// override-redirect popup (a menu or context menu) that has no managed frame —
+/// the whole application tree is searched, because such popups are nested inside
+/// the owning frame's subtree (or exposed as a separate popup frame) and are
+/// drawn larger than, and outside, that frame's bounds.
+///
+/// The search is a geometric bounds descent, not the native
+/// `Component.GetAccessibleAtPoint`: the native hit-test proved unreliable
+/// across toolkits (Qt reports bad screen extents; AccessKit returns the widget
+/// *beneath* an overlay), whereas resolving each node's toolkit-aware
+/// `Control:Bounds` and picking the smallest containing box reaches menu items
+/// regardless of how the toolkit exposes the popup. It is deliberately *not*
+/// pruned by parent bounds, so a menu drawn outside its owning frame is still
+/// reached; a node budget guards against pathological trees.
+fn descend_to_point(
+    conn: &Arc<AccessibilityConnection>,
+    window_manager: &Option<Arc<dyn WindowManager>>,
+    app_node: Arc<dyn UiNode>,
+    app_obj: ObjectRefOwned,
+    point: Point,
+    target_window: WindowId,
+) -> Arc<dyn UiNode> {
+    let (root_node, root_obj) = match frame_for_window(conn, window_manager, &app_node, &app_obj, target_window) {
+        Some(frame) => frame,
+        None => (Arc::clone(&app_node), app_obj),
+    };
+
+    let mut budget = SUBTREE_SEARCH_BUDGET;
+    let mut best: Option<SubtreeHit> = None;
+    search_subtree(conn, window_manager, &root_node, &root_obj, point, 0, &mut budget, &mut best);
+    best.map_or(root_node, |hit| hit.node)
+}
+
+/// Cap on nodes visited by the geometric subtree search, so a pathological or
+/// very large accessibility tree cannot make an interactive hit-test hang.
+const SUBTREE_SEARCH_BUDGET: u32 = 5000;
+
+/// Best match tracked during the geometric subtree search: the built node, the
+/// area of its bounds, and its depth below the search root (for tie-breaking).
+struct SubtreeHit {
+    node: Arc<dyn UiNode>,
+    area: f64,
+    depth: usize,
+}
+
+/// The application's top-level frame that maps to `target_window`, or `None`
+/// when no managed frame matches (e.g. the hit window is an override-redirect
+/// popup, which the window manager does not expose as a client).
+fn frame_for_window(
+    conn: &Arc<AccessibilityConnection>,
+    window_manager: &Option<Arc<dyn WindowManager>>,
+    app_node: &Arc<dyn UiNode>,
+    app_obj: &ObjectRefOwned,
+    target_window: WindowId,
+) -> Option<(Arc<dyn UiNode>, ObjectRefOwned)> {
+    let wm = window_manager.as_ref()?;
+    for frame_obj in node::accessible_children(conn.as_ref(), app_obj) {
+        if AtspiNode::is_null_object(&frame_obj) {
+            continue;
+        }
+        let frame_node: Arc<dyn UiNode> = {
+            let node = AtspiNode::new(conn.clone(), frame_obj.clone(), Some(app_node), window_manager.clone());
+            node.hold_parent(Arc::clone(app_node));
+            node
+        };
+        if wm.resolve_window(frame_node.as_ref()).is_ok_and(|wid| wid == target_window) {
+            return Some((frame_node, frame_obj));
+        }
+    }
+    None
+}
+
+/// Recursively search `node`'s subtree for the smallest-area accessible whose
+/// screen bounds contain `point`, updating `best`. Every visited child is built
+/// with its parent wired and held alive (`hold_parent`), so returning the winner
+/// keeps its whole ancestor chain walkable for tree reveal. `budget` is
+/// decremented per visited node and stops the search at zero.
+fn search_subtree(
+    conn: &Arc<AccessibilityConnection>,
+    window_manager: &Option<Arc<dyn WindowManager>>,
+    node: &Arc<dyn UiNode>,
+    obj: &ObjectRefOwned,
+    point: Point,
+    depth: usize,
+    budget: &mut u32,
+    best: &mut Option<SubtreeHit>,
+) {
+    for child_obj in node::accessible_children(conn.as_ref(), obj) {
+        if *budget == 0 {
+            return;
+        }
+        if AtspiNode::is_null_object(&child_obj) {
+            continue;
+        }
+        *budget -= 1;
+        let child_node: Arc<dyn UiNode> = {
+            let n = AtspiNode::new(conn.clone(), child_obj.clone(), Some(node), window_manager.clone());
+            n.hold_parent(Arc::clone(node));
+            n
+        };
+        let child_depth = depth + 1;
+        if let Some(bounds) = node_screen_bounds(&child_node)
+            && bounds.contains(point)
+            && node_is_pickable(&child_node)
+        {
+            let area = bounds.width() * bounds.height();
+            // Smallest area wins (most specific box); on a tie the deeper node
+            // wins (closest to the leaf under the cursor).
+            let better =
+                best.as_ref().is_none_or(|cur| area < cur.area || (area == cur.area && child_depth > cur.depth));
+            if better {
+                *best = Some(SubtreeHit { node: Arc::clone(&child_node), area, depth: child_depth });
+            }
+        }
+        search_subtree(conn, window_manager, &child_node, &child_obj, point, child_depth, budget, best);
+    }
+}
+
+/// Screen bounds of a node via its `Control:Bounds` attribute (toolkit-aware
+/// extents resolution).
+fn node_screen_bounds(node: &Arc<dyn UiNode>) -> Option<Rect> {
+    use platynui_core::ui::{Namespace, UiValue, attribute_names::element};
+    match node.attribute(Namespace::Control, element::BOUNDS)?.value() {
+        UiValue::Rect(rect) => Some(rect),
+        _ => None,
+    }
+}
+
+/// Whether a node may be *selected* as the hit result. A node whose bounds
+/// geometrically contain the point but which is not actually shown on screen
+/// (hidden widget, closed-menu item still laid out in the tree) SHALL NOT be
+/// picked. Only the candidate check is gated — the search still recurses into
+/// such a node, since a shown child can live under a parent the toolkit reports
+/// as not visible.
+///
+/// Gated on `Control:IsVisible` and, when the provider surfaces it,
+/// `Control:IsInView`. Both are excluded only when *explicitly* false: a
+/// missing or non-boolean value is treated as visible, so a provider that does
+/// not report the attribute does not make everything unpickable. (`IsInView`'s
+/// precise meaning is still being defined; excluding on an explicit `false`
+/// keeps this correct once it diverges from `IsVisible`.)
+fn node_is_pickable(node: &Arc<dyn UiNode>) -> bool {
+    use platynui_core::ui::{Namespace, UiValue, attribute_names::element};
+    let is_false =
+        |name| matches!(node.attribute(Namespace::Control, name).map(|a| a.value()), Some(UiValue::Bool(false)));
+    !is_false(element::IS_VISIBLE) && !is_false(element::IS_IN_VIEW)
 }
 
 pub static ATSPI_FACTORY: AtspiFactory = AtspiFactory;

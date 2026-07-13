@@ -21,6 +21,7 @@
 //! ```
 
 mod model;
+mod modifiers;
 mod view;
 mod viewmodel;
 
@@ -432,6 +433,11 @@ struct InspectorApp {
     prev_always_on_top: Option<bool>,
     show_about_dialog: bool,
     last_pixels_per_point: f32,
+    /// Global modifier reader for the live picker (`None` where unsupported).
+    modifier_reader: Option<modifiers::ModifierReader>,
+    /// Whether live picking is supported here (modifier reader + live cursor
+    /// position + hit-test). Computed once at startup; gates the toggle.
+    picker_supported: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -468,6 +474,18 @@ impl InspectorApp {
     ) -> Self {
         Self::apply_system_fonts(ctx);
 
+        // Probe live-picker support once: it needs a global modifier reader and
+        // a real, live cursor position. Done before `runtime` moves into the vm.
+        let modifier_reader = modifiers::ModifierReader::new();
+        let pointer_pos = runtime.pointer_position();
+        let picker_supported = modifier_reader.is_some() && pointer_pos.is_ok();
+        tracing::info!(
+            picker_supported,
+            has_modifier_reader = modifier_reader.is_some(),
+            pointer_position_ok = pointer_pos.is_ok(),
+            "live picker support probe"
+        );
+
         Self {
             vm: InspectorViewModel::new(runtime, initial_root, search_result_limit),
             attributes_sort: attributes::AttributesSortState::default(),
@@ -478,7 +496,21 @@ impl InspectorApp {
             prev_always_on_top: None,
             show_about_dialog: false,
             last_pixels_per_point: ctx.pixels_per_point(),
+            modifier_reader,
+            picker_supported,
         }
+    }
+
+    /// Advance the live picker: read global modifiers and let the vm decide.
+    /// Repaints continuously while armed so polling continues even when the
+    /// Inspector is unfocused (the user is hovering another app).
+    fn poll_picker(&mut self, ctx: &egui::Context) {
+        if !self.vm.picker_armed() {
+            return;
+        }
+        let modifiers = self.modifier_reader.as_ref().and_then(modifiers::ModifierReader::read);
+        self.vm.poll_picker(self.picker_supported, modifiers, ctx);
+        ctx.request_repaint();
     }
 
     fn maybe_refresh_system_fonts(&mut self, ctx: &egui::Context) {
@@ -565,6 +597,7 @@ impl eframe::App for InspectorApp {
         }
 
         self.poll_background_work(ctx);
+        self.poll_picker(ctx);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -589,6 +622,28 @@ impl eframe::App for InspectorApp {
                 toolbar::MenuAction::ShowAbout => self.execute_command(&ctx, AppCommand::ShowAbout),
             }
         }
+
+        // View: Live picker toggle (below menu)
+        ui.horizontal(|ui| {
+            let mut armed = self.vm.picker_armed();
+            let combo = self.vm.picker_combo_label();
+            let toggle =
+                ui.add_enabled(self.picker_supported, egui::Button::selectable(armed, "\u{1F3AF} Pick Element"));
+            if toggle.clicked() {
+                armed = !armed;
+                self.vm.set_picker_armed(armed);
+            }
+            if !self.picker_supported {
+                toggle.on_hover_text("Live picking is unavailable on this platform");
+                ui.weak("picking unavailable here");
+            } else if self.vm.picker_active() {
+                ui.label("picking\u{2026}");
+            } else if armed {
+                ui.label(format!("armed \u{2014} hold {combo} to pick"));
+            } else {
+                ui.weak(format!("hold {combo} while armed to pick"));
+            }
+        });
 
         // View: Search Bar (below menu)
         let search_error_hint = self.vm.search_error_hint().map(ToOwned::to_owned);

@@ -11,7 +11,7 @@
 //! per-instance.
 
 use crate::x11util::X11Connection;
-use platynui_core::platform::{PlatformError, WindowId, WindowManager};
+use platynui_core::platform::{PlatformError, WindowHit, WindowId, WindowManager};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::{Namespace, UiNode};
 use std::sync::Arc;
@@ -20,7 +20,7 @@ use std::sync::OnceLock;
 use tracing::{debug, trace, warn};
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{
-    Atom, AtomEnum, ClientMessageEvent, ConfigureWindowAux, ConnectionExt, EventMask, Window,
+    Atom, AtomEnum, ClientMessageEvent, ConfigureWindowAux, ConnectionExt, EventMask, MapState, Window,
 };
 use x11rb::rust_connection::RustConnection;
 
@@ -30,6 +30,7 @@ use x11rb::rust_connection::RustConnection;
 
 struct EwmhAtoms {
     net_client_list: Atom,
+    net_client_list_stacking: Atom,
     net_wm_pid: Atom,
     net_active_window: Atom,
     net_close_window: Atom,
@@ -69,6 +70,7 @@ fn atoms(x11: &X11Connection) -> Result<std::sync::MutexGuard<'static, EwmhAtoms
     let conn = &x11.conn;
     let a = EwmhAtoms {
         net_client_list: intern(conn, b"_NET_CLIENT_LIST")?,
+        net_client_list_stacking: intern(conn, b"_NET_CLIENT_LIST_STACKING")?,
         net_wm_pid: intern(conn, b"_NET_WM_PID")?,
         net_active_window: intern(conn, b"_NET_ACTIVE_WINDOW")?,
         net_close_window: intern(conn, b"_NET_CLOSE_WINDOW")?,
@@ -377,6 +379,91 @@ impl X11EwmhWindowManager {
     pub fn new(conn: Arc<X11Connection>) -> Self {
         Self { conn }
     }
+
+    /// Topmost viewable override-redirect *popup* (menu/combo/tooltip) covering
+    /// `point`, from the raw root window tree. `fallback_pid` supplies the owning
+    /// process when the popup has no `_NET_WM_PID` (common for menus).
+    fn popup_window_at(
+        &self,
+        point: Point,
+        pid_atom: Atom,
+        self_pid: u32,
+        fallback_pid: Option<u32>,
+    ) -> Option<WindowHit> {
+        let conn = &self.conn.conn;
+        let tree = conn.query_tree(self.conn.root).ok()?.reply().ok()?;
+        let type_atom = intern(conn, b"_NET_WM_WINDOW_TYPE").ok()?;
+        // `children` is bottom-to-top; probe topmost-first.
+        for &win in tree.children.iter().rev() {
+            let Some(attrs) = conn.get_window_attributes(win).ok().and_then(|cookie| cookie.reply().ok()) else {
+                continue;
+            };
+            if attrs.map_state != MapState::VIEWABLE || !attrs.override_redirect {
+                continue;
+            }
+            if !self.is_popup_type(win, type_atom) {
+                continue;
+            }
+            let Ok(rect) = client_rect(&self.conn, win) else { continue };
+            if !rect.contains(point) {
+                continue;
+            }
+            let pid = get_window_pid(conn, win, pid_atom).or(fallback_pid);
+            if pid == Some(self_pid) {
+                continue;
+            }
+            return Some(WindowHit { id: WindowId::new(u64::from(win)), pid, bounds: rect });
+        }
+        None
+    }
+
+    /// Whether `win`'s `_NET_WM_WINDOW_TYPE` marks it as a menu/popup surface
+    /// (dropdown/popup menu, combo, tooltip) — distinguishing real popups from
+    /// other override-redirect windows (backing stores, panels, the pointer),
+    /// which carry no such type.
+    fn is_popup_type(&self, win: Window, type_atom: Atom) -> bool {
+        let conn = &self.conn.conn;
+        let Some(reply) =
+            conn.get_property(false, win, type_atom, AtomEnum::ATOM, 0, 16).ok().and_then(|c| c.reply().ok())
+        else {
+            return false;
+        };
+        let Some(atoms) = reply.value32() else {
+            return false;
+        };
+        for atom in atoms {
+            if let Some(name) = conn.get_atom_name(atom).ok().and_then(|c| c.reply().ok()) {
+                let name = String::from_utf8_lossy(&name.name);
+                if name.contains("_MENU")
+                    || name.contains("POPUP")
+                    || name.contains("COMBO")
+                    || name.contains("TOOLTIP")
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Frontmost managed (WM-reparented) window covering `point`, from
+    /// `_NET_CLIENT_LIST_STACKING` (bottom-to-top → probe topmost-first),
+    /// skipping our own process so the picker never resolves its own UI.
+    fn managed_window_at(&self, point: Point, stacking_atom: Atom, pid_atom: Atom, self_pid: u32) -> Option<WindowHit> {
+        let stacking = get_client_list(&self.conn.conn, self.conn.root, stacking_atom).ok()?;
+        for &win in stacking.iter().rev() {
+            let Ok(rect) = client_rect(&self.conn, win) else { continue };
+            if !rect.contains(point) {
+                continue;
+            }
+            let pid = get_window_pid(&self.conn.conn, win, pid_atom);
+            if pid == Some(self_pid) {
+                continue;
+            }
+            return Some(WindowHit { id: WindowId::new(u64::from(win)), pid, bounds: rect });
+        }
+        None
+    }
 }
 
 impl WindowManager for X11EwmhWindowManager {
@@ -404,6 +491,34 @@ impl WindowManager for X11EwmhWindowManager {
 
     fn bounds(&self, id: WindowId, _toolkit_hint: Option<&str>) -> Result<Rect, PlatformError> {
         client_rect(&self.conn, id.raw() as Window)
+    }
+
+    fn window_at_point(&self, point: Point) -> Result<Option<WindowHit>, PlatformError> {
+        let (stacking_atom, pid_atom) = {
+            let atoms = atoms(&self.conn)?;
+            (atoms.net_client_list_stacking, atoms.net_wm_pid)
+        };
+        let self_pid = std::process::id();
+
+        // Managed (WM-reparented) window at the point, from EWMH stacking.
+        let managed = self.managed_window_at(point, stacking_atom, pid_atom, self_pid);
+
+        // Override-redirect popups (menus, combo dropdowns, tooltips) bypass the
+        // window manager and are absent from `_NET_CLIENT_LIST_STACKING`, yet
+        // stack above managed windows — so a menu must win over the window it
+        // popped from. They are filtered by `_NET_WM_WINDOW_TYPE` (menu/popup/
+        // combo/tooltip) so unrelated override-redirect windows (backing stores,
+        // panels, the pointer) are not mistaken for popups. Such popups often
+        // carry no `_NET_WM_PID`, so fall back to the managed window's pid — the
+        // menu belongs to that application.
+        if let Some(hit) =
+            self.popup_window_at(point, pid_atom, self_pid, managed.as_ref().and_then(|managed| managed.pid))
+        {
+            trace!(xid = hit.id.raw(), ?point, "window_at_point resolved (popup)");
+            return Ok(Some(hit));
+        }
+
+        Ok(managed)
     }
 
     fn is_active(&self, id: WindowId) -> Result<bool, PlatformError> {

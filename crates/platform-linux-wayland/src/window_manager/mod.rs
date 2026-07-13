@@ -2,7 +2,7 @@
 
 mod platynui_ipc;
 
-use platynui_core::platform::{PlatformError, WindowId, WindowManager};
+use platynui_core::platform::{PlatformError, WindowHit, WindowId, WindowManager};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::UiNode;
 
@@ -12,6 +12,9 @@ trait CompositorBackend: Send + Sync {
     fn name(&self) -> &'static str;
     fn resolve_window(&self, node: &dyn UiNode) -> Result<WindowId, PlatformError>;
     fn bounds(&self, id: WindowId, toolkit_hint: Option<&str>) -> Result<Rect, PlatformError>;
+    fn window_at_point(&self, _point: Point) -> Result<Option<WindowHit>, PlatformError> {
+        Err(PlatformError::CapabilityUnavailable { capability: "window_at_point", details: None })
+    }
     fn is_active(&self, id: WindowId) -> Result<bool, PlatformError>;
     fn activate(&self, id: WindowId) -> Result<(), PlatformError>;
     fn close(&self, id: WindowId) -> Result<(), PlatformError>;
@@ -72,6 +75,10 @@ impl WindowManager for WaylandWindowManager {
 
     fn resize(&self, id: WindowId, size: Size) -> Result<(), PlatformError> {
         backend()?.resize(id, size)
+    }
+
+    fn window_at_point(&self, point: Point) -> Result<Option<WindowHit>, PlatformError> {
+        backend()?.window_at_point(point)
     }
 }
 

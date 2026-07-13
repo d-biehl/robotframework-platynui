@@ -940,6 +940,18 @@ impl PyRuntime {
         Py::new(py, PyPoint::from(p))
     }
 
+    /// Resolves the deepest UI node at the given desktop point, or ``None`` when
+    /// nothing is at the point. Raises if the platform cannot hit-test.
+    #[pyo3(signature = (x, y), text_signature = "(self, x, y)")]
+    fn element_at_point(&self, py: Python<'_>, x: f64, y: f64) -> PyResult<Option<Py<PyNode>>> {
+        let runtime = self.runtime()?;
+        match runtime.element_at_point(platynui_core::types::Point::new(x, y)) {
+            Ok(Some(node)) => Ok(Some(Py::new(py, PyNode { inner: node })?)),
+            Ok(None) => Ok(None),
+            Err(err) => Err(pyo3::exceptions::PyRuntimeError::new_err(err.to_string())),
+        }
+    }
+
     /// Moves the pointer to ``point`` and returns the final position.
     #[pyo3(signature = (point, overrides=None), text_signature = "(self, point, overrides=None)")]
     fn pointer_move_to(

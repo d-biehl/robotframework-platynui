@@ -246,7 +246,14 @@ impl InputBackend for EisBackend {
             guard.last_position = Some(pos);
             return Ok(pos);
         }
-        Ok(Point::new(0.0, 0.0))
+        // The EIS/libei path can only shadow injected motion; it cannot observe
+        // the physical pointer. Report that honestly rather than fabricating
+        // (0, 0), so callers (e.g. the Inspector live picker) can disable
+        // point-based features instead of jumping the selection to the origin.
+        Err(PlatformError::CapabilityUnavailable {
+            capability: "live pointer position",
+            details: Some("EIS/libei backend cannot query the physical pointer position".into()),
+        })
     }
 
     fn pointer_move_to(&self, point: Point) -> Result<(), PlatformError> {

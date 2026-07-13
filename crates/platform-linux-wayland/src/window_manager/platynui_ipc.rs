@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 
-use platynui_core::platform::{PlatformError, WindowId};
+use platynui_core::platform::{PlatformError, WindowHit, WindowId};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::{Namespace, PatternName, UiNode, pattern_names};
 use serde_json::{Value, json};
@@ -172,6 +172,37 @@ impl CompositorBackend for PlatynUiIpcBackend {
             "height": size.height()
         }))?;
         Ok(())
+    }
+
+    fn window_at_point(&self, point: Point) -> Result<Option<WindowHit>, PlatformError> {
+        let response = send_command(&json!({"command": "window_at_point", "x": point.x(), "y": point.y()}))?;
+        // The compositor returns `window: null` when no window covers the point.
+        match response.get("window") {
+            None | Some(Value::Null) => Ok(None),
+            Some(_) => {
+                let info = decode_window_response(&response)?;
+                let (offset_x, offset_y) = csd_shadow_offset(&info, None);
+                let bounds = Rect::new(
+                    info.content_x + offset_x,
+                    info.content_y + offset_y,
+                    info.content_width,
+                    info.content_height,
+                );
+                // Register a selector so the returned WindowId is usable with
+                // the other window-manager operations (bounds/activate/...).
+                let local_id = NEXT_WINDOW_ID.fetch_add(1, Ordering::Relaxed);
+                RESOLVED_WINDOWS.lock().expect("resolved windows mutex poisoned").insert(
+                    local_id,
+                    WindowSelector {
+                        compositor_window_id: info.window_id,
+                        title: info.title.clone(),
+                        pid: info.pid,
+                        size: Some((info.content_width, info.content_height)),
+                    },
+                );
+                Ok(Some(WindowHit { id: WindowId::new(local_id), pid: info.pid, bounds }))
+            }
+        }
     }
 }
 

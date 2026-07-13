@@ -62,6 +62,11 @@ pub struct AtspiNode {
     /// later — which happens routinely once the consumer drops the
     /// children iterator that held the parent strong-ref alive.
     parent_is_application: bool,
+    /// Optional strong reference to the parent, keeping an ancestor chain alive
+    /// for standalone nodes that are not held by the tree (e.g. the result of a
+    /// hit-test). Normal tree nodes leave this `None` — their parent is kept
+    /// alive by the consumer — and rely solely on the `parent` `Weak`.
+    parent_keepalive: Mutex<Option<Arc<dyn UiNode>>>,
     self_weak: OnceLock<Weak<dyn UiNode>>,
     runtime_id: OnceLock<RuntimeId>,
     pub(crate) role: OnceLock<String>,
@@ -90,6 +95,7 @@ impl AtspiNode {
             obj,
             parent: Mutex::new(parent.map(Arc::downgrade)),
             parent_is_application,
+            parent_keepalive: Mutex::new(None),
             self_weak: OnceLock::new(),
             runtime_id: OnceLock::new(),
             role: OnceLock::new(),
@@ -103,6 +109,14 @@ impl AtspiNode {
         let arc: Arc<dyn UiNode> = node.clone();
         let _ = node.self_weak.set(Arc::downgrade(&arc));
         node
+    }
+
+    /// Keep `parent` alive for the lifetime of this node, so a standalone node
+    /// (e.g. a hit-test result not held by the tree) has a walkable ancestor
+    /// chain — `parent()`'s `Weak` only upgrades while the parent `Arc` lives.
+    /// Chaining this from the deepest node up roots the whole chain in it.
+    pub(crate) fn hold_parent(&self, parent: Arc<dyn UiNode>) {
+        *self.parent_keepalive.lock().expect("parent_keepalive mutex poisoned") = Some(parent);
     }
 
     pub fn is_null_object(obj: &ObjectRefOwned) -> bool {
@@ -387,6 +401,14 @@ make_proxy!(table_proxy, TableProxy);
 make_proxy!(table_cell_proxy, TableCellProxy);
 make_proxy!(text_proxy, TextProxy);
 make_proxy!(value_proxy, ValueProxy);
+
+/// Child object references of an accessible.
+pub(crate) fn accessible_children(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Vec<ObjectRefOwned> {
+    let Some(proxy) = accessible_proxy(conn, obj) else {
+        return Vec::new();
+    };
+    block_on_timeout_call(proxy.get_children()).and_then(|r| r.ok()).unwrap_or_default()
+}
 
 /// Resolve the toolkit identifier for the application owning the given
 /// accessible object by querying `Application.ToolkitName` and

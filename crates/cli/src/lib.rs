@@ -127,6 +127,13 @@ enum Commands {
     Pointer(Box<PointerArgs>),
     #[command(name = "keyboard", about = "Send keyboard input (type, press, release, list).")]
     Keyboard(KeyboardArgs),
+    #[command(name = "element-at-point", about = "Resolve the UI element at a screen point (hit-test).")]
+    ElementAtPoint {
+        /// Screen X coordinate.
+        x: f64,
+        /// Screen Y coordinate.
+        y: f64,
+    },
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -189,6 +196,25 @@ pub fn run() -> CliResult<()> {
             let output = keyboard::run(&runtime, &args)?;
             if !output.is_empty() {
                 println!("{output}");
+            }
+        }
+        Commands::ElementAtPoint { x, y } => {
+            match runtime.element_at_point(platynui_core::types::Point::new(x, y)).map_err(map_provider_error)? {
+                Some(node) => {
+                    println!(
+                        "Resolved: {} '{}' id={:?} runtime_id={}",
+                        node.role(),
+                        node.name(),
+                        node.id(),
+                        node.runtime_id().as_str()
+                    );
+                    let mut current = node.parent().and_then(|weak| weak.upgrade());
+                    while let Some(ancestor) = current {
+                        println!("  ^ {} '{}'", ancestor.role(), ancestor.name());
+                        current = ancestor.parent().and_then(|weak| weak.upgrade());
+                    }
+                }
+                None => println!("No element at ({x}, {y})"),
             }
         }
     }

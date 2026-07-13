@@ -35,6 +35,22 @@ impl fmt::Display for WindowId {
     }
 }
 
+/// A top-level window resolved at a screen point by [`WindowManager::window_at_point`].
+///
+/// Carries the fields a hit-test consumer needs to correlate the native window
+/// with an accessibility application and translate into window coordinates:
+/// the opaque handle, the owning process id (when known), and the window's
+/// screen bounds.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WindowHit {
+    /// Opaque native window handle.
+    pub id: WindowId,
+    /// Owning process id, when the window manager can report it.
+    pub pid: Option<u32>,
+    /// The window's bounds in desktop (screen) coordinates.
+    pub bounds: Rect,
+}
+
 /// Platform-native window management operations.
 ///
 /// Implementations live in platform crates (e.g. `platform-linux-x11`,
@@ -83,6 +99,20 @@ pub trait WindowManager: Send + Sync {
 
     /// Resize the window.
     fn resize(&self, id: WindowId, size: Size) -> Result<(), PlatformError>;
+
+    /// Returns the frontmost top-level window at the given desktop point,
+    /// respecting the window manager's stacking order, or `None` if no managed
+    /// window covers the point.
+    ///
+    /// This is the authoritative source of *window-level* z-order — used by
+    /// hit-test consumers (e.g. the AT-SPI provider) to pick the right
+    /// application window before descending into it. The default reports the
+    /// operation as unavailable so window managers that cannot answer it (and
+    /// platforms that do not need it, e.g. Windows where UIA `ElementFromPoint`
+    /// resolves z-order natively) are unaffected.
+    fn window_at_point(&self, _point: Point) -> Result<Option<WindowHit>, PlatformError> {
+        Err(PlatformError::CapabilityUnavailable { capability: "window_at_point", details: None })
+    }
 }
 
 #[cfg(test)]

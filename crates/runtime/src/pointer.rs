@@ -323,12 +323,28 @@ impl<'a> PointerEngine<'a> {
         overrides.and_then(|o| o.origin.clone()).unwrap_or(PointOrigin::Desktop)
     }
 
+    /// Current device position for internal path interpolation and anchoring.
+    ///
+    /// Backends that cannot observe the physical pointer (the generic-Wayland
+    /// EIS/virtual-input path before any injected move) now report the position
+    /// as [`PlatformError::CapabilityUnavailable`]; for interpolation we fall
+    /// back to the desktop origin, preserving the engine's historical behavior.
+    /// The public `Runtime::pointer_position` still surfaces the unavailability
+    /// so point-based features (the Inspector live picker) can gate on it.
+    fn interpolation_start(&self) -> Result<Point, PointerError> {
+        match self.device.position() {
+            Ok(point) => Ok(point),
+            Err(PlatformError::CapabilityUnavailable { .. }) => Ok(Point::new(0.0, 0.0)),
+            Err(err) => Err(err.into()),
+        }
+    }
+
     pub fn move_to(&mut self, point: Point, overrides: Option<&PointerOverrides>) -> Result<Point, PointerError> {
         let effective = self.effective_profile(overrides);
         let origin = self.resolve_origin(overrides);
         let target = self.resolve_point(point, &origin);
         let target = self.clamp_to_desktop(target);
-        let start = self.device.position()?;
+        let start = self.interpolation_start()?;
         tracing::debug!(
             from_x = start.x(),
             from_y = start.y(),
@@ -367,7 +383,8 @@ impl<'a> PointerEngine<'a> {
         let target_button = button.unwrap_or(self.settings.default_button);
         tracing::debug!(button = ?target_button, clicks, target = ?target, "pointer click");
         // Determine anchor: move if a target is provided, otherwise use current device position.
-        let anchor = if let Some(point) = target { self.move_to(point, overrides)? } else { self.device.position()? };
+        let anchor =
+            if let Some(point) = target { self.move_to(point, overrides)? } else { self.interpolation_start()? };
         let (press_release_delay, after_click_delay, after_input_delay, multi_click_delay, before_next_click_delay) = {
             let effective = self.effective_profile(overrides);
             (
@@ -466,7 +483,7 @@ impl<'a> PointerEngine<'a> {
             "pointer drag",
         );
 
-        let current = self.device.position()?;
+        let current = self.interpolation_start()?;
         self.perform_move(current, start_target, &effective)?;
         self.sleep(effective.after_move_delay());
         if effective.ensure_move_position() {
@@ -476,7 +493,7 @@ impl<'a> PointerEngine<'a> {
         self.device.press(active_button)?;
         self.sleep(effective.after_input_delay());
 
-        let current = self.device.position()?;
+        let current = self.interpolation_start()?;
         self.perform_move(current, end_target, &effective)?;
         self.sleep(effective.after_move_delay());
         if effective.ensure_move_position() {
@@ -582,7 +599,7 @@ impl<'a> PointerEngine<'a> {
         }
         let deadline = Instant::now() + effective.ensure_move_timeout();
         loop {
-            let actual = self.device.position()?;
+            let actual = self.interpolation_start()?;
             if distance(actual, target) <= threshold {
                 return Ok(());
             }
@@ -1020,6 +1037,54 @@ mod tests {
             PointerEngine::new(device.clone(), Rect::new(0.0, 0.0, 100.0, 100.0), settings, profile, &noop_sleep);
 
         engine.move_to(Point::new(10.0, 0.0), None).unwrap();
+        assert!(device.moves.load(Ordering::SeqCst) >= 1);
+    }
+
+    /// A device that cannot report the physical pointer position — models the
+    /// generic-Wayland EIS/virtual-input backends after this change.
+    struct NoPositionPointer {
+        moves: AtomicUsize,
+    }
+
+    impl PointerDevice for NoPositionPointer {
+        fn position(&self) -> Result<Point, PlatformError> {
+            Err(PlatformError::CapabilityUnavailable { capability: "live pointer position", details: None })
+        }
+        fn move_to(&self, _point: Point) -> Result<(), PlatformError> {
+            self.moves.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+        fn press(&self, _button: PointerButton) -> Result<(), PlatformError> {
+            Ok(())
+        }
+        fn release(&self, _button: PointerButton) -> Result<(), PlatformError> {
+            Ok(())
+        }
+        fn scroll(&self, _delta: ScrollDelta) -> Result<(), PlatformError> {
+            Ok(())
+        }
+    }
+
+    #[rstest]
+    fn move_tolerates_unavailable_position() {
+        // When the backend reports the position as unavailable, the engine must
+        // still move (falling back to the origin for interpolation) rather than
+        // erroring out — the public `pointer_position` surfaces the error, but
+        // injection keeps working.
+        let device = Arc::new(NoPositionPointer { moves: AtomicUsize::new(0) });
+        let mut profile = PointerProfile::named_default();
+        profile.after_move_delay = Duration::ZERO;
+        profile.ensure_move_position = false;
+        profile.acceleration_profile = PointerAccelerationProfile::Constant;
+        let mut engine = PointerEngine::new(
+            device.clone(),
+            Rect::new(0.0, 0.0, 100.0, 100.0),
+            PointerSettings::default(),
+            profile,
+            &noop_sleep,
+        );
+
+        engine.move_to(Point::new(10.0, 10.0), None).expect("move should tolerate unavailable position");
         assert!(device.moves.load(Ordering::SeqCst) >= 1);
     }
 

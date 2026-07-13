@@ -83,6 +83,7 @@ The Inspector shows the first 5000 XPath search results by default. Use `--searc
 | Highlight | ✅ layered window | ✅ override-redirect windows | ⚠️ PlatynUI test compositor only | ❌ stub | ✅ |
 | Window management | ✅ Win32 | ⚠️ partial EWMH | ⚠️ PlatynUI test compositor only | ❌ stub | ✅ |
 | Inspector | ✅ | ✅ | ⚠️ experimental through Linux mediator | ❌ | ✅ with mock feature |
+| Inspector live mouse picker | ✅ UIA | ✅ AT-SPI | ❌ not yet (no live cursor position) | ❌ AX stub | — |
 
 Linux uses `platynui-platform-linux` as a runtime session mediator. It detects X11 vs Wayland from the environment and delegates to the matching backend. X11 remains the most complete Linux path today. Wayland support is active but experimental; see the working notes under [dev-docs/](dev-docs/) and [apps/wayland-compositor/docs/](apps/wayland-compositor/docs/) for current protocol work.
 

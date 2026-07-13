@@ -155,6 +155,7 @@ pub async fn reveal_task(
     latest_epoch: Arc<AtomicU64>,
     root: Arc<UiNodeData>,
     target_node: Arc<dyn UiNode>,
+    refresh: bool,
 ) -> Result<RevealResult, String> {
     let target_id = target_node.runtime_id().as_str().to_string();
 
@@ -195,6 +196,12 @@ pub async fn reveal_task(
             return Ok(RevealResult::Cancelled);
         }
         let aid = ancestor_id.clone();
+        // For picker reveals of dynamic UI (opened menus, combo popups, expanded
+        // tree nodes), the cached children predate the new subtree — reload this
+        // level live so the just-appeared ancestor is found.
+        if refresh {
+            cursor.clear_children_cache();
+        }
         let children = cursor.children();
 
         if let Some(next_cursor) = children.into_iter().find(|child| child.id() == aid) {
@@ -207,6 +214,9 @@ pub async fn reveal_task(
 
     // Load the target's parent's children so the target itself
     // is in the cache when the UI thread runs reveal_node_cached.
+    if refresh {
+        cursor.clear_children_cache();
+    }
     let _ = cursor.children();
 
     if latest_epoch.load(Ordering::Relaxed) != epoch {

@@ -51,6 +51,31 @@ impl MockProvider {
         })
     }
 
+    /// Deepest, topmost mock node containing `point`, or `None`.
+    ///
+    /// Siblings are stacked by declaration order — a later child renders on top
+    /// of an earlier one — so children are probed last-first and the first hit
+    /// wins. A node without bounds is treated as a transparent container: its
+    /// children are still probed, but it is never itself returned. A node that
+    /// is not pickable (hidden — `IsVisible`/`IsInView` explicitly false) is
+    /// likewise never returned, though its children are still probed.
+    fn hit_test_node(node: &Arc<MockNode>, point: platynui_core::types::Point) -> Option<Arc<MockNode>> {
+        let bounds = node.bounds();
+        if let Some(bounds) = bounds
+            && !bounds.contains(point)
+        {
+            return None;
+        }
+
+        for child in node.children_snapshot().iter().rev() {
+            if let Some(hit) = Self::hit_test_node(child, point) {
+                return Some(hit);
+            }
+        }
+
+        if bounds.is_some() && node.is_pickable() { Some(Arc::clone(node)) } else { None }
+    }
+
     pub(crate) fn notify_listeners(&self, event: ProviderEventKind) {
         let snapshot = {
             let listeners = self.listeners.read().unwrap();
@@ -79,6 +104,18 @@ impl UiTreeProvider for MockProvider {
         }
 
         Ok(Box::new(children.into_iter().map(|child| -> Arc<dyn UiNode> { child })))
+    }
+
+    fn element_at_point(&self, point: platynui_core::types::Point) -> Result<Option<Arc<dyn UiNode>>, ProviderError> {
+        // Top-level nodes stacked by declaration order (later = on top); probe
+        // last-first so the frontmost overlapping node wins.
+        let top_level = self.roots.iter().chain(self.flat_nodes.iter());
+        for node in top_level.collect::<Vec<_>>().into_iter().rev() {
+            if let Some(hit) = Self::hit_test_node(node, point) {
+                return Ok(Some(hit as Arc<dyn UiNode>));
+            }
+        }
+        Ok(None)
     }
 
     fn subscribe_events(&self, listener: Arc<dyn ProviderEventListener>) -> Result<(), ProviderError> {

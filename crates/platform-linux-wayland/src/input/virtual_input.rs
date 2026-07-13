@@ -286,7 +286,14 @@ impl InputBackend for VirtualInputBackend {
 
     fn pointer_position(&self) -> Result<Point, PlatformError> {
         let guard = self.inner.lock().expect("virtual-input mutex poisoned");
-        Ok(guard.last_position.unwrap_or(Point::new(0.0, 0.0)))
+        // The wlr virtual-pointer path only tracks the position we last injected;
+        // with no injected move yet it has no idea where the physical pointer is.
+        // Report unavailable rather than fabricating (0, 0) so callers can gate
+        // point-based features cleanly.
+        guard.last_position.ok_or(PlatformError::CapabilityUnavailable {
+            capability: "live pointer position",
+            details: Some("virtual-input backend cannot query the physical pointer position".into()),
+        })
     }
 
     fn pointer_move_to(&self, point: Point) -> Result<(), PlatformError> {

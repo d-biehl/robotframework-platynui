@@ -44,10 +44,14 @@ winresource = "0.1"
 platynui-platform-windows = { path = "../../crates/platform-windows" }
 platynui-provider-windows-uia = { path = "../../crates/provider-windows-uia" }
 winreg = "0.56"
+# Inspector-internal global modifier reading for the live picker (GetAsyncKeyState).
+windows = { version = "0.62", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_Foundation"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 platynui-platform-linux = { path = "../../crates/platform-linux" }
 platynui-provider-atspi = { path = "../../crates/provider-atspi" }
+# Inspector-internal global modifier reading for the live picker (X11 XQueryPointer mask).
+x11rb = "0.13"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 platynui-platform-macos = { path = "../../crates/platform-macos" }

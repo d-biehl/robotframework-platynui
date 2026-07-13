@@ -5,6 +5,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use x11rb::connection::Connection;
+use x11rb::protocol::shape::{self, ConnectionExt as _};
 use x11rb::protocol::xproto::{self as x, ConnectionExt as XProtoExt, Rectangle, Window};
 
 /// Per-runtime X11 highlight overlay.
@@ -188,6 +189,21 @@ impl OverlayThread {
                                 )
                                 .is_ok()
                         {
+                            // Make the overlay input-transparent: an empty SHAPE
+                            // input region lets real clicks pass through to the UI
+                            // beneath instead of hitting the transient highlight
+                            // (parity with the Windows overlay's WS_EX_TRANSPARENT,
+                            // and it keeps the live picker from ever resolving its
+                            // own overlay). Best-effort — skip if SHAPE is absent.
+                            let _ = conn.shape_rectangles(
+                                shape::SO::SET,
+                                shape::SK::INPUT,
+                                x::ClipOrdering::UNSORTED,
+                                win,
+                                0,
+                                0,
+                                &[],
+                            );
                             segments.push(win);
                         }
 

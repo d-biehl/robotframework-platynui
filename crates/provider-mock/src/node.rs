@@ -65,6 +65,27 @@ impl MockNode {
         self.children.lock().unwrap().clone()
     }
 
+    /// The node's screen bounds from its `Control:Bounds` attribute, if present.
+    pub(crate) fn bounds(&self) -> Option<platynui_core::types::Rect> {
+        use platynui_core::ui::attribute_names::element;
+        self.attribute(Namespace::Control, element::BOUNDS).and_then(|attr| match attr.value() {
+            UiValue::Rect(rect) => Some(rect),
+            _ => None,
+        })
+    }
+
+    /// Whether this node may be *selected* as a hit-test result. Excluded when
+    /// it explicitly reports `Control:IsVisible` (or `Control:IsInView`) as
+    /// false, so a laid-out but hidden node is never returned even if its bounds
+    /// contain the point. Mirrors the AT-SPI provider's pickability gate.
+    pub(crate) fn is_pickable(&self) -> bool {
+        use platynui_core::ui::attribute_names::element;
+        let is_false = |name| {
+            matches!(self.attribute(Namespace::Control, name).map(|attr| attr.value()), Some(UiValue::Bool(false)))
+        };
+        !is_false(element::IS_VISIBLE) && !is_false(element::IS_IN_VIEW)
+    }
+
     pub(crate) fn set_parent(&self, parent: &Arc<dyn UiNode>) {
         *self.parent.lock().unwrap() = Some(Arc::downgrade(parent));
     }

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use platynui_core::config::RuntimeConfig;
 use platynui_core::provider::{ProviderDescriptor, ProviderError, ProviderKind, UiTreeProvider, UiTreeProviderFactory};
 use platynui_core::register_provider;
+use platynui_core::types::Point;
 use platynui_core::ui::{TechnologyId, UiNode};
 use std::collections::{HashSet, VecDeque};
 use std::sync::LazyLock;
@@ -305,6 +306,46 @@ impl UiTreeProvider for WindowsUiaProvider {
         // Stream: desktop top-level windows (excluding own process), then one app:Application per PID.
         let it = ElementAndAppIter::new(parent);
         Ok(Box::new(it))
+    }
+
+    fn element_at_point(&self, point: Point) -> Result<Option<Arc<dyn UiNode>>, ProviderError> {
+        if self.is_shutdown.load(Ordering::Acquire) {
+            return Err(ProviderError::CommunicationFailure {
+                channel: "windows uia",
+                details: Some(crate::error::UiaError::Shutdown.to_string()),
+            });
+        }
+        let uia = crate::com::uia().map_err(|e| ProviderError::CommunicationFailure {
+            channel: "windows uia",
+            details: Some(e.to_string()),
+        })?;
+
+        // UIA `ElementFromPoint` resolves window- and in-window z-order natively.
+        #[expect(clippy::cast_possible_truncation, reason = "desktop coordinates fit in i32")]
+        let pt = windows::Win32::Foundation::POINT { x: point.x().round() as i32, y: point.y().round() as i32 };
+        let elem = match unsafe { uia.ElementFromPoint(pt) } {
+            Ok(elem) => elem,
+            Err(err) => {
+                tracing::debug!(%err, ?point, "UIA ElementFromPoint returned no element");
+                return Ok(None);
+            }
+        };
+
+        // Never resolve the host process's own UI (consistent with tree
+        // enumeration, which excludes own-process windows).
+        let pid = crate::map::get_process_id(&elem).ok();
+        if pid == Some(*SELF_PID) {
+            return Ok(None);
+        }
+        // Scope the node to its owning process so its runtime id matches the id
+        // top-down traversal produces for the same element (app:Application/PID).
+        let scope = match pid {
+            Some(pid) => crate::map::UiaIdScope::App { pid },
+            None => crate::map::UiaIdScope::Desktop,
+        };
+        let node = crate::node::UiaNode::from_elem_with_scope(elem, scope);
+        crate::node::UiaNode::init_self(&node);
+        Ok(Some(node as Arc<dyn UiNode>))
     }
 }
 

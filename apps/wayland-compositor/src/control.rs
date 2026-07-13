@@ -20,6 +20,7 @@
 //! - `{"command": "focus_window", "id"|"app_id"|"title": ...}` → focus a window
 //! - `{"command": "screenshot"}` → capture the current frame (base64 PNG)
 //! - `{"command": "get_pointer_position"}` → current pointer coordinates (`x`, `y`)
+//! - `{"command": "window_at_point", "x": <f64>, "y": <f64>}` → frontmost window at the point (or null)
 //! - `{"command": "key_event", "key": <evdev_code>, "state": "press"|"release"}` → inject a keyboard event
 //! - `{"command": "pointer_move_to", "x": <f64>, "y": <f64>}` → move pointer to absolute position
 //! - `{"command": "pointer_button", "button": <evdev_code>, "state": "press"|"release"}` → inject pointer button
@@ -467,6 +468,23 @@ fn process_command(input: &str, state: &mut State) -> Option<String> {
             let loc = state.pointer_location;
             serde_json::json!({"status": "ok", "x": loc.x, "y": loc.y})
         }
+
+        Some("window_at_point") => match (request.x, request.y) {
+            (Some(x), Some(y)) => {
+                // The compositor owns the authoritative stacking order;
+                // `element_under` returns the frontmost window at the point.
+                let hit = state.space.element_under((x, y)).map(|(window, _)| window.clone());
+                match hit {
+                    Some(window) => {
+                        let idx = state.space.elements().position(|candidate| candidate == &window).unwrap_or(0);
+                        let info = build_window_info(state, idx, &window);
+                        serde_json::json!({"status": "ok", "window": info})
+                    }
+                    None => serde_json::json!({"status": "ok", "window": serde_json::Value::Null}),
+                }
+            }
+            _ => serde_json::json!({"status": "error", "message": "window_at_point requires x and y"}),
+        },
 
         Some("show_highlight") => match show_highlight(state, &request) {
             Ok(rect_count) => serde_json::json!({"status": "ok", "message": "highlight updated", "rects": rect_count}),

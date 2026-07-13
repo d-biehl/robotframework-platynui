@@ -1,9 +1,12 @@
 //! ViewModel: Overall application state for the Inspector.
 
 use crate::model::tree_data::{DisplayAttribute, SearchResultItem, UiNodeData};
+use crate::viewmodel::picker::{Modifiers, PickerDecision, PickerState};
 use crate::viewmodel::{async_tasks, tree_vm::TreeViewModel};
 use eframe::egui;
 use egui_async::Bind;
+use platynui_core::types::Point;
+use platynui_core::ui::UiNode;
 use platynui_runtime::Runtime;
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -132,6 +135,8 @@ pub struct InspectorViewModel {
     selection_request_id: u64,
     /// Frame counter for spinner animation.
     spinner_frame: usize,
+    /// Live mouse-picker decision state (armed/active, configured combination).
+    picker: PickerState,
 }
 
 impl InspectorViewModel {
@@ -181,7 +186,75 @@ impl InspectorViewModel {
             highlight_epoch: Arc::new(AtomicU64::new(0)),
             selection_request_id: 0,
             spinner_frame: 0,
+            picker: PickerState::default(),
         }
+    }
+
+    /// Whether the live mouse-picker toggle is armed.
+    pub fn picker_armed(&self) -> bool {
+        self.picker.is_armed()
+    }
+
+    /// Whether the picker is currently following the cursor.
+    pub fn picker_active(&self) -> bool {
+        self.picker.is_active()
+    }
+
+    /// Arm/disarm the live mouse-picker.
+    pub fn set_picker_armed(&mut self, armed: bool) {
+        self.picker.set_armed(armed);
+    }
+
+    /// Label of the configured activation combination (e.g. `"Ctrl+Alt+Shift"`).
+    pub fn picker_combo_label(&self) -> String {
+        self.picker.combo().label()
+    }
+
+    /// Advance the picker one frame. `supported` gates the whole feature
+    /// (a live cursor position and hit-test are available); `modifiers` is the
+    /// globally-read modifier state this frame (`None` when unreadable). On a
+    /// resolve decision this hit-tests at the cursor and reveals the element.
+    pub fn poll_picker(&mut self, supported: bool, modifiers: Option<Modifiers>, ctx: &egui::Context) {
+        if !self.picker.is_armed() {
+            return;
+        }
+        // Position is only trustworthy when the platform reports it; an
+        // unreadable position must never move the selection.
+        let position: Option<Point> = if supported { self.runtime.pointer_position().ok() } else { None };
+        let held = modifiers.unwrap_or_default();
+        if let PickerDecision::Resolve { point, epoch } = self.picker.on_tick(supported, held, position) {
+            match self.runtime.element_at_point(point) {
+                // Discard the result if picking stopped (release/disarm) while the
+                // (potentially slow) hit-test was running.
+                Ok(Some(node)) if self.picker.is_current_epoch(epoch) => {
+                    tracing::debug!(id = %node.runtime_id().as_str(), role = node.role(), "picker resolved element");
+                    self.pick_element(node);
+                }
+                Ok(Some(_)) => tracing::debug!("picker: stale result discarded"),
+                Ok(None) => tracing::debug!(?point, "picker: nothing at point"),
+                Err(err) => tracing::debug!(%err, "picker hit-test failed"),
+            }
+            ctx.request_repaint();
+        }
+    }
+
+    /// Reveal and select a node resolved by the picker, reusing the same
+    /// ancestor-preloading reveal path as search-result reveal.
+    fn pick_element(&mut self, node: Arc<dyn UiNode>) {
+        if !node.is_valid() {
+            return;
+        }
+        let target_id = node.runtime_id().as_str().to_string();
+        let epoch = next_epoch(&self.reveal_epoch);
+        self.reveal_task.abort();
+        if self.tree.reveal_node_cached(&target_id) {
+            self.select_node_if_visible(&target_id);
+            return;
+        }
+        let root = Arc::clone(self.tree.root());
+        // refresh=true: the picker targets live elements that may post-date the
+        // cached tree (opened menus, combo popups, expanded tree nodes).
+        self.reveal_task.refresh(async_tasks::reveal_task(epoch, Arc::clone(&self.reveal_epoch), root, node, true));
     }
 
     /// Poll the initial tree load state. Call this every frame.
@@ -813,12 +886,19 @@ impl InspectorViewModel {
 
         // Slow path: spawn egui-async task to pre-load ancestor caches.
         let root = Arc::clone(self.tree.root());
-        self.reveal_task.refresh(async_tasks::reveal_task(epoch, Arc::clone(&self.reveal_epoch), root, target_node));
+        self.reveal_task.refresh(async_tasks::reveal_task(
+            epoch,
+            Arc::clone(&self.reveal_epoch),
+            root,
+            target_node,
+            false,
+        ));
     }
 
     /// Helper: select a node if it's visible in the tree.
     fn select_node_if_visible(&mut self, target_id: &str) {
         if let Some(tree_index) = self.tree.rows().iter().position(|row| row.id == target_id) {
+            tracing::debug!(target_id, tree_index, "reveal/pick: selected row");
             self.select_node(tree_index);
         } else {
             tracing::warn!(target_id, "reveal_node: not found in visible rows after expand");

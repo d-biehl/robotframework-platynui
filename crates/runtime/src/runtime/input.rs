@@ -3,7 +3,9 @@ use std::sync::Arc;
 use platynui_core::platform::{
     KeyboardDevice, KeyboardError, KeyboardOverrides, PointerButton, PointerDevice, ScrollDelta,
 };
+use platynui_core::provider::ProviderError;
 use platynui_core::types::Point;
+use platynui_core::ui::UiNode;
 
 use crate::keyboard::{KeyboardEngine, KeyboardMode, resolve_profile as resolve_keyboard_profile};
 use crate::keyboard_sequence::KeyboardSequence;
@@ -42,6 +44,33 @@ impl Runtime {
     pub fn pointer_position(&self) -> Result<Point, PointerError> {
         let device = self.pointer_device()?;
         Ok(device.position()?)
+    }
+
+    /// Resolves the deepest, topmost UI node at the given desktop point by
+    /// asking each provider to hit-test it.
+    ///
+    /// Returns the first provider hit. `Ok(None)` means at least one provider
+    /// supports hit-testing but nothing is at the point;
+    /// `Err(ProviderError::UnsupportedOperation { .. })` means no provider can
+    /// hit-test at all, so callers can disable point-based features.
+    pub fn element_at_point(&self, point: Point) -> Result<Option<Arc<dyn UiNode>>, ProviderError> {
+        let mut any_supported = false;
+        for provider in self.providers() {
+            match provider.element_at_point(point) {
+                Ok(Some(node)) => return Ok(Some(node)),
+                Ok(None) => any_supported = true,
+                Err(ProviderError::UnsupportedOperation { .. }) => {}
+                Err(err) => return Err(err),
+            }
+        }
+        if any_supported {
+            Ok(None)
+        } else {
+            Err(ProviderError::UnsupportedOperation {
+                operation: "element_at_point",
+                details: Some("no provider supports hit-testing".into()),
+            })
+        }
     }
 
     pub fn keyboard_profile(&self) -> platynui_core::platform::KeyboardProfile {

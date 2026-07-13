@@ -27,6 +27,7 @@ ${APP}              ${None}
 
 # App-relative window locators (role union + @Name) — prepend ${APP}.
 ${MAIN_WINDOW}      //(Frame|Window)[@Name="main-window"]
+${MAIN_PICK_BUTTON}    //(Button|PushButton)[@Name="main-pick-button"]
 ${DIALOG_1}         //(Dialog|Window|Frame)[@Name="child-dialog-1"]
 ${DIALOG_2}         //(Dialog|Window|Frame)[@Name="child-dialog-2"]
 ${DIALOG_3}         //(Dialog|Window|Frame)[@Name="child-dialog-3"]
@@ -39,3 +40,11 @@ ${DIALOG_MODAL}     //(Dialog|Window|Frame)[@Name="dialog-modal"]
 # is not occluded by sibling dialogs (they all stack at the origin on Wayland).
 ${DIALOG_1_BUTTON}          //(Button|PushButton)[@Name="child-dialog-1-button"]
 ${DIALOG_1_BUTTON_CLICKED}  //(Button|PushButton)[@Name="child-dialog-1-button-clicked"]
+
+# Menu-bar "File" menu and one of its items. The MenuItem role sits in a
+# provider-dependent namespace (``item:`` on AT-SPI, ``control:`` on UIA), so the
+# locators use the ``*:`` namespace wildcard to stay cross-provider. Opening the
+# menu shows a QMenu popup — on X11 a separate override-redirect window drawn
+# outside the owning frame — used to exercise the hit-test's popup path.
+${MENU_FILE}                //*:MenuItem[@Name="File"]
+${MENU_FILE_NEW}            //*:MenuItem[@Name="menu-file-new"]
