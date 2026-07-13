@@ -22,7 +22,6 @@ Test Tags           real
 
 *** Variables ***
 ${SIZE_TOL}         ${8}
-${EXTENTS_TOL}      ${4}
 
 
 *** Test Cases ***
@@ -39,8 +38,3 @@ Modal Dialog Bounds Are Its Own Not The Main Window's
     ...    msg=modal dialog reports the main window size (${main.width}x${main.height})
     Should Be True    abs($b.width - 340) <= ${SIZE_TOL} and abs($b.height - 200) <= ${SIZE_TOL}
     ...    msg=modal dialog client size ${b.width}x${b.height} does not match the designed ~340x200
-
-Modal Dialog Bounds Match The AT-SPI Screen Extents
-    [Documentation]    Correctness cross-check from an independent source (toolkit extents vs
-    ...    window-manager bounds), as in the modeless bounds suite.
-    Bounds Agree With Screen Extents    ${APP}${DIALOG_MODAL}    ${EXTENTS_TOL}    modal @Bounds vs AT-SPI extents

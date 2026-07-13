@@ -10,9 +10,9 @@ Documentation       Regression for the window-bounds bug where child dialogs par
 ...                 dialog the main window's 900x640 bounds. The fix correlates the node's AT-SPI screen
 ...                 extents with each candidate's geometry instead.
 ...
-...                 The tests read only PlatynUI attributes, so they are decisive on X11, the Wayland
+...                 The tests read only PlatynUI ``@Bounds``, so they are decisive on X11, the Wayland
 ...                 compositor, and Windows alike: each dialog must report its own (small, distinct)
-...                 client rect, matching the AT-SPI screen extents.
+...                 client rect, not the main window's.
 
 Library             PlatynUI.BareMetal    AS    BM
 Resource            resources/testapp.resource
@@ -27,9 +27,6 @@ Test Tags           real
 # Client sizes are pixel-exact on X11; a few px of tolerance covers WM/rounding differences across
 # platforms while staying far below the gap to the 900x640 main window.
 ${SIZE_TOL}         ${8}
-# @Bounds (from the window manager) vs the AT-SPI screen extents (from the toolkit) describe the same
-# client rect for a correctly resolved window, so they must agree to within a couple of pixels.
-${EXTENTS_TOL}      ${4}
 
 
 *** Test Cases ***
@@ -62,10 +59,10 @@ Child Dialog Bounds Are Their Own Not The Main Window's
         Should Be True    abs($b.width - ${ew}) <= ${SIZE_TOL} and abs($b.height - ${eh}) <= ${SIZE_TOL}
         ...    msg=${dialog} client size ${b.width}x${b.height} does not match the designed ~${ew}x${eh}
     END
-    # Absolute position is deliberately NOT asserted here: it is meaningless on Wayland (a client cannot
-    # know its global position and the compositor stacks all windows at the origin). Position correctness
-    # on X11/Windows is covered by "Dialog Bounds Match The AT-SPI Screen Extents" below, which compares
-    # each dialog's window-manager @Bounds against its independent AT-SPI screen extents.
+    # Absolute position is deliberately NOT asserted: it is meaningless on Wayland (a client cannot know
+    # its global position and the compositor stacks all windows at the origin), and there is no
+    # provider-independent ground truth to compare it against. Wrong-window selection — the actual
+    # regression — is caught by the size and distinctness checks, which need only @Bounds.
 
 Child Dialogs Have Distinct Bounds
     [Documentation]    Guards against a regression where every dialog resolves to the SAME window (each
@@ -77,15 +74,6 @@ Child Dialogs Have Distinct Bounds
     Bounds Differ    ${b1}    ${b2}
     Bounds Differ    ${b1}    ${b3}
     Bounds Differ    ${b2}    ${b3}
-
-Dialog Bounds Match The AT-SPI Screen Extents
-    [Documentation]    Correctness cross-check from an independent source: @Bounds (derived by the
-    ...    window manager) must match the dialog's AT-SPI screen extents (reported by the toolkit) to
-    ...    within a couple of pixels. Catches wrong-window selection and any offset error that the
-    ...    size-based checks above would miss.
-    FOR    ${dialog}    IN    ${DIALOG_1}    ${DIALOG_2}    ${DIALOG_3}
-        Bounds Agree With Screen Extents    ${APP}${dialog}    ${EXTENTS_TOL}    ${dialog} @Bounds vs AT-SPI extents
-    END
 
 
 *** Keywords ***

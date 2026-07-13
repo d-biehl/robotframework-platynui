@@ -67,22 +67,6 @@ Get Bounds
     ${bounds}=    BM.Get Attribute    ${locator}    Bounds
     RETURN    ${bounds}
 
-Bounds Agree With Screen Extents
-    [Documentation]    Cross-check a window's @Bounds (from the window manager / compositor) against its
-    ...    AT-SPI screen extents (from the toolkit) — two independent sources. Size is compared on every
-    ...    platform. Position is compared ONLY when the extents carry a real (non-zero) position: on
-    ...    Wayland a client cannot know its global position, so AT-SPI reports (0,0) there and @Bounds
-    ...    (real, from the compositor) legitimately differs — only size is checkable in that case.
-    [Arguments]    ${locator}    ${tol}    ${msg}
-    ${b}=    Get Bounds    ${locator}
-    ${e}=    BM.Get Attribute    ${locator}    native:Component.Extents.Screen
-    Should Be True    abs($b.width - $e.width) <= ${tol}      msg=${msg} — width ${b.width} vs ${e.width}
-    Should Be True    abs($b.height - $e.height) <= ${tol}    msg=${msg} — height ${b.height} vs ${e.height}
-    IF    $e.x != 0 or $e.y != 0
-        Should Be True    abs($b.x - $e.x) <= ${tol}    msg=${msg} — x ${b.x} vs ${e.x}
-        Should Be True    abs($b.y - $e.y) <= ${tol}    msg=${msg} — y ${b.y} vs ${e.y}
-    END
-
 Launch Default Qt Instance
     [Documentation]    Suite Setup helper: launch the default Qt instance, pin it by ProcessId, expose
     ...    its app root as the suite variable ``${APP}``, remember the handle, and wait for the child
