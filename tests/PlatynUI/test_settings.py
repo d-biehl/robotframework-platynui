@@ -46,4 +46,4 @@ def test_with_block_pushes_and_restores() -> None:
 
 def test_kw_only_construction() -> None:
     with pytest.raises(TypeError):
-        Settings(1.0)  # type: ignore[misc]
+        Settings(1.0)  # type: ignore[call-arg]
