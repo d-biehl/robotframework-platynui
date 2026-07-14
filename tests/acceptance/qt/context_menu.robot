@@ -56,14 +56,6 @@ Open Submenu Items Are Findable And Hit-Testable
     ...    override-redirect QMenu window. Its items must resolve by XPath query, and the hit-test
     ...    over one must return that item even though the submenu is drawn beside (outside) the
     ...    root popup's own bounds.
-    ...
-    ...    Skipped under the Wayland compositor: a Wayland client cannot know its global position,
-    ...    so Qt reports popup coordinates in its own client-local space — a pointer CLICK into the
-    ...    menu lands offset from the visible item (typically by the decoration height) and
-    ...    activates/dismisses the wrong entry. Resolving popup-surface positions from the
-    ...    compositor is a follow-up.
-    Skip If    '%{XDG_SESSION_TYPE=}' == 'wayland'
-    ...    pointer clicks into popups need compositor-side popup positions (follow-up)
     Launch Main Window Only
     Open The Context Menu
     Wait Until Keyword Succeeds    ${POPUP_SETTLE_TIMEOUT}    0.25s
@@ -81,10 +73,7 @@ Open Submenu Items Are Findable And Hit-Testable
 A Nested Submenu Item Is Resolved By Hit Test
     [Documentation]    Two cascade levels deep: ctx-more → ctx-deep → ctx-deep-item. Each open
     ...    level is its own transient window, so this guards that grafted popups stay walkable in
-    ...    depth, not just at the first level. Wayland skip: see Open Submenu Items Are Findable
-    ...    And Hit-Testable.
-    Skip If    '%{XDG_SESSION_TYPE=}' == 'wayland'
-    ...    pointer clicks into popups need compositor-side popup positions (follow-up)
+    ...    depth, not just at the first level.
     Launch Main Window Only
     Open The Context Menu
     Wait Until Keyword Succeeds    ${POPUP_SETTLE_TIMEOUT}    0.25s
@@ -105,10 +94,7 @@ A Nested Submenu Item Is Resolved By Hit Test
 Dismissed Submenus Leave No Stale Items
     [Documentation]    After opening the full cascade and dismissing everything, no item from any
     ...    level may remain findable — neither the root menu's nor a submenu's (guards the remove
-    ...    path across cascade levels). Opening the cascade needs a pointer click into the menu,
-    ...    hence the same Wayland skip as Open Submenu Items Are Findable And Hit-Testable.
-    Skip If    '%{XDG_SESSION_TYPE=}' == 'wayland'
-    ...    pointer clicks into popups need compositor-side popup positions (follow-up)
+    ...    path across cascade levels).
     Launch Main Window Only
     Open The Context Menu
     Wait Until Keyword Succeeds    ${POPUP_SETTLE_TIMEOUT}    0.25s

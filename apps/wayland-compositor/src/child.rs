@@ -24,21 +24,34 @@ use crate::state::State;
 /// The child inherits `WAYLAND_DISPLAY`, `DISPLAY` (if `XWayland`), and
 /// `XDG_RUNTIME_DIR` from the compositor process environment.
 ///
+/// Without `XWayland` (`inherit_display == false`), `DISPLAY` is removed
+/// from the child environment: any value still present is the *host* X
+/// server leaking through the compositor process (which may legitimately
+/// need it for its own nested window). A session component binding that
+/// display would observe the wrong seat — e.g. the Inspector's X11 modifier
+/// reader watching the host keyboard instead of this compositor's.
+///
 /// Returns the [`Child`] handle if the program was spawned successfully,
 /// or `None` if no child command was specified.
 ///
 /// # Panics
 ///
 /// Panics if `command` is non-empty but `split_first()` fails (unreachable).
-pub fn spawn_child(command: &[String]) -> Option<Child> {
+pub fn spawn_child(command: &[String], inherit_display: bool) -> Option<Child> {
     if command.is_empty() {
         return None;
     }
 
     let (program, args) = command.split_first().expect("command is non-empty");
-    tracing::info!(program, ?args, "spawning child program");
+    tracing::info!(program, ?args, inherit_display, "spawning child program");
 
-    match Command::new(program).args(args).spawn() {
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+    if !inherit_display {
+        cmd.env_remove("DISPLAY");
+    }
+
+    match cmd.spawn() {
         Ok(child) => {
             tracing::info!(pid = child.id(), program, "child program started");
             Some(child)

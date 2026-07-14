@@ -52,6 +52,8 @@ platynui-platform-linux = { path = "../../crates/platform-linux" }
 platynui-provider-atspi = { path = "../../crates/provider-atspi" }
 # Inspector-internal global modifier reading for the live picker (X11 XQueryPointer mask).
 x11rb = "0.13"
+# Modifier reading under the PlatynUI compositor (get_modifiers over the control socket).
+serde_json = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 platynui-platform-macos = { path = "../../crates/platform-macos" }

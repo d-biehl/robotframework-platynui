@@ -12,6 +12,14 @@
 // enables `wayland-csd-adwaita` for GNOME (no SSD support).
 use winit as _;
 
+// Dev-dependencies of the ipc_tests integration test (raw Wayland popup
+// client); referenced here so the lib's own test target does not flag them
+// as unused crate dependencies.
+#[cfg(test)]
+use wayland_client as _;
+#[cfg(test)]
+use wayland_protocols as _;
+
 mod backend;
 pub mod child;
 mod client;

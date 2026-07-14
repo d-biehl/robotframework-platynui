@@ -140,6 +140,38 @@ impl PopupRegistry {
     }
 }
 
+/// Max per-axis difference (px) between a popup node's AT-SPI-reported size
+/// and a compositor popup rect for the two to be considered the same popup.
+/// Both describe the same surface, so the match is near-exact; the tolerance
+/// only absorbs rounding (same rationale as the window matching in
+/// `platform-linux-wayland`).
+const POPUP_SIZE_TOLERANCE: f64 = 2.0;
+
+/// Pick the compositor popup rect matching a grafted popup node of the given
+/// AT-SPI-reported size.
+///
+/// On Wayland a popup's toolkit extents are client-local — only the size is
+/// trustworthy — while the window manager knows every popup's real global
+/// rect but not which accessible it belongs to. Size is the join key: within
+/// one process, cascade levels have distinct sizes in the overwhelmingly
+/// common case. `popups` is expected most-recently-opened first (the order
+/// the platform backend preserves), so on a size tie the most recent popup
+/// wins. Returns `None` when nothing matches — callers keep their existing
+/// extents fallback then.
+pub(crate) fn match_popup_rect(
+    popups: &[platynui_core::types::Rect],
+    size: (f64, f64),
+) -> Option<platynui_core::types::Rect> {
+    let (width, height) = size;
+    popups
+        .iter()
+        .find(|rect| {
+            (rect.width() - width).abs() <= POPUP_SIZE_TOLERANCE
+                && (rect.height() - height).abs() <= POPUP_SIZE_TOLERANCE
+        })
+        .copied()
+}
+
 /// Whether a recorded popup is still shown on screen — the merge-time liveness
 /// probe for [`PopupRegistry::merge_into`] on the synchronous query connection.
 pub(crate) fn popup_is_live(conn: &AccessibilityConnection, popup: &ObjectRefOwned) -> bool {
@@ -437,6 +469,45 @@ mod tests {
 
         registry.clear();
         assert!(registry.is_empty());
+    }
+
+    #[test]
+    fn match_popup_rect_finds_a_single_popup() {
+        use platynui_core::types::Rect;
+        let popups = [Rect::new(461.0, 360.0, 120.0, 104.0)];
+        assert_eq!(match_popup_rect(&popups, (120.0, 104.0)), Some(popups[0]));
+        // Rounding tolerance: an off-by-one size still matches.
+        assert_eq!(match_popup_rect(&popups, (121.0, 103.0)), Some(popups[0]));
+    }
+
+    #[test]
+    fn match_popup_rect_distinguishes_cascade_levels_by_size() {
+        use platynui_core::types::Rect;
+        // A real Qt cascade (spike data): nested, submenu, root — distinct sizes.
+        let popups = [
+            Rect::new(715.0, 490.0, 136.0, 26.0),
+            Rect::new(581.0, 438.0, 134.0, 78.0),
+            Rect::new(461.0, 360.0, 120.0, 104.0),
+        ];
+        assert_eq!(match_popup_rect(&popups, (120.0, 104.0)), Some(popups[2]));
+        assert_eq!(match_popup_rect(&popups, (134.0, 78.0)), Some(popups[1]));
+        assert_eq!(match_popup_rect(&popups, (136.0, 26.0)), Some(popups[0]));
+    }
+
+    #[test]
+    fn match_popup_rect_breaks_size_ties_by_recency() {
+        use platynui_core::types::Rect;
+        // Two same-sized popups: the list is most-recent-first, so the first wins.
+        let popups = [Rect::new(500.0, 500.0, 100.0, 80.0), Rect::new(100.0, 100.0, 100.0, 80.0)];
+        assert_eq!(match_popup_rect(&popups, (100.0, 80.0)), Some(popups[0]));
+    }
+
+    #[test]
+    fn match_popup_rect_returns_none_without_a_size_match() {
+        use platynui_core::types::Rect;
+        let popups = [Rect::new(461.0, 360.0, 120.0, 104.0)];
+        assert_eq!(match_popup_rect(&popups, (300.0, 40.0)), None, "callers must fall back to toolkit extents");
+        assert_eq!(match_popup_rect(&[], (120.0, 104.0)), None, "no popups reported → fallback");
     }
 
     #[test]

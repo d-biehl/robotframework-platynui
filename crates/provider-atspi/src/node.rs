@@ -207,7 +207,16 @@ impl AtspiNode {
     /// auto-activation re-stack a window mid-interaction. They must resolve
     /// their geometry via AT-SPI extents instead.
     fn is_window_surface(&self) -> bool {
-        self.parent_is_application && !matches!(self.role(), "PopupMenu" | "Menu" | "ToolTip")
+        self.parent_is_application && !self.is_transient_popup()
+    }
+
+    /// Returns `true` if this node is a grafted transient popup: a
+    /// popup-class accessible hanging directly under the `Application`
+    /// (the shape popups.rs surfaces for Qt-style event-driven popups).
+    /// These are exactly the nodes whose bounds may come from the window
+    /// manager's popup-geometry query instead of toolkit extents.
+    fn is_transient_popup(&self) -> bool {
+        self.parent_is_application && matches!(self.role(), "PopupMenu" | "Menu" | "ToolTip")
     }
 
     /// Resolve the Unix process ID of the application owning this node's
@@ -910,6 +919,7 @@ impl AttrsIter {
             node.obj.clone(),
             node.self_weak.get().cloned(),
             node.is_window_surface(),
+            node.is_transient_popup(),
             node.window_manager.clone(),
         ));
         // Standard attributes always live in the Control namespace,
@@ -1249,6 +1259,10 @@ struct LazyNodeData {
     /// construction so the answer is robust against the parent `Weak` (on
     /// the owning `AtspiNode`) becoming dangling later.
     is_real_toplevel: bool,
+    /// Whether this node is a grafted transient popup (see
+    /// [`AtspiNode::is_transient_popup`]); cached at construction for the
+    /// same robustness reason as `is_real_toplevel`.
+    is_transient_popup: bool,
     state: OnceLock<Option<StateSet>>,
     extents: OnceLock<Option<Rect>>,
     name: OnceLock<String>,
@@ -1264,6 +1278,7 @@ impl LazyNodeData {
         obj: ObjectRefOwned,
         owner: Option<Weak<dyn UiNode>>,
         is_real_toplevel: bool,
+        is_transient_popup: bool,
         window_manager: Option<Arc<dyn WindowManager>>,
     ) -> Self {
         Self {
@@ -1271,6 +1286,7 @@ impl LazyNodeData {
             obj,
             owner,
             is_real_toplevel,
+            is_transient_popup,
             window_manager,
             state: OnceLock::new(),
             extents: OnceLock::new(),
@@ -1331,12 +1347,51 @@ impl LazyNodeData {
 
             // Fallback: Screen extents (works on X11 where AT-SPI reports
             // real screen coordinates; on Wayland clients return 0,0).
-            component_proxy(&self.conn, &self.obj).and_then(|proxy| {
+            let screen_extents = component_proxy(&self.conn, &self.obj).and_then(|proxy| {
                 block_on_timeout_call(proxy.get_extents(CoordType::Screen))
                     .and_then(|r| r.ok())
                     .map(|(x, y, w, h)| Rect::new(x as f64, y as f64, w as f64, h as f64))
-            })
+            });
+
+            // Step 3 (grafted popups only): the window manager's popup
+            // geometry. On Wayland the Screen extents above are client-local
+            // — only their size is trustworthy — while the PlatynUI
+            // compositor knows every popup's real global rect. Match the two
+            // by process and size. Backends without the popup query (X11,
+            // Windows, mock) answer "unavailable", keeping the extents
+            // fallback authoritative there.
+            if self.is_transient_popup
+                && let Some(extents) = &screen_extents
+                && let Some(rect) = self.resolve_popup_bounds_via_window_manager((extents.width(), extents.height()))
+            {
+                return Some(rect);
+            }
+
+            screen_extents
         })
+    }
+
+    /// Ask the window manager for the popup rects of this node's process and
+    /// pick the one matching the given AT-SPI-reported size. `None` when the
+    /// backend has no popup query, reports no popups, or nothing matches.
+    fn resolve_popup_bounds_via_window_manager(&self, size: (f64, f64)) -> Option<Rect> {
+        let wm = self.window_manager.as_ref()?;
+        let pid = self.resolve_process_id()?;
+        let popups = wm.popups(pid).ok()?;
+        crate::popups::match_popup_rect(&popups, size)
+    }
+
+    /// Unix PID of the application owning this node's bus name (same lookup
+    /// as [`AtspiNode::resolve_process_id`]; uncached — `resolve_extents`
+    /// memoizes the whole result).
+    fn resolve_process_id(&self) -> Option<u32> {
+        let bus_name = self.obj.name_as_str()?;
+        let conn = self.conn.connection();
+        block_on_timeout_call(async {
+            let dbus = zbus::fdo::DBusProxy::new(conn).await.ok()?;
+            dbus.get_connection_unix_process_id(zbus::names::BusName::try_from(bus_name).ok()?).await.ok()
+        })
+        .flatten()
     }
 
     /// Compute absolute screen extents by adding our parent-relative

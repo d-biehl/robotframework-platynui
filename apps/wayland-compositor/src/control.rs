@@ -13,6 +13,9 @@
 //!
 //! - `{"command": "status"}` → compositor status (version, uptime, backend, windows, outputs)
 //! - `{"command": "list_windows"}` → list all mapped and minimized windows with state info
+//! - `{"command": "list_popups"}` → currently mapped `xdg_popups` with **global** rectangles
+//!   (`popups: [{parent_window_id, pid, x, y, width, height}]`; empty array when none)
+//! - `{"command": "get_modifiers"}` → current seat keyboard modifier state (`ctrl`, `alt`, `shift`, `logo`)
 //! - `{"command": "get_window", "id": <n>}` → get details of a specific window by index
 //! - `{"command": "get_window", "app_id": "..."}` → get window by `app_id` (exact match)
 //! - `{"command": "get_window", "title": "..."}` → get window by title (case-insensitive substring)
@@ -43,13 +46,14 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use smithay::backend::input::{AxisSource, ButtonState, KeyState};
-use smithay::desktop::Window;
+use smithay::desktop::{PopupManager, Window};
 use smithay::input::keyboard::{FilterResult, xkb};
 use smithay::input::pointer::{AxisFrame, MotionEvent};
 use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{Logical, Physical, Point, Rectangle, SERIAL_COUNTER, Size};
 use smithay::wayland::compositor::{self, SurfaceAttributes};
 use smithay::wayland::seat::WaylandFocus;
+use smithay::wayland::shell::xdg::XdgPopupSurfaceData;
 
 use crate::handlers::foreign_toplevel;
 use crate::input;
@@ -151,6 +155,23 @@ struct WindowInfo {
     /// Decoration mode: `"csd"` (client-side) or `"ssd"` (server-side).
     decoration_mode: &'static str,
     opaque_region: Option<Vec<OpaqueRegionRect>>,
+}
+
+/// Popup information returned by `list_popups`.
+///
+/// `x`/`y` are **global** logical coordinates of the popup's visible geometry
+/// (its xdg geometry rect placed on screen). Popups draw no server-side
+/// decorations and their geometry excludes any client shadow, so no offset
+/// applies. Popups have no title or id of their own; consumers correlate via
+/// the parent toplevel's `parent_window_id`/`pid` (and the rect itself).
+#[derive(Serialize)]
+struct PopupInfo {
+    parent_window_id: u64,
+    pid: Option<u32>,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
 }
 
 /// Minimized window information.
@@ -271,11 +292,17 @@ fn register_control_client(stream: UnixStream, state: &mut State) -> std::io::Re
 /// [`calloop::PostAction::Remove`] on EOF or fatal I/O errors to deregister
 /// the source.
 fn handle_client_data(client: &mut ControlClient, state: &mut State) -> calloop::PostAction {
-    // Read all available data.
+    // Read all available data. EOF must not short-circuit: a client may write
+    // a command and close immediately (fire-and-forget injection), so data and
+    // EOF can arrive in the same wakeup — process buffered lines first.
+    let mut eof = false;
     let mut tmp = [0u8; 4096];
     loop {
         match client.stream.read(&mut tmp) {
-            Ok(0) => return calloop::PostAction::Remove, // EOF
+            Ok(0) => {
+                eof = true;
+                break;
+            }
             Ok(n) => client.buf.extend_from_slice(&tmp[..n]),
             Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => break,
             Err(err) => {
@@ -295,14 +322,42 @@ fn handle_client_data(client: &mut ControlClient, state: &mut State) -> calloop:
         }
         let response = process_command(line, state);
         if let Some(response) = response
-            && let Err(err) = writeln!(client.stream, "{response}")
+            && let Err(err) = write_response(&mut client.stream, &response)
         {
             tracing::debug!(%err, "control client write error");
             return calloop::PostAction::Remove;
         }
     }
 
-    calloop::PostAction::Continue
+    if eof { calloop::PostAction::Remove } else { calloop::PostAction::Continue }
+}
+
+/// Write a newline-terminated response to a (non-blocking) client stream.
+///
+/// Large responses (a screenshot's base64 PNG can be several MiB) do not fit
+/// the socket buffer in one write; a plain `writeln!` would truncate the
+/// response at the first `WouldBlock`. Retry with a deadline instead, so slow
+/// readers get the full response and only stalled clients are dropped.
+fn write_response(stream: &mut UnixStream, response: &str) -> std::io::Result<()> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let mut data = Vec::with_capacity(response.len() + 1);
+    data.extend_from_slice(response.as_bytes());
+    data.push(b'\n');
+    let mut written = 0;
+    while written < data.len() {
+        match stream.write(&data[written..]) {
+            Ok(n) => written += n,
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                if std::time::Instant::now() >= deadline {
+                    return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "control client stalled"));
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            Err(err) => return Err(err),
+        }
+    }
+    Ok(())
 }
 
 /// Process a single JSON command and return a JSON response string.
@@ -330,6 +385,21 @@ fn process_command(input: &str, state: &mut State) -> Option<String> {
             let windows = list_windows(state);
             let minimized = list_minimized_windows(state);
             serde_json::json!({"status": "ok", "windows": windows, "minimized": minimized})
+        }
+
+        Some("list_popups") => {
+            serde_json::json!({"status": "ok", "popups": list_popups(state)})
+        }
+
+        Some("get_modifiers") => {
+            let mods = state.keyboard().modifier_state();
+            serde_json::json!({
+                "status": "ok",
+                "ctrl": mods.ctrl,
+                "alt": mods.alt,
+                "shift": mods.shift,
+                "logo": mods.logo,
+            })
         }
 
         Some("get_window") => {
@@ -1027,6 +1097,59 @@ fn window_opaque_region(window: &Window) -> Option<Vec<OpaqueRegionRect>> {
 /// List all mapped windows as typed structs.
 fn list_windows(state: &State) -> Vec<WindowInfo> {
     state.space.elements().enumerate().map(|(idx, window)| build_window_info(state, idx, window)).collect()
+}
+
+/// List the currently mapped `xdg_popups` of all toplevels with their global
+/// rectangles.
+///
+/// The global position follows the same arithmetic smithay's window render
+/// path uses: the root toplevel's `element_location` (its geometry origin on
+/// screen) plus the popup's accumulated location relative to that geometry
+/// ([`PopupManager::popups_for_surface`], which already sums nested cascade
+/// offsets including the popup's own geometry offset). Within one popup chain
+/// deeper (more recently opened) levels are yielded first. Layer-shell
+/// popups (panel menus) are intentionally not listed — this query serves
+/// application popup geometry.
+fn list_popups(state: &State) -> Vec<PopupInfo> {
+    let mut popups = Vec::new();
+    for window in state.space.elements() {
+        let Some(surface) = window.wl_surface() else {
+            continue;
+        };
+        // This compositor renders window buffers at `element_location` (see
+        // render.rs), so a popup's visible rect lands at element_location +
+        // the parent's geometry offset (CSD shadow inset; (0,0) for SSD) +
+        // the accumulated placement. Verified against Qt (SSD) and GTK4 (CSD)
+        // popups via compositor screenshots.
+        let root_loc = state.space.element_location(window).unwrap_or_default() + window.geometry().loc;
+        for (popup, location) in PopupManager::popups_for_surface(&surface) {
+            // The placed rect is the positioner-computed popup geometry (the
+            // same committed state `location` accumulates) — NOT
+            // `PopupKind::geometry()`, which is the client's optional
+            // `set_window_geometry` and may be unset. Until the client acks
+            // the initial configure and commits, this rect is empty: such a
+            // popup is not mapped yet and must not be reported.
+            let placed = compositor::with_states(popup.wl_surface(), |states| {
+                states
+                    .data_map
+                    .get::<XdgPopupSurfaceData>()
+                    .map(|attrs| attrs.lock().expect("xdg popup attributes poisoned").current.geometry)
+                    .unwrap_or_default()
+            });
+            if placed.size.w <= 0 || placed.size.h <= 0 {
+                continue;
+            }
+            popups.push(PopupInfo {
+                parent_window_id: window_stable_id(window),
+                pid: window_pid(state, window),
+                x: root_loc.x + location.x,
+                y: root_loc.y + location.y,
+                width: placed.size.w,
+                height: placed.size.h,
+            });
+        }
+    }
+    popups
 }
 
 /// List minimized windows as typed structs.

@@ -212,7 +212,12 @@ chmod +x "$INNER_SCRIPT"
 # ---------------------------------------------------------------------------
 # Launch inside an isolated D-Bus session
 # ---------------------------------------------------------------------------
-# Isolate from the host session
+# Isolate from the host session. The host DISPLAY is deliberately NOT unset
+# here: the compositor process itself may need it (nested winit backend on an
+# X11-only host). Instead the compositor strips DISPLAY from the *session
+# child's* environment unless XWayland provides one (see child.rs), so no
+# session component can bind the host X server — e.g. the Inspector's
+# modifier reader observing the wrong seat.
 unset DBUS_SESSION_BUS_ADDRESS
 unset AT_SPI_BUS_ADDRESS
 unset QT_IM_MODULE

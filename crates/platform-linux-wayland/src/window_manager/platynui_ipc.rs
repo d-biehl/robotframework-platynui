@@ -174,6 +174,34 @@ impl CompositorBackend for PlatynUiIpcBackend {
         Ok(())
     }
 
+    fn popups(&self, pid: u32) -> Result<Vec<Rect>, PlatformError> {
+        let response = send_command(&json!({"command": "list_popups"}))?;
+        let Some(popups) = response.get("popups").and_then(Value::as_array) else {
+            return Err(PlatformError::OperationFailed {
+                operation: "decode list_popups response",
+                details: Some("missing popups array".into()),
+            });
+        };
+
+        // The compositor reports global logical rects, deepest cascade level
+        // first (i.e. most recently opened first per popup chain) — preserve
+        // that order for recency-based tie-breaking in consumers.
+        Ok(popups
+            .iter()
+            .filter(|popup| {
+                popup.get("pid").and_then(Value::as_u64).and_then(|value| u32::try_from(value).ok()) == Some(pid)
+            })
+            .map(|popup| {
+                Rect::new(
+                    popup.get("x").and_then(Value::as_f64).unwrap_or(0.0),
+                    popup.get("y").and_then(Value::as_f64).unwrap_or(0.0),
+                    popup.get("width").and_then(Value::as_f64).unwrap_or(0.0),
+                    popup.get("height").and_then(Value::as_f64).unwrap_or(0.0),
+                )
+            })
+            .collect())
+    }
+
     fn window_at_point(&self, point: Point) -> Result<Option<WindowHit>, PlatformError> {
         let response = send_command(&json!({"command": "window_at_point", "x": point.x(), "y": point.y()}))?;
         // The compositor returns `window: null` when no window covers the point.

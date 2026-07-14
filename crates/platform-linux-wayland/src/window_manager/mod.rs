@@ -15,6 +15,9 @@ trait CompositorBackend: Send + Sync {
     fn window_at_point(&self, _point: Point) -> Result<Option<WindowHit>, PlatformError> {
         Err(PlatformError::CapabilityUnavailable { capability: "window_at_point", details: None })
     }
+    fn popups(&self, _pid: u32) -> Result<Vec<Rect>, PlatformError> {
+        Err(PlatformError::CapabilityUnavailable { capability: "popups", details: None })
+    }
     fn is_active(&self, id: WindowId) -> Result<bool, PlatformError>;
     fn activate(&self, id: WindowId) -> Result<(), PlatformError>;
     fn close(&self, id: WindowId) -> Result<(), PlatformError>;
@@ -79,6 +82,10 @@ impl WindowManager for WaylandWindowManager {
 
     fn window_at_point(&self, point: Point) -> Result<Option<WindowHit>, PlatformError> {
         backend()?.window_at_point(point)
+    }
+
+    fn popups(&self, pid: u32) -> Result<Vec<Rect>, PlatformError> {
+        backend()?.popups(pid)
     }
 }
 

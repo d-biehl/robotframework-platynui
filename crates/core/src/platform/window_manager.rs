@@ -113,6 +113,20 @@ pub trait WindowManager: Send + Sync {
     fn window_at_point(&self, _point: Point) -> Result<Option<WindowHit>, PlatformError> {
         Err(PlatformError::CapabilityUnavailable { capability: "window_at_point", details: None })
     }
+
+    /// Desktop-coordinate rectangles of the transient popups (menus,
+    /// dropdowns, tooltips) currently open in the given process, most
+    /// recently opened first.
+    ///
+    /// Only window managers that place popups themselves can answer this —
+    /// today the PlatynUI Wayland compositor backend, where toolkit-reported
+    /// popup extents are client-local and this query is the only source of
+    /// their real screen position. The default reports the capability as
+    /// unavailable so every other backend (X11, Windows, mock — where
+    /// toolkit extents are already correct) keeps its existing bounds path.
+    fn popups(&self, _pid: u32) -> Result<Vec<Rect>, PlatformError> {
+        Err(PlatformError::CapabilityUnavailable { capability: "popups", details: None })
+    }
 }
 
 #[cfg(test)]

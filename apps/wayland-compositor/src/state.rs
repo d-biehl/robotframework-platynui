@@ -674,10 +674,12 @@ impl State {
     /// Spawn the child program (if configured) and optionally monitor its exit.
     ///
     /// Call this after compositor readiness is established (Wayland socket ready,
-    /// optionally `XWayland` ready). The child inherits `WAYLAND_DISPLAY`, `DISPLAY`,
-    /// and `XDG_RUNTIME_DIR` from the compositor environment.
+    /// optionally `XWayland` ready). The child inherits `WAYLAND_DISPLAY` and
+    /// `XDG_RUNTIME_DIR` from the compositor environment; `DISPLAY` only when
+    /// `XWayland` runs (see [`crate::child::spawn_child`] for why a leaked host
+    /// `DISPLAY` must not reach the session).
     pub fn spawn_child_if_requested(&self) {
-        if let Some(child) = crate::child::spawn_child(&self.child_command)
+        if let Some(child) = crate::child::spawn_child(&self.child_command, self.xwayland.is_some())
             && self.exit_with_child
             && let Err(err) = crate::child::monitor_child_exit(&self.loop_handle, child)
         {
