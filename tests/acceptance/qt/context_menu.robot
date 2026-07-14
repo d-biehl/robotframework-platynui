@@ -27,7 +27,7 @@ ${POPUP_SETTLE_TIMEOUT}     5s
 *** Test Cases ***
 Open Context Menu Items Are Findable
     [Documentation]    Right-click opens the context menu; its items must resolve by XPath query
-    ...    (``//*:MenuItem[@Name="ctx-copy"]``) and the hit-test over an item must return that item,
+    ...    (``//MenuItem[@Name="ctx-copy"]``) and the hit-test over an item must return that item,
     ...    not the widget beneath the popup.
     Launch Main Window Only
     Open The Context Menu

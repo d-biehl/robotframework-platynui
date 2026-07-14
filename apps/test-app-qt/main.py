@@ -42,6 +42,7 @@ Usage
 import argparse
 import logging
 import sys
+from collections.abc import Callable
 
 from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtGui import QAction, QContextMenuEvent, QGuiApplication
@@ -174,7 +175,10 @@ class MainWindow(QMainWindow):
 
         The menu-bar's File menu is exposed on the AT-SPI accessibility tree
         (its items appear even while closed), so the hit-test acceptance suite
-        picks one of its items to exercise the resolver's popup path.
+        picks one of its items to exercise the resolver's popup path. Triggering
+        a File action renames its ``@Name`` to ``<ident>-activated`` — the same
+        name-based observable as the dialog button — so the menu acceptance
+        suite can assert an entry really was activated.
 
         The right-click context menu is a harder case, kept as realistic UI: Qt
         exposes the transient popup ``QMenu`` on AT-SPI only *event-driven* —
@@ -194,6 +198,7 @@ class MainWindow(QMainWindow):
         for ident in ('menu-file-new', 'menu-file-open', 'menu-file-quit'):
             action = QAction(ident, self)
             action.setObjectName(ident)
+            action.triggered.connect(self._make_action_activation_marker(action, ident))
             file_menu.addAction(action)
 
         self._context_menu = QMenu(self)
@@ -220,6 +225,21 @@ class MainWindow(QMainWindow):
         deep_action = QAction('ctx-deep-item', self)
         deep_action.setObjectName('ctx-deep-item')
         nested.addAction(deep_action)
+
+    @staticmethod
+    def _make_action_activation_marker(action: QAction, ident: str) -> Callable[[], None]:
+        """Slot that renames *action* to ``<ident>-activated`` when triggered.
+
+        A menu action's ``@Name`` on the accessibility tree is its text, so the
+        rename is observable by locator — proof that the entry was activated,
+        not merely hovered or hit-tested.
+        """
+
+        def _mark() -> None:
+            action.setText(f'{ident}-activated')
+            action.setObjectName(f'{ident}-activated')
+
+        return _mark
 
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:  # noqa: N802 (Qt override)
         """Open the right-click context menu at the cursor.

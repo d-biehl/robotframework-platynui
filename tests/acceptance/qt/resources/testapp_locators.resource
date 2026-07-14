@@ -41,25 +41,28 @@ ${DIALOG_MODAL}     //(Dialog|Window|Frame)[@Name="dialog-modal"]
 ${DIALOG_1_BUTTON}          //(Button|PushButton)[@Name="child-dialog-1-button"]
 ${DIALOG_1_BUTTON_CLICKED}  //(Button|PushButton)[@Name="child-dialog-1-button-clicked"]
 
-# Menu-bar "File" menu and one of its items. The MenuItem role sits in a
-# provider-dependent namespace (``item:`` on AT-SPI, ``control:`` on UIA), so the
-# locators use the ``*:`` namespace wildcard to stay cross-provider. Opening the
+# Menu-bar "File" menu and one of its items. Menu entries are interactive controls,
+# so every provider exposes MenuItem in the default ``control`` namespace (spec
+# ``menu-item-namespace``) and the plain role name is cross-provider. Opening the
 # menu shows a QMenu popup — on X11 a separate override-redirect window drawn
-# outside the owning frame — used to exercise the hit-test's popup path.
-${MENU_FILE}                //*:MenuItem[@Name="File"]
-${MENU_FILE_NEW}            //*:MenuItem[@Name="menu-file-new"]
+# outside the owning frame — used to exercise the hit-test's popup path. Activating
+# an entry renames its @Name to "<name>-activated" (same pattern as the dialog
+# button), a name-based observable that the activation really happened.
+${MENU_FILE}                //MenuItem[@Name="File"]
+${MENU_FILE_NEW}            //MenuItem[@Name="menu-file-new"]
+${MENU_FILE_NEW_ACTIVATED}    //MenuItem[@Name="menu-file-new-activated"]
 
 # Items of the right-click context menu (a transient QMenu popup). Unlike the
 # menu-bar's File menu, whose items sit in the tree even while closed, these
 # exist only while the popup is open — on AT-SPI the popup is exposed
 # event-driven (see the atspi-event-driven-tree change), so the items are the
 # probe for "an open popup is findable, a dismissed one is gone".
-${CTX_MENU_COPY}            //*:MenuItem[@Name="ctx-copy"]
+${CTX_MENU_COPY}            //MenuItem[@Name="ctx-copy"]
 # The context menu's cascade: "ctx-more" opens a submenu (ctx-sub-alpha/-beta
 # and the nested "ctx-deep" submenu holding ctx-deep-item). Every open cascade
 # level is ANOTHER transient QMenu window, so these probe that grafted popups
 # stay walkable in depth, not just the root menu.
-${CTX_MENU_MORE}            //*:MenuItem[@Name="ctx-more"]
-${CTX_MENU_SUB_ALPHA}       //*:MenuItem[@Name="ctx-sub-alpha"]
-${CTX_MENU_DEEP}            //*:MenuItem[@Name="ctx-deep"]
-${CTX_MENU_DEEP_ITEM}       //*:MenuItem[@Name="ctx-deep-item"]
+${CTX_MENU_MORE}            //MenuItem[@Name="ctx-more"]
+${CTX_MENU_SUB_ALPHA}       //MenuItem[@Name="ctx-sub-alpha"]
+${CTX_MENU_DEEP}            //MenuItem[@Name="ctx-deep"]
+${CTX_MENU_DEEP_ITEM}       //MenuItem[@Name="ctx-deep-item"]

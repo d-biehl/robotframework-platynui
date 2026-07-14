@@ -302,7 +302,7 @@ class BareMetal(OurDynamicCore):
 
     | = Prefix = | = Selects = |
     | ``control:`` | ordinary elements — the default |
-    | ``item:`` | items inside containers: ``ListItem``, ``MenuItem``, ``TabItem``, ``TableCell`` ... |
+    | ``item:`` | items inside containers: ``ListItem``, ``TabItem``, ``TableCell`` ... |
     | ``app:`` | a running application (see `Targeting a specific application`) |
     | ``native:`` | raw, technology-specific roles and attributes |
 

@@ -753,7 +753,7 @@ fn map_role(role: Role) -> (Namespace, String) {
         Calendar => (Namespace::Control, "Calendar"),
         Canvas => (Namespace::Control, "Canvas"),
         CheckBox => (Namespace::Control, "CheckBox"),
-        CheckMenuItem => (Namespace::Item, "MenuItem"),
+        CheckMenuItem => (Namespace::Control, "MenuItem"),
         ColorChooser => (Namespace::Control, "ColorChooser"),
         ColumnHeader => (Namespace::Item, "ColumnHeader"),
         ComboBox => (Namespace::Control, "ComboBox"),
@@ -780,7 +780,7 @@ fn map_role(role: Role) -> (Namespace, String) {
         ListItem => (Namespace::Item, "ListItem"),
         Menu => (Namespace::Control, "Menu"),
         MenuBar => (Namespace::Control, "MenuBar"),
-        MenuItem => (Namespace::Item, "MenuItem"),
+        MenuItem => (Namespace::Control, "MenuItem"),
         OptionPane => (Namespace::Control, "OptionPane"),
         PageTab => (Namespace::Item, "TabItem"),
         PageTabList => (Namespace::Control, "Tab"),
@@ -790,7 +790,7 @@ fn map_role(role: Role) -> (Namespace, String) {
         ProgressBar => (Namespace::Control, "ProgressBar"),
         Button => (Namespace::Control, "Button"),
         RadioButton => (Namespace::Control, "RadioButton"),
-        RadioMenuItem => (Namespace::Item, "MenuItem"),
+        RadioMenuItem => (Namespace::Control, "MenuItem"),
         RootPane => (Namespace::Control, "RootPane"),
         RowHeader => (Namespace::Item, "RowHeader"),
         ScrollBar => (Namespace::Control, "ScrollBar"),
@@ -804,7 +804,7 @@ fn map_role(role: Role) -> (Namespace, String) {
         TableCell => (Namespace::Item, "TableCell"),
         TableColumnHeader => (Namespace::Item, "TableColumnHeader"),
         TableRowHeader => (Namespace::Item, "TableRowHeader"),
-        TearoffMenuItem => (Namespace::Item, "TearoffMenuItem"),
+        TearoffMenuItem => (Namespace::Control, "TearoffMenuItem"),
         Terminal => (Namespace::Control, "Terminal"),
         Text => (Namespace::Control, "Text"),
         ToggleButton => (Namespace::Control, "ToggleButton"),
@@ -2188,17 +2188,31 @@ mod tests {
     }
 
     #[test]
-    fn map_role_menu_item_is_item_namespace() {
+    fn map_role_menu_item_is_control_namespace() {
         let (ns, name) = map_role(Role::MenuItem);
-        assert_eq!(ns, Namespace::Item);
+        assert_eq!(ns, Namespace::Control);
         assert_eq!(name, "MenuItem");
     }
 
     #[test]
     fn map_role_check_menu_item_maps_to_menu_item() {
         let (ns, name) = map_role(Role::CheckMenuItem);
-        assert_eq!(ns, Namespace::Item);
+        assert_eq!(ns, Namespace::Control);
         assert_eq!(name, "MenuItem");
+    }
+
+    #[test]
+    fn map_role_radio_menu_item_maps_to_menu_item() {
+        let (ns, name) = map_role(Role::RadioMenuItem);
+        assert_eq!(ns, Namespace::Control);
+        assert_eq!(name, "MenuItem");
+    }
+
+    #[test]
+    fn map_role_tearoff_menu_item_is_control_namespace() {
+        let (ns, name) = map_role(Role::TearoffMenuItem);
+        assert_eq!(ns, Namespace::Control);
+        assert_eq!(name, "TearoffMenuItem");
     }
 
     #[test]
