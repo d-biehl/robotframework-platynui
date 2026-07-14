@@ -4,6 +4,7 @@ Documentation       Drives the real Inspector live picker end-to-end: launches t
 ...                 toggle, holds Ctrl+Alt+Shift, moves the cursor onto a known widget, and asserts
 ...                 the Inspector selected that element by reading the Inspector's OWN a11y tree.
 
+Library             OperatingSystem
 Library             Process
 Library             PlatynUI.BareMetal    AS    BM
 Resource            resources/testapp.resource
@@ -66,9 +67,15 @@ Inspector Shows Picked Button
 
 Setup Inspector And App
     Launch Default Instance
+    # Hermetic settings: the suite relies on the default Ctrl+Alt+Shift
+    # activation combination, so the Inspector must not load the user's real
+    # settings file (a reconfigured combination would break the pick).
+    VAR    ${settings}    ${OUTPUT DIR}${/}inspector-picker-settings.ron
+    Remove File    ${settings}
     ${insp}=    Start Process    ${INSPECTOR_BIN}
     ...    stdout=${TEMPDIR}/inspector.log    stderr=STDOUT
     ...    env:RUST_LOG=platynui_inspector=trace,platynui=debug
+    ...    env:PLATYNUI_INSPECTOR_SETTINGS_PATH=${settings}
     VAR    ${INSP_HANDLE}    ${insp}    scope=SUITE
     ${insp_pid}=    Get Process Id    ${insp}
     VAR    ${INSP_WIN}    /app:Application[@ProcessId=${insp_pid}]/(Frame|Window)    scope=SUITE

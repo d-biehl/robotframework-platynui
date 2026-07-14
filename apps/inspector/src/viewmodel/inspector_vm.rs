@@ -224,6 +224,16 @@ impl InspectorViewModel {
         self.picker.combo().label()
     }
 
+    /// The configured activation combination.
+    pub fn picker_combo(&self) -> Modifiers {
+        self.picker.combo()
+    }
+
+    /// Reconfigure the activation combination (an empty set is rejected).
+    pub fn set_picker_combo(&mut self, combo: Modifiers) {
+        self.picker.set_combo(combo);
+    }
+
     /// Advance the picker one frame. `supported` gates the whole feature
     /// (a live cursor position and hit-test are available); `modifiers` is the
     /// globally-read modifier state this frame (`None` when unreadable). On a

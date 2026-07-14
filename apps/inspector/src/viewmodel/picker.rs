@@ -11,7 +11,10 @@ use platynui_core::types::Point;
 
 /// The modifier keys the picker tracks. The configured activation combination
 /// is expressed as the set that must be held (default Ctrl+Alt+Shift).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// Serializable so the configured combination persists with the Inspector's
+/// other settings (eframe storage); missing fields deserialize as unset.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct Modifiers {
     pub ctrl: bool,
     pub alt: bool,
@@ -20,6 +23,12 @@ pub struct Modifiers {
 
 impl Modifiers {
     pub const CTRL_ALT_SHIFT: Modifiers = Modifiers { ctrl: true, alt: true, shift: true };
+
+    /// True when no modifier is set. An empty set is not a valid activation
+    /// combination — it would mean "picking is active whenever no key is held".
+    pub fn is_empty(self) -> bool {
+        !(self.ctrl || self.alt || self.shift)
+    }
 
     /// Human-readable combination label, e.g. `"Ctrl+Alt+Shift"`.
     pub fn label(self) -> String {
@@ -83,6 +92,18 @@ impl PickerState {
 
     pub fn combo(&self) -> Modifiers {
         self.combo
+    }
+
+    /// Change the activation combination. An empty set is rejected (it would
+    /// activate picking whenever no key is held). If picking is active under
+    /// the old combination it stops — the epoch bump discards in-flight
+    /// results, and the next tick re-evaluates against the new combination.
+    pub fn set_combo(&mut self, combo: Modifiers) {
+        if combo.is_empty() || combo == self.combo {
+            return;
+        }
+        self.stop();
+        self.combo = combo;
     }
 
     /// True when `epoch` matches the current active span — the egui layer tags
@@ -221,6 +242,48 @@ mod tests {
         assert_eq!(s.on_tick(true, NONE, Some(Point::new(10.0, 10.0))), PickerDecision::Idle);
         assert!(!s.is_active());
         assert!(!s.is_current_epoch(epoch), "a result tagged with the pre-release epoch must be stale");
+    }
+
+    #[test]
+    fn changed_combination_activates_and_former_does_not() {
+        let mut s = armed();
+        let new_combo = Modifiers { ctrl: true, alt: false, shift: true };
+        s.set_combo(new_combo);
+        // The former (default) combination no longer activates.
+        assert_eq!(s.on_tick(true, HELD, Some(Point::new(10.0, 10.0))), PickerDecision::Idle);
+        assert!(!s.is_active());
+        // The newly-configured combination picks.
+        assert!(matches!(s.on_tick(true, new_combo, Some(Point::new(10.0, 10.0))), PickerDecision::Resolve { .. }));
+    }
+
+    #[test]
+    fn partial_of_changed_combination_does_not_activate() {
+        let mut s = armed();
+        s.set_combo(Modifiers { ctrl: true, alt: true, shift: false });
+        let partial = Modifiers { ctrl: true, alt: false, shift: false };
+        assert_eq!(s.on_tick(true, partial, Some(Point::new(10.0, 10.0))), PickerDecision::Idle);
+        assert!(!s.is_active());
+    }
+
+    #[test]
+    fn empty_combination_is_rejected() {
+        let mut s = armed();
+        s.set_combo(NONE);
+        assert_eq!(s.combo(), Modifiers::CTRL_ALT_SHIFT, "an empty combination must not replace the current one");
+        // In particular, "no keys held" must never activate picking.
+        assert_eq!(s.on_tick(true, NONE, Some(Point::new(10.0, 10.0))), PickerDecision::Idle);
+        assert!(!s.is_active());
+    }
+
+    #[test]
+    fn changing_combination_mid_pick_stops_and_bumps_epoch() {
+        let mut s = armed();
+        let PickerDecision::Resolve { epoch, .. } = s.on_tick(true, HELD, Some(Point::new(10.0, 10.0))) else {
+            panic!("expected a resolve while armed and held");
+        };
+        s.set_combo(Modifiers { ctrl: true, alt: true, shift: false });
+        assert!(!s.is_active());
+        assert!(!s.is_current_epoch(epoch), "a result from before the combination change must be stale");
     }
 
     #[test]

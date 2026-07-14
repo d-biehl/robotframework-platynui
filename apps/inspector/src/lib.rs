@@ -42,6 +42,49 @@ use winreg::enums::HKEY_CURRENT_USER;
 
 use view::{attributes, results_panel, status_bar, toolbar, tree_view};
 use viewmodel::inspector_vm::InspectorViewModel;
+use viewmodel::picker::Modifiers as PickerModifiers;
+
+/// Inspector settings persisted across runs via eframe's storage (a RON file
+/// at [`settings_path`]). Only these explicit settings are persisted — egui
+/// memory and window geometry are not, so runs stay deterministic apart from
+/// what the user deliberately configured.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+struct PersistedSettings {
+    /// The live picker's activation modifier combination.
+    picker_combo: PickerModifiers,
+}
+
+impl Default for PersistedSettings {
+    fn default() -> Self {
+        Self { picker_combo: PickerModifiers::CTRL_ALT_SHIFT }
+    }
+}
+
+/// Path of the settings file: `<config dir>/platynui/inspector.ron`, following
+/// the project convention already used by the compositor
+/// (`$XDG_CONFIG_HOME/platynui/compositor.toml`). Settings are user
+/// *configuration*, so they belong in the config directory — eframe's default
+/// would be the *data* directory (`~/.local/share/<app_id>/app.ron`).
+/// `PLATYNUI_INSPECTOR_SETTINGS_PATH` overrides the full file path — the
+/// acceptance suites use it to keep test runs hermetic against the user's
+/// real settings (a configured non-default picker combination would otherwise
+/// change test behavior).
+fn settings_path() -> Option<std::path::PathBuf> {
+    if let Some(path) = std::env::var_os(SETTINGS_PATH_ENV) {
+        return Some(std::path::PathBuf::from(path));
+    }
+    #[cfg(target_os = "windows")]
+    let config_dir = std::env::var_os("APPDATA").map(std::path::PathBuf::from);
+    #[cfg(target_os = "macos")]
+    let config_dir = home::home_dir().map(|home| home.join("Library").join("Application Support"));
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let config_dir = std::env::var_os("XDG_CONFIG_HOME")
+        .map(std::path::PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| home::home_dir().map(|home| home.join(".config")));
+    config_dir.map(|dir| dir.join("platynui").join("inspector.ron"))
+}
 
 /// Load the embedded application icon as [`egui::IconData`].
 ///
@@ -62,6 +105,7 @@ platynui_link_providers!();
 const RENDERER_ENV: &str = "PLATYNUI_INSPECTOR_RENDERER";
 const GLOW_HARDWARE_ACCELERATION_ENV: &str = "PLATYNUI_INSPECTOR_GLOW_HARDWARE_ACCELERATION";
 const SEARCH_RESULT_LIMIT_ENV: &str = "PLATYNUI_INSPECTOR_SEARCH_RESULT_LIMIT";
+const SETTINGS_PATH_ENV: &str = "PLATYNUI_INSPECTOR_SETTINGS_PATH";
 const DEFAULT_SEARCH_RESULT_LIMIT: usize = 5_000;
 
 /// CLI arguments for the inspector.
@@ -432,6 +476,7 @@ struct InspectorApp {
     collapsed_attribute_groups: BTreeSet<String>,
     prev_always_on_top: Option<bool>,
     show_about_dialog: bool,
+    show_settings_dialog: bool,
     last_pixels_per_point: f32,
     /// Global modifier reader for the live picker (`None` where unsupported).
     modifier_reader: Option<modifiers::ModifierReader>,
@@ -442,6 +487,7 @@ struct InspectorApp {
 
 #[derive(Clone, Copy, Debug)]
 enum AppCommand {
+    ShowSettings,
     ShowAbout,
     EvaluateXPath,
     CancelSearch,
@@ -470,8 +516,9 @@ impl InspectorApp {
         runtime: Arc<Runtime>,
         initial_root: Arc<UiNodeData>,
         search_result_limit: Option<usize>,
-        ctx: &egui::Context,
+        cc: &eframe::CreationContext<'_>,
     ) -> Self {
+        let ctx = &cc.egui_ctx;
         Self::apply_system_fonts(ctx);
 
         // Probe live-picker support once: it needs a global modifier reader and
@@ -486,8 +533,16 @@ impl InspectorApp {
             "live picker support probe"
         );
 
+        let settings: PersistedSettings =
+            cc.storage.and_then(|storage| eframe::get_value(storage, eframe::APP_KEY)).unwrap_or_default();
+
+        let mut vm = InspectorViewModel::new(runtime, initial_root, search_result_limit);
+        // An empty stored combination (hand-edited file) is rejected by the vm,
+        // which then keeps the default.
+        vm.set_picker_combo(settings.picker_combo);
+
         Self {
-            vm: InspectorViewModel::new(runtime, initial_root, search_result_limit),
+            vm,
             attributes_sort: attributes::AttributesSortState::default(),
             attributes_view_mode: attributes::AttributesViewMode::default(),
             attribute_filter: String::new(),
@@ -495,6 +550,7 @@ impl InspectorApp {
             collapsed_attribute_groups: BTreeSet::new(),
             prev_always_on_top: None,
             show_about_dialog: false,
+            show_settings_dialog: false,
             last_pixels_per_point: ctx.pixels_per_point(),
             modifier_reader,
             picker_supported,
@@ -562,6 +618,7 @@ impl InspectorApp {
 
     fn execute_command(&mut self, ctx: &egui::Context, command: AppCommand) {
         match command {
+            AppCommand::ShowSettings => self.show_settings_dialog = true,
             AppCommand::ShowAbout => self.show_about_dialog = true,
             AppCommand::EvaluateXPath => self.vm.evaluate_xpath(),
             AppCommand::CancelSearch => self.vm.cancel_search(),
@@ -588,6 +645,19 @@ impl InspectorApp {
 }
 
 impl eframe::App for InspectorApp {
+    /// Persist the Inspector's explicit settings (called by eframe periodically
+    /// and on shutdown).
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, eframe::APP_KEY, &PersistedSettings { picker_combo: self.vm.picker_combo() });
+    }
+
+    /// Only the explicit [`PersistedSettings`] are stored — not egui's own
+    /// memory (open state, scroll positions, …), which would make runs
+    /// non-deterministic.
+    fn persist_egui_memory(&self) -> bool {
+        false
+    }
+
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.plugin_or_default::<egui_async::EguiAsyncPlugin>();
         self.maybe_refresh_system_fonts(ctx);
@@ -619,6 +689,7 @@ impl eframe::App for InspectorApp {
                 toolbar::MenuAction::HighlightNode => self.execute_command(&ctx, AppCommand::HighlightNode),
                 toolbar::MenuAction::ExpandNode => self.execute_command(&ctx, AppCommand::ExpandNode),
                 toolbar::MenuAction::CollapseNode => self.execute_command(&ctx, AppCommand::CollapseNode),
+                toolbar::MenuAction::ShowSettings => self.execute_command(&ctx, AppCommand::ShowSettings),
                 toolbar::MenuAction::ShowAbout => self.execute_command(&ctx, AppCommand::ShowAbout),
             }
         }
@@ -626,13 +697,14 @@ impl eframe::App for InspectorApp {
         // View: Live picker toggle (below menu)
         ui.horizontal(|ui| {
             let mut armed = self.vm.picker_armed();
-            let combo = self.vm.picker_combo_label();
             let toggle =
                 ui.add_enabled(self.picker_supported, egui::Button::selectable(armed, "\u{1F3AF} Pick Element"));
             if toggle.clicked() {
                 armed = !armed;
                 self.vm.set_picker_armed(armed);
             }
+
+            let combo = self.vm.picker_combo_label();
             if !self.picker_supported {
                 toggle.on_hover_text("Live picking is unavailable on this platform");
                 ui.weak("picking unavailable here");
@@ -856,6 +928,14 @@ impl eframe::App for InspectorApp {
         });
 
         view::about_dialog::show_about_dialog(&ctx, &mut self.show_about_dialog);
+
+        // The Settings dialog edits the persisted picker combination; the vm
+        // rejects an empty set (the dialog locks the last checked modifier).
+        if let Some(combo) =
+            view::settings_dialog::show_settings_dialog(&ctx, &mut self.show_settings_dialog, self.vm.picker_combo())
+        {
+            self.vm.set_picker_combo(combo);
+        }
     }
 }
 
@@ -895,6 +975,12 @@ pub fn run() -> eframe::Result {
         renderer: renderer.to_eframe(),
         hardware_acceleration: glow_hardware_acceleration.to_eframe(),
         wgpu_options: inspector_wgpu_options(),
+        // Storage only carries the explicit [`PersistedSettings`]; window
+        // geometry stays at the defaults below on every start.
+        persist_window: false,
+        // Settings live in the config directory (see [`settings_path`]); `None`
+        // (no resolvable home) falls back to eframe's data-dir default.
+        persistence_path: settings_path(),
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1100.0, 750.0])
             .with_title("PlatynUI Inspector")
@@ -909,12 +995,7 @@ pub fn run() -> eframe::Result {
         Box::new(move |cc| {
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
 
-            Ok(Box::new(InspectorApp::new(
-                Arc::clone(&runtime),
-                initial_root,
-                search_result_limit.into_limit(),
-                &cc.egui_ctx,
-            )))
+            Ok(Box::new(InspectorApp::new(Arc::clone(&runtime), initial_root, search_result_limit.into_limit(), cc)))
         }),
     )
 }

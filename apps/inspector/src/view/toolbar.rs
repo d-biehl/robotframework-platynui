@@ -22,6 +22,8 @@ pub enum MenuAction {
     ExpandNode,
     /// Collapse the currently selected node.
     CollapseNode,
+    /// Open the Settings dialog.
+    ShowSettings,
     /// Open the About dialog.
     ShowAbout,
 }
@@ -52,6 +54,11 @@ pub fn show_menu_bar(ui: &mut egui::Ui, has_node_selection: bool, is_searching: 
     egui::Panel::top("menu_bar").show_inside(ui, |ui| {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
+                if ui.button("Settings\u{2026}").clicked() {
+                    actions.push(MenuAction::ShowSettings);
+                    ui.close();
+                }
+                ui.separator();
                 if ui.button("Exit").clicked() {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                 }

@@ -19,11 +19,16 @@ mock-provider = [
 ]
 
 [dependencies]
-eframe = { version = "0.34", features = ["glow"] }
+# `persistence` backs the settings storage (configured picker combination).
+eframe = { version = "0.34", features = ["glow", "persistence"] }
 egui_extras = "0.34"
 egui-system-fonts = "0.34"
 egui-async = "0.4"
 clap = { version = "4", features = ["derive"] }
+# Persisted Inspector settings (picker activation combination).
+serde = { version = "1", features = ["derive"] }
+# Config-dir resolution for the settings file (already in the tree via eframe/persistence).
+home = "0.5"
 image = { version = "0.25", default-features = false, features = ["png"] }
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
