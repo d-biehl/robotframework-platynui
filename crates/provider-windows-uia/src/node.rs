@@ -62,6 +62,11 @@ unsafe impl Sync for WaitForInputIdleChecker {}
 pub struct UiaNode {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
     parent: Mutex<Option<Weak<dyn UiNode>>>,
+    /// Strong ref to the parent that roots an off-tree chain (the live picker's
+    /// `element_at_point` result — see [`UiaNode::attach_ancestor_chain`]).
+    /// Normal tree nodes leave this `None`; their parent is kept alive by the
+    /// tree/consumer and only the `parent` `Weak` is used.
+    parent_keepalive: Mutex<Option<Arc<dyn UiNode>>>,
     self_weak: std::sync::OnceLock<Weak<dyn UiNode>>,
     // Minimal identity caches required by trait return types
     rid_cell: std::sync::OnceLock<RuntimeId>,
@@ -84,6 +89,7 @@ impl UiaNode {
         Arc::new(Self {
             elem,
             parent: Mutex::new(None),
+            parent_keepalive: Mutex::new(None),
             self_weak: std::sync::OnceLock::new(),
             rid_cell: std::sync::OnceLock::new(),
             id_scope: scope,
@@ -98,12 +104,67 @@ impl UiaNode {
             *guard = Some(Arc::downgrade(parent));
         }
     }
+    /// Pins `parent` alive so an off-tree chain stays walkable via `parent()`
+    /// (whose stored ref is only a `Weak`). Chaining this from the deepest node
+    /// up roots the whole ancestor chain in the returned leaf.
+    pub fn hold_parent(&self, parent: Arc<dyn UiNode>) {
+        if let Ok(mut guard) = self.parent_keepalive.lock() {
+            *guard = Some(parent);
+        }
+    }
     pub fn init_self(this: &Arc<Self>) {
         let arc: Arc<dyn UiNode> = this.clone();
         let _ = this.self_weak.set(Arc::downgrade(&arc));
     }
     fn as_ui_node(&self) -> Option<Arc<dyn UiNode>> {
         self.self_weak.get().and_then(|w| w.upgrade())
+    }
+
+    /// Builds the App-scoped ancestor chain above `leaf` — a node resolved out
+    /// of tree order by the live picker's hit-test — by walking the raw-view UIA
+    /// parent chain up to the desktop root, wiring and pinning each parent, then
+    /// caps the top-level window with an [`ApplicationNode`]. This gives `leaf`
+    /// the same walkable `parent()` chain (with matching scoped runtime ids) a
+    /// top-down traversal would produce, so the Inspector's reveal-and-select can
+    /// locate it under `app:Application/<pid>/…` and select it in the tree.
+    ///
+    /// The raw-view walker mirrors the tree's own child enumeration
+    /// ([`ElementChildrenIter`]), so the ids line up level for level. Best-effort:
+    /// on any COM failure the chain simply ends early (reveal then no-ops rather
+    /// than mis-selecting), and the depth is bounded.
+    pub(crate) fn attach_ancestor_chain(leaf: &Arc<UiaNode>, pid: i32) {
+        let Ok(uia) = crate::com::uia() else { return };
+        let Ok(walker) = crate::com::raw_walker() else { return };
+        let Ok(root) = (unsafe { uia.GetRootElement() }) else { return };
+
+        let scope = crate::map::UiaIdScope::App { pid };
+        let mut child: Arc<UiaNode> = Arc::clone(leaf);
+        let mut child_elem = leaf.elem.clone();
+
+        const MAX_ANCESTORS: usize = 256;
+        for _ in 0..MAX_ANCESTORS {
+            let parent_elem = match unsafe { walker.GetParentElement(&child_elem) } {
+                Ok(parent) => parent,
+                Err(_) => break,
+            };
+            // Reached the desktop root: `child` is a top-level window. Stop and
+            // cap it with the application node below (the tree groups an app's
+            // windows under `app:Application`, not under the raw desktop root).
+            if unsafe { uia.CompareElements(&parent_elem, &root) }.map(|b| b.as_bool()).unwrap_or(false) {
+                break;
+            }
+            let parent_node = UiaNode::from_elem_with_scope(parent_elem.clone(), scope);
+            UiaNode::init_self(&parent_node);
+            let parent_dyn: Arc<dyn UiNode> = parent_node.clone();
+            child.set_parent(&parent_dyn);
+            child.hold_parent(parent_dyn);
+            child = parent_node;
+            child_elem = parent_elem;
+        }
+
+        let app: Arc<dyn UiNode> = ApplicationNode::orphan(pid);
+        child.set_parent(&app);
+        child.hold_parent(app);
     }
 
     /// Eagerly populate `OnceLock` caches from element cached properties.
@@ -1391,10 +1452,10 @@ unsafe impl Send for ApplicationNode {}
 unsafe impl Sync for ApplicationNode {}
 
 impl ApplicationNode {
-    pub fn new(pid: i32, parent: &Arc<dyn UiNode>) -> Arc<Self> {
+    fn build(pid: i32, parent: Option<Weak<dyn UiNode>>) -> Arc<Self> {
         let node = Arc::new(Self {
             pid,
-            parent: Mutex::new(Some(Arc::downgrade(parent))),
+            parent: Mutex::new(parent),
             self_weak: std::sync::OnceLock::new(),
             rid_cell: std::sync::OnceLock::new(),
             name_cell: std::sync::OnceLock::new(),
@@ -1402,6 +1463,19 @@ impl ApplicationNode {
         let arc: Arc<dyn UiNode> = node.clone();
         let _ = node.self_weak.set(Arc::downgrade(&arc));
         node
+    }
+
+    pub fn new(pid: i32, parent: &Arc<dyn UiNode>) -> Arc<Self> {
+        Self::build(pid, Some(Arc::downgrade(parent)))
+    }
+
+    /// Parent-less application node used to cap an off-tree ancestor chain (the
+    /// live picker's `element_at_point` result). Its `runtime_id`
+    /// (`uia://app/<pid>`) matches the tree's application node, so reveal walks
+    /// the picked node's `parent()` chain up to here, then matches it against the
+    /// desktop root's children; `parent()` is `None`, so it is the topmost ancestor.
+    pub fn orphan(pid: i32) -> Arc<Self> {
+        Self::build(pid, None)
     }
 }
 

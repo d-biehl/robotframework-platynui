@@ -93,6 +93,21 @@ impl TreeViewModel {
         &self.visible_rows
     }
 
+    /// Current set of expanded node ids. Used by the live picker to snapshot the
+    /// expansion state when it arms, so it can reset to it before each pick and
+    /// not accumulate a trail of expanded paths as the cursor moves.
+    pub fn expanded_ids(&self) -> HashSet<String> {
+        self.expanded.clone()
+    }
+
+    /// Replace the expanded set and rebuild the visible rows. Ids that are no
+    /// longer expanded collapse; the picker uses this to reset to its arm-time
+    /// snapshot before revealing the current target.
+    pub fn set_expanded_ids(&mut self, ids: HashSet<String>) {
+        self.expanded = ids;
+        self.rebuild();
+    }
+
     /// The root `UiNodeData` of the tree (for background operations).
     pub fn root(&self) -> &Arc<UiNodeData> {
         &self.root

@@ -8,7 +8,7 @@ use egui_async::Bind;
 use platynui_core::types::Point;
 use platynui_core::ui::UiNode;
 use platynui_runtime::Runtime;
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
@@ -137,6 +137,11 @@ pub struct InspectorViewModel {
     spinner_frame: usize,
     /// Live mouse-picker decision state (armed/active, configured combination).
     picker: PickerState,
+    /// Tree expansion snapshot taken when the picker armed. Each pick resets the
+    /// tree to this before revealing the current target, so live picking shows
+    /// only the current element's path instead of accumulating a trail of
+    /// expanded apps/windows as the cursor moves. `None` when not armed.
+    picker_reveal_base: Option<HashSet<String>>,
 }
 
 impl InspectorViewModel {
@@ -187,6 +192,7 @@ impl InspectorViewModel {
             selection_request_id: 0,
             spinner_frame: 0,
             picker: PickerState::default(),
+            picker_reveal_base: None,
         }
     }
 
@@ -202,6 +208,14 @@ impl InspectorViewModel {
 
     /// Arm/disarm the live mouse-picker.
     pub fn set_picker_armed(&mut self, armed: bool) {
+        if armed && !self.picker.is_armed() {
+            // Remember the current expansion so picking can reset to it each tick
+            // and not leave a growing trail of expanded nodes.
+            self.picker_reveal_base = Some(self.tree.expanded_ids());
+        } else if !armed {
+            // Keep the last pick revealed; just stop resetting on future ticks.
+            self.picker_reveal_base = None;
+        }
         self.picker.set_armed(armed);
     }
 
@@ -245,6 +259,12 @@ impl InspectorViewModel {
             return;
         }
         let target_id = node.runtime_id().as_str().to_string();
+        // Reset the tree to the arm-time expansion before revealing this pick, so
+        // the picker shows only the current element's path rather than
+        // accumulating every path the cursor has passed over.
+        if let Some(base) = self.picker_reveal_base.clone() {
+            self.tree.set_expanded_ids(base);
+        }
         let epoch = next_epoch(&self.reveal_epoch);
         self.reveal_task.abort();
         if self.tree.reveal_node_cached(&target_id) {

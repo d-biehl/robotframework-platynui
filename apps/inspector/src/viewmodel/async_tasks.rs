@@ -146,6 +146,28 @@ pub struct ChildLoadResult {
     pub node_id: String,
 }
 
+/// Collects the resolved node's live parent chain from `target` up to (but not
+/// including) the ancestor whose runtime id is `ancestor_id`, returned top-down
+/// (the direct child of that ancestor first, down to `target`). Used to graft a
+/// picker result into the tree when top-down enumeration can't reach it (dynamic
+/// menus with unstable RuntimeIds). Returns `None` if the ancestor is not on the
+/// chain. Bounded so a broken parent link can never loop forever.
+fn resolved_chain_below(target: &Arc<dyn UiNode>, ancestor_id: &str) -> Option<Vec<Arc<dyn UiNode>>> {
+    const MAX_DEPTH: usize = 256;
+    let mut chain: Vec<Arc<dyn UiNode>> = vec![Arc::clone(target)];
+    let mut current = Arc::clone(target);
+    for _ in 0..MAX_DEPTH {
+        let parent = current.parent()?.upgrade()?;
+        if parent.runtime_id().as_str() == ancestor_id {
+            chain.reverse();
+            return Some(chain);
+        }
+        chain.push(Arc::clone(&parent));
+        current = parent;
+    }
+    None
+}
+
 /// Task for pre-loading ancestor paths in the tree.
 ///
 /// Walks the target node's parent chain and loads children caches along
@@ -163,9 +185,10 @@ pub async fn reveal_task(
         return Ok(RevealResult::Cancelled);
     }
 
-    // Walk up the target node's parent chain to collect ancestor IDs.
+    // Walk up the target node's parent chain to collect ancestor IDs. Keep the
+    // resolved node itself for a possible graft (see the divergence branch below).
     let mut ancestors: Vec<String> = Vec::new();
-    let mut current: Option<Arc<dyn UiNode>> = Some(target_node);
+    let mut current: Option<Arc<dyn UiNode>> = Some(Arc::clone(&target_node));
     while let Some(node) = current {
         if latest_epoch.load(Ordering::Relaxed) != epoch {
             return Ok(RevealResult::Cancelled);
@@ -196,28 +219,41 @@ pub async fn reveal_task(
             return Ok(RevealResult::Cancelled);
         }
         let aid = ancestor_id.clone();
-        // For picker reveals of dynamic UI (opened menus, combo popups, expanded
-        // tree nodes), the cached children predate the new subtree — reload this
-        // level live so the just-appeared ancestor is found.
-        if refresh {
+        // Try the cached children first. Only when the ancestor is missing (a
+        // just-opened window/menu the cache predates) do we reload THIS level.
+        // A picker reveal fires on every element the cursor passes over, so
+        // blindly clearing every level each time would re-enumerate the whole
+        // desktop on each tick — making the top-level window/app list churn and
+        // momentarily empty (worst while a modal context menu blocks UIA).
+        let mut next = cursor.children().into_iter().find(|child| child.id() == aid);
+        if next.is_none() && refresh {
             cursor.clear_children_cache();
+            next = cursor.children().into_iter().find(|child| child.id() == aid);
         }
-        let children = cursor.children();
-
-        if let Some(next_cursor) = children.into_iter().find(|child| child.id() == aid) {
-            cursor = next_cursor;
-        } else {
-            // Path diverged — tree structure may have changed.
-            return Ok(RevealResult::Cancelled);
+        match next {
+            Some(next_cursor) => cursor = next_cursor,
+            None => {
+                // Top-down enumeration can't reach the target: dynamic XAML /
+                // Chromium menus hand out unstable UIA RuntimeIds, so the ancestor
+                // from the hit-test's parent walk never matches a re-enumerated
+                // child. Graft the picker's already-resolved live chain from
+                // `cursor` down so reveal can still select it.
+                if let Some(chain) = resolved_chain_below(&target_node, &cursor.id()) {
+                    cursor.graft_chain(&chain);
+                    return Ok(RevealResult::Ready { epoch, target_id });
+                }
+                return Ok(RevealResult::Cancelled);
+            }
         }
     }
 
-    // Load the target's parent's children so the target itself
-    // is in the cache when the UI thread runs reveal_node_cached.
-    if refresh {
+    // Ensure the target itself is cached under its parent so the UI thread's
+    // reveal_node_cached finds it. Reload only when it is not already there.
+    let target_cached = cursor.children().into_iter().any(|child| child.id() == target_id);
+    if refresh && !target_cached {
         cursor.clear_children_cache();
+        let _ = cursor.children();
     }
-    let _ = cursor.children();
 
     if latest_epoch.load(Ordering::Relaxed) != epoch {
         return Ok(RevealResult::Cancelled);
@@ -400,5 +436,37 @@ pub async fn highlight_node_task(
         }
     } else {
         clear_highlight_task(runtime, epoch, latest_epoch).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolved_chain_below;
+    use crate::model::tree_data::test_mock::MockNode;
+    use platynui_core::ui::UiNode;
+    use std::sync::Arc;
+
+    #[test]
+    fn resolved_chain_below_returns_the_slice_beneath_the_ancestor() {
+        // Parent links: leaf -> mid -> top -> root.
+        let root = MockNode::new("root");
+        let top = MockNode::new("top");
+        let mid = MockNode::new("mid");
+        let leaf = MockNode::new("leaf");
+        let root_dyn: Arc<dyn UiNode> = root.clone();
+        let top_dyn: Arc<dyn UiNode> = top.clone();
+        let mid_dyn: Arc<dyn UiNode> = mid.clone();
+        top.set_parent(&root_dyn);
+        mid.set_parent(&top_dyn);
+        leaf.set_parent(&mid_dyn);
+        let leaf_dyn: Arc<dyn UiNode> = leaf.clone();
+
+        // Chain below "top" is top-down: its direct child first, down to the leaf.
+        let chain = resolved_chain_below(&leaf_dyn, "top").expect("top is on the parent chain");
+        let ids: Vec<String> = chain.iter().map(|n| n.runtime_id().as_str().to_string()).collect();
+        assert_eq!(ids, vec!["mid".to_string(), "leaf".to_string()]);
+
+        // An ancestor that is not on the chain yields nothing.
+        assert!(resolved_chain_below(&leaf_dyn, "not-an-ancestor").is_none());
     }
 }

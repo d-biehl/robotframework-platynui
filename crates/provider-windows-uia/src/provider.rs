@@ -102,22 +102,15 @@ fn window_is_ready(hwnd: windows::Win32::Foundation::HWND) -> bool {
     true
 }
 
-/// Whether `hwnd` is a real top-level window worth surfacing: visible, not a
-/// non-activating helper/overlay window (`WS_EX_NOACTIVATE` — ConPTY console,
-/// winit event target, Narrator helper, ...), and not cloaked (hides
-/// virtual-desktop / UWP "ghost" windows). This matches the set UIA's desktop
-/// view exposes, so it stays consistent with the per-application child lookup.
-fn is_candidate_top_level(hwnd: windows::Win32::Foundation::HWND) -> bool {
+/// Whether `hwnd` is on-screen: visible and not DWM-cloaked (cloaking hides
+/// virtual-desktop / UWP "ghost" windows that are composed elsewhere or suspended).
+fn is_visible_uncloaked(hwnd: windows::Win32::Foundation::HWND) -> bool {
     use windows::Win32::Graphics::Dwm::{DWMWA_CLOAKED, DwmGetWindowAttribute};
-    use windows::Win32::UI::WindowsAndMessaging::{GWL_EXSTYLE, GetWindowLongPtrW, IsWindowVisible, WS_EX_NOACTIVATE};
+    use windows::Win32::UI::WindowsAndMessaging::IsWindowVisible;
 
-    // SAFETY: `hwnd` comes from EnumWindows and is valid for these read-only queries.
+    // SAFETY: `hwnd` is a valid window handle for these read-only queries.
     unsafe {
         if !IsWindowVisible(hwnd).as_bool() {
-            return false;
-        }
-        let exstyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-        if exstyle & isize::try_from(WS_EX_NOACTIVATE.0).unwrap_or(0) != 0 {
             return false;
         }
         let mut cloaked: u32 = 0;
@@ -131,6 +124,73 @@ fn is_candidate_top_level(hwnd: windows::Win32::Foundation::HWND) -> bool {
     }
 }
 
+/// Whether `hwnd` has a non-empty on-screen rectangle. Some immersive shell
+/// windows linger as visible, uncloaked, but zero-size (`0×0`, `w×0`, `1×1`)
+/// placeholders; those must not surface as phantom "invisible" windows in the
+/// tree.
+fn window_has_area(hwnd: windows::Win32::Foundation::HWND) -> bool {
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
+
+    let mut rect = RECT::default();
+    // SAFETY: `hwnd` is valid; `rect` is written by GetWindowRect.
+    if unsafe { GetWindowRect(hwnd, std::ptr::addr_of_mut!(rect)) }.is_err() {
+        return false;
+    }
+    rect.right > rect.left && rect.bottom > rect.top
+}
+
+/// Whether `hwnd` is a real top-level window worth surfacing from the general
+/// `EnumWindows` population: on-screen (see [`is_visible_uncloaked`]) and not a
+/// non-activating helper/overlay window (`WS_EX_NOACTIVATE` — ConPTY console,
+/// winit event target, Narrator helper, ...). The `WS_EX_NOACTIVATE` heuristic
+/// excludes *unknown* helper windows; it is deliberately **not** applied to the
+/// curated immersive shell classes (see [`immersive_shell_windows`]), which are
+/// legitimately non-activating (menus, flyouts).
+fn is_candidate_top_level(hwnd: windows::Win32::Foundation::HWND) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{GWL_EXSTYLE, GetWindowLongPtrW, WS_EX_NOACTIVATE};
+
+    if !is_visible_uncloaked(hwnd) || !window_has_area(hwnd) {
+        return false;
+    }
+    // SAFETY: `hwnd` is a valid window handle for this read-only query.
+    let exstyle = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) };
+    exstyle & isize::try_from(WS_EX_NOACTIVATE.0).unwrap_or(0) == 0
+}
+
+/// Top-level window classes for the Win11 shell's **immersive** surfaces that
+/// `EnumWindows` does not return: the Start menu / search (`CoreWindow`) and the
+/// taskbar / jump-list / settings flyouts (`Xaml_WindowedPopupClass`). Without
+/// these the desktop tree — and therefore the live picker's reveal — cannot reach
+/// them even though `ElementFromPoint` resolves them, and Accessibility Insights
+/// (which walks the UIA tree) can.
+const IMMERSIVE_SHELL_CLASSES: [windows::core::PCWSTR; 2] =
+    [windows::core::w!("Windows.UI.Core.CoreWindow"), windows::core::w!("Xaml_WindowedPopupClass")];
+
+/// Enumerates top-level windows of the [`IMMERSIVE_SHELL_CLASSES`] via
+/// `FindWindowExW` (cheap, by class name). These carry native UIA providers, so
+/// materialising them later does not risk the OLEACC bridge stall.
+fn immersive_shell_windows() -> Vec<windows::Win32::Foundation::HWND> {
+    use windows::Win32::UI::WindowsAndMessaging::FindWindowExW;
+    use windows::core::PCWSTR;
+
+    let mut out = Vec::new();
+    for class in IMMERSIVE_SHELL_CLASSES {
+        let mut prev: Option<windows::Win32::Foundation::HWND> = None;
+        loop {
+            // SAFETY: read-only enumeration of top-level windows by class name.
+            match unsafe { FindWindowExW(None, prev, class, PCWSTR::null()) } {
+                Ok(hwnd) if !hwnd.is_invalid() => {
+                    out.push(hwnd);
+                    prev = Some(hwnd);
+                }
+                _ => break,
+            }
+        }
+    }
+    out
+}
+
 /// Enumerates the desktop's top-level application windows and returns UIA elements
 /// for those ready to be materialised (see [`window_is_ready`]). When `pid_filter`
 /// is set, only windows owned by that process are returned — used to list one
@@ -139,6 +199,7 @@ fn is_candidate_top_level(hwnd: windows::Win32::Foundation::HWND) -> bool {
 pub(crate) fn ready_top_level_elements(
     pid_filter: Option<i32>,
 ) -> Vec<windows::Win32::UI::Accessibility::IUIAutomationElement> {
+    use std::collections::HashSet;
     use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowThreadProcessId};
 
     let mut elements = Vec::new();
@@ -146,17 +207,34 @@ pub(crate) fn ready_top_level_elements(
         return elements;
     };
 
-    let mut hwnds: Vec<windows::Win32::Foundation::HWND> = Vec::new();
+    let mut raw_hwnds: Vec<windows::Win32::Foundation::HWND> = Vec::new();
     // SAFETY: `collect_hwnd` only pushes into the `Vec` pointed to by `lparam`.
     unsafe {
-        let _ =
-            EnumWindows(Some(collect_hwnd), windows::Win32::Foundation::LPARAM(std::ptr::addr_of_mut!(hwnds) as isize));
+        let _ = EnumWindows(
+            Some(collect_hwnd),
+            windows::Win32::Foundation::LPARAM(std::ptr::addr_of_mut!(raw_hwnds) as isize),
+        );
     }
 
-    for hwnd in hwnds {
-        if !is_candidate_top_level(hwnd) {
-            continue;
+    // Build the candidate set from two sources with source-appropriate gates:
+    //  1. the general `EnumWindows` population — full filter (incl. the
+    //     `WS_EX_NOACTIVATE` helper-window heuristic);
+    //  2. the curated immersive shell classes `EnumWindows` omits — gated only on
+    //     being on-screen, since they are legitimately non-activating.
+    let mut seen: HashSet<isize> = HashSet::new();
+    let mut candidates: Vec<windows::Win32::Foundation::HWND> = Vec::new();
+    for hwnd in raw_hwnds {
+        if is_candidate_top_level(hwnd) && seen.insert(hwnd.0 as isize) {
+            candidates.push(hwnd);
         }
+    }
+    for hwnd in immersive_shell_windows() {
+        if is_visible_uncloaked(hwnd) && window_has_area(hwnd) && seen.insert(hwnd.0 as isize) {
+            candidates.push(hwnd);
+        }
+    }
+
+    for hwnd in candidates {
         if let Some(target) = pid_filter {
             let mut wpid: u32 = 0;
             // SAFETY: `hwnd` is valid; `wpid` receives the owning process id.
@@ -331,8 +409,12 @@ impl UiTreeProvider for WindowsUiaProvider {
             }
         };
 
-        // Never resolve the host process's own UI (consistent with tree
-        // enumeration, which excludes own-process windows).
+        // Never resolve the host process's own UI. `ElementFromPoint` returns the
+        // top-most element, so a point the Inspector's own window covers resolves
+        // to the Inspector — return nothing there (the picker is meant to inspect
+        // *other* windows; keep the Inspector off the target). The highlight
+        // overlay is `WS_EX_TRANSPARENT`, so `ElementFromPoint` passes through it
+        // to the target beneath rather than resolving the overlay.
         let pid = crate::map::get_process_id(&elem).ok();
         if pid == Some(*SELF_PID) {
             return Ok(None);
@@ -345,6 +427,15 @@ impl UiTreeProvider for WindowsUiaProvider {
         };
         let node = crate::node::UiaNode::from_elem_with_scope(elem, scope);
         crate::node::UiaNode::init_self(&node);
+        // A point hit-test resolves a node out of tree order, so it has no
+        // parent chain — the Inspector's reveal-and-select walks `parent()` up to
+        // match tree nodes and would find nothing. Wire the app-scoped ancestor
+        // chain (matching runtime ids) so the picked element is actually selected
+        // in the tree. (Desktop-scoped fallback has no application subtree to
+        // reveal into, so it is left chainless.)
+        if let crate::map::UiaIdScope::App { pid } = scope {
+            crate::node::UiaNode::attach_ancestor_chain(&node, pid);
+        }
         Ok(Some(node as Arc<dyn UiNode>))
     }
 }

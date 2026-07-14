@@ -323,6 +323,36 @@ impl UiNodeData {
         *self.has_children_cache.lock().unwrap() = None;
     }
 
+    /// Graft a picker-resolved live subtree under this node so the reveal can
+    /// select it even when the tree's own top-down enumeration cannot reach it.
+    /// Dynamic XAML / Chromium menus hand out UIA RuntimeIds that differ between
+    /// the hit-test's `GetParentElement` walk and a `GetChildren` enumeration, so
+    /// matching the resolved node's ancestor chain against re-enumerated children
+    /// diverges. `chain` is top-down — the direct child of `self` first, down to
+    /// the resolved target; each node becomes a nested `UiNodeData`, and the top
+    /// is appended to this node's cached children (deduplicated by runtime id).
+    pub fn graft_chain(&self, chain: &[Arc<dyn UiNode>]) {
+        let mut built: Option<Arc<UiNodeData>> = None;
+        for node in chain.iter().rev() {
+            let data = Arc::new(UiNodeData::new(Arc::clone(node)));
+            data.preload_row_caches();
+            if let Some(child) = built.take() {
+                *data.children_cache.lock().unwrap() = Some(vec![child]);
+                *data.has_children_cache.lock().unwrap() = Some(true);
+            }
+            built = Some(data);
+        }
+        let Some(top) = built else {
+            return;
+        };
+        let mut cache = self.children_cache.lock().unwrap();
+        let children = cache.get_or_insert_with(Vec::new);
+        if !children.iter().any(|c| c.id() == top.id()) {
+            children.push(top);
+        }
+        *self.has_children_cache.lock().unwrap() = Some(true);
+    }
+
     /// Clear cached descendants without querying the provider.
     pub fn clear_children_cache_recursive(&self) {
         let cached_children = self.children_cache.lock().unwrap().clone();
@@ -486,4 +516,102 @@ fn escape_control_chars(input: &str) -> String {
         }
     }
     out
+}
+
+/// Minimal in-memory `UiNode` mock for exercising tree/reveal helpers
+/// (`graft_chain`, `resolved_chain_below`) without a real provider. Shared by the
+/// `tree_data` and `async_tasks` test modules.
+#[cfg(test)]
+pub(crate) mod test_mock {
+    use platynui_core::ui::{Namespace, PatternName, RuntimeId, UiAttribute, UiNode};
+    use std::sync::{Arc, Mutex, Weak};
+
+    pub(crate) struct MockNode {
+        rid: RuntimeId,
+        name: String,
+        parent: Mutex<Option<Weak<dyn UiNode>>>,
+    }
+
+    impl MockNode {
+        pub(crate) fn new(id: &str) -> Arc<Self> {
+            Arc::new(Self { rid: RuntimeId::from(id), name: id.to_string(), parent: Mutex::new(None) })
+        }
+
+        pub(crate) fn set_parent(&self, parent: &Arc<dyn UiNode>) {
+            *self.parent.lock().unwrap() = Some(Arc::downgrade(parent));
+        }
+    }
+
+    impl UiNode for MockNode {
+        fn namespace(&self) -> Namespace {
+            Namespace::Control
+        }
+        fn role(&self) -> &str {
+            "Mock"
+        }
+        fn name(&self) -> String {
+            self.name.clone()
+        }
+        fn runtime_id(&self) -> &RuntimeId {
+            &self.rid
+        }
+        fn parent(&self) -> Option<Weak<dyn UiNode>> {
+            self.parent.lock().unwrap().clone()
+        }
+        fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
+            Box::new(std::iter::empty())
+        }
+        fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
+            Box::new(std::iter::empty())
+        }
+        fn supported_patterns(&self) -> Vec<PatternName> {
+            Vec::new()
+        }
+        fn invalidate(&self) {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UiNodeData;
+    use super::test_mock::MockNode;
+    use platynui_core::ui::UiNode;
+    use std::sync::Arc;
+
+    #[test]
+    fn graft_chain_nests_the_subtree_and_dedupes_the_top() {
+        let root = Arc::new(UiNodeData::new(MockNode::new("root") as Arc<dyn UiNode>));
+        let chain: Vec<Arc<dyn UiNode>> = vec![
+            MockNode::new("child") as Arc<dyn UiNode>,
+            MockNode::new("mid") as Arc<dyn UiNode>,
+            MockNode::new("leaf") as Arc<dyn UiNode>,
+        ];
+
+        root.graft_chain(&chain);
+
+        // Top of the chain is appended as root's (only) child.
+        let kids = root.cached_children().expect("children cached after graft");
+        assert_eq!(kids.len(), 1);
+        assert_eq!(kids[0].id(), "child");
+
+        // Nested down: child -> mid -> leaf.
+        let mids = kids[0].cached_children().expect("child has cached children");
+        assert_eq!(mids.iter().map(|n| n.id()).collect::<Vec<_>>(), vec!["mid".to_string()]);
+        let leaves = mids[0].cached_children().expect("mid has cached children");
+        assert_eq!(leaves.iter().map(|n| n.id()).collect::<Vec<_>>(), vec!["leaf".to_string()]);
+
+        // The leaf is left lazy (no children cached) so the user can still expand it.
+        assert!(leaves[0].cached_children().is_none());
+
+        // Grafting the same chain again does not duplicate the top.
+        root.graft_chain(&chain);
+        assert_eq!(root.cached_children().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn graft_chain_of_empty_slice_is_a_noop() {
+        let root = Arc::new(UiNodeData::new(MockNode::new("root") as Arc<dyn UiNode>));
+        root.graft_chain(&[]);
+        assert!(root.cached_children().is_none());
+    }
 }

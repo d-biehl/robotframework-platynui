@@ -15,7 +15,11 @@ Resource          ${CURDIR}/testapp_locators.resource
 
 
 *** Variables ***
-${TEST_APP_BIN}        %{PLATYNUI_TEST_APP_BIN=target/debug/platynui-test-app-egui}
+# Honor PLATYNUI_TEST_APP_BIN; otherwise default to the debug build as an
+# ABSOLUTE, OS-native path: on Windows CreateProcess will not launch a relative,
+# forward-slash exe path even when it exists, and it needs the .exe suffix.
+# os.path.abspath resolves against the project root (robotcode's CWD).
+${TEST_APP_BIN}        ${{ os.environ.get("PLATYNUI_TEST_APP_BIN") or os.path.abspath("target/debug/platynui-test-app-egui" + (".exe" if os.name == "nt" else "")) }}
 ${APP_WAIT_TIMEOUT}    15s
 # Handle of the instance started by Launch Default Instance — read by Terminate Default Instance.
 ${TEST_APP_HANDLE}     ${None}

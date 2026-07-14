@@ -63,6 +63,16 @@ fi
 export PLATYNUI_TEST_APP_BIN="$PROJECT_DIR/target/debug/platynui-test-app-egui"
 echo "Test app binary: $PLATYNUI_TEST_APP_BIN (Robot Framework launches it)" >&2
 
+# The inspector-picker suite launches the real Inspector; build it up front and
+# hand its path over the same way (Robot Framework launches it too).
+echo "Building platynui-inspector ..." >&2
+if ! cargo build -q -p platynui-inspector; then
+  echo "ERROR: failed to build platynui-inspector" >&2
+  exit 1
+fi
+export PLATYNUI_INSPECTOR_BIN="$PROJECT_DIR/target/debug/platynui-inspector-rs"
+echo "Inspector binary: $PLATYNUI_INSPECTOR_BIN (Robot Framework launches it)" >&2
+
 # Hand the Qt (PySide6) test app's interpreter + entrypoint to Robot Framework.
 # PySide6 is a normal dev dependency, already installed by the outer `uv run`
 # sync, so we just point at the project interpreter. Robot Framework launches

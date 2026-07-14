@@ -14,6 +14,8 @@ macos_arm_rust_target := env("PLATYNUI_MACOS_ARM_TARGET", "aarch64-apple-darwin"
 macos_rust_packages := "--package platynui-core --package platynui-link --package platynui-xpath --package platynui-runtime --package platynui-platform-macos --package platynui-provider-macos-ax --package platynui-cli --package platynui-inspector --package platynui-cli-bin --package platynui-inspector-bin"
 # Built platynui-test-app-egui binary the acceptance suites launch (via PLATYNUI_TEST_APP_BIN).
 egui_test_app := justfile_directory() / "target" / "debug" / if os() == "windows" { "platynui-test-app-egui.exe" } else { "platynui-test-app-egui" }
+# Built platynui-inspector-rs binary the inspector-picker acceptance suite launches (via PLATYNUI_INSPECTOR_BIN).
+inspector_bin := justfile_directory() / "target" / "debug" / if os() == "windows" { "platynui-inspector-rs.exe" } else { "platynui-inspector-rs" }
 # headless runs the Linux acceptance lane with no visible window (compositor uses
 # its headless backend, X11 runs under Xvfb). Defaults to true under CI (the
 # conventional `CI` env var is set); override anywhere with `just headless=… …`.
@@ -254,13 +256,14 @@ test-acceptance-x11 *ARGS: build-native
 
 # Run the acceptance lane on the native Windows desktop (UIA provider). No
 # isolated session — the suites launch the apps on the real desktop. Builds the
-# egui binary; PySide6 (a dev dependency) is already in the project venv from the
-# build-native sync. Both apps are handed over via the PLATYNUI_TEST_APP_* env
-# vars (Robot Framework launches them).
+# egui test app AND the Inspector binary (the inspector-picker suite launches
+# it); PySide6 (a dev dependency) is already in the project venv from the
+# build-native sync. All three are handed over via the PLATYNUI_TEST_APP_* /
+# PLATYNUI_INSPECTOR_BIN env vars (Robot Framework launches them).
 [windows]
 test-acceptance-windows *ARGS: build-native
-    cargo build -p platynui-test-app-egui
-    $env:PLATYNUI_TEST_APP_BIN = "{{ egui_test_app }}"; $env:PLATYNUI_TEST_APP_QT_PYTHON = ".venv/Scripts/python.exe"; $env:PLATYNUI_TEST_APP_QT_MAIN = "apps/test-app-qt/main.py"; uv run --no-sync robotcode {{ if ARGS != "" { ARGS } else { "--profile real run" } }}
+    cargo build -p platynui-test-app-egui -p platynui-inspector
+    $env:PLATYNUI_TEST_APP_BIN = "{{ egui_test_app }}"; $env:PLATYNUI_INSPECTOR_BIN = "{{ inspector_bin }}"; $env:PLATYNUI_TEST_APP_QT_PYTHON = ".venv/Scripts/python.exe"; $env:PLATYNUI_TEST_APP_QT_MAIN = "apps/test-app-qt/main.py"; uv run --no-sync robotcode {{ if ARGS != "" { ARGS } else { "--profile real run" } }}
 
 # ─── Desktop Integration ────────────────────────────────────────────────────────
 

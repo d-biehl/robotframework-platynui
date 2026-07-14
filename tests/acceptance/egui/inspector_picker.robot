@@ -14,7 +14,7 @@ Test Tags           real
 
 
 *** Variables ***
-${INSPECTOR_BIN}        %{PLATYNUI_INSPECTOR_BIN=target/debug/platynui-inspector-rs}
+${INSPECTOR_BIN}        ${{ os.environ.get("PLATYNUI_INSPECTOR_BIN") or os.path.abspath("target/debug/platynui-inspector-rs" + (".exe" if os.name == "nt" else "")) }}
 ${INSP_HANDLE}          ${None}
 ${INSP_WIN}             ${None}
 ${PICK_TOGGLE}          //Button[contains(@Name,"Pick Element")]
@@ -22,8 +22,15 @@ ${PICK_TOGGLE}          //Button[contains(@Name,"Pick Element")]
 
 *** Test Cases ***
 Picker Selects The Element Under The Cursor
-    [Documentation]    Arm the picker, hold Ctrl+Alt+Shift, move onto the Click Me button's screen
-    ...    centre, and confirm the Inspector picked it.
+    [Documentation]    Lay the Inspector out clear of the test app (a hit-test over the Inspector's own
+    ...    window resolves nothing — it is meant to inspect *other* windows), arm the picker, hold
+    ...    Ctrl+Alt+Shift over the Click Me button, and confirm the Inspector actually selected it by
+    ...    reading the Inspector's OWN a11y tree: the button's subtree is not loaded until the pick
+    ...    reveals and selects it.
+    Lay Windows Out Side By Side
+    # The picked button's subtree is not revealed in the Inspector yet.
+    ${before}=    BM.Query    ${INSP_WIN}//*[contains(@Name,"Click Me")]    only_first=${True}
+    Should Be Equal    ${before}    ${None}    msg=Inspector already shows the button before picking
     ${bounds}=    BM.Get Attribute    ${WINDOW}${BTN_CLICK_ME}    Bounds
     ${cx}=    Evaluate    ${bounds.x} + ${bounds.width} / 2
     ${cy}=    Evaluate    ${bounds.y} + ${bounds.height} / 2
@@ -32,16 +39,31 @@ Picker Selects The Element Under The Cursor
     TRY
         BM.Keyboard Press    ${None}    <Ctrl+Alt+Shift>
         BM.Pointer Move To    x=${cx}    y=${cy}    activate=${False}
-        ${pos}=    BM.Get Pointer Position
-        Log    Pointer after move = (${pos.x}, ${pos.y})
         Sleep    1.5s
     FINALLY
         BM.Keyboard Release    ${None}    <Ctrl+Alt+Shift>
     END
-    Log    Driver sequence complete — inspect ${TEMPDIR}/inspector.log for picker ticks.
+    # The pick revealed the button's ancestors and selected it — so it is now on
+    # the Inspector's own a11y tree (its attribute panel / expanded tree row).
+    Wait Until Keyword Succeeds    5s    0.3s    Inspector Shows Picked Button
 
 
 *** Keywords ***
+Lay Windows Out Side By Side
+    [Documentation]    Place the test app on the left and the Inspector to its right so the Inspector
+    ...    never covers the button. The Inspector x is derived from the app's actual bounds, so it
+    ...    adapts to whatever size the toolkit grants.
+    BM.Move And Resize Window    ${WINDOW}    20    20    640    480
+    ${app}=    BM.Get Attribute    ${WINDOW}    Bounds
+    ${insp_x}=    Evaluate    int(${app.x} + ${app.width} + 20)
+    BM.Move Window    ${INSP_WIN}    ${insp_x}    20
+    Sleep    0.5s
+
+Inspector Shows Picked Button
+    ${el}=    BM.Query    ${INSP_WIN}//*[contains(@Name,"Click Me")]    only_first=${True}
+    Should Not Be Equal    ${el}    ${None}
+    ...    msg=Inspector did not reveal/select the picked button in its own tree
+
 Setup Inspector And App
     Launch Default Instance
     ${insp}=    Start Process    ${INSPECTOR_BIN}
