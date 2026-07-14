@@ -203,6 +203,24 @@ class MainWindow(QMainWindow):
             action.setObjectName(ident)
             self._context_menu.addAction(action)
 
+        # A submenu (and a nested one below it) so acceptance tests can probe
+        # whether submenu items are reachable through the event-grafted popup:
+        # Qt draws each open submenu as ANOTHER override-redirect QMenu window,
+        # so both cascade levels exercise the transient-popup path, not just the
+        # root context menu. The submenu entries' accessible names come from the
+        # menu titles / action texts.
+        submenu = self._context_menu.addMenu('ctx-more')
+        submenu.setObjectName('ctx-more')
+        for ident in ('ctx-sub-alpha', 'ctx-sub-beta'):
+            action = QAction(ident, self)
+            action.setObjectName(ident)
+            submenu.addAction(action)
+        nested = submenu.addMenu('ctx-deep')
+        nested.setObjectName('ctx-deep')
+        deep_action = QAction('ctx-deep-item', self)
+        deep_action.setObjectName('ctx-deep-item')
+        nested.addAction(deep_action)
+
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:  # noqa: N802 (Qt override)
         """Open the right-click context menu at the cursor.
 

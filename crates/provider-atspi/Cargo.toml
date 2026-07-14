@@ -16,7 +16,9 @@ rust-version.workspace = true
 platynui-core = { path = "../core" }
 inventory = "0.3"
 atspi-common = { version = "0.14", default-features = false }
-atspi-connection = { version = "0.14", default-features = false }
+# `wrappers` provides the event-stream API (`register_event` / `event_stream`),
+# used by the popup watcher (src/popups.rs) and the `atspi_focus_watch` example.
+atspi-connection = { version = "0.14", default-features = false, features = ["wrappers"] }
 atspi-proxies = "0.14"
 zbus = "5"
 thiserror = "2.0"
@@ -24,10 +26,7 @@ tracing = { version = "0.1", default-features = false, features = ["std"] }
 sysinfo = { version = "0.39", default-features = false, features = ["system", "user"] }
 libc = "0.2"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
-
-# Dev-only: the `atspi_focus_watch` diagnostic example needs the atspi event-stream
-# API (`wrappers` feature) and a Stream combinator. Kept out of the production lib
-# build, which keeps `atspi-connection` at `default-features = false` above.
-[dev-dependencies]
-atspi-connection = { version = "0.14", features = ["wrappers"] }
+# Stream/future combinators and a timer for the popup watcher's event loop; both
+# already in the tree via zbus.
 futures-lite = "2"
+async-io = "2"

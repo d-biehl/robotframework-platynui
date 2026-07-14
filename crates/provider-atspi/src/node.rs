@@ -34,6 +34,7 @@ use zbus::proxy::CacheProperties;
 
 use crate::clearable_cell::ClearableCell;
 use crate::error::AtspiError;
+use crate::popups::{PopupRegistry, popup_is_live};
 use crate::timeout::block_on_timeout_call;
 
 const NULL_PATH: &str = "/org/a11y/atspi/accessible/null";
@@ -79,6 +80,11 @@ pub struct AtspiNode {
     pub(crate) cached_child_count: ClearableCell<Option<i32>>,
     /// Cached process ID resolved from D-Bus connection credentials.
     cached_process_id: ClearableCell<Option<u32>>,
+    /// Registry of event-discovered transient popups (see `popups.rs`),
+    /// consulted during [`UiNode::children`] to graft popups under their owner.
+    /// `None` when popup surfacing is disabled; propagated to every descendant
+    /// node, exactly like `conn` and `window_manager`.
+    popups: Option<Arc<PopupRegistry>>,
 }
 
 impl AtspiNode {
@@ -87,11 +93,13 @@ impl AtspiNode {
         obj: ObjectRefOwned,
         parent: Option<&Arc<dyn UiNode>>,
         window_manager: Option<Arc<dyn WindowManager>>,
+        popups: Option<Arc<PopupRegistry>>,
     ) -> Arc<Self> {
         let parent_is_application = parent.map(|p| p.namespace() == Namespace::App).unwrap_or(false);
         let node = Arc::new(Self {
             conn,
             window_manager,
+            popups,
             obj,
             parent: Mutex::new(parent.map(Arc::downgrade)),
             parent_is_application,
@@ -175,7 +183,7 @@ impl AtspiNode {
 
     /// Returns `true` if this node is a real platform top-level window — i.e.
     /// a direct child of an accessible exposing the AT-SPI `Application`
-    /// interface.
+    /// interface, excluding transient popups.
     ///
     /// The role alone is **not** sufficient: Qt MDI subwindows (and similar
     /// embedded surfaces in other toolkits) expose the same `Frame`/`Window`/
@@ -185,11 +193,21 @@ impl AtspiNode {
     /// AT-SPI's `CoordType::Window` is relative to the toolkit's real
     /// top-level window — not to any embedded `Frame`/`Window`/`Dialog`.
     ///
-    /// The result is cached at construction time (see [`Self::new`]); we do
-    /// **not** re-resolve the parent at query time because the parent `Weak`
+    /// The parent check is cached at construction time (see [`Self::new`]); we
+    /// do **not** re-resolve the parent at query time because the parent `Weak`
     /// may have already expired (it does not keep the parent alive).
+    ///
+    /// Transient popups (a context menu's `PopupMenu`, `Menu`, `ToolTip`) hang
+    /// directly under the `Application` exactly like real top-levels do — Qt
+    /// attaches them there (surfaced via popups.rs) — but they are
+    /// override-redirect windows the window manager does not manage. Treating
+    /// them as window surfaces mis-resolves them to the app's *managed* window:
+    /// their bounds (and, via the parent chain, every menu item's bounds) get
+    /// computed from that other window's origin, and window patterns would let
+    /// auto-activation re-stack a window mid-interaction. They must resolve
+    /// their geometry via AT-SPI extents instead.
     fn is_window_surface(&self) -> bool {
-        self.parent_is_application
+        self.parent_is_application && !matches!(self.role(), "PopupMenu" | "Menu" | "ToolTip")
     }
 
     /// Resolve the Unix process ID of the application owning this node's
@@ -261,12 +279,20 @@ impl UiNode for AtspiNode {
         let parent_bus = self.obj.name_as_str().unwrap_or("<unknown>").to_string();
         let children_start = std::time::Instant::now();
 
-        let Some(children) =
+        let Some(mut children) =
             self.accessible().and_then(|proxy| block_on_timeout_call(proxy.get_children()).and_then(|r| r.ok()))
         else {
             warn!(bus = %parent_bus, path = %parent_path, "children: get_children failed or timed out");
             return Box::new(std::iter::empty());
         };
+
+        // Graft event-discovered transient popups owned by this node (e.g. an
+        // open context menu the toolkit does not list in GetChildren) — see
+        // popups.rs. A no-op unless a popup is currently recorded for this node.
+        if let Some(popups) = &self.popups {
+            let conn = self.conn.clone();
+            popups.merge_into(&self.obj, &mut children, |popup| popup_is_live(conn.as_ref(), popup));
+        }
 
         let child_count = children.len();
         let get_children_elapsed = children_start.elapsed();
@@ -289,11 +315,13 @@ impl UiNode for AtspiNode {
         let parent = self.self_weak.get().and_then(|weak| weak.upgrade());
         let conn = self.conn.clone();
         let window_manager = self.window_manager.clone();
+        let popups = self.popups.clone();
         Box::new(children.into_iter().filter_map(move |child| {
             if AtspiNode::is_null_object(&child) {
                 return None;
             }
-            Some(AtspiNode::new(conn.clone(), child, parent.as_ref(), window_manager.clone()) as Arc<dyn UiNode>)
+            Some(AtspiNode::new(conn.clone(), child, parent.as_ref(), window_manager.clone(), popups.clone())
+                as Arc<dyn UiNode>)
         }))
     }
 
@@ -374,7 +402,7 @@ impl UiNode for AtspiNode {
 
 macro_rules! make_proxy {
     ($fn_name:ident, $proxy:ident) => {
-        fn $fn_name<'a>(conn: &'a AccessibilityConnection, obj: &'a ObjectRefOwned) -> Option<$proxy<'a>> {
+        pub(crate) fn $fn_name<'a>(conn: &'a AccessibilityConnection, obj: &'a ObjectRefOwned) -> Option<$proxy<'a>> {
             let name = obj.name_as_str()?;
             let builder = $proxy::builder(conn.connection())
                 .cache_properties(CacheProperties::No)
