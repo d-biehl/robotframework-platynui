@@ -16,6 +16,14 @@ macos_rust_packages := "--package platynui-core --package platynui-link --packag
 egui_test_app := justfile_directory() / "target" / "debug" / if os() == "windows" { "platynui-test-app-egui.exe" } else { "platynui-test-app-egui" }
 # Built platynui-inspector-rs binary the inspector-picker acceptance suite launches (via PLATYNUI_INSPECTOR_BIN).
 inspector_bin := justfile_directory() / "target" / "debug" / if os() == "windows" { "platynui-inspector-rs.exe" } else { "platynui-inspector-rs" }
+# Qt test app on Windows (handed over via PLATYNUI_TEST_APP_QT_*). Paths must be ABSOLUTE — a relative
+# interpreter fails CreateProcess with FileNotFoundError. The project venv holds PySide6 (from the
+# build-native sync), but its python.exe is a uv TRAMPOLINE: launching it spawns the real interpreter as a
+# CHILD with a different PID, which breaks the tests' @ProcessId window-pinning (and orphans the child on
+# teardown). The recipe below therefore launches the BASE interpreter directly and redirects it into the venv
+# via __PYVENV_LAUNCHER__ (the mechanism the trampoline itself uses), so the launched PID owns the window.
+qt_venv_python := justfile_directory() / ".venv" / "Scripts" / "python.exe"
+qt_app_main := justfile_directory() / "apps" / "test-app-qt" / "main.py"
 # headless runs the Linux acceptance lane with no visible window (compositor uses
 # its headless backend, X11 runs under Xvfb). Defaults to true under CI (the
 # conventional `CI` env var is set); override anywhere with `just headless=… …`.
@@ -263,7 +271,7 @@ test-acceptance-x11 *ARGS: build-native
 [windows]
 test-acceptance-windows *ARGS: build-native
     cargo build -p platynui-test-app-egui -p platynui-inspector
-    $env:PLATYNUI_TEST_APP_BIN = "{{ egui_test_app }}"; $env:PLATYNUI_INSPECTOR_BIN = "{{ inspector_bin }}"; $env:PLATYNUI_TEST_APP_QT_PYTHON = ".venv/Scripts/python.exe"; $env:PLATYNUI_TEST_APP_QT_MAIN = "apps/test-app-qt/main.py"; uv run --no-sync robotcode {{ if ARGS != "" { ARGS } else { "--profile real run" } }}
+    $qtBasePy = & "{{ qt_venv_python }}" -c "import sys; print(sys._base_executable)"; $env:PLATYNUI_TEST_APP_BIN = "{{ egui_test_app }}"; $env:PLATYNUI_INSPECTOR_BIN = "{{ inspector_bin }}"; $env:PLATYNUI_TEST_APP_QT_PYTHON = $qtBasePy; $env:PLATYNUI_TEST_APP_QT_PYVENV_LAUNCHER = "{{ qt_venv_python }}"; $env:PLATYNUI_TEST_APP_QT_MAIN = "{{ qt_app_main }}"; uv run --no-sync robotcode {{ if ARGS != "" { ARGS } else { "--profile real run" } }}
 
 # ─── Desktop Integration ────────────────────────────────────────────────────────
 

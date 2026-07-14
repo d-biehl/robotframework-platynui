@@ -21,8 +21,15 @@ Resource          ${CURDIR}/testapp_locators.resource
 
 
 *** Variables ***
-${QT_APP_PYTHON}       %{PLATYNUI_TEST_APP_QT_PYTHON=apps/test-app-qt/.venv/bin/python}
-${QT_APP_MAIN}         %{PLATYNUI_TEST_APP_QT_MAIN=apps/test-app-qt/main.py}
+# Honor PLATYNUI_TEST_APP_QT_PYTHON / _MAIN; otherwise default to the app's own venv + entrypoint. The path
+# must be ABSOLUTE and OS-native — a relative interpreter fails CreateProcess with FileNotFoundError on
+# Windows. os.path.abspath resolves against the project root (robotcode's CWD).
+${QT_APP_PYTHON}       ${{ os.environ.get("PLATYNUI_TEST_APP_QT_PYTHON") or os.path.abspath("apps/test-app-qt/.venv/" + ("Scripts/python.exe" if os.name == "nt" else "bin/python")) }}
+${QT_APP_MAIN}         ${{ os.environ.get("PLATYNUI_TEST_APP_QT_MAIN") or os.path.abspath("apps/test-app-qt/main.py") }}
+# Windows only: the interpreter above is the BASE python; this redirects it into the venv (for PySide6) via
+# __PYVENV_LAUNCHER__ so we sidestep the uv trampoline's PID split (see the test-acceptance-windows recipe).
+# Empty on Linux/macOS (venv python is a symlink, no trampoline) — then it is not passed to the process.
+${QT_APP_PYVENV_LAUNCHER}    %{PLATYNUI_TEST_APP_QT_PYVENV_LAUNCHER=}
 ${APP_WAIT_TIMEOUT}    15s
 # Handle of the instance started by Launch Default Qt Instance — read by Terminate Default Qt Instance.
 ${QT_APP_HANDLE}       ${None}
@@ -35,8 +42,18 @@ Launch Qt Test App
     ...    on the accessibility tree. Extra CLI args (e.g. ``--open-modal``) are forwarded to the app.
     ...    Returns the Process handle; get its app root with ``App Root``.
     [Arguments]    ${title}    ${app_id}    @{extra_args}
-    ${handle}=    Start Process    ${QT_APP_PYTHON}    ${QT_APP_MAIN}    --app-id    ${app_id}    --title    ${title}
-    ...    @{extra_args}    stdout=${TEMPDIR}/qt-${app_id}.log    stderr=STDOUT
+    # On Windows ${QT_APP_PYTHON} is the BASE interpreter; __PYVENV_LAUNCHER__ redirects it into the venv so
+    # PySide6 resolves — this sidesteps the uv trampoline's PID split (see the test-acceptance-windows recipe).
+    # Empty on Linux/macOS (the venv python is a symlink, no trampoline) — then it must NOT be passed. Robot
+    # only treats a LITERAL name=value as process config (not one built from a list/variable), so the env:
+    # argument is written out directly per branch.
+    IF    $QT_APP_PYVENV_LAUNCHER
+        ${handle}=    Start Process    ${QT_APP_PYTHON}    ${QT_APP_MAIN}    --app-id    ${app_id}    --title    ${title}
+        ...    @{extra_args}    env:__PYVENV_LAUNCHER__=${QT_APP_PYVENV_LAUNCHER}    stdout=${TEMPDIR}/qt-${app_id}.log    stderr=STDOUT
+    ELSE
+        ${handle}=    Start Process    ${QT_APP_PYTHON}    ${QT_APP_MAIN}    --app-id    ${app_id}    --title    ${title}
+        ...    @{extra_args}    stdout=${TEMPDIR}/qt-${app_id}.log    stderr=STDOUT
+    END
     ${root}=    App Root    ${handle}
     Wait Until Keyword Succeeds    ${APP_WAIT_TIMEOUT}    0.25s    Node Is Present    ${root}${MAIN_WINDOW}
     RETURN    ${handle}
