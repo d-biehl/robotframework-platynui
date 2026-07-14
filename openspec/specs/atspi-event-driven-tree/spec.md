@@ -25,7 +25,7 @@ The result is that a surfaced popup and its items are reachable by every top-dow
 
 - **WHEN** an open context menu has cascading submenus (each open level its own transient popup window)
 - **THEN** submenu items on every cascade level SHALL resolve by XPath through the grafted root popup, and the hit-test over an open submenu item SHALL return that item with physically correct screen bounds
-- **NOTE** Pointer interaction *into* popups is exact on X11; under the Wayland compositor the client cannot report global popup positions, so pointer-driven submenu scenarios are skipped there until popup-surface positions come from the compositor (follow-up).
+- **NOTE** Exact on X11 via toolkit screen extents; under the PlatynUI compositor the popup rectangles come from the compositor's popup-geometry query (see `compositor-popup-geometry`), so the pointer-driven submenu scenarios run there as well. Generic Wayland (no PlatynUI control socket) remains best-effort.
 
 #### Scenario: A dismissed popup is no longer in the tree
 
