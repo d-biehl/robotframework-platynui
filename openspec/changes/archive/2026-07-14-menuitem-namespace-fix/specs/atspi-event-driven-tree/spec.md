@@ -1,8 +1,7 @@
-# atspi-event-driven-tree Specification
+# atspi-event-driven-tree Specification (delta)
 
-## Purpose
-TBD - created by syncing change atspi-event-driven-tree. Update Purpose after archive.
-## Requirements
+## MODIFIED Requirements
+
 ### Requirement: The AT-SPI provider surfaces transient popups in its tree
 
 The AT-SPI provider SHALL make transient popup windows — right-click context menus, combo-box dropdowns, and tooltips — appear in the UI tree as descendants of the application (or window) they belong to, even when the toolkit does not list them in that ancestor's own `Accessible.GetChildren`. It SHALL do so by observing structural accessibility events (`object:children-changed`, `object:state-changed:showing`) and, for a popup-class node, recording it under the owner resolved from its `parent()` chain, then merging it into that owner's children during tree enumeration. When the popup is dismissed (hidden, removed, or defunct) the provider SHALL stop surfacing it.
@@ -41,13 +40,3 @@ The result is that a surfaced popup and its items are reachable by every top-dow
 
 - **WHEN** the popup belongs to the PlatynUI process itself (e.g. the Inspector's own menus)
 - **THEN** it SHALL NOT be surfaced, consistent with the existing own-process filtering
-
-### Requirement: Event consumption does not block synchronous tree access
-
-The provider SHALL consume accessibility events on a connection dedicated to the event stream, separate from the connection used for synchronous property/child reads. Making blocking D-Bus calls on the same connection whose event stream is being awaited deadlocks the stream (no further events are delivered); the provider SHALL avoid this so that structural events keep flowing while ordinary queries run concurrently.
-
-#### Scenario: Queries keep working while events are being consumed
-
-- **WHEN** the provider is actively receiving accessibility events
-- **THEN** synchronous tree queries (`get_nodes`, attribute reads) SHALL continue to complete normally, and event delivery SHALL NOT stall
-- **NOTE** Verifiable only against a real AT-SPI session with live events, not the mock.
