@@ -34,11 +34,12 @@ The provider SHALL expose the full accessibility subtree beneath each Java windo
 - **THEN** every known role maps to a name from the PlatynUI role vocabulary and unknown roles fall back to generic PascalCase (mock-lane verifiable — pure mapping test; alignment with the AT-SPI2 mapping is followed where the vocabularies coincide, as guidance rather than a requirement)
 
 ### Requirement: Standard attributes and RuntimeId
-Nodes SHALL provide `Name`, `Role`, `Bounds` in desktop coordinates, `IsEnabled`/`IsVisible` (and `IsFocused` where applicable) derived from `states_en_US`, and a `RuntimeId` of the form `jab://<vmID>/<hwnd>[/<child-index-path>]` stable for the element's lifetime. `control:Id` SHALL never be emitted (JAB has no developer-id source).
+Nodes SHALL provide `Name`, `Role`, `Bounds` in desktop coordinates, `IsEnabled`/`IsVisible` (and `IsFocused` where applicable) derived from `states_en_US`, and a `RuntimeId` of the form `jab://<vmID>/<hwnd>[/<child-index-path>]` stable for the element's lifetime; nodes in the `app:Application`-grouped view carry an `app/<pid>` scope prefix (`jab://app/<pid>/…`) so RuntimeIds stay unique across the desktop and app views (mirroring the UIA provider's scoping). `control:Id` SHALL never be emitted (JAB has no developer-id source).
 
 #### Scenario: Bounds match reality
 - **WHEN** the fixture button's `@Bounds` is compared with a pointer click at the bounds center
-- **THEN** the click lands on the button (observable via the fixture's click counter), including on a DPI-scaled monitor
+- **THEN** the click lands on the button (observable via the fixture's click counter, read back on the same runtime), including on a DPI-scaled monitor
+- **NOTE** Top-level `@Bounds` is sourced from the injected `WindowManager` (live `GetWindowRect`), not from JAB, because JAB frame bounds lag out-of-band window moves; descendant bounds are JAB-sourced and DPI-calibrated.
 
 #### Scenario: RuntimeId stable across repeated queries
 - **WHEN** the same unchanged control is located twice in separate queries
@@ -52,8 +53,8 @@ The provider SHALL support: Focusable (`requestFocus`), ActivationTarget (bounds
 - **THEN** `control:Text` of that field reads "hello"
 
 #### Scenario: Toggle state reflects reality
-- **WHEN** the fixture checkbox is activated once
-- **THEN** its `ToggleState` changes from Off to On
+- **WHEN** the fixture checkbox is activated once (e.g. a pointer click)
+- **THEN** its `ToggleState` changes from Off to On, read back on the same runtime (the provider reads JAB state live per access)
 
 #### Scenario: Honest pattern lists
 - **WHEN** a node without an accessible-text interface is inspected
@@ -92,14 +93,14 @@ When a top-level window's class name starts with `SunAwt` but `isJavaWindow` rep
 - **THEN** the diagnostic is logged exactly once for that window and no file or registry mutation occurs
 
 ### Requirement: Single appearance of Java windows
-When the JAB provider has claimed a Java top-level window (successful `GetAccessibleContextFromHWND`), the merged desktop tree SHALL show that window exactly once: the UIA provider skips claimed windows (config `providers.uia.honor_window_claims`, default true). With the kill switch off, both representations MAY appear and remain distinguishable via `@Technology`.
+When the JAB provider has claimed a Java top-level window (successful `GetAccessibleContextFromHWND`), the merged desktop tree SHALL show that window exactly once: the UIA provider skips claimed windows (config `providers.windows-uia.honor_window_claims`, default true — keyed by the UIA provider's id per the config convention). With the kill switch off, both representations MAY appear and remain distinguishable via `@Technology`.
 
 #### Scenario: No duplicates in the merged tree
 - **WHEN** the fixture app runs with the bridge enabled and claims are honored
 - **THEN** exactly one window node with the fixture's title exists under the desktop, and it carries `@Technology = "JAB"`
 
 #### Scenario: Kill switch restores the UIA shell
-- **WHEN** `providers.uia.honor_window_claims` is false
+- **WHEN** `providers.windows-uia.honor_window_claims` is false
 - **THEN** the UIA shell window reappears alongside the JAB window (both locatable, distinguishable via `@Technology`)
 
 ### Requirement: XPath end-to-end
@@ -107,7 +108,7 @@ Standard PlatynUI XPath queries SHALL work against JAB-provided subtrees, includ
 
 #### Scenario: Locate and click by name
 - **WHEN** `//control:Window[@Name='PlatynUI Swing TestApp']//control:Button[@Name='<fixture button name>']` is evaluated and the result is clicked via ActivationTarget
-- **THEN** exactly one node matches and the fixture's click counter increments
+- **THEN** exactly one node matches and the fixture's click counter increments (read back on the same runtime)
 
 #### Scenario: Process-scoped query
 - **WHEN** `app:Application[@ProcessId=<fixture pid>]//control:Window` is evaluated
