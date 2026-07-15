@@ -16,7 +16,7 @@ The project is organized around:
 - A Robot Framework-first library surface, with the current low-level `PlatynUI.BareMetal` library and a higher-level `PlatynUI` library still in migration.
 - A shared Rust UI model with `control`, `item`, `app`, and `native` namespaces.
 - An XPath 2.0-inspired query engine tailored to native desktop UI trees.
-- Native providers for Windows UIA and Linux AT-SPI2, planned macOS AX support, and mock providers for deterministic tests.
+- Native providers for Windows UIA and Linux AT-SPI2, an experimental Java Access Bridge provider for Windows Swing/AWT apps, planned macOS AX support, and mock providers for deterministic tests.
 - Platform devices for user-like interaction, screenshots, highlights, desktop metadata, and window management.
 - A CLI (`platynui-cli`) and GUI inspector (`platynui-inspector`) for diagnostics, exploration, and query development.
 - Python bindings (`platynui-native`) that connect the Rust runtime to Robot Framework and Python tests.
@@ -76,6 +76,7 @@ The Inspector shows the first 5000 XPath search results by default. Use `--searc
 | Component | Windows | Linux X11 | Linux Wayland | macOS | Mock |
 |-----------|---------|-----------|---------------|-------|------|
 | UI tree provider | ✅ UIA | ✅ AT-SPI2 | ✅ AT-SPI2 with Wayland coordinate limits | ❌ AX stub | ✅ |
+| Java Swing/AWT provider | ⚠️ experimental JAB (Java Access Bridge) | ✅ via AT-SPI2 (java-atk-wrapper) | ✅ via AT-SPI2 (java-atk-wrapper) | — (JDK implements AX natively) | — |
 | Pointer | ✅ SendInput | ✅ XTest | ⚠️ EIS / portal / virtual-input / test-compositor backends | ❌ stub | ✅ |
 | Keyboard | ✅ SendInput | ✅ XTest | ⚠️ EIS / portal / virtual-input / test-compositor backends | ❌ stub | ✅ |
 | Desktop info | ✅ Win32 | ✅ XRandR/root geometry | ⚠️ `wl_output` plus compositor enrichment | ❌ stub | ✅ |

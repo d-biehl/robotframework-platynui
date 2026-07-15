@@ -9,7 +9,7 @@ PlatynUI is a cross-platform UI automation toolkit for Robot Framework, built on
 - Rust workspace (`cargo`, crate names prefixed `platynui-`):
 	- `crates/core`, `crates/xpath`, `crates/runtime`, `crates/link`
 	- `crates/platform-{windows,linux-x11,linux,macos,mock}`
-	- `crates/provider-{windows-uia,atspi,macos-ax,mock}`
+	- `crates/provider-{windows-uia,jab,atspi,macos-ax,mock}` (`provider-jab` = Java Access Bridge, Swing/AWT on Windows)
 	- `crates/cli`, `crates/xkb-util`, `crates/playground`
 	- `apps/inspector`, `apps/wayland-compositor`, `apps/wayland-compositor-ctl`, `apps/test-app-egui`, `apps/eis-test-client`
 - Python/Robot workspace (`uv`):

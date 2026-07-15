@@ -30,6 +30,7 @@ crates/
 ├─ link                      # Linking helper macros — platynui-link
 ├─ platform-windows          # Windows devices — platynui-platform-windows
 ├─ provider-windows-uia      # UIA provider — platynui-provider-windows-uia
+├─ provider-jab              # Java Access Bridge provider (Swing/AWT, Windows) — platynui-provider-jab
 ├─ platform-linux-x11        # Linux/X11 devices — platynui-platform-linux-x11
 ├─ platform-linux-wayland    # Linux/Wayland devices — platynui-platform-linux-wayland
 ├─ platform-linux            # Linux session mediator — platynui-platform-linux
@@ -222,6 +223,7 @@ Every node needs an identity that stays stable for as long as the node lives, an
 | Provider | Scheme | Example |
 |----------|--------|---------|
 | UIA | `uia://desktop/<hex>` or `uia://app/<pid>/<hex>` | `uia://desktop/2A0B3C` |
+| JAB (Swing/AWT) | `jab://<vmID>/0x<hwnd>[/<enum-index-path>]`, app view `jab://app/<pid>/…` | `jab://12345/0x2A0B3C/0/3/1` |
 | AT-SPI2 | AT-SPI D-Bus object path | `atspi:///org/a11y/...` |
 | Mock | `mock:<id>` | `mock:window-1` |
 | Desktop | `platynui:Desktop` (reserved) | `platynui:Desktop` |

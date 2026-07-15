@@ -76,6 +76,37 @@ This document covers the Windows-specific implementation details for PlatynUI: p
 
 **Shutdown**: `AtomicBool` guard prevents double shutdown; COM cleanup.
 
+## 2a. Java Access Bridge provider (`provider-jab`, Swing/AWT)
+
+Java Swing/AWT apps implement no UIA provider, so their windows are empty shells to the UIA provider. `crates/provider-jab` (`platynui-provider-jab`, `cfg(windows)`, descriptor id `jab`, technology `JAB`, `event_capabilities: None`) reads them through the JDK's own out-of-process channel — the Java Access Bridge — the same one screen readers use. **Nothing is loaded into the target JVM** beyond the JDK's own bridge, and the provider never mutates target-side configuration (no `.accessibility.properties`, no registry writes; pinned by the `no_configuration_mutation_code_paths_exist` unit test). It is registered via `platynui_link_os_providers!` alongside the UIA provider and structured after `provider-atspi`. Full design: OpenSpec change `add-jab-provider`.
+
+**Threading model** — one dedicated pump thread owns *everything* JAB (`pump.rs`):
+- Loads the client DLL, binds the lowercase-cdecl exports (`dll.rs`), calls `Windows_run()` (which creates the hidden rendezvous window **on the calling thread**), and runs the Win32 message pump that JVM discovery and callbacks require.
+- Services all API calls from the typed `JabClient` (`client.rs`) over an mpsc channel, each with a per-call deadline (`providers.jab.call_timeout_ms`, default 2000 ms). No JAB function is ever called from another thread.
+- Every bridge call is synchronous blocking IPC (`SendMessage` + shared memory) into the target JVM: a hung JVM blocks the pump inside the OS call, but callers time out promptly. After N consecutive timeouts a `vmID` is marked **degraded** and calls fail fast until a `getVersionInfo` health probe succeeds (`DegradedTracker`).
+- When running elevated, `ChangeWindowMessageFilter` opens the UIPI filter for the bridge rendezvous messages (NVDA's workaround). An elevated *target* app remains out of reach.
+
+**Handle discipline** — every `JOBJECT64` from the bridge is owned by a `JabObject` RAII wrapper (`handle.rs`); `Drop` enqueues a `releaseJavaObject` to the pump (Drop can run on any thread), which drains the queue between requests. Releases for a degraded JVM are deferred so the release itself cannot wedge the pump. Identity uses `isSameObject`, never raw handle equality (raw handles for the same object routinely differ). `is_valid()` is a cheap `isSameObject(ctx, ctx)` liveness probe.
+
+**DLL discovery** (`dll.rs`, first hit wins): `providers.jab.dll_path` → `PLATYNUI_JAB_DLL` → `%JAVA_HOME%\jre\bin` → `%JAVA_HOME%\bin` → every `PATH` entry (the DLL directly, plus the JDK 8 quirk that `PATH` holds `<jdk>\bin` while `WindowsAccessBridge-64.dll` sits in `<jdk>\jre\bin`). Connection is lazy on first tree access; a missing DLL logs one actionable diagnostic and yields an empty child stream — runtime construction never fails because of JAB.
+
+**Nodes & attributes** (`node.rs`) — context info is read **live** per attribute/children access (one `getAccessibleContextInfo` snapshot per logical `attributes()`/`children()` call, not cached across calls), so a state change shows on the next read. This matches UIA (live COM reads) and AT-SPI; a sticky node cache would go stale because the runtime reuses the XDM tree across queries without calling `invalidate()` on reused provider nodes.
+- `Role`: PascalCase from `role_en_US` (`map.rs`), aligned to the AT-SPI2 vocabulary where they coincide; unknown roles PascalCased generically. Swing `spinbox` → `SpinButton`; a `label` child of a `list` carrying `selectable` is promoted to `item:ListItem`. Originals under `native:Role`/`native:LocalizedRole`.
+- `Name`: accessible name. `Id`: never emitted (JAB has no AutomationId equivalent).
+- `Bounds`: for **top-level windows** from the injected `WindowManager` (live `GetWindowRect`) — JAB frame bounds lag out-of-band moves; for **descendants** from JAB, through a self-calibrating per-window DPI transform (JAB is system-DPI-aware, PlatynUI is Per-Monitor-V2; the transform is derived from the window's JAB rect vs. `GetWindowRect`, identity at 100 %). The hidden-element sentinel `(-1,-1,-1×-1)` maps to "no Bounds".
+- `IsEnabled`/`IsVisible`/`IsInView`/`IsFocused` and pattern states parsed from `states_en_US`. Pattern attributes: `ToggleState`, `Value`/`MinValue`/`MaxValue`, `IsSelected`, `SelectedItems`/`CanSelectMultiple`, `IsExpanded`/`CanExpand`, `Text` (chunked `getAccessibleTextRange`). `native:States`/`native:Interfaces`/`native:IndexInParent`/`native:NativeWindowHandle` passthrough.
+- `RuntimeId`: `jab://<vmID>/0x<hwnd>[/<enum-index-path>]`, app view scoped `jab://app/<pid>/…` (mirrors UIA). The index path uses the *enumeration* index, not JAB's unreliable `indexInParent`. `app:Application` node is `jab://app/<pid>` with process metadata (sysinfo + PE-header architecture).
+
+**Patterns**: Focusable (`requestFocus`), ActivationTarget (bounds center), TextContent + TextEditable (new core `TextEditableAction` → `setTextContents`, 1023-UTF-16-unit write limit), Toggleable, StatefulValue, Selectable/SelectionProvider, Expandable — each advertised only when the backing JAB interface/state is present. Window capability patterns on top-level nodes delegate to the injected `WindowManager` via `native:NativeWindowHandle` (the atspi blueprint), so activate/move/close/… reuse the Win32 implementation below.
+
+**Single appearance**: the JAB provider registers each claimed Java HWND in a process-wide claims registry (`platynui_core::platform::window_claims`); the UIA provider skips windows claimed by another provider during root streaming (`providers.windows-uia.honor_window_claims`, default true). Kill switch off → both representations appear, distinguishable via `@Technology`.
+
+**Enablement diagnostics**: a top-level whose class starts with `SunAwt` but which fails `isJavaWindow` triggers a warn-once-per-HWND diagnostic naming both enablement paths (the `-Djavax.accessibility.assistive_technologies=…AccessBridge` launch flag and `jabswitch -enable`). Never mutation.
+
+**Events**: not registered in this MVP (`event_capabilities: None`, runtime polls — the same as UIA). JAB callbacks (`setPropertyStateChangeFP` etc.) are a genuine future enhancement for push-driven `event_capabilities` (targeted invalidation instead of polling); they are **not** needed for correct reads (see the live-read model above) and note that they must be registered *before* `Windows_run()` to fire.
+
+**Config keys**: `providers.jab.enabled` (default true), `providers.jab.dll_path`, `providers.jab.call_timeout_ms` (default 2000); `providers.windows-uia.honor_window_claims` (default true).
+
 ## 3. WindowManager (Win32)
 
 - `resolve_window()`: reads `native:NativeWindowHandle` → HWND (+ PID-fallback via `EnumWindows`)
