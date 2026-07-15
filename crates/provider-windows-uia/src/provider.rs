@@ -40,6 +40,7 @@ struct ElementAndAppIter {
     seen: HashSet<i32>,
     pending_apps: VecDeque<i32>,
     raw_phase_complete: bool,
+    honor_window_claims: bool,
 }
 
 /// `EnumWindows` callback: collects each top-level `HWND` into the `Vec` passed
@@ -196,8 +197,14 @@ fn immersive_shell_windows() -> Vec<windows::Win32::Foundation::HWND> {
 /// is set, only windows owned by that process are returned — used to list one
 /// application's top-level windows without navigating UIA's tree (which would risk
 /// the OLEACC stall described above).
+///
+/// With `honor_window_claims` set (the `providers.windows-uia.honor_window_claims`
+/// config, default true), windows another provider has claimed in the process-wide
+/// registry (e.g. Java windows fully represented by the JAB provider) are skipped,
+/// so each window appears exactly once in the merged tree.
 pub(crate) fn ready_top_level_elements(
     pid_filter: Option<i32>,
+    honor_window_claims: bool,
 ) -> Vec<windows::Win32::UI::Accessibility::IUIAutomationElement> {
     use std::collections::HashSet;
     use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowThreadProcessId};
@@ -243,6 +250,11 @@ pub(crate) fn ready_top_level_elements(
                 continue;
             }
         }
+        if honor_window_claims
+            && platynui_core::platform::window_claims::is_claimed_by_other(hwnd.0 as u64, PROVIDER_ID)
+        {
+            continue;
+        }
         if !window_is_ready(hwnd) {
             continue;
         }
@@ -254,20 +266,21 @@ pub(crate) fn ready_top_level_elements(
 }
 
 impl ElementAndAppIter {
-    fn new(parent: Arc<dyn UiNode>) -> Self {
+    fn new(parent: Arc<dyn UiNode>, honor_window_claims: bool) -> Self {
         Self {
-            elements: ready_top_level_elements(None).into_iter(),
+            elements: ready_top_level_elements(None, honor_window_claims).into_iter(),
             parent,
             seen: HashSet::new(),
             pending_apps: VecDeque::new(),
             raw_phase_complete: false,
+            honor_window_claims,
         }
     }
 
     fn stream_next_pending_app(&mut self) -> Option<Arc<dyn UiNode>> {
         while let Some(pid) = self.pending_apps.pop_front() {
             if pid > 0 && pid != *SELF_PID {
-                let app = crate::node::ApplicationNode::new(pid, &self.parent);
+                let app = crate::node::ApplicationNode::new(pid, &self.parent, self.honor_window_claims);
                 return Some(app as Arc<dyn UiNode>);
             }
         }
@@ -321,8 +334,21 @@ impl UiTreeProviderFactory for WindowsUiaFactory {
         &DESCRIPTOR
     }
 
-    fn create(&self, _config: &RuntimeConfig) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
-        Ok(Arc::new(WindowsUiaProvider::new()))
+    fn create(&self, config: &RuntimeConfig) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
+        Ok(Arc::new(self.build(config)))
+    }
+}
+
+impl WindowsUiaFactory {
+    /// Build a concrete provider from `config` — split out from `create` so
+    /// the config wiring is unit-testable without a live UIA session.
+    fn build(&self, config: &RuntimeConfig) -> WindowsUiaProvider {
+        // Kill switch for the window-claims cooperation (see
+        // `platynui_core::platform::window_claims`): with `false`, windows
+        // claimed by other providers (e.g. JAB) reappear as UIA shells.
+        let honor_window_claims =
+            config.provider(PROVIDER_ID).and_then(|uia| uia.get_bool("honor_window_claims")).unwrap_or(true);
+        WindowsUiaProvider::new(honor_window_claims)
     }
 }
 
@@ -335,10 +361,12 @@ impl UiTreeProviderFactory for WindowsUiaFactory {
 pub struct WindowsUiaProvider {
     descriptor: &'static ProviderDescriptor,
     is_shutdown: AtomicBool,
+    /// `providers.windows-uia.honor_window_claims` (default true).
+    honor_window_claims: bool,
 }
 
 impl WindowsUiaProvider {
-    fn new() -> Self {
+    fn new(honor_window_claims: bool) -> Self {
         static DESCRIPTOR: LazyLock<ProviderDescriptor> = LazyLock::new(|| {
             ProviderDescriptor::new(
                 PROVIDER_ID,
@@ -348,7 +376,7 @@ impl WindowsUiaProvider {
             )
         });
 
-        Self { descriptor: &DESCRIPTOR, is_shutdown: AtomicBool::new(false) }
+        Self { descriptor: &DESCRIPTOR, is_shutdown: AtomicBool::new(false), honor_window_claims }
     }
 }
 
@@ -382,7 +410,7 @@ impl UiTreeProvider for WindowsUiaProvider {
         })?;
 
         // Stream: desktop top-level windows (excluding own process), then one app:Application per PID.
-        let it = ElementAndAppIter::new(parent);
+        let it = ElementAndAppIter::new(parent, self.honor_window_claims);
         Ok(Box::new(it))
     }
 
@@ -445,3 +473,23 @@ pub static WINDOWS_UIA_FACTORY: WindowsUiaFactory = WindowsUiaFactory;
 register_provider!(&WINDOWS_UIA_FACTORY);
 
 // (no second specialized impl; Windows path handled above with cfg guards inside)
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use platynui_core::config::ConfigMap;
+
+    #[test]
+    fn honor_window_claims_defaults_to_true() {
+        let provider = WindowsUiaFactory.build(&RuntimeConfig::default());
+        assert!(provider.honor_window_claims);
+    }
+
+    #[test]
+    fn honor_window_claims_can_be_disabled() {
+        let providers = ConfigMap::new().with(PROVIDER_ID, ConfigMap::new().with("honor_window_claims", false));
+        let config = RuntimeConfig::new(ConfigMap::new(), providers);
+        let provider = WindowsUiaFactory.build(&config);
+        assert!(!provider.honor_window_claims);
+    }
+}

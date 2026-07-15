@@ -1447,26 +1447,30 @@ pub struct ApplicationNode {
     self_weak: std::sync::OnceLock<Weak<dyn UiNode>>,
     rid_cell: std::sync::OnceLock<RuntimeId>,
     name_cell: std::sync::OnceLock<String>,
+    /// Whether the window enumeration for this app's children skips windows
+    /// claimed by other providers (threaded in from the provider config).
+    honor_window_claims: bool,
 }
 unsafe impl Send for ApplicationNode {}
 unsafe impl Sync for ApplicationNode {}
 
 impl ApplicationNode {
-    fn build(pid: i32, parent: Option<Weak<dyn UiNode>>) -> Arc<Self> {
+    fn build(pid: i32, parent: Option<Weak<dyn UiNode>>, honor_window_claims: bool) -> Arc<Self> {
         let node = Arc::new(Self {
             pid,
             parent: Mutex::new(parent),
             self_weak: std::sync::OnceLock::new(),
             rid_cell: std::sync::OnceLock::new(),
             name_cell: std::sync::OnceLock::new(),
+            honor_window_claims,
         });
         let arc: Arc<dyn UiNode> = node.clone();
         let _ = node.self_weak.set(Arc::downgrade(&arc));
         node
     }
 
-    pub fn new(pid: i32, parent: &Arc<dyn UiNode>) -> Arc<Self> {
-        Self::build(pid, Some(Arc::downgrade(parent)))
+    pub fn new(pid: i32, parent: &Arc<dyn UiNode>, honor_window_claims: bool) -> Arc<Self> {
+        Self::build(pid, Some(Arc::downgrade(parent)), honor_window_claims)
     }
 
     /// Parent-less application node used to cap an off-tree ancestor chain (the
@@ -1475,7 +1479,7 @@ impl ApplicationNode {
     /// the picked node's `parent()` chain up to here, then matches it against the
     /// desktop root's children; `parent()` is `None`, so it is the topmost ancestor.
     pub fn orphan(pid: i32) -> Arc<Self> {
-        Self::build(pid, None)
+        Self::build(pid, None, true)
     }
 }
 
@@ -1493,8 +1497,12 @@ struct AppWindowIter {
 }
 
 impl AppWindowIter {
-    fn new(pid: i32, parent: Option<Arc<dyn UiNode>>) -> Self {
-        Self { pid, elements: crate::provider::ready_top_level_elements(Some(pid)).into_iter(), parent }
+    fn new(pid: i32, parent: Option<Arc<dyn UiNode>>, honor_window_claims: bool) -> Self {
+        Self {
+            pid,
+            elements: crate::provider::ready_top_level_elements(Some(pid), honor_window_claims).into_iter(),
+            parent,
+        }
     }
 }
 
@@ -1554,7 +1562,7 @@ impl UiNode for ApplicationNode {
     }
     fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
         let parent = self.self_weak.get().and_then(|w| w.upgrade());
-        Box::new(AppWindowIter::new(self.pid, parent))
+        Box::new(AppWindowIter::new(self.pid, parent, self.honor_window_claims))
     }
 
     fn has_children(&self) -> bool {
