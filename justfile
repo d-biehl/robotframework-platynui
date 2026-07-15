@@ -24,6 +24,9 @@ inspector_bin := justfile_directory() / "target" / "debug" / if os() == "windows
 # via __PYVENV_LAUNCHER__ (the mechanism the trampoline itself uses), so the launched PID owns the window.
 qt_venv_python := justfile_directory() / ".venv" / "Scripts" / "python.exe"
 qt_app_main := justfile_directory() / "apps" / "test-app-qt" / "main.py"
+# Swing test app (plain Java 8, built with javac — see apps/test-app-swing/README.md).
+swing_app_dir := justfile_directory() / "apps" / "test-app-swing"
+swing_app_classes := swing_app_dir / "build" / "classes"
 # headless runs the Linux acceptance lane with no visible window (compositor uses
 # its headless backend, X11 runs under Xvfb). Defaults to true under CI (the
 # conventional `CI` env var is set); override anywhere with `just headless=… …`.
@@ -272,6 +275,34 @@ test-acceptance-x11 *ARGS: build-native
 test-acceptance-windows *ARGS: build-native
     cargo build -p platynui-test-app-egui -p platynui-inspector
     $qtBasePy = & "{{ qt_venv_python }}" -c "import sys; print(sys._base_executable)"; $env:PLATYNUI_TEST_APP_BIN = "{{ egui_test_app }}"; $env:PLATYNUI_INSPECTOR_BIN = "{{ inspector_bin }}"; $env:PLATYNUI_TEST_APP_QT_PYTHON = $qtBasePy; $env:PLATYNUI_TEST_APP_QT_PYVENV_LAUNCHER = "{{ qt_venv_python }}"; $env:PLATYNUI_TEST_APP_QT_MAIN = "{{ qt_app_main }}"; uv run --no-sync robotcode {{ if ARGS != "" { ARGS } else { "--profile real run" } }}
+
+# ─── Swing Test App (Java fixture for the JAB provider work) ───────────────────
+
+# Build the Swing test app with plain javac (requires a JDK 8+ on PATH).
+[unix]
+build-test-app-swing:
+    @command -v javac >/dev/null 2>&1 || { echo "error: javac not found on PATH - install a JDK 8+ (e.g. Eclipse Temurin) to build the Swing test app"; exit 1; }
+    rm -rf "{{ swing_app_classes }}"
+    mkdir -p "{{ swing_app_classes }}"
+    find "{{ swing_app_dir }}/src" -name '*.java' -print0 | xargs -0 javac -encoding UTF-8 -source 8 -target 8 -d "{{ swing_app_classes }}"
+
+# Build the Swing test app with plain javac (requires a JDK 8+ on PATH).
+[windows]
+build-test-app-swing:
+    if (-not (Get-Command javac -ErrorAction SilentlyContinue)) { Write-Error "javac not found on PATH - install a JDK 8+ (e.g. Eclipse Temurin) to build the Swing test app"; exit 1 }
+    if (Test-Path "{{ swing_app_classes }}") { Remove-Item -Recurse -Force "{{ swing_app_classes }}" }
+    New-Item -ItemType Directory -Force "{{ swing_app_classes }}" | Out-Null; $files = Get-ChildItem -Recurse "{{ swing_app_dir }}/src" -Filter *.java | ForEach-Object FullName; javac -encoding UTF-8 -source 8 -target 8 -d "{{ swing_app_classes }}" $files
+
+# Run the Swing test app; the Java Access Bridge is enabled for this process only
+# (no jabswitch, no persistent config). ARGS mirror the Qt/egui apps.
+[windows]
+run-test-app-swing *ARGS: build-test-app-swing
+    java "-Djavax.accessibility.assistive_technologies=com.sun.java.accessibility.AccessBridge" -cp "{{ swing_app_classes }}" platynui.testapp.Main {{ ARGS }}
+
+# Run the Swing test app (Linux ATK-wrapper enablement is documented in the app README).
+[unix]
+run-test-app-swing *ARGS: build-test-app-swing
+    java -cp "{{ swing_app_classes }}" platynui.testapp.Main {{ ARGS }}
 
 # ─── Desktop Integration ────────────────────────────────────────────────────────
 

@@ -3751,6 +3751,7 @@ name = "playground"
 version = "0.13.0-dev.2"
 dependencies = [
  "anyhow",
+ "libloading",
  "platynui-core",
  "platynui-link",
  "platynui-platform-linux",
@@ -3762,6 +3763,7 @@ dependencies = [
  "platynui-runtime",
  "serde",
  "serde_json",
+ "windows",
 ]
 
 [[package]]
