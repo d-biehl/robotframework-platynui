@@ -1,0 +1,97 @@
+## Context
+
+Swing exposes no UIA provider on Windows; its accessibility data is reachable only through the Java Access Bridge (JAB): the target JVM loads the JDK-own `JavaAccessBridge-64.dll` when accessibility is enabled, and the automation client loads `WindowsAccessBridge-64.dll` and talks to the JVM over hidden-window messages plus shared memory. This is the channel screen readers use; it requires no foreign code in the target process — which matches the hard project constraint (secured customer environments, no instrumentation).
+
+Facts this design builds on (verified during the exploration against Oracle docs, OpenJDK sources — `AccessBridgeCalls.c`, `WinAccessBridge.cpp` — the local Temurin 8 headers under `include\win32\bridge`, and prior-art clients NVDA/access-bridge-explorer/Robocorp):
+
+- `Windows_run()` creates a hidden window on the calling thread; JVM discovery (broadcast rendezvous) and all callbacks arrive as window messages there. A message pump on that thread is mandatory; rendezvous is asynchronous.
+- All API calls are synchronous blocking IPC (`SendMessage` + shared-memory reply). A hung JVM blocks the calling thread.
+- Handles (`JOBJECT64` = `jlong`, also in the `-32` API) are opaque references the client must release via `releaseJavaObject`, or the **target JVM** leaks. Identity comparison only via `isSameObject`.
+- `getAccessibleContextInfo` returns name, description, localized + `en_US` role and state strings, geometry, `indexInParent`, `childrenCount`, and interface flags in **one** call (~6 KB struct). Structs use natural MSVC alignment (no packing pragmas), fixed UTF-16 buffers (256/1024), silent truncation. Exports are lowercase cdecl (`getAccessibleContextInfo`, not the header wrapper names).
+- JAB carries no stable identifier: `Component#setName` is not exposed, there is no AutomationId equivalent.
+- 64-bit client ↔ 32-bit JVM works (wire format is bitness-neutral).
+- Cross-repo blueprint: `provider-atspi` — factory reading `config.provider(PROVIDER_ID)` ([crates/provider-atspi/src/lib.rs:65-76](../../crates/provider-atspi/src/lib.rs)), lazy connection in a `ClearableCell`, per-runtime `WindowManager` injection for window nodes ([crates/provider-atspi/src/lib.rs:85-90](../../crates/provider-atspi/src/lib.rs)), bounded-timeout wrappers around blocking backend calls (`timeout.rs`).
+
+This change depends on `add-swing-test-app`: the fixture app is the test target and the playground spike delivers ground truth (verbatim role strings, rendezvous timing, DPI behavior of JAB bounds under Per-Monitor-V2, release-discipline observations). Spike findings land in the *Findings* subsection at the end of this document before implementation starts.
+
+## Goals / Non-Goals
+
+**Goals:**
+
+- Swing/AWT windows appear in the PlatynUI tree on Windows with full subtrees, correct desktop-coordinate bounds, normalized roles, and working core patterns — locatable via XPath and actionable like any other window.
+- Selector affinity with Linux where it comes for free: JAB and AT-SPI2 role vocabularies largely coincide (shared Java Accessibility API ancestry), and the role map follows the AT-SPI2 column of the architecture mapping table where they do — a soft goal, not a requirement. Divergences (see Findings) are resolved in favor of the best PlatynUI semantics.
+- Strict out-of-process operation with actionable diagnostics; the provider never mutates target-side configuration.
+- Robustness: one unresponsive JVM must not take down the runtime or other providers.
+- Each Java top-level window appears exactly once in the merged desktop tree.
+
+**Non-Goals:**
+
+- **Event support** — MVP ships `event_capabilities: None` (runtime polls, as it already does for UIA). JAB's callback set (focus, property, child change, popup-menu visibility) is a designed-for follow-up, not part of this change.
+- **Variant A (JAB→UIA client-side proxy via `IUIAutomationProxyFactory`)** — parked, not rejected. Rationale, condensed from the exploration: the proxy route implements Microsoft's provider contract (Simple/Fragment/FragmentRoot + one COM interface per pattern) instead of calling a C API; client-side proxies can raise events only in response to WinEvents (Swing fires none for lightweight components), so the route is permanently pull-only; UIA's closed ControlType enum flattens JAB roles like "internal frame"/"root pane"; and a JAB call blocking inside a UIA-core operation stalls the process-wide UIA client machinery with no cancellation contract. The JAB client modules of this crate are deliberately extractable so a later experiment can reuse them.
+- In-process Java agent (QF-Test style) — rejected permanently under the security constraint; consequence accepted: no `control:Id` for Swing, locators anchor on `accessibleName`.
+- JavaFX (already served by UIA natively), Linux/macOS (served by existing/planned providers), 32-bit client builds, bundling the (GPLv2+CPE) client DLL, `AccessibleTable` mapping, and `TextSelection` — follow-ups.
+
+## Decisions
+
+1. **Native PlatynUI provider (variant B), structured after `provider-atspi`.** Providers are the architecture's extension point for accessibility technologies (architecture.md §7); JAB is a technology, sibling to AT-SPI2 — not a UIA dialect. Crate `crates/provider-jab`, package `platynui-provider-jab`, `cfg(target_os = "windows")` registration, descriptor id `jab`, technology "JAB".
+
+2. **JAB client as private modules, not a separate crate** (`ffi.rs`, `dll.rs`, `pump.rs`, `handle.rs`): mirrors atspi keeping `connection.rs`/`timeout.rs` in-crate. Extracting a shared crate now would serve only the parked variant A — premature. Extraction later is mechanical.
+
+3. **One dedicated pump thread owns everything JAB.** It loads the DLL, binds exports, calls `Windows_run()`, pumps messages, and services requests from provider calls via an mpsc channel; replies return through per-request oneshot channels with a deadline (`providers.jab.call_timeout_ms`, default 2000 ms). No JAB function is ever called from another thread. This is the NVDA/Robocorp-validated model. *Trade-off:* a timeout returns an error to the caller, but the pump thread itself may stay blocked inside `SendMessage` until the JVM responds — requests queue behind it. Mitigation: after N consecutive timeouts a `vmID` is marked degraded and skipped until a successful health probe (`getVersionInfo`).
+
+4. **RAII handles with deferred release.** A `JabObject` owns `(vmID, JOBJECT64)`; `Drop` enqueues a release command to the pump thread (never a direct call — Drop can run anywhere). The pump drains the release queue between requests. Struct members that carry embedded handles (tables — out of scope, but the mechanism is general) release through the same path.
+
+5. **DLL discovery, lazy connection, inert-when-absent.** Order: `providers.jab.dll_path` → `%JAVA_HOME%\jre\bin` / `%JAVA_HOME%\bin` → `PATH` search. Connection is established lazily on first tree access (atspi `ClearableCell` pattern); a missing DLL logs one actionable diagnostic and yields an empty child stream — runtime construction never fails because of JAB. Kill switch: `providers.jab.enabled` (default true; the provider is inert without a DLL or Java windows anyway).
+
+6. **Top-level discovery via `EnumWindows` + `isJavaWindow`; roots stream like the UIA provider's.** Each Java top-level yields a `control:Window` (role `frame`/`dialog`/`window` → `Window`/`Dialog`) carrying `native:NativeWindowHandle`; window capability patterns delegate to the injected per-runtime `WindowManager` (the atspi blueprint) — activate/move/close/minimize therefore reuse the existing Win32 implementation unchanged. `app:Application` grouping via `GetWindowThreadProcessId(hwnd)` → PID, RuntimeId `jab://app/<pid>`, process metadata sourced the same way the UIA provider does it (own copy for now; sharing a helper is a later cleanup).
+
+7. **One `getAccessibleContextInfo` per node, cached; `invalidate()` clears the cache.** All standard attributes derive from the cached info: `Name` (accessible name), `Role` (PascalCase from `role_en_US`, unknown roles PascalCased generically, never a failure), `Bounds` (desktop pixels — subject to the spike's DPI finding), `IsEnabled`/`IsVisible`/`IsFocused` and pattern states parsed from the comma-separated `states_en_US` tokens (`enabled`, `visible`+`showing`, `focused`, `checked`, `selected`, `expanded`, `editable`). Originals preserved: `native:Role` (en_US), `native:LocalizedRole`, `native:States`, `native:Description`, `native:IndexInParent`, `native:Interfaces` (bitfield decoded to names). Children are fetched lazily via `getAccessibleChildFromContext(parent, i)` with `childrenCount` from the cached info.
+
+8. **Role map keyed on `role_en_US`, pinned by unit test against the PlatynUI role vocabulary.** The normative target is the role table in architecture.md §6.4; a unit test pins the mapping for every role the fixture app emits (spike-harvested list). Where the JAB and AT-SPI2 vocabularies coincide ("push button", "check box", …) the map follows the AT-SPI2 column, so the same Swing app tends to answer the same selectors on Windows and Linux — guidance, not a hard requirement.
+
+9. **RuntimeId scheme: `jab://<vmID>/<hwnd>` for a top-level, plus `/<child-index-path>` for descendants** (e.g. `jab://12345/0x2A0B3C/0/3/1`). The index path is free during traversal (children are always reached via parent+index), and `vmID` dies with the JVM so stale ids invalidate naturally. *Known compliance gray zone:* structural reordering shifts sibling paths even though the Java objects live on; JAB offers nothing better without an `isSameObject`-based identity cache, which is deferred until events land. Documented as a limitation; `control:Id` is never emitted (no source for it).
+
+10. **Patterns (MVP set):** Element; Focusable (`requestFocus` + `focused` state); ActivationTarget (bounds center — JAB has no clickable-point API); TextContent (`accessibleText` interface flag → chunked `getAccessibleTextRange`, chunk size `MAX_BUFFER_SIZE-1`); TextEditable (`editable` state + `setTextContents`, noting its `MAX_STRING_SIZE-1` write limit); Toggleable (`checked`); StatefulValue (value-interface strings parsed numerically, min/max included); Selectable/SelectionProvider (`AccessibleSelection` interface); Expandable (`expanded`/`expandable`). Supported-pattern lists stay honest per the core contract testkit.
+
+11. **Duplicate-window suppression via a small window-claims seam in `platynui-core`.** The JAB provider registers claimed HWNDs (on successful `GetAccessibleContextFromHWND`) in a process-wide claims registry; `provider-windows-uia` consults it during root streaming and skips claimed windows (config kill switch `providers.uia.honor_window_claims`, default true). *Alternatives considered:* (a) static class-name filter (`SunAwt*`) in the UIA provider — makes Java windows vanish entirely when JAB is disabled or the DLL is missing; (b) UIA provider depending on the JAB crate for an `is_active()` probe — a cross-provider dependency inversion. The claims registry keeps both providers decoupled and semantically honest ("this window is represented elsewhere"). *Accepted transient:* during the JAB rendezvous a Java window may appear twice for one polling cycle; the next poll deduplicates. Disambiguation meanwhile via `@Technology`.
+
+12. **Diagnostics, never mutation.** A top-level whose class name starts with `SunAwt` but where `isJavaWindow` is false triggers a warn-once-per-HWND log naming both enablement paths (launch flag / `jabswitch`). DLL discovery result and `getVersionInfo` are logged at connect. The provider writes no registry keys and no `.accessibility.properties` — NVDA's auto-enable behavior is explicitly not copied.
+
+13. **Testing per testing-strategy layers.** Unit: role map + parity check, state parsing, FFI layout assertions (compile-time size/offset checks for `AccessibleContextInfo` against header-derived constants). Real-provider lane: new `tests/acceptance/swing` suite (profile `real`) launching the fixture app via env-var handover like the Qt lane (`justfile` `test-acceptance-windows` recipe, [justfile:270-274](../../justfile)): locate window by title, walk stage-1/2 controls by `@Name`, click → assert `clicks-1`, type into the text field and read it back, toggle the checkbox, read slider value, activate/move/close the window. The suite requires a JDK on the runner and skips with a clear message when absent. Mock lane is untouched — JAB behavior is inherently real-provider-only.
+
+## Risks / Trade-offs
+
+- [Hung JVM blocks the pump thread inside `SendMessage`; queued requests stall] → per-call deadline returns errors promptly; degraded-vmID skip after repeated timeouts; other providers unaffected (own thread); accepted residual: the stuck OS call itself cannot be cancelled.
+- [JAB bounds may be DPI-virtualized for non-DPI-aware Java 8 apps while PlatynUI is Per-Monitor-V2] → spike finding decides; if virtualized, scale via the window's monitor DPI before emitting `Bounds`. Open until the findings section is filled.
+- [Role vocabulary drift across JDK vendors/versions] → map from `role_en_US` only, PascalCase-fallback for unknowns, spike-harvested table pinned by unit test.
+- [Handle leaks degrade the *target* app] → RAII + release queue; acceptance test walks the tree repeatedly and asserts stable behavior; leak would surface as JVM heap growth in long sessions (documented for triage).
+- [Rendezvous is asynchronous: first query after startup may miss Java windows] → bounded pump-wait on first access; polling model re-discovers on subsequent queries; acceptance setup waits for the window to appear.
+- [Elevation mismatch (UIPI) silently blocks the channel] → apply NVDA's `ChangeWindowMessageFilter` workaround when PlatynUI runs elevated; document that an elevated target app is out of reach.
+- [jlink-stripped runtimes lack `jdk.accessibility`] → nothing to bridge; the SunAwt diagnostic covers the symptom; documented as a target-app prerequisite.
+- [Duplicate `app:Application` nodes when one PID has both native and Java top-levels] → rare (JVM splash screens); accepted for MVP, noted for the events/polish follow-up.
+- [`setTextContents` caps writes at 1023 chars] → TextEditable documents the limit; longer inserts are a follow-up (caret APIs).
+
+## Migration Plan
+
+Additive: new crate + link wiring + core claims seam + one guarded skip in the UIA provider's root streaming. **Requires a native rebuild** (`just build-native`) for Python/Robot consumers, and the new package added to the `justfile` Windows wheel package list. Behavior changes only where the JAB provider is active: Java windows gain content; UIA's empty Java shells disappear from the tree when claimed (revert via `providers.uia.honor_window_claims=false` or `providers.jab.enabled=false`). Rollback: disable via config, or unlink the crate — no data, no persisted state anywhere.
+
+## Open Questions
+
+- DPI correction needed or not — decided by the spike's checklist item (d); blocks `Bounds` finalization only.
+- Default `call_timeout_ms` (2000 ms assumed) — tune against real apps once the acceptance lane runs.
+- Whether `getVisibleChildren` batching (256/call) is worth adding to the children iterator in the MVP or only with the events follow-up.
+- JList entries report role `label` (a Swing `AccessibleRole` quirk — the Linux ATK wrapper shows the same): pass them through as `Label`, or contextually promote to `item:ListItem` when the parent is a `list` and the node carries `selectable`? Promotion gives Swing lists working `item:` selectors, analogous to the menu-entry namespace decision just taken for AT-SPI (`menuitem-namespace-fix`). Decide during the node-layer implementation.
+
+## Findings (from the add-swing-test-app spike, 2026-07-15, Temurin 8 / Win11)
+
+Spike: `crates/playground/src/bin/jab_spike.rs` against the fixture app; two full walks, 34 nodes each, 0 `getAccessibleContextInfo` failures, 0 null children.
+
+- **Rendezvous timing**: first `isJavaWindow` hit **16 ms** after `Windows_run()` with the fixture already running; re-discovery in a later dump 7 ms. The bounded pump-and-retry loop (25 ms steps) never needed a second iteration on this machine — the planned first-access wait can be generous (e.g. 1–2 s) without practical cost.
+- **Struct layout**: `AccessibleContextInfo` = 6188 bytes confirmed (compile-time assert plus 68 clean reads with plausible values). Lowercase cdecl exports confirmed; DLL discovered at `<jdk8>\jre\bin\WindowsAccessBridge-64.dll` — note the JDK 8 quirk that `PATH` holds `<jdk>\bin` while the DLL sits in `<jdk>\jre\bin` (the spike derives it from `java.exe`'s location; the provider's discovery must too).
+- **Verbatim `role_en_US` vocabulary harvested** (localized `role` was identical throughout on this system): `frame`, `root pane`, `panel`, `layered pane`, `menu bar`, `menu`, `menu item`, `push button`, `text`, `label`, `check box`, `radio button`, `combo box`, `popup menu`, `scroll pane`, `viewport`, `list`, `scroll bar`, `slider`, **`spinbox`**, `progress bar`. Mapping watch-outs: JSpinner reports `spinbox` (AT-SPI says `spin button`), and **JList items report role `label`** with `selectable`/`transient` states — the role map must decide both cases (the list-item one is an Open Question: pass-through vs. contextual `item:ListItem` promotion).
+- **`indexInParent` is unreliable — use the enumeration index.** The combo box's popup child reports `indexInParent = -1`, the spinner's inner editor panel reports `2` while being enumerated as child 0. The RuntimeId child path MUST be built from the index passed to `getAccessibleChildFromContext`, never from `info.indexInParent` (decision 9 stands, sharpened).
+- **Identity semantics confirmed on first contact**: two `GetAccessibleContextFromHWND` lookups of the same window returned different raw handles with `isSameObject` = TRUE — raw handle equality is meaningless, exactly as researched.
+- **Bounds/DPI**: at 96 DPI (100 % scaling) the JAB frame bounds match `GetWindowRect` exactly. **The scaled-monitor case remains unverified** (this machine runs 100 %); provider task 1.1 must re-check on a scaled display before `Bounds` is finalized. Hidden/off-screen elements (glass pane, items of closed menus, collapsed combo popup content) report the sentinel `(-1,-1,-1x-1)` — the provider must map that to "no Bounds attribute", not emit garbage.
+- **Release discipline**: 35 `releaseJavaObject` calls per pass (34 walked nodes + the double-lookup root); two identical passes with the JVM staying healthy.
+- **Tree-structure notes for the node layer**: Swing wraps content as `frame → root pane → {glass pane (a bounds-less `panel`), layered pane → {menu bar, content}}`; menu items and combo popup contents are enumerable while closed (good for polling — no popup-event dependency for menus in the MVP). `JButton` exposes the `value` interface (Swing's `AccessibleValue` on `AbstractButton`), so interface bits alone must not drive `StatefulValue`; combine with role/states.
+- **Environment caveat**: this machine already had `%USERPROFILE%\.accessibility.properties` (jabswitch content), so the per-process `-D` flag could not be isolation-tested here (its mechanism is verified at JDK source level; the flag is redundant-but-harmless when the user file exists). A pristine machine/CI runner will exercise the flag path.
