@@ -1,0 +1,347 @@
+//! Typed, thread-safe API over the pump thread.
+//!
+//! Every method marshals one bridge call onto the pump thread and waits for
+//! the reply with the configured per-call deadline. A timeout returns an error
+//! to the caller immediately, but the pump thread itself may still be blocked
+//! inside the OS call until the JVM responds — repeated timeouts therefore
+//! mark the `vmID` degraded and new calls against it fail fast until a
+//! `getVersionInfo` health probe succeeds (see [`crate::pump::DegradedTracker`]).
+
+use crate::dll::Bridge;
+use crate::error::JabError;
+use crate::ffi::{self, AccessBridgeVersionInfo, AccessibleContextInfo, AccessibleTextInfo, JObject64, VmId, wide_str};
+use crate::handle::{JabObject, ReleaseSender};
+use crate::map::{StateFlags, parse_states};
+use crate::pump::{DegradedTracker, Job, PumpConnection};
+use std::sync::Arc;
+use std::sync::mpsc;
+use std::time::Duration;
+use windows::Win32::Foundation::HWND;
+
+/// Parsed, owned copy of one `getAccessibleContextInfo` result — everything a
+/// node needs, detached from the fixed-buffer FFI struct.
+#[derive(Debug, Clone)]
+pub(crate) struct ContextInfo {
+    pub name: String,
+    pub description: String,
+    pub role_localized: String,
+    pub role_en_us: String,
+    pub states_en_us: String,
+    pub states: StateFlags,
+    pub index_in_parent: i32,
+    pub children_count: i32,
+    /// `None` when the bridge reports the hidden-element sentinel
+    /// `(-1, -1, -1x-1)` (or otherwise degenerate extents).
+    pub bounds: Option<(i32, i32, i32, i32)>,
+    pub interfaces: i32,
+}
+
+impl ContextInfo {
+    fn from_ffi(raw: &AccessibleContextInfo) -> Self {
+        let bounds = if raw.width < 0 || raw.height < 0 { None } else { Some((raw.x, raw.y, raw.width, raw.height)) };
+        let states_en_us = wide_str(&raw.states_en_us);
+        Self {
+            name: wide_str(&raw.name),
+            description: wide_str(&raw.description),
+            role_localized: wide_str(&raw.role),
+            role_en_us: wide_str(&raw.role_en_us),
+            states: parse_states(&states_en_us),
+            states_en_us,
+            index_in_parent: raw.index_in_parent,
+            children_count: raw.children_count,
+            bounds,
+            interfaces: raw.accessible_interfaces,
+        }
+    }
+
+    pub(crate) fn has_interface(&self, bit: i32) -> bool {
+        self.interfaces & bit != 0
+    }
+}
+
+/// Bridge version strings for one JVM (`getVersionInfo`).
+#[derive(Debug, Clone)]
+#[allow(clippy::struct_field_names)] // mirrors the header field names verbatim
+pub(crate) struct VersionInfo {
+    pub vm_version: String,
+    pub bridge_java_class_version: String,
+    pub bridge_java_dll_version: String,
+    pub bridge_win_dll_version: String,
+}
+
+pub(crate) struct JabClient {
+    job_tx: mpsc::Sender<Job>,
+    release_tx: ReleaseSender,
+    call_timeout: Duration,
+    degraded: Arc<DegradedTracker>,
+}
+
+impl JabClient {
+    pub(crate) fn new(connection: PumpConnection, call_timeout: Duration, degraded: Arc<DegradedTracker>) -> Self {
+        Self { job_tx: connection.job_tx, release_tx: connection.release_tx, call_timeout, degraded }
+    }
+
+    /// Sink dropped `JabObject`s feed; also used to wrap raw handles inside
+    /// pump closures so a reply nobody waits for still releases its handle.
+    fn release_sender(&self) -> ReleaseSender {
+        self.release_tx.clone()
+    }
+
+    /// Enqueue `f` on the pump thread and await its reply within the deadline.
+    ///
+    /// `vm = None` for calls that do not target a specific JVM (window checks,
+    /// initial context lookup). Timing out does not cancel the underlying OS
+    /// call — the pump may finish it later; results that arrive after the
+    /// deadline are dropped (any `JabObject` inside them releases itself).
+    fn call<T>(
+        &self,
+        vm: Option<VmId>,
+        op: &'static str,
+        f: impl FnOnce(&Bridge) -> T + Send + 'static,
+    ) -> Result<T, JabError>
+    where
+        T: Send + 'static,
+    {
+        if let Some(vm) = vm {
+            self.ensure_vm_usable(vm)?;
+        }
+        let result = self.call_unchecked(op, f);
+        if let Some(vm) = vm {
+            match &result {
+                Ok(_) => self.degraded.record_success(vm),
+                Err(JabError::Timeout { .. }) => self.degraded.record_timeout(vm),
+                Err(_) => {}
+            }
+        }
+        result
+    }
+
+    /// `call` without degraded bookkeeping — used by the health probe itself.
+    fn call_unchecked<T>(&self, op: &'static str, f: impl FnOnce(&Bridge) -> T + Send + 'static) -> Result<T, JabError>
+    where
+        T: Send + 'static,
+    {
+        let (reply_tx, reply_rx) = mpsc::channel::<T>();
+        let job = Job {
+            run: Box::new(move |bridge| {
+                let _ = reply_tx.send(f(bridge));
+            }),
+        };
+        self.job_tx.send(job).map_err(|_| JabError::PumpUnavailable)?;
+        match reply_rx.recv_timeout(self.call_timeout) {
+            Ok(value) => Ok(value),
+            Err(mpsc::RecvTimeoutError::Timeout) => Err(JabError::Timeout { op }),
+            Err(mpsc::RecvTimeoutError::Disconnected) => Err(JabError::PumpUnavailable),
+        }
+    }
+
+    /// Fail fast for degraded JVMs; when a probe is due, one `getVersionInfo`
+    /// round-trip decides whether the JVM is usable again.
+    #[allow(unsafe_code)]
+    fn ensure_vm_usable(&self, vm: VmId) -> Result<(), JabError> {
+        if !self.degraded.is_degraded(vm) {
+            return Ok(());
+        }
+        if !self.degraded.probe_due(vm) {
+            return Err(JabError::VmDegraded { vm });
+        }
+        let probe = self.call_unchecked("getVersionInfo (health probe)", move |bridge| {
+            let mut info = AccessBridgeVersionInfo::zeroed();
+            // SAFETY: valid out-parameter; pump thread is the JAB thread.
+            unsafe { (bridge.get_version_info)(vm, &raw mut *info).as_bool() }
+        });
+        match probe {
+            Ok(true) => {
+                self.degraded.record_success(vm);
+                Ok(())
+            }
+            _ => Err(JabError::VmDegraded { vm }),
+        }
+    }
+
+    #[allow(unsafe_code)]
+    pub(crate) fn is_java_window(&self, hwnd: isize) -> Result<bool, JabError> {
+        self.call(None, "isJavaWindow", move |bridge| {
+            // SAFETY: plain window-handle query on the pump thread.
+            unsafe { (bridge.is_java_window)(hwnd_from(hwnd)).as_bool() }
+        })
+    }
+
+    /// Root accessible context of a Java top-level window. `Ok(None)` when the
+    /// bridge answers FALSE (window vanished, bridge not ready for it yet).
+    #[allow(unsafe_code)]
+    pub(crate) fn context_from_hwnd(&self, hwnd: isize) -> Result<Option<(VmId, JabObject)>, JabError> {
+        let release = self.release_sender();
+        self.call(None, "getAccessibleContextFromHWND", move |bridge| {
+            let mut vm: VmId = 0;
+            let mut ctx: JObject64 = 0;
+            // SAFETY: valid out-parameters; pump thread.
+            let ok = unsafe { (bridge.get_accessible_context_from_hwnd)(hwnd_from(hwnd), &raw mut vm, &raw mut ctx) };
+            (ok.as_bool() && ctx != 0).then(|| (vm, JabObject::new(vm, ctx, release)))
+        })
+    }
+
+    #[allow(unsafe_code)]
+    pub(crate) fn version_info(&self, vm: VmId) -> Result<VersionInfo, JabError> {
+        self.call(Some(vm), "getVersionInfo", move |bridge| {
+            let mut info = AccessBridgeVersionInfo::zeroed();
+            // SAFETY: valid out-parameter; pump thread.
+            let ok = unsafe { (bridge.get_version_info)(vm, &raw mut *info).as_bool() };
+            ok.then(|| VersionInfo {
+                vm_version: wide_str(&info.vm_version),
+                bridge_java_class_version: wide_str(&info.bridge_java_class_version),
+                bridge_java_dll_version: wide_str(&info.bridge_java_dll_version),
+                bridge_win_dll_version: wide_str(&info.bridge_win_dll_version),
+            })
+        })?
+        .ok_or(JabError::CallFailed { op: "getVersionInfo" })
+    }
+
+    #[allow(unsafe_code)]
+    pub(crate) fn context_info(&self, obj: &JabObject) -> Result<ContextInfo, JabError> {
+        let (vm, handle) = (obj.vm(), obj.handle());
+        self.call(Some(vm), "getAccessibleContextInfo", move |bridge| {
+            let mut info = AccessibleContextInfo::zeroed();
+            // SAFETY: valid out-parameter (heap-boxed, 6188 bytes); pump thread.
+            let ok = unsafe { (bridge.get_accessible_context_info)(vm, handle, &raw mut *info).as_bool() };
+            ok.then(|| ContextInfo::from_ffi(&info))
+        })?
+        .ok_or(JabError::CallFailed { op: "getAccessibleContextInfo" })
+    }
+
+    /// Child context at `index`. `Ok(None)` when the bridge returns a null
+    /// handle (child vanished between the count and the fetch).
+    #[allow(unsafe_code)]
+    pub(crate) fn child(&self, obj: &JabObject, index: i32) -> Result<Option<JabObject>, JabError> {
+        let (vm, handle) = (obj.vm(), obj.handle());
+        let release = self.release_sender();
+        self.call(Some(vm), "getAccessibleChildFromContext", move |bridge| {
+            // SAFETY: pump thread; returns 0 on failure.
+            let child = unsafe { (bridge.get_accessible_child_from_context)(vm, handle, index) };
+            (child != 0).then(|| JabObject::new(vm, child, release))
+        })
+    }
+
+    /// JVM-side identity check — raw handle equality is meaningless.
+    #[allow(unsafe_code)]
+    pub(crate) fn is_same(&self, a: &JabObject, b: &JabObject) -> Result<bool, JabError> {
+        if a.vm() != b.vm() {
+            return Ok(false);
+        }
+        let (vm, ha, hb) = (a.vm(), a.handle(), b.handle());
+        self.call(Some(vm), "isSameObject", move |bridge| {
+            // SAFETY: pump thread.
+            unsafe { (bridge.is_same_object)(vm, ha, hb).as_bool() }
+        })
+    }
+
+    #[allow(unsafe_code)]
+    pub(crate) fn request_focus(&self, obj: &JabObject) -> Result<(), JabError> {
+        let (vm, handle) = (obj.vm(), obj.handle());
+        let ok = self.call(Some(vm), "requestFocus", move |bridge| {
+            // SAFETY: pump thread.
+            unsafe { (bridge.request_focus)(vm, handle).as_bool() }
+        })?;
+        if ok { Ok(()) } else { Err(JabError::CallFailed { op: "requestFocus" }) }
+    }
+
+    /// Character count of an accessible-text element.
+    #[allow(unsafe_code)]
+    pub(crate) fn text_char_count(&self, obj: &JabObject) -> Result<Option<i32>, JabError> {
+        let (vm, handle) = (obj.vm(), obj.handle());
+        self.call(Some(vm), "getAccessibleTextInfo", move |bridge| {
+            let mut info = AccessibleTextInfo::default();
+            // SAFETY: valid out-parameter; pump thread. (0, 0) is the probe
+            // point for the unused index-at-point field.
+            let ok = unsafe { (bridge.get_accessible_text_info)(vm, handle, &raw mut info, 0, 0).as_bool() };
+            ok.then_some(info.char_count)
+        })
+    }
+
+    /// One chunk of text content (`end` inclusive, per the JAB contract).
+    /// Chunk sizes are capped by the caller at `MAX_BUFFER_SIZE - 1`.
+    #[allow(unsafe_code)]
+    pub(crate) fn text_range(&self, obj: &JabObject, start: i32, end: i32) -> Result<Option<String>, JabError> {
+        let (vm, handle) = (obj.vm(), obj.handle());
+        self.call(Some(vm), "getAccessibleTextRange", move |bridge| {
+            let mut buffer = vec![0u16; ffi::MAX_BUFFER_SIZE];
+            let len = i16::try_from(buffer.len()).unwrap_or(i16::MAX);
+            // SAFETY: buffer sized to MAX_BUFFER_SIZE and the requested range
+            // is capped below it; pump thread.
+            let ok = unsafe { (bridge.get_accessible_text_range)(vm, handle, start, end, buffer.as_mut_ptr(), len) };
+            ok.as_bool().then(|| {
+                let wanted = usize::try_from(end - start + 1).unwrap_or(0).min(buffer.len());
+                String::from_utf16_lossy(&buffer[..wanted])
+            })
+        })
+    }
+
+    /// Replace the whole text content. The bridge transports at most
+    /// `MAX_STRING_SIZE - 1` UTF-16 units per write — longer texts fail
+    /// instead of being silently truncated.
+    #[allow(unsafe_code)]
+    pub(crate) fn set_text_contents(&self, obj: &JabObject, text: &str) -> Result<(), JabError> {
+        let mut encoded: Vec<u16> = text.encode_utf16().collect();
+        if encoded.len() > ffi::MAX_STRING_SIZE - 1 {
+            return Err(JabError::TextTooLong { limit: ffi::MAX_STRING_SIZE - 1 });
+        }
+        encoded.push(0);
+        let (vm, handle) = (obj.vm(), obj.handle());
+        let ok = self.call(Some(vm), "setTextContents", move |bridge| {
+            // SAFETY: NUL-terminated UTF-16 buffer outlives the call; pump thread.
+            unsafe { (bridge.set_text_contents)(vm, handle, encoded.as_ptr()).as_bool() }
+        })?;
+        if ok { Ok(()) } else { Err(JabError::CallFailed { op: "setTextContents" }) }
+    }
+
+    pub(crate) fn current_value(&self, obj: &JabObject) -> Result<Option<String>, JabError> {
+        self.value_string(obj, "getCurrentAccessibleValueFromContext", |bridge| bridge.get_current_accessible_value)
+    }
+
+    pub(crate) fn maximum_value(&self, obj: &JabObject) -> Result<Option<String>, JabError> {
+        self.value_string(obj, "getMaximumAccessibleValueFromContext", |bridge| bridge.get_maximum_accessible_value)
+    }
+
+    pub(crate) fn minimum_value(&self, obj: &JabObject) -> Result<Option<String>, JabError> {
+        self.value_string(obj, "getMinimumAccessibleValueFromContext", |bridge| bridge.get_minimum_accessible_value)
+    }
+
+    #[allow(unsafe_code)]
+    fn value_string(
+        &self,
+        obj: &JabObject,
+        op: &'static str,
+        select: impl Fn(&Bridge) -> ffi::GetAccessibleValueFn + Send + 'static,
+    ) -> Result<Option<String>, JabError> {
+        let (vm, handle) = (obj.vm(), obj.handle());
+        self.call(Some(vm), op, move |bridge| {
+            let mut buffer = [0u16; ffi::SHORT_STRING_SIZE];
+            let len = i16::try_from(buffer.len()).unwrap_or(i16::MAX);
+            // SAFETY: fixed-size out buffer; pump thread.
+            let ok = unsafe { (select(bridge))(vm, handle, buffer.as_mut_ptr(), len).as_bool() };
+            ok.then(|| wide_str(&buffer))
+        })
+    }
+
+    #[allow(unsafe_code)]
+    pub(crate) fn selected_children_count(&self, obj: &JabObject) -> Result<i32, JabError> {
+        let (vm, handle) = (obj.vm(), obj.handle());
+        self.call(Some(vm), "getAccessibleSelectionCountFromContext", move |bridge| {
+            // SAFETY: pump thread.
+            unsafe { (bridge.get_accessible_selected_children_count)(vm, handle) }
+        })
+    }
+
+    #[allow(unsafe_code)]
+    pub(crate) fn is_child_selected(&self, obj: &JabObject, index: i32) -> Result<bool, JabError> {
+        let (vm, handle) = (obj.vm(), obj.handle());
+        self.call(Some(vm), "isAccessibleChildSelectedFromContext", move |bridge| {
+            // SAFETY: pump thread.
+            unsafe { (bridge.is_accessible_child_selected)(vm, handle, index).as_bool() }
+        })
+    }
+}
+
+fn hwnd_from(raw: isize) -> HWND {
+    HWND(raw as *mut core::ffi::c_void)
+}

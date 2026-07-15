@@ -37,6 +37,7 @@ platynui-link = { path = "../../crates/link" }
 [target.'cfg(target_os = "windows")'.dependencies]
 platynui-platform-windows = { path = "../../crates/platform-windows" }
 platynui-provider-windows-uia = { path = "../../crates/provider-windows-uia" }
+platynui-provider-jab = { path = "../../crates/provider-jab" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 platynui-platform-linux = { path = "../../crates/platform-linux" }

@@ -9,7 +9,7 @@ xdg_data_home := if os() == "linux" { env("XDG_DATA_HOME", env("HOME") / ".local
 python_executable := if os() == "windows" { justfile_directory() / ".venv" / "Scripts" / "python.exe" } else { justfile_directory() / ".venv" / "bin" / "python" }
 export PYO3_PYTHON := env("PYO3_PYTHON", python_executable)
 windows_rust_target := env("PLATYNUI_WINDOWS_TARGET", "x86_64-pc-windows-gnu")
-windows_rust_packages := "--package platynui-core --package platynui-link --package platynui-xpath --package platynui-runtime --package platynui-platform-windows --package platynui-provider-windows-uia --package platynui-cli --package platynui-inspector --package platynui-cli-bin --package platynui-inspector-bin"
+windows_rust_packages := "--package platynui-core --package platynui-link --package platynui-xpath --package platynui-runtime --package platynui-platform-windows --package platynui-provider-windows-uia --package platynui-provider-jab --package platynui-cli --package platynui-inspector --package platynui-cli-bin --package platynui-inspector-bin"
 macos_arm_rust_target := env("PLATYNUI_MACOS_ARM_TARGET", "aarch64-apple-darwin")
 macos_rust_packages := "--package platynui-core --package platynui-link --package platynui-xpath --package platynui-runtime --package platynui-platform-macos --package platynui-provider-macos-ax --package platynui-cli --package platynui-inspector --package platynui-cli-bin --package platynui-inspector-bin"
 # Built platynui-test-app-egui binary the acceptance suites launch (via PLATYNUI_TEST_APP_BIN).
@@ -265,16 +265,21 @@ test-acceptance-compositor *ARGS: build-native
 test-acceptance-x11 *ARGS: build-native
     uv run scripts/startxsession.sh {{ if headless == "true" { "--backend headless" } else { "" } }} -- scripts/platynui-robot-session.sh {{ ARGS }}
 
-# Run the acceptance lane on the native Windows desktop (UIA provider). No
-# isolated session — the suites launch the apps on the real desktop. Builds the
-# egui test app AND the Inspector binary (the inspector-picker suite launches
-# it); PySide6 (a dev dependency) is already in the project venv from the
-# build-native sync. All three are handed over via the PLATYNUI_TEST_APP_* /
-# PLATYNUI_INSPECTOR_BIN env vars (Robot Framework launches them).
+# Run the acceptance lane on the native Windows desktop (UIA + JAB providers).
+# No isolated session — the suites launch the apps on the real desktop. Builds
+# the egui test app AND the Inspector binary (the inspector-picker suite
+# launches it); PySide6 (a dev dependency) is already in the project venv from
+# the build-native sync. All fixtures are handed over via the
+# PLATYNUI_TEST_APP_* / PLATYNUI_INSPECTOR_BIN env vars (Robot Framework
+# launches them). The Swing fixture needs a JDK: without javac on PATH its
+# build fails softly here and the swing suites (plus the JAB live Rust tests)
+# skip with a clear message instead of failing the lane.
 [windows]
 test-acceptance-windows *ARGS: build-native
     cargo build -p platynui-test-app-egui -p platynui-inspector
-    $qtBasePy = & "{{ qt_venv_python }}" -c "import sys; print(sys._base_executable)"; $env:PLATYNUI_TEST_APP_BIN = "{{ egui_test_app }}"; $env:PLATYNUI_INSPECTOR_BIN = "{{ inspector_bin }}"; $env:PLATYNUI_TEST_APP_QT_PYTHON = $qtBasePy; $env:PLATYNUI_TEST_APP_QT_PYVENV_LAUNCHER = "{{ qt_venv_python }}"; $env:PLATYNUI_TEST_APP_QT_MAIN = "{{ qt_app_main }}"; uv run --no-sync robotcode {{ if ARGS != "" { ARGS } else { "--profile real run" } }}
+    -just build-test-app-swing
+    if (Test-Path "{{ swing_app_classes }}") { $env:PLATYNUI_TEST_APP_SWING_CLASSES = "{{ swing_app_classes }}"; cargo nextest run -p platynui-provider-jab --run-ignored ignored-only } else { Write-Warning "Swing fixture not built (no JDK on PATH?) - skipping the JAB live tests" }
+    $qtBasePy = & "{{ qt_venv_python }}" -c "import sys; print(sys._base_executable)"; $env:PLATYNUI_TEST_APP_BIN = "{{ egui_test_app }}"; $env:PLATYNUI_INSPECTOR_BIN = "{{ inspector_bin }}"; $env:PLATYNUI_TEST_APP_QT_PYTHON = $qtBasePy; $env:PLATYNUI_TEST_APP_QT_PYVENV_LAUNCHER = "{{ qt_venv_python }}"; $env:PLATYNUI_TEST_APP_QT_MAIN = "{{ qt_app_main }}"; $env:PLATYNUI_TEST_APP_SWING_CLASSES = "{{ swing_app_classes }}"; uv run --no-sync robotcode {{ if ARGS != "" { ARGS } else { "--profile real run" } }}
 
 # ─── Swing Test App (Java fixture for the JAB provider work) ───────────────────
 

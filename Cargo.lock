@@ -3422,6 +3422,7 @@ dependencies = [
  "platynui-platform-mock",
  "platynui-platform-windows",
  "platynui-provider-atspi",
+ "platynui-provider-jab",
  "platynui-provider-macos-ax",
  "platynui-provider-mock",
  "platynui-provider-windows-uia",
@@ -3490,6 +3491,7 @@ dependencies = [
  "platynui-platform-mock",
  "platynui-platform-windows",
  "platynui-provider-atspi",
+ "platynui-provider-jab",
  "platynui-provider-macos-ax",
  "platynui-provider-mock",
  "platynui-provider-windows-uia",
@@ -3598,6 +3600,23 @@ dependencies = [
  "thiserror 2.0.18",
  "tracing",
  "zbus",
+]
+
+[[package]]
+name = "platynui-provider-jab"
+version = "0.13.0-dev.2"
+dependencies = [
+ "chrono",
+ "inventory",
+ "libloading",
+ "platynui-core",
+ "platynui-platform-windows",
+ "platynui-provider-windows-uia",
+ "sysinfo",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+ "windows",
 ]
 
 [[package]]
@@ -3737,6 +3756,7 @@ dependencies = [
  "platynui-platform-mock",
  "platynui-platform-windows",
  "platynui-provider-atspi",
+ "platynui-provider-jab",
  "platynui-provider-macos-ax",
  "platynui-provider-mock",
  "platynui-provider-windows-uia",
@@ -3758,6 +3778,7 @@ dependencies = [
  "platynui-platform-macos",
  "platynui-platform-windows",
  "platynui-provider-atspi",
+ "platynui-provider-jab",
  "platynui-provider-macos-ax",
  "platynui-provider-windows-uia",
  "platynui-runtime",

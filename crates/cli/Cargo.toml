@@ -42,6 +42,7 @@ platynui-link = { path = "../link" }
 [target.'cfg(target_os = "windows")'.dependencies]
 platynui-platform-windows = { path = "../platform-windows" }
 platynui-provider-windows-uia = { path = "../provider-windows-uia" }
+platynui-provider-jab = { path = "../provider-jab" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 platynui-platform-linux = { path = "../platform-linux" }

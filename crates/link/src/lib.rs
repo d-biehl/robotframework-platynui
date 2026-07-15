@@ -12,6 +12,7 @@ macro_rules! platynui_link_os_providers {
         #[cfg(all(not(test), target_os = "windows"))]
         const _: () = {
             use platynui_platform_windows as _;
+            use platynui_provider_jab as _;
             use platynui_provider_windows_uia as _;
         };
 
