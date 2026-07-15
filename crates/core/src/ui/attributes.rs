@@ -60,6 +60,43 @@ pub mod pattern {
         pub const TEXT: &str = "Text";
     }
 
+    /// Writable text elements (TextEditable-Pattern; extends TextContent).
+    pub mod text_editable {
+        pub const IS_READ_ONLY: &str = "IsReadOnly";
+        pub const MAX_LENGTH: &str = "MaxLength";
+    }
+
+    /// Two/tri-state toggles (Toggleable-Pattern).
+    pub mod toggleable {
+        /// Canonical values: "On", "Off", "Indeterminate".
+        pub const TOGGLE_STATE: &str = "ToggleState";
+    }
+
+    /// Numeric value holders like sliders and progress bars (StatefulValue-Pattern).
+    pub mod stateful_value {
+        pub const VALUE: &str = "Value";
+        pub const MIN_VALUE: &str = "MinValue";
+        pub const MAX_VALUE: &str = "MaxValue";
+    }
+
+    /// Items that can be selected within a container (Selectable-Pattern).
+    pub mod selectable {
+        pub const IS_SELECTED: &str = "IsSelected";
+    }
+
+    /// Containers managing a selection (SelectionProvider-Pattern).
+    pub mod selection_provider {
+        /// RuntimeIds of the currently selected child items.
+        pub const SELECTED_ITEMS: &str = "SelectedItems";
+        pub const CAN_SELECT_MULTIPLE: &str = "CanSelectMultiple";
+    }
+
+    /// Elements that can expand/collapse (Expandable-Pattern).
+    pub mod expandable {
+        pub const IS_EXPANDED: &str = "IsExpanded";
+        pub const CAN_EXPAND: &str = "CanExpand";
+    }
+
     pub mod minimizable {
         pub const IS_MINIMIZED: &str = "IsMinimized";
         pub const CAN_MINIMIZE: &str = "CanMinimize";

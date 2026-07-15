@@ -17,7 +17,7 @@ pub use pattern::{
     ActivatableAction, ActivatablePattern, CloseableAction, CloseablePattern, FocusableAction, FocusablePattern,
     MaximizableAction, MaximizablePattern, MinimizableAction, MinimizablePattern, MovableAction, MovablePattern,
     PatternError, PatternRegistry, ResizableAction, ResizablePattern, ResponsiveAction, ResponsivePattern,
-    RestorableAction, RestorablePattern, UiPattern, downcast_pattern_arc, downcast_pattern_ref,
-    supported_patterns_value,
+    RestorableAction, RestorablePattern, TextEditableAction, TextEditablePattern, UiPattern, downcast_pattern_arc,
+    downcast_pattern_ref, supported_patterns_value,
 };
 pub use value::UiValue;

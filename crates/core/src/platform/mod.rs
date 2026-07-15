@@ -5,6 +5,7 @@ mod highlight;
 mod keyboard;
 mod pointer;
 mod screenshot;
+pub mod window_claims;
 mod window_manager;
 
 pub use desktop::{DesktopInfo, DesktopInfoProvider, MonitorInfo};
