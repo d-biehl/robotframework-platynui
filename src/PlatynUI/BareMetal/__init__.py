@@ -1630,16 +1630,23 @@ class BareMetal(OurDynamicCore):
 
     @keyword
     def get_element_at_point(self, x: float, y: float) -> Any:
-        """Resolve the deepest UI element at the given screen coordinates.
+        """Get the element that is under a point on the screen.
 
-        Uses the platform hit-test: UI Automation ``ElementFromPoint`` on Windows;
-        window-manager window selection plus AT-SPI descent on Linux. Returns the
-        resolved ``UiNode``, or ``None`` when nothing is at the point. Raises if the
-        active platform cannot hit-test (e.g. a generic Wayland session).
+        Returns the element under the given screen coordinates — the widget itself, not a
+        surrounding container — or ``${None}`` when nothing is there. The keyword does not
+        wait.
 
         Args:
             x: Screen X coordinate.
             y: Screen Y coordinate.
+
+        Returns:
+            UiNode: The element at the point, or ``${None}`` if there is none.
+
+        Examples:
+            | ${el}=     `Get Element At Point`    ${400}    ${300}
+            | ${pos}=    `Get Pointer Position`
+            | ${el}=     `Get Element At Point`    ${pos.x}    ${pos.y}
         """
         return self.runtime.element_at_point(float(x), float(y))
 
