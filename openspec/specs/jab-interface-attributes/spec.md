@@ -1,4 +1,10 @@
-## ADDED Requirements
+# jab-interface-attributes
+
+## Purpose
+
+The `jab-interface-attributes` capability exposes the data behind a Java Swing/AWT element's supported JAB accessibility interfaces (table, table cell, value, text, action, hypertext, key bindings, relations) as `native:<Interface>.<Property>` attributes on Windows — gated by the element's supported-interface bitfield, read live per access, with expensive per-cell table data resolved lazily — mirroring the UIA provider's `collect_native_properties` projection so Swing elements answer selectors and the Inspector with the same richness.
+
+## Requirements
 
 ### Requirement: Interface-gated native attribute projection
 The JAB provider SHALL expose the properties of the accessibility interfaces an element actually supports as `native:*` attributes, gated by the element's `interfaces` bitfield (the same source that already produces the `native:Interfaces` name-list). An element that does not support an interface SHALL NOT carry that interface's attributes, and no bridge call for that interface SHALL be issued. Attribute names SHALL follow the dotted convention `<Interface>.<Property>` (e.g. `Table.RowCount`, `Value.Current`, `Text.CaretIndex`), mirroring the UIA provider's programmatic-name convention. (All scenarios in this spec are real-provider-only: they require a live JVM with the bridge enabled and run in the Windows acceptance lane against the Swing fixture app, unless marked mock-lane.)
@@ -12,7 +18,7 @@ The JAB provider SHALL expose the properties of the accessibility interfaces an 
 - **THEN** every emitted name matches `<Interface>.<Property>` with a known interface prefix, and no two entries collide (mock-lane verifiable — pure mapping test)
 
 ### Requirement: Table interface attributes
-For an element supporting `AccessibleTable`, the provider SHALL expose container-level table properties as `native:Table.*` attributes derived from `getAccessibleTableInfo` and the selection/header calls: at least `Table.RowCount`, `Table.ColumnCount`, and the selected-row/column counts, plus caption/summary presence where available. Cells within the table SHALL expose `native:TableCell.*` attributes derived from `getAccessibleTableCellInfo` — at least `TableCell.Row`, `TableCell.Column`, `TableCell.RowExtent`, `TableCell.ColumnExtent`, and `TableCell.IsSelected`.
+For an element supporting `AccessibleTable`, the provider SHALL expose container-level table properties as `native:Table.*` attributes derived from `getAccessibleTableInfo` and the selection/header calls: at least `Table.RowCount`, `Table.ColumnCount`, and the selected-row/column counts, plus caption/summary presence where available. Cells within the table SHALL expose `native:TableCell.*` attributes derived from `getAccessibleTableCellInfo` — at least `TableCell.Row`, `TableCell.Column`, `TableCell.RowExtent`, `TableCell.ColumnExtent`, and `TableCell.IsSelected`. Because the JDK's bridge resolves every JTable cell child (and the cell context embedded in `getAccessibleTableCellInfo`) to the one shared cell-renderer component — aliasing name/bounds across all cells of a table — the cell coordinate SHALL be derived from the node's enumeration index and its tree parent's table context, never from the cell's own bridge context or accessible name.
 
 #### Scenario: JTable reports its dimensions
 - **WHEN** the fixture's `JTable` node is inspected
@@ -34,11 +40,15 @@ For an element supporting `AccessibleValue`, the provider SHALL expose `native:V
 - **THEN** `@native:Text.CharCount` equals the field's character count and `@native:Text.CaretIndex` equals the caret position, read live on the same runtime
 
 ### Requirement: Live reads and lazy resolution of expensive properties
-Interface attributes SHALL be read live from the bridge per access (no sticky cache), consistent with the provider's live-read model. Enumerating a node's attributes (`attributes()`) SHALL emit only cheap container-level interface properties; expensive per-cell table info SHALL be resolved on demand via a targeted `attribute()` lookup, so that a full tree walk of a large table does not query every cell. All interface reads SHALL run on the provider's pump thread under the per-call deadline; a degraded/unresponsive `vmID` SHALL yield no interface attributes for the affected node rather than hang.
+Interface attributes SHALL be read live from the bridge per access (no sticky cache), consistent with the provider's live-read model. Enumerating a node's attributes (`attributes()`) SHALL itself issue no per-cell bridge calls: container-level interface properties are listed per the bitfield gate, and the per-cell `TableCell.*` attributes are listed only on children of a table — gated by the parent role captured at construction, without a bridge call — so an attribute consumer (e.g. the Inspector's attribute panel) can discover them. Every per-cell value SHALL resolve lazily at read time (the targeted `attribute()` lookup resolves the same way), so a full tree walk of a large table that does not read per-cell values does not query any cell. All interface reads SHALL run on the provider's pump thread under the per-call deadline; a degraded/unresponsive `vmID` SHALL yield no interface attributes for the affected node rather than hang.
 
 #### Scenario: Tree walk of a large table stays bounded
 - **WHEN** the fixture window containing a multi-row `JTable` is walked and each node's attributes are enumerated
-- **THEN** the walk completes within the normal per-call deadline budget and does not issue a per-cell `getAccessibleTableCellInfo` call for cells whose attributes were not explicitly requested
+- **THEN** the walk completes within the normal per-call deadline budget and does not issue a per-cell `getAccessibleTableCellInfo` call for any cell whose `TableCell.*` values were not explicitly read
+
+#### Scenario: A selected cell shows its per-cell attributes in enumeration
+- **WHEN** a data cell node of the fixture `JTable` enumerates its attributes and their values are read (the Inspector's attribute panel)
+- **THEN** the `native:TableCell.*` attributes are listed with their live values, while nodes whose parent is not a table list none of them
 
 #### Scenario: Live value after a change
 - **WHEN** the fixture slider's value is changed and its node's `@native:Value.Current` is read again on the same runtime
