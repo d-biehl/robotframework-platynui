@@ -378,6 +378,18 @@ fn live_frozen_jvm_stays_contained() {
     let window = wait_for_window(&provider, &parent, &app.title);
     assert!(window.is_valid());
 
+    // Captured while the JVM is still responsive: the window's desktop bounds
+    // feed the hit-test points below, and raising the window makes its center
+    // actually resolve to it under `WindowFromPoint`.
+    let Some(UiValue::Rect(bounds)) = attribute_value(&window, attribute_names::element::BOUNDS) else {
+        panic!("fixture window must expose Rect bounds");
+    };
+    let center = bounds.center();
+    use platynui_core::ui::ActivatablePattern as _;
+    if let Some(activatable) = window.pattern::<platynui_core::ui::ActivatableAction>() {
+        let _ = activatable.activate();
+    }
+
     // Freeze every thread of the JVM (debugger attach) — the bridge can no
     // longer answer, exactly like a hung event-dispatch thread.
     set_process_frozen(app.pid(), true);
@@ -404,6 +416,19 @@ fn live_frozen_jvm_stays_contained() {
         let _ = window.is_valid();
         assert!(start.elapsed() < CALL_TIMEOUT / 2, "degraded vm must fail fast, took {:?}", start.elapsed());
 
+        // Hit-testing during the freeze is bounded the same way
+        // (add-jab-hit-test): `element_at_point` runs its bridge calls on the
+        // wedged pump under the per-call deadline, so the picker gets a prompt
+        // error (or no JAB hit) instead of a hang.
+        let start = Instant::now();
+        let hit = provider.element_at_point(center);
+        assert!(!matches!(hit, Ok(Some(_))), "a frozen JVM must not produce a hit node");
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < CALL_TIMEOUT * 4 + Duration::from_secs(1),
+            "hit-test against a frozen JVM must return within the deadline margin, took {elapsed:?}"
+        );
+
         // Other providers stay usable while the JAB pump is wedged: a UIA
         // desktop enumeration answers normally.
         let uia =
@@ -412,6 +437,16 @@ fn live_frozen_jvm_stays_contained() {
         let count = uia.get_nodes(desktop_stub()).expect("uia get_nodes").count();
         assert!(count > 0, "UIA must still see desktop windows");
         assert!(start.elapsed() < Duration::from_secs(20), "UIA enumeration must not hang");
+
+        // …and a concurrent UIA hit-test elsewhere (outside the claimed Java
+        // window) completes normally while the JAB pump is wedged. Off-screen
+        // coordinates degrade to `Ok(None)`, which still counts as prompt
+        // completion.
+        let outside = platynui_core::types::Point::new(bounds.right() + 40.0, bounds.bottom() + 40.0);
+        let start = Instant::now();
+        let result = uia.element_at_point(outside);
+        assert!(result.is_ok(), "UIA hit-test outside the Java window must not fail: {:?}", result.as_ref().err());
+        assert!(start.elapsed() < Duration::from_secs(10), "UIA hit-test must not hang");
         uia.shutdown();
     }));
     // Always thaw, even when an assertion above failed.

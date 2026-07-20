@@ -429,6 +429,22 @@ impl UiTreeProvider for WindowsUiaProvider {
         // UIA `ElementFromPoint` resolves window- and in-window z-order natively.
         #[expect(clippy::cast_possible_truncation, reason = "desktop coordinates fit in i32")]
         let pt = windows::Win32::Foundation::POINT { x: point.x().round() as i32, y: point.y().round() as i32 };
+
+        // Order-independent hit-test arbitration (add-jab-hit-test): a window
+        // another provider claims (e.g. a Java window fully represented by the
+        // JAB provider) must resolve to that provider's node, not the UIA
+        // shell — so UIA abstains for the point *before* `ElementFromPoint`
+        // and the runtime falls through to the claiming provider, regardless
+        // of provider registration order. Mirrors the root-streaming skip in
+        // `ready_top_level_elements`, including its kill switch.
+        if let Some(hwnd) = top_level_window_at(pt)
+            && abstains_from_claimed_window(self.honor_window_claims, hwnd)
+        {
+            return Err(ProviderError::UnsupportedOperation {
+                operation: "element_at_point",
+                details: Some("window at point is claimed by another provider".into()),
+            });
+        }
         let elem = match unsafe { uia.ElementFromPoint(pt) } {
             Ok(elem) => elem,
             Err(err) => {
@@ -468,6 +484,30 @@ impl UiTreeProvider for WindowsUiaProvider {
     }
 }
 
+/// Top-level window under `pt` (`WindowFromPoint` → `GetAncestor(GA_ROOT)`),
+/// as the raw claim key used by `platynui_core::platform::window_claims`.
+fn top_level_window_at(pt: windows::Win32::Foundation::POINT) -> Option<u64> {
+    use windows::Win32::UI::WindowsAndMessaging::{GA_ROOT, GetAncestor, WindowFromPoint};
+
+    // SAFETY: read-only point/window queries.
+    unsafe {
+        let hwnd = WindowFromPoint(pt);
+        if hwnd.is_invalid() {
+            return None;
+        }
+        let root = GetAncestor(hwnd, GA_ROOT);
+        let top_level = if root.is_invalid() { hwnd } else { root };
+        Some(top_level.0 as u64)
+    }
+}
+
+/// The claim gate of [`WindowsUiaProvider::element_at_point`], split out so the
+/// config/registry interplay is unit-testable without a desktop: abstain
+/// exactly when claims are honored and another provider owns the window.
+fn abstains_from_claimed_window(honor_window_claims: bool, hwnd: u64) -> bool {
+    honor_window_claims && platynui_core::platform::window_claims::is_claimed_by_other(hwnd, PROVIDER_ID)
+}
+
 // Register the factory with the global inventory when this crate is linked.
 pub static WINDOWS_UIA_FACTORY: WindowsUiaFactory = WindowsUiaFactory;
 register_provider!(&WINDOWS_UIA_FACTORY);
@@ -491,5 +531,28 @@ mod tests {
         let config = RuntimeConfig::new(ConfigMap::new(), providers);
         let provider = WindowsUiaFactory.build(&config);
         assert!(!provider.honor_window_claims);
+    }
+
+    #[test]
+    fn hit_test_abstains_from_claimed_windows_only_while_honoring_claims() {
+        use platynui_core::platform::window_claims;
+
+        // Process-global registry: use an hwnd value no other test claims.
+        const HWND: u64 = 0xA7_0001;
+        window_claims::claim_window(HWND, "jab");
+        assert!(abstains_from_claimed_window(true, HWND), "claimed window must abstain while claims are honored");
+        assert!(!abstains_from_claimed_window(false, HWND), "kill switch off must resolve the shell again");
+        window_claims::release_window(HWND, "jab");
+        assert!(!abstains_from_claimed_window(true, HWND), "released window must resolve normally");
+    }
+
+    #[test]
+    fn hit_test_does_not_abstain_from_own_claims() {
+        use platynui_core::platform::window_claims;
+
+        const HWND: u64 = 0xA7_0002;
+        window_claims::claim_window(HWND, PROVIDER_ID);
+        assert!(!abstains_from_claimed_window(true, HWND), "own claims must not gate the hit-test");
+        window_claims::release_window(HWND, PROVIDER_ID);
     }
 }

@@ -11,6 +11,7 @@ use platynui_core::config::RuntimeConfig;
 use platynui_core::platform::{WindowManager, window_claims};
 use platynui_core::provider::{ProviderDescriptor, ProviderError, ProviderKind, UiTreeProvider, UiTreeProviderFactory};
 use platynui_core::register_provider;
+use platynui_core::types::Point;
 use platynui_core::ui::{TechnologyId, UiNode};
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -307,6 +308,91 @@ impl UiTreeProvider for JabProvider {
             nodes.push(JabAppNode::new(pid, Arc::clone(&client), window_manager.clone(), &parent) as Arc<dyn UiNode>);
         }
         Ok(Box::new(nodes.into_iter()))
+    }
+
+    /// Point-based hit-test of Java windows (design decisions 1–3 and 5 of
+    /// `add-jab-hit-test`).
+    ///
+    /// Gates on the top-level window under the point first: only for a Java
+    /// window (`isJavaWindow`) that is not the host process's own does the
+    /// bridge's native hit-test (`getAccessibleContextAt`) run; every other
+    /// point reports `UnsupportedOperation` so the remaining providers handle
+    /// it. All bridge calls run on the pump thread under the per-call
+    /// deadline, so an unresponsive JVM surfaces as a prompt provider error
+    /// for that point, never a hang.
+    fn element_at_point(&self, point: Point) -> Result<Option<Arc<dyn UiNode>>, ProviderError> {
+        if self.is_shutdown.load(Ordering::Acquire) || !self.enabled {
+            return Err(unsupported_at_point("provider disabled or shut down"));
+        }
+        let Some((hwnd, pid)) = top_level_window_at(point) else {
+            return Err(unsupported_at_point("no window at point"));
+        };
+        // Never resolve the host process's own UI (the Inspector must not
+        // pick itself); own-process windows are never Java windows anyway.
+        if pid == *SELF_PID {
+            return Err(unsupported_at_point("own-process window"));
+        }
+        let Ok(client) = self.client() else {
+            return Err(unsupported_at_point("JAB client unavailable"));
+        };
+        if !client.is_java_window(hwnd)? {
+            return Err(unsupported_at_point("not a Java window"));
+        }
+        // From here on the window is ours: `Ok(None)` (not `Err`) when no
+        // context resolves, so the runtime does not fall through to another
+        // provider's representation of a Java window.
+        let Some((vm, window_ctx)) = client.context_from_hwnd(hwnd)? else {
+            return Ok(None);
+        };
+        // Both `WindowFromPoint` and `getAccessibleContextAt` take desktop
+        // pixels; the point passes through unchanged (design decision 2).
+        #[expect(clippy::cast_possible_truncation, reason = "desktop coordinates fit in i32")]
+        let (x, y) = (point.x().round() as i32, point.y().round() as i32);
+        let hit = match client.context_at(&window_ctx, x, y)? {
+            Some(hit) => Some(hit),
+            // The JDK's native hit-test answers null for every point until the
+            // target JVM has seen a mouse event (see `geometric_hit`); descend
+            // geometrically instead of reporting a miss.
+            None => crate::node::geometric_hit(&client, &window_ctx, hwnd, point),
+        };
+        let hit = match hit {
+            Some(hit) => hit,
+            // Over the Java window but outside every child (frame/title-bar
+            // area): the window itself is the hit. Take a fresh bridge
+            // reference so ownership stays one release per handle.
+            None => match client.context_from_hwnd(hwnd)? {
+                Some((_, window_hit)) => window_hit,
+                None => return Ok(None),
+            },
+        };
+        Ok(Some(crate::node::hit_test_node(&client, self.window_manager(), vm, window_ctx, hwnd, pid, hit)))
+    }
+}
+
+fn unsupported_at_point(details: &str) -> ProviderError {
+    ProviderError::UnsupportedOperation { operation: "element_at_point", details: Some(details.into()) }
+}
+
+/// Top-level window under `point` (`WindowFromPoint` → `GetAncestor(GA_ROOT)`)
+/// and its owning process id.
+#[allow(unsafe_code)]
+fn top_level_window_at(point: Point) -> Option<(isize, u32)> {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::UI::WindowsAndMessaging::{GA_ROOT, GetAncestor, GetWindowThreadProcessId, WindowFromPoint};
+
+    #[expect(clippy::cast_possible_truncation, reason = "desktop coordinates fit in i32")]
+    let pt = POINT { x: point.x().round() as i32, y: point.y().round() as i32 };
+    // SAFETY: read-only point/window queries with valid out-parameters.
+    unsafe {
+        let hwnd = WindowFromPoint(pt);
+        if hwnd.is_invalid() {
+            return None;
+        }
+        let root = GetAncestor(hwnd, GA_ROOT);
+        let top_level = if root.is_invalid() { hwnd } else { root };
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(top_level, Some(&raw mut pid));
+        Some((top_level.0 as isize, pid))
     }
 }
 

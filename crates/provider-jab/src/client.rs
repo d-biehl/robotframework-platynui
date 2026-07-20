@@ -222,6 +222,34 @@ impl JabClient {
         })
     }
 
+    /// Parent context. `Ok(None)` when the bridge returns a null handle (the
+    /// context is the top of its accessible tree, or it vanished).
+    #[allow(unsafe_code)]
+    pub(crate) fn parent(&self, obj: &JabObject) -> Result<Option<JabObject>, JabError> {
+        let (vm, handle) = (obj.vm(), obj.handle());
+        let release = self.release_sender();
+        self.call(Some(vm), "getAccessibleParentFromContext", move |bridge| {
+            // SAFETY: pump thread; returns 0 when there is no parent.
+            let parent = unsafe { (bridge.get_accessible_parent_from_context)(vm, handle) };
+            (parent != 0).then(|| JabObject::new(vm, parent, release))
+        })
+    }
+
+    /// Native hit-test (`getAccessibleContextAt`): deepest accessible context
+    /// at desktop point `(x, y)` within `window`. `Ok(None)` when the bridge
+    /// reports no context at the point.
+    #[allow(unsafe_code)]
+    pub(crate) fn context_at(&self, window: &JabObject, x: i32, y: i32) -> Result<Option<JabObject>, JabError> {
+        let (vm, handle) = (window.vm(), window.handle());
+        let release = self.release_sender();
+        self.call(Some(vm), "getAccessibleContextAt", move |bridge| {
+            let mut ctx: JObject64 = 0;
+            // SAFETY: valid out-parameter; pump thread.
+            let ok = unsafe { (bridge.get_accessible_context_at)(vm, handle, x, y, &raw mut ctx) };
+            (ok.as_bool() && ctx != 0).then(|| JabObject::new(vm, ctx, release))
+        })
+    }
+
     /// JVM-side identity check — raw handle equality is meaningless.
     #[allow(unsafe_code)]
     pub(crate) fn is_same(&self, a: &JabObject, b: &JabObject) -> Result<bool, JabError> {

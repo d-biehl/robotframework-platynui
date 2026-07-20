@@ -191,6 +191,11 @@ pub(crate) struct JabNode {
     parent_role_en: Option<Arc<str>>,
     calibration: Arc<Calibration>,
     parent: Mutex<Option<Weak<dyn UiNode>>>,
+    /// Strong ref to the parent that roots an off-tree chain (the live
+    /// picker's hit-test result — see [`hit_test_node`]). Normal tree nodes
+    /// leave this `None`; their parents are kept alive by the tree/consumer
+    /// and only the `parent` `Weak` is used.
+    parent_keepalive: Mutex<Option<Arc<dyn UiNode>>>,
     self_weak: OnceLock<Weak<dyn UiNode>>,
     runtime_id: OnceLock<RuntimeId>,
     role: OnceLock<(Namespace, String)>,
@@ -236,6 +241,7 @@ impl JabNode {
             parent_role_en,
             calibration,
             parent: Mutex::new(parent.map(Arc::downgrade)),
+            parent_keepalive: Mutex::new(None),
             self_weak: OnceLock::new(),
             runtime_id: OnceLock::new(),
             role: OnceLock::new(),
@@ -247,6 +253,13 @@ impl JabNode {
 
     fn is_top_level(&self) -> bool {
         self.index_path.is_empty()
+    }
+
+    /// Pins `parent` alive so an off-tree chain stays walkable via `parent()`
+    /// (whose stored ref is only a `Weak`). Chaining this from the deepest
+    /// node up roots the whole ancestor chain in the returned leaf.
+    fn hold_parent(&self, parent: Arc<dyn UiNode>) {
+        *self.parent_keepalive.lock().expect("parent keepalive mutex poisoned") = Some(parent);
     }
 
     /// Fetch this node's context info **fresh** from the bridge on every call
@@ -589,6 +602,218 @@ impl Iterator for ChildIter {
 }
 
 // ---------------------------------------------------------------------------
+// Hit-testing (element_at_point reveal chain)
+
+/// Upper bound for the ancestor chain walked from a hit context up to its
+/// window root (`getAccessibleParentFromContext` loop).
+const HIT_CHAIN_MAX_DEPTH: usize = 64;
+/// Upper bound on the per-level child scan while mapping a hit context's
+/// ancestor chain to enumeration indices.
+const HIT_CHAIN_CHILD_SCAN_LIMIT: i32 = 1024;
+
+/// Geometric fallback for a `getAccessibleContextAt` that answers nothing.
+///
+/// The JDK implements the native hit-test for Swing/AWT apps via
+/// `EventQueueMonitor.getAccessibleAt`, which returns null for **every** point
+/// until the target JVM has seen at least one mouse event over one of its
+/// windows (`currentMousePosition == null` — screen readers never notice
+/// because they hit-test on mouse-move). For a fresh JVM the pointer never
+/// touched, descend geometrically instead: from the window context, pick the
+/// first showing child whose calibrated bounds contain the point (AWT child
+/// order approximates z-order — index 0 is topmost, which also makes menu
+/// overlays win over the content beneath them), until no child contains it.
+/// `Ok(None)` means no child of the window contains the point (frame area).
+pub(crate) fn geometric_hit(
+    client: &Arc<JabClient>,
+    window_ctx: &JabObject,
+    hwnd: isize,
+    point: Point,
+) -> Option<JabObject> {
+    let window_info = client.context_info(window_ctx).ok()?;
+    let transform = match (window_info.bounds, window_rect(hwnd)) {
+        (Some(jab), Some(physical)) => Transform::derive(jab, physical),
+        _ => Transform::IDENTITY,
+    };
+
+    let mut current: Option<JabObject> = None;
+    let mut children_count = window_info.children_count;
+    for _ in 0..HIT_CHAIN_MAX_DEPTH {
+        let parent: &JabObject = current.as_ref().unwrap_or(window_ctx);
+        let count = children_count.clamp(0, HIT_CHAIN_CHILD_SCAN_LIMIT);
+        let mut matched: Option<(JabObject, i32)> = None;
+        for index in 0..count {
+            let Ok(Some(child)) = client.child(parent, index) else { continue };
+            let Ok(info) = client.context_info(&child) else { continue };
+            let Some(bounds) = info.bounds else { continue };
+            if !info.states.showing {
+                continue;
+            }
+            if transform.apply(bounds).contains(point) {
+                matched = Some((child, info.children_count));
+                break;
+            }
+        }
+        match matched {
+            Some((child, count)) => {
+                children_count = count;
+                current = Some(child);
+            }
+            None => break,
+        }
+    }
+    current
+}
+
+/// Wraps a hit-test result (`getAccessibleContextAt`) in a reveal-ready node.
+///
+/// The picked context becomes a `JabNode` scoped `IdScope::App { pid }` with a
+/// strong parent chain up to `app:Application`, so a consumer can walk
+/// `parent()` and every level carries the same RuntimeId top-down traversal
+/// produces. JAB's own `indexInParent` is unreliable (see the module docs), so
+/// the enumeration-index path is recovered differently: the hit's ancestor
+/// chain (`getAccessibleParentFromContext`) is matched level by level against
+/// one bounded top-down re-walk of the owning window using `isSameObject`.
+///
+/// Documented fallback: when the chain cannot be matched (the JVM mutated the
+/// subtree between hit-test and re-walk), the result is a parentless node
+/// scoped to the window with a best-effort id — the picker still highlights
+/// it, only tree-reveal degrades.
+pub(crate) fn hit_test_node(
+    client: &Arc<JabClient>,
+    window_manager: Option<Arc<dyn WindowManager>>,
+    vm: VmId,
+    window_ctx: JabObject,
+    hwnd: isize,
+    pid: u32,
+    hit: JabObject,
+) -> Arc<dyn UiNode> {
+    let scope = IdScope::App { pid };
+    let app: Arc<dyn UiNode> = JabAppNode::orphan(pid, Arc::clone(client), window_manager.clone());
+    let window =
+        JabNode::new_window(Arc::clone(client), window_manager.clone(), vm, window_ctx, hwnd, scope, Some(&app));
+    window.hold_parent(app);
+
+    if client.is_same(&window.ctx, &hit).unwrap_or(false) {
+        return window;
+    }
+
+    // The hit's ancestor chain, deepest first, up to (exclusive) the window
+    // root. `chain[0]` stays the hit itself for the fallback path.
+    let mut chain: Vec<JabObject> = vec![hit];
+    let mut reached_window = false;
+    for _ in 0..HIT_CHAIN_MAX_DEPTH {
+        match client.parent(chain.last().expect("chain is never empty")) {
+            Ok(Some(parent)) => {
+                if client.is_same(&parent, &window.ctx).unwrap_or(false) {
+                    reached_window = true;
+                    break;
+                }
+                chain.push(parent);
+            }
+            _ => break,
+        }
+    }
+
+    let resolved = if reached_window { descend_to_hit(client, &window, &chain) } else { None };
+    resolved.map_or_else(
+        || {
+            debug!(
+                hwnd = format!("0x{hwnd:X}"),
+                reached_window, "hit context could not be mapped to an enumeration path; tree-reveal degrades"
+            );
+            hit_fallback_node(
+                client,
+                window_manager,
+                vm,
+                hwnd,
+                scope,
+                &window,
+                chain.into_iter().next().expect("chain holds at least the hit"),
+            )
+        },
+        |node| node as Arc<dyn UiNode>,
+    )
+}
+
+/// Walk down from `window`, matching each level of `chain` (stored deepest
+/// first, so iterated in reverse) to its enumeration index via `isSameObject`.
+/// Every constructed node pins its parent, so the returned leaf roots the
+/// whole ancestor chain.
+fn descend_to_hit(client: &Arc<JabClient>, window: &Arc<JabNode>, chain: &[JabObject]) -> Option<Arc<JabNode>> {
+    let mut cur = Arc::clone(window);
+    for target in chain.iter().rev() {
+        let info = client.context_info(&cur.ctx).ok()?;
+        let count = info.children_count.clamp(0, HIT_CHAIN_CHILD_SCAN_LIMIT);
+        let parent_role: Arc<str> = Arc::from(info.role_en_us.as_str());
+        let mut matched: Option<Arc<JabNode>> = None;
+        for index in 0..count {
+            let child = match client.child(&cur.ctx, index) {
+                Ok(Some(child)) => child,
+                Ok(None) => continue,
+                Err(_) => return None,
+            };
+            if client.is_same(&child, target).unwrap_or(false) {
+                let mut path = Vec::with_capacity(cur.index_path.len() + 1);
+                path.extend_from_slice(&cur.index_path);
+                path.push(index);
+                let parent_dyn: Arc<dyn UiNode> = Arc::clone(&cur) as Arc<dyn UiNode>;
+                let node = JabNode::build(
+                    Arc::clone(client),
+                    cur.window_manager.clone(),
+                    cur.vm,
+                    Arc::new(child),
+                    cur.hwnd,
+                    cur.scope,
+                    Arc::from(path.as_slice()),
+                    Some(parent_role),
+                    Arc::clone(&cur.calibration),
+                    Some(&parent_dyn),
+                );
+                node.hold_parent(parent_dyn);
+                matched = Some(node);
+                break;
+            }
+        }
+        cur = matched?;
+    }
+    Some(cur)
+}
+
+/// Documented fallback for an unmatched hit: a parentless node scoped to the
+/// window with a best-effort id (built from the raw handle — meaningless for
+/// identity, but distinct per pick). The picker can highlight it; tree-reveal
+/// degrades.
+fn hit_fallback_node(
+    client: &Arc<JabClient>,
+    window_manager: Option<Arc<dyn WindowManager>>,
+    vm: VmId,
+    hwnd: isize,
+    scope: IdScope,
+    window: &Arc<JabNode>,
+    hit: JabObject,
+) -> Arc<dyn UiNode> {
+    let handle = hit.handle();
+    // The placeholder index path keeps `is_top_level()` (and with it the
+    // window-pattern surface) off; it never reaches the RuntimeId, which is
+    // pre-seeded below.
+    let node = JabNode::build(
+        Arc::clone(client),
+        window_manager,
+        vm,
+        Arc::new(hit),
+        hwnd,
+        scope,
+        Arc::from([-1].as_slice()),
+        None,
+        Arc::clone(&window.calibration),
+        None,
+    );
+    let _ =
+        node.runtime_id.set(RuntimeId::from(format!("{}/hit/{handle:#X}", format_runtime_id(scope, vm, hwnd, &[]))));
+    node
+}
+
+// ---------------------------------------------------------------------------
 // Attributes
 
 fn static_attr(namespace: Namespace, name: &'static str, value: UiValue) -> Arc<dyn UiAttribute> {
@@ -925,11 +1150,30 @@ impl JabAppNode {
         window_manager: Option<Arc<dyn WindowManager>>,
         parent: &Arc<dyn UiNode>,
     ) -> Arc<Self> {
+        Self::build(pid, client, window_manager, Some(parent))
+    }
+
+    /// App node without a parent, capping an off-tree hit-test chain (see
+    /// [`hit_test_node`]); the tree's reveal matches it by RuntimeId.
+    pub(crate) fn orphan(
+        pid: u32,
+        client: Arc<JabClient>,
+        window_manager: Option<Arc<dyn WindowManager>>,
+    ) -> Arc<Self> {
+        Self::build(pid, client, window_manager, None)
+    }
+
+    fn build(
+        pid: u32,
+        client: Arc<JabClient>,
+        window_manager: Option<Arc<dyn WindowManager>>,
+        parent: Option<&Arc<dyn UiNode>>,
+    ) -> Arc<Self> {
         let node = Arc::new(Self {
             pid,
             client,
             window_manager,
-            parent: Mutex::new(Some(Arc::downgrade(parent))),
+            parent: Mutex::new(parent.map(Arc::downgrade)),
             self_weak: OnceLock::new(),
             runtime_id: OnceLock::new(),
             name: OnceLock::new(),

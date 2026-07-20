@@ -137,6 +137,10 @@ pub(crate) type IsJavaWindowFn = unsafe extern "C" fn(HWND) -> BOOL;
 pub(crate) type GetAccessibleContextFromHwndFn = unsafe extern "C" fn(HWND, *mut VmId, *mut JObject64) -> BOOL;
 pub(crate) type GetAccessibleContextInfoFn = unsafe extern "C" fn(VmId, JObject64, *mut AccessibleContextInfo) -> BOOL;
 pub(crate) type GetAccessibleChildFromContextFn = unsafe extern "C" fn(VmId, JObject64, i32) -> JObject64;
+pub(crate) type GetAccessibleParentFromContextFn = unsafe extern "C" fn(VmId, JObject64) -> JObject64;
+/// Native hit-test: deepest accessible context at desktop point `(x, y)`
+/// within `acParent` (`getAccessibleContextAt`).
+pub(crate) type GetAccessibleContextAtFn = unsafe extern "C" fn(VmId, JObject64, i32, i32, *mut JObject64) -> BOOL;
 pub(crate) type ReleaseJavaObjectFn = unsafe extern "C" fn(VmId, JObject64);
 pub(crate) type IsSameObjectFn = unsafe extern "C" fn(VmId, JObject64, JObject64) -> BOOL;
 pub(crate) type GetVersionInfoFn = unsafe extern "C" fn(VmId, *mut AccessBridgeVersionInfo) -> BOOL;

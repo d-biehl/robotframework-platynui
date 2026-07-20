@@ -1,4 +1,10 @@
-## ADDED Requirements
+# jab-hit-test
+
+## Purpose
+
+The `jab-hit-test` capability provides point-based hit-testing of Java Swing/AWT windows on Windows through the Java Access Bridge: `element_at_point` on the JAB provider resolves the deepest accessible node under a desktop point, with a reveal-ready ancestor chain for the Inspector picker, single-provider arbitration so a claimed Java window resolves to its JAB node rather than the UIA shell, and bounded behavior against unresponsive JVMs.
+
+## Requirements
 
 ### Requirement: Point-based hit-testing of Java windows
 The JAB provider SHALL implement `element_at_point`: for a desktop point over a Java top-level window (resolved via `WindowFromPoint` → root owner → `isJavaWindow`), it SHALL return the deepest accessible node at that point using the bridge's native hit-test (`getAccessibleContextAt`), as a `control:`/`item:` node with `@Technology = "JAB"`. Because the JDK's native hit-test answers null for every point until the target JVM has observed a mouse event (`EventQueueMonitor.currentMousePosition`), the provider SHALL fall back to a bounded geometric descent over calibrated child bounds when the bridge reports no context, and SHALL resolve a point over the window but outside every child (frame area) to the window node itself. For a point not over a Java window (or over the host process's own window) it SHALL report `UnsupportedOperation` (or no hit for its own process) so other providers handle the point. (Real-provider-only: requires a live JVM with the bridge enabled; runs in the Windows acceptance lane against the Swing fixture app.)
