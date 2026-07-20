@@ -94,4 +94,6 @@ Launch Default Swing Instance
 Terminate Default Swing Instance
     [Documentation]    Suite Teardown helper: terminate the instance started by Launch Default Swing
     ...    Instance (ignoring errors for instances that already exited, e.g. after a close test).
-    Run Keyword And Ignore Error    Terminate Process    ${SWING_APP_HANDLE}
+    ...    ``kill=True`` because a JVM ignores the "graceful" CTRL_BREAK (it just dumps threads),
+    ...    so the default path always burns the Process library's 30 s terminate timeout.
+    Run Keyword And Ignore Error    Terminate Process    ${SWING_APP_HANDLE}    kill=${True}

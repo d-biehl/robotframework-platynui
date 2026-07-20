@@ -57,4 +57,4 @@ A JVM Started After The First Query Appears On A Later Poll
     ${late_window}=    Window Locator    PlatynUI Swing Latecomer
     Node Is Present    ${late_root}${late_window}
     BM.Get Attribute    ${late_root}${late_window}    Technology    ==    JAB
-    [Teardown]    Run Keyword And Ignore Error    Terminate Process    ${handle}
+    [Teardown]    Run Keyword And Ignore Error    Terminate Process    ${handle}    kill=${True}
