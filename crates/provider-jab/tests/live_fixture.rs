@@ -9,17 +9,21 @@
 //! cargo nextest run -p platynui-provider-jab --run-ignored ignored-only
 //! ```
 //!
-//! `live_fixture_contract_and_interaction` covers OpenSpec `add-jab-provider`
+//! `live_fixture_contract_and_interaction` covers `OpenSpec` `add-jab-provider`
 //! task 4.5 (core contract testkit against a live node set) plus the
 //! `setTextContents` write path and the Closeable delegation;
 //! `live_frozen_jvm_stays_contained` covers task 8.3 (robustness against an
 //! unresponsive JVM — may be run manually if it proves flaky in CI).
 
+// Integration-test ergonomics: the scenarios are long and linear and define
+// their expectation constants next to where they are used. Neither pedantic
+// lint catches bugs here.
+#![allow(clippy::too_many_lines, clippy::items_after_statements)]
+// On non-Windows targets the `cfg` below strips the whole crate body, leaving
+// every dev-dependency of this test target unused. These attributes must stay
+// above the `cfg` — inner attributes after it get stripped too.
+#![cfg_attr(not(windows), allow(unused_crate_dependencies))]
 #![cfg(windows)]
-// Integration-test ergonomics: the scenarios are long and linear, define their
-// expectation constants next to where they are used, and are full of API names
-// in prose. None of these pedantic lints catch bugs here.
-#![allow(clippy::too_many_lines, clippy::items_after_statements, clippy::doc_markdown)]
 
 use platynui_core::config::{ConfigMap, RuntimeConfig};
 use platynui_core::platform::platform_factories;
