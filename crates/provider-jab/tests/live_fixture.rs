@@ -330,6 +330,74 @@ fn live_fixture_contract_and_interaction() {
         assert!(matches!(attribute_value(slider, attr), Some(UiValue::Number(_))), "slider {attr} must be numeric");
     }
 
+    // Interface-attribute projection (jab-interface-attributes): the two-tier
+    // split — container-level `native:<Interface>.*` in the enumeration, the
+    // expensive per-cell `TableCell.*` tier only via targeted lookup, so the
+    // full walks above never issued a per-cell call.
+    let native_names = |node: &Arc<dyn UiNode>| -> Vec<String> {
+        node.attributes()
+            .filter(|attr| attr.namespace() == Namespace::Native)
+            .map(|attr| attr.name().to_string())
+            .collect()
+    };
+    let native_value =
+        |node: &Arc<dyn UiNode>, name: &str| node.attribute(Namespace::Native, name).map(|attr| attr.value());
+
+    let table = find_by_name(&nodes, "main-table");
+    assert_eq!(table.role(), "Table");
+    let table_attrs = native_names(table);
+    for expected in ["Table.RowCount", "Table.ColumnCount", "Table.SelectedRowCount", "Table.SelectedColumnCount"] {
+        assert!(table_attrs.iter().any(|name| name == expected), "table must enumerate {expected}: {table_attrs:?}");
+    }
+    assert!(
+        table_attrs.iter().all(|name| !name.starts_with("TableCell.")),
+        "the table is not a table child itself and must not list TableCell.*: {table_attrs:?}"
+    );
+    assert_eq!(native_value(table, "Table.RowCount"), Some(UiValue::from(4i64)), "fixture table is 4x3");
+    assert_eq!(native_value(table, "Table.ColumnCount"), Some(UiValue::from(3i64)));
+    assert_eq!(native_value(table, "Table.SelectedRowCount"), Some(UiValue::from(1i64)), "row 2 is preselected");
+
+    // A data cell answers the per-cell tier through attribute() only. Cells
+    // are addressed by enumeration position, never by name: the JDK bridge
+    // aliases every JTable cell to the shared renderer component, so cell
+    // names are volatile (last-configured-wins) — the coordinate-based
+    // TableCell.* attributes are the stable identity.
+    let cells: Vec<Arc<dyn UiNode>> = table.children().collect();
+    assert_eq!(cells.len(), 12, "4x3 fixture table must expose one child per cell");
+    let cell = &cells[5]; // row-major: index 5 = (row 1, column 2), holds "r1c2"
+    // Cells LIST their per-cell attributes (so enumeration consumers like the
+    // Inspector's attribute panel see them); the values still resolve lazily.
+    let cell_attrs = native_names(cell);
+    for expected in ["TableCell.Row", "TableCell.Column", "TableCell.IsSelected"] {
+        assert!(cell_attrs.iter().any(|name| name == expected), "cell must list {expected}: {cell_attrs:?}");
+    }
+    assert_eq!(native_value(cell, "TableCell.Row"), Some(UiValue::from(1i64)));
+    assert_eq!(native_value(cell, "TableCell.Column"), Some(UiValue::from(2i64)));
+    assert_eq!(native_value(cell, "TableCell.Index"), Some(UiValue::from(5i64)));
+    assert_eq!(native_value(cell, "TableCell.IsSelected"), Some(UiValue::from(false)));
+    let selected_cell = &cells[7]; // (row 2, column 1) — row 2 is preselected
+    assert_eq!(native_value(selected_cell, "TableCell.Row"), Some(UiValue::from(2i64)));
+    assert_eq!(native_value(selected_cell, "TableCell.IsSelected"), Some(UiValue::from(true)));
+
+    // Bitfield gate: a plain label supports none of Table/Value/Text, so none
+    // of those attributes exist on it — neither enumerated nor by lookup —
+    // and TableCell.* is omitted because its parent is not a table.
+    let label = find_by_name(&nodes, "stage1-status-clicks-0");
+    let label_attrs = native_names(label);
+    for prefix in ["Table.", "TableCell.", "Value.", "Text."] {
+        assert!(
+            label_attrs.iter().all(|name| !name.starts_with(prefix)),
+            "label must not enumerate {prefix}*: {label_attrs:?}"
+        );
+    }
+    assert!(label.attribute(Namespace::Native, "Table.RowCount").is_none(), "gate must veto the targeted lookup");
+    assert!(label.attribute(Namespace::Native, "TableCell.Row").is_none(), "parent is not a table");
+
+    // The slider's native Value.* mirrors the StatefulValue readings above.
+    assert_eq!(native_value(slider, "Value.Current"), Some(UiValue::from(50.0)), "fixture slider default");
+    assert_eq!(native_value(slider, "Value.Minimum"), Some(UiValue::from(0.0)));
+    assert_eq!(native_value(slider, "Value.Maximum"), Some(UiValue::from(100.0)));
+
     // Closeable delegates to the window manager; the fixture process must die.
     use platynui_core::ui::CloseablePattern as _;
     let closeable = window.pattern::<platynui_core::ui::CloseableAction>().expect("Closeable pattern instance");
@@ -390,6 +458,21 @@ fn live_frozen_jvm_stays_contained() {
         let _ = activatable.activate();
     }
 
+    // Captured while the JVM is still responsive: the slider answers its
+    // native interface attribute normally — the same lookup must degrade to
+    // absence (bounded) once the JVM freezes.
+    let mut live_nodes = Vec::new();
+    walk(&window, &mut live_nodes, 0);
+    let slider = Arc::clone(find_by_name(&live_nodes, "stage2-slider"));
+    drop(live_nodes);
+    assert!(
+        matches!(
+            slider.attribute(Namespace::Native, "Value.Current").map(|attr| attr.value()),
+            Some(UiValue::Number(_))
+        ),
+        "live slider must answer native:Value.Current"
+    );
+
     // Freeze every thread of the JVM (debugger attach) — the bridge can no
     // longer answer, exactly like a hung event-dispatch thread.
     set_process_frozen(app.pid(), true);
@@ -427,6 +510,19 @@ fn live_frozen_jvm_stays_contained() {
         assert!(
             elapsed < CALL_TIMEOUT * 4 + Duration::from_secs(1),
             "hit-test against a frozen JVM must return within the deadline margin, took {elapsed:?}"
+        );
+
+        // Interface attributes degrade to absence, not to a hang
+        // (jab-interface-attributes): the targeted lookup gates on a live
+        // info snapshot the frozen JVM cannot answer — with the vm already
+        // degraded it fails fast, well inside the deadline margin.
+        let start = Instant::now();
+        let value_attr = slider.attribute(Namespace::Native, "Value.Current");
+        assert!(value_attr.is_none(), "a frozen JVM must not surface interface attributes");
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < CALL_TIMEOUT * 4 + Duration::from_secs(1),
+            "interface-attribute lookup against a frozen JVM must be bounded, took {elapsed:?}"
         );
 
         // Other providers stay usable while the JAB pump is wedged: a UIA

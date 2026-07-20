@@ -19,6 +19,11 @@ Test Tags           real
 Ten Full Walks Return The Same Structure
     ${baseline}=    Walk Signature
     Should Not Be Equal As Integers    ${baseline}[count]    0    msg=walk must reach the fixture subtree
+    # The guard must cover the JTable (jab-interface-attributes): the table (and with it its 12
+    # walked cells) is part of every round, so leaked table/cell handles would surface as drift.
+    # Cell @Names are deliberately not asserted — the JDK bridge aliases all cells to the shared
+    # renderer, so their names are volatile (see testapp_locators.resource).
+    Should Contain    ${baseline}[names]    main-table
     FOR    ${round}    IN RANGE    9
         ${walk}=    Walk Signature
         Dictionaries Should Be Equal    ${walk}    ${baseline}    msg=walk ${round + 2} diverged from the first

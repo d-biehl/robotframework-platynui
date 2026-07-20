@@ -42,6 +42,7 @@ public final class Main {
         content.getAccessibleContext().setAccessibleName("main-content");
         content.add(new Stage1Panel());
         content.add(new Stage2Panel());
+        content.add(new TablePanel());
         frame.setContentPane(content);
 
         frame.pack();

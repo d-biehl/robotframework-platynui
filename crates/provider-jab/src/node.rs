@@ -15,6 +15,7 @@ use crate::client::{ContextInfo, JabClient};
 use crate::error::JabError;
 use crate::ffi::{self, VmId};
 use crate::handle::JabObject;
+use crate::interfaces;
 use crate::map;
 use platynui_core::platform::{WindowId, WindowManager};
 use platynui_core::types::{Point, Rect, Size};
@@ -189,6 +190,12 @@ pub(crate) struct JabNode {
     /// The parent's `role_en_US`, captured at construction (feeds the JList
     /// `label` → `item:ListItem` promotion without re-querying the parent).
     parent_role_en: Option<Arc<str>>,
+    /// The tree parent's own context, captured at construction; feeds the
+    /// per-cell `TableCell.*` resolution. The *bridge* parent cannot be used
+    /// there: for JTable cells the JDK's AccessBridge answers the shared
+    /// cell-renderer component, whose accessible parent is the
+    /// `CellRendererPane`, not the table.
+    parent_ctx: Option<Arc<JabObject>>,
     calibration: Arc<Calibration>,
     parent: Mutex<Option<Weak<dyn UiNode>>>,
     /// Strong ref to the parent that roots an off-tree chain (the live
@@ -214,7 +221,19 @@ impl JabNode {
     ) -> Arc<Self> {
         let ctx = Arc::new(ctx);
         let calibration = Arc::new(Calibration::new(Arc::clone(&client), Arc::clone(&ctx), hwnd));
-        Self::build(client, window_manager, vm, ctx, hwnd, scope, Arc::from([].as_slice()), None, calibration, parent)
+        Self::build(
+            client,
+            window_manager,
+            vm,
+            ctx,
+            hwnd,
+            scope,
+            Arc::from([].as_slice()),
+            None,
+            None,
+            calibration,
+            parent,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -227,6 +246,7 @@ impl JabNode {
         scope: IdScope,
         index_path: Arc<[i32]>,
         parent_role_en: Option<Arc<str>>,
+        parent_ctx: Option<Arc<JabObject>>,
         calibration: Arc<Calibration>,
         parent: Option<&Arc<dyn UiNode>>,
     ) -> Arc<Self> {
@@ -239,6 +259,7 @@ impl JabNode {
             scope,
             index_path,
             parent_role_en,
+            parent_ctx,
             calibration,
             parent: Mutex::new(parent.map(Arc::downgrade)),
             parent_keepalive: Mutex::new(None),
@@ -470,7 +491,55 @@ impl UiNode for JabNode {
             UiValue::from(ffi::interface_names(info.interfaces).into_iter().map(String::from).collect::<Vec<_>>()),
         ));
 
+        // Interface-property projection (jab-interface-attributes): the
+        // container-level tier, gated by the interfaces bitfield.
+        interfaces::append_interface_attributes(&mut attrs, &self.client, &self.ctx, info.interfaces);
+
+        // Per-cell tier: listed only on children of a table so the Inspector's
+        // attribute panel can show them. The captured parent role is a free
+        // gate (no bridge call); values resolve lazily per read, so a walk
+        // that does not read them still issues no per-cell calls.
+        if self.parent_role_en.as_deref() == Some("table")
+            && let (Some(parent_ctx), Some(&index)) = (&self.parent_ctx, self.index_path.last())
+            && index >= 0
+        {
+            interfaces::append_cell_attributes(&mut attrs, &self.client, parent_ctx, index);
+        }
+
         Box::new(attrs.into_iter())
+    }
+
+    fn attribute(&self, namespace: Namespace, name: &str) -> Option<Arc<dyn UiAttribute>> {
+        if namespace == Namespace::Native {
+            // Targeted per-cell lookup — the expensive tier, deliberately
+            // absent from `attributes()` enumeration. Resolvability is checked
+            // here so a node whose parent is not a table simply has no
+            // `TableCell.*` attributes (documented fallback); the returned
+            // attribute still re-reads live per `value()` access. The cell is
+            // addressed through the *tree* parent's context plus this node's
+            // enumeration index (see the `parent_ctx` field docs).
+            if let Some(property) = interfaces::cell_property(name) {
+                let index = self.index_path.last().copied()?;
+                let parent_ctx = self.parent_ctx.clone()?;
+                interfaces::resolve_cell_info(&self.client, &parent_ctx, index)?;
+                return Some(Arc::new(interfaces::TableCellAttr {
+                    client: Arc::clone(&self.client),
+                    parent_ctx,
+                    index,
+                    property,
+                }));
+            }
+            // Container-level interface property: honor the bitfield gate on a
+            // live snapshot (degraded JVM ⇒ no info ⇒ no interface attribute).
+            if let Some((bit, property)) = interfaces::container_property(name) {
+                if bit != 0 && !self.info_opt()?.has_interface(bit) {
+                    return None;
+                }
+                return Some(interfaces::interface_attr(&self.client, &self.ctx, property));
+            }
+        }
+        // Everything else: the trait-default scan over the enumeration.
+        self.attributes().find(|attr| attr.namespace() == namespace && attr.name() == name)
     }
 
     fn supported_patterns(&self) -> Vec<PatternName> {
@@ -583,6 +652,7 @@ impl Iterator for ChildIter {
                         self.scope,
                         Arc::from(path.as_slice()),
                         Some(Arc::clone(&self.role_en)),
+                        Some(Arc::clone(&self.ctx)),
                         Arc::clone(&self.calibration),
                         self.parent.as_ref(),
                     );
@@ -766,6 +836,7 @@ fn descend_to_hit(client: &Arc<JabClient>, window: &Arc<JabNode>, chain: &[JabOb
                     cur.scope,
                     Arc::from(path.as_slice()),
                     Some(parent_role),
+                    Some(Arc::clone(&cur.ctx)),
                     Arc::clone(&cur.calibration),
                     Some(&parent_dyn),
                 );
@@ -804,6 +875,7 @@ fn hit_fallback_node(
         hwnd,
         scope,
         Arc::from([-1].as_slice()),
+        None,
         None,
         Arc::clone(&window.calibration),
         None,

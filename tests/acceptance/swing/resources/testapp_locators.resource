@@ -37,3 +37,11 @@ ${STAGE2_COMBO}         //ComboBox[@Name="stage2-combo"]
 ${STAGE2_SLIDER}        //Slider[@Name="stage2-slider"]
 ${STAGE2_SPINNER}       //SpinButton[@Name="stage2-spinner"]
 ${STAGE2_PROGRESS}      //ProgressBar[@Name="stage2-progress"]
+${MAIN_TABLE}           //Table[@Name="main-table"]
+# Table cells are addressed by POSITION (row-major enumeration order, XPath 1-based), never by
+# @Name: the JDK's AccessBridge answers JTable cell lookups with the one shared cell-renderer
+# component, so every cell's @Name reads whatever cell the renderer was configured for last.
+# 4×3 grid → cell (row, col) is child [row*3 + col + 1]; content/coordinates are asserted via the
+# stable @native:TableCell.* attributes instead.
+${MAIN_TABLE_CELL_R1C2}    //Table[@Name="main-table"]/*[6]
+${MAIN_TABLE_CELL_R2C1}    //Table[@Name="main-table"]/*[8]

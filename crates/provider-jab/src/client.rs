@@ -69,6 +69,62 @@ pub(crate) struct VersionInfo {
     pub bridge_win_dll_version: String,
 }
 
+/// Owned copy of one `getAccessibleTableInfo` result. The caption, summary,
+/// and duplicate-context handles are released before this leaves the pump
+/// thread; only the `AccessibleTable` handle survives (as RAII `table`)
+/// because the per-cell and selection calls take it, not the context.
+#[derive(Debug)]
+pub(crate) struct TableInfo {
+    pub row_count: i32,
+    pub column_count: i32,
+    pub has_caption: bool,
+    pub has_summary: bool,
+    pub table: JabObject,
+}
+
+/// Owned copy of one `getAccessibleTableCellInfo` result (the cell's own
+/// context handle is released after extraction).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TableCellInfo {
+    pub index: i32,
+    pub row: i32,
+    pub column: i32,
+    pub row_extent: i32,
+    pub column_extent: i32,
+    pub is_selected: bool,
+}
+
+/// Owned copy of one `getAccessibleTextInfo` result (the probe point for
+/// `index_at_point` is unused here).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TextInfo {
+    pub char_count: i32,
+    pub caret_index: i32,
+}
+
+/// Owned copy of one `getAccessibleTextSelectionInfo` result.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TextSelection {
+    pub start_index: i32,
+    pub end_index: i32,
+}
+
+/// One key binding from `getAccessibleKeyBindings` (raw character/modifiers;
+/// formatting happens in the attribute layer).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct KeyBinding {
+    pub character: u16,
+    pub modifiers: i32,
+}
+
+/// Summary of one relation from `getAccessibleRelationSet` (target handles
+/// are released after counting — only the summary survives).
+#[derive(Debug, Clone)]
+pub(crate) struct RelationSummary {
+    pub key: String,
+    pub target_count: i32,
+}
+
 pub(crate) struct JabClient {
     job_tx: mpsc::Sender<Job>,
     release_tx: ReleaseSender,
@@ -366,6 +422,212 @@ impl JabClient {
         self.call(Some(vm), "isAccessibleChildSelectedFromContext", move |bridge| {
             // SAFETY: pump thread.
             unsafe { (bridge.is_accessible_child_selected)(vm, handle, index).as_bool() }
+        })
+    }
+
+    // -----------------------------------------------------------------------
+    // Interface getters (jab-interface-attributes). Each wraps one bridge
+    // call on the pump thread, extracts owned Rust values, and releases every
+    // embedded `JOBJECT64` it does not hand back.
+
+    /// Container-level table info (`getAccessibleTableInfo`) for a context
+    /// supporting `AccessibleTable`. `Ok(None)` when the bridge answers FALSE.
+    #[allow(unsafe_code)]
+    pub(crate) fn table_info(&self, obj: &JabObject) -> Result<Option<TableInfo>, JabError> {
+        let (vm, handle) = (obj.vm(), obj.handle());
+        let release = self.release_sender();
+        self.call(Some(vm), "getAccessibleTableInfo", move |bridge| {
+            let mut info = ffi::AccessibleTableInfo::zeroed();
+            // SAFETY: valid out-parameter; pump thread.
+            let ok = unsafe { (bridge.get_accessible_table_info)(vm, handle, &raw mut info).as_bool() };
+            ok.then(|| {
+                // Caption/summary/duplicate-context handles are not needed
+                // beyond presence — release them here, on the pump thread.
+                for unused in [info.caption, info.summary, info.accessible_context] {
+                    if unused != 0 {
+                        // SAFETY: releasing a handle the bridge just returned.
+                        unsafe { (bridge.release_java_object)(vm, unused) };
+                    }
+                }
+                TableInfo {
+                    row_count: info.row_count,
+                    column_count: info.column_count,
+                    has_caption: info.caption != 0,
+                    has_summary: info.summary != 0,
+                    table: JabObject::new(vm, info.accessible_table, release),
+                }
+            })
+        })
+    }
+
+    /// Per-cell info (`getAccessibleTableCellInfo`). Takes the RAII
+    /// `AccessibleTable` handle from [`TableInfo::table`]. `Ok(None)` when the
+    /// bridge answers FALSE (coordinate out of range, table gone).
+    #[allow(unsafe_code)]
+    pub(crate) fn table_cell_info(
+        &self,
+        table: &JabObject,
+        row: i32,
+        column: i32,
+    ) -> Result<Option<TableCellInfo>, JabError> {
+        let (vm, handle) = (table.vm(), table.handle());
+        self.call(Some(vm), "getAccessibleTableCellInfo", move |bridge| {
+            let mut info = ffi::AccessibleTableCellInfo::zeroed();
+            // SAFETY: valid out-parameter; pump thread.
+            let ok =
+                unsafe { (bridge.get_accessible_table_cell_info)(vm, handle, row, column, &raw mut info) }.as_bool();
+            ok.then(|| {
+                if info.accessible_context != 0 {
+                    // SAFETY: releasing the cell context handle after extraction.
+                    unsafe { (bridge.release_java_object)(vm, info.accessible_context) };
+                }
+                TableCellInfo {
+                    index: info.index,
+                    row: info.row,
+                    column: info.column,
+                    row_extent: info.row_extent,
+                    column_extent: info.column_extent,
+                    is_selected: info.is_selected != 0,
+                }
+            })
+        })
+    }
+
+    /// Selected-row count of a table (`getAccessibleTableRowSelectionCount`);
+    /// takes the `AccessibleTable` handle. `Ok(None)` on the bridge's `-1`
+    /// error convention.
+    #[allow(unsafe_code)]
+    pub(crate) fn table_row_selection_count(&self, table: &JabObject) -> Result<Option<i32>, JabError> {
+        let (vm, handle) = (table.vm(), table.handle());
+        self.call(Some(vm), "getAccessibleTableRowSelectionCount", move |bridge| {
+            // SAFETY: pump thread.
+            let count = unsafe { (bridge.get_accessible_table_row_selection_count)(vm, handle) };
+            (count >= 0).then_some(count)
+        })
+    }
+
+    /// Selected-column count of a table; see [`Self::table_row_selection_count`].
+    #[allow(unsafe_code)]
+    pub(crate) fn table_column_selection_count(&self, table: &JabObject) -> Result<Option<i32>, JabError> {
+        let (vm, handle) = (table.vm(), table.handle());
+        self.call(Some(vm), "getAccessibleTableColumnSelectionCount", move |bridge| {
+            // SAFETY: pump thread.
+            let count = unsafe { (bridge.get_accessible_table_column_selection_count)(vm, handle) };
+            (count >= 0).then_some(count)
+        })
+    }
+
+    /// Character count and caret index (`getAccessibleTextInfo`).
+    #[allow(unsafe_code)]
+    pub(crate) fn text_info(&self, obj: &JabObject) -> Result<Option<TextInfo>, JabError> {
+        let (vm, handle) = (obj.vm(), obj.handle());
+        self.call(Some(vm), "getAccessibleTextInfo", move |bridge| {
+            let mut info = AccessibleTextInfo::default();
+            // SAFETY: valid out-parameter; pump thread. (0, 0) is the probe
+            // point for the unused index-at-point field.
+            let ok = unsafe { (bridge.get_accessible_text_info)(vm, handle, &raw mut info, 0, 0).as_bool() };
+            ok.then_some(TextInfo { char_count: info.char_count, caret_index: info.caret_index })
+        })
+    }
+
+    /// Selection bounds (`getAccessibleTextSelectionInfo`).
+    #[allow(unsafe_code)]
+    pub(crate) fn text_selection(&self, obj: &JabObject) -> Result<Option<TextSelection>, JabError> {
+        let (vm, handle) = (obj.vm(), obj.handle());
+        self.call(Some(vm), "getAccessibleTextSelectionInfo", move |bridge| {
+            let mut info = ffi::AccessibleTextSelectionInfo::zeroed();
+            // SAFETY: valid out-parameter; pump thread.
+            let ok = unsafe { (bridge.get_accessible_text_selection_info)(vm, handle, &raw mut *info).as_bool() };
+            ok.then_some(TextSelection { start_index: info.selection_start_index, end_index: info.selection_end_index })
+        })
+    }
+
+    /// Available action names (`getAccessibleActions`).
+    #[allow(unsafe_code)]
+    pub(crate) fn action_names(&self, obj: &JabObject) -> Result<Option<Vec<String>>, JabError> {
+        let (vm, handle) = (obj.vm(), obj.handle());
+        self.call(Some(vm), "getAccessibleActions", move |bridge| {
+            let mut actions = ffi::AccessibleActions::zeroed();
+            // SAFETY: valid (heap-boxed, ~128 KiB) out-parameter; pump thread.
+            let ok = unsafe { (bridge.get_accessible_actions)(vm, handle, &raw mut *actions).as_bool() };
+            ok.then(|| {
+                let count = usize::try_from(actions.actions_count).unwrap_or(0).min(ffi::MAX_ACTION_INFO);
+                actions.action_info[..count].iter().map(|action| wide_str(&action.name)).collect()
+            })
+        })
+    }
+
+    /// Hyperlink count (`getAccessibleHypertextExt` at start index 0). The
+    /// per-link and hypertext handles embedded in the result are released
+    /// immediately — only the count survives. `Ok(None)` when the bridge
+    /// answers FALSE (no hypertext on the element).
+    #[allow(unsafe_code)]
+    pub(crate) fn hypertext_link_count(&self, obj: &JabObject) -> Result<Option<i32>, JabError> {
+        let (vm, handle) = (obj.vm(), obj.handle());
+        self.call(Some(vm), "getAccessibleHypertextExt", move |bridge| {
+            let mut info = ffi::AccessibleHypertextInfo::zeroed();
+            // SAFETY: valid (heap-boxed, ~33 KiB) out-parameter; pump thread.
+            let ok = unsafe { (bridge.get_accessible_hypertext_ext)(vm, handle, 0, &raw mut *info).as_bool() };
+            ok.then(|| {
+                let filled = usize::try_from(info.link_count).unwrap_or(0).min(ffi::MAX_HYPERLINKS);
+                for link in &info.links[..filled] {
+                    if link.accessible_hyperlink != 0 {
+                        // SAFETY: releasing a handle the bridge just returned.
+                        unsafe { (bridge.release_java_object)(vm, link.accessible_hyperlink) };
+                    }
+                }
+                if info.accessible_hypertext != 0 {
+                    // SAFETY: as above.
+                    unsafe { (bridge.release_java_object)(vm, info.accessible_hypertext) };
+                }
+                info.link_count
+            })
+        })
+    }
+
+    /// Key bindings of a component (`getAccessibleKeyBindings`).
+    #[allow(unsafe_code)]
+    pub(crate) fn key_bindings(&self, obj: &JabObject) -> Result<Option<Vec<KeyBinding>>, JabError> {
+        let (vm, handle) = (obj.vm(), obj.handle());
+        self.call(Some(vm), "getAccessibleKeyBindings", move |bridge| {
+            let mut bindings = ffi::AccessibleKeyBindings::zeroed();
+            // SAFETY: valid out-parameter; pump thread.
+            let ok = unsafe { (bridge.get_accessible_key_bindings)(vm, handle, &raw mut bindings).as_bool() };
+            ok.then(|| {
+                let count = usize::try_from(bindings.key_bindings_count).unwrap_or(0).min(ffi::MAX_KEY_BINDINGS);
+                bindings.key_binding_info[..count]
+                    .iter()
+                    .map(|info| KeyBinding { character: info.character, modifiers: info.modifiers })
+                    .collect()
+            })
+        })
+    }
+
+    /// Relation summaries (`getAccessibleRelationSet`). All target handles are
+    /// released after counting.
+    #[allow(unsafe_code)]
+    pub(crate) fn relation_summaries(&self, obj: &JabObject) -> Result<Option<Vec<RelationSummary>>, JabError> {
+        let (vm, handle) = (obj.vm(), obj.handle());
+        self.call(Some(vm), "getAccessibleRelationSet", move |bridge| {
+            let mut set = ffi::AccessibleRelationSetInfo::zeroed();
+            // SAFETY: valid out-parameter; pump thread.
+            let ok = unsafe { (bridge.get_accessible_relation_set)(vm, handle, &raw mut *set).as_bool() };
+            ok.then(|| {
+                let count = usize::try_from(set.relation_count).unwrap_or(0).min(ffi::MAX_RELATIONS);
+                set.relations[..count]
+                    .iter()
+                    .map(|relation| {
+                        let filled = usize::try_from(relation.target_count).unwrap_or(0).min(ffi::MAX_RELATION_TARGETS);
+                        for &target in &relation.targets[..filled] {
+                            if target != 0 {
+                                // SAFETY: releasing a handle the bridge just returned.
+                                unsafe { (bridge.release_java_object)(vm, target) };
+                            }
+                        }
+                        RelationSummary { key: wide_str(&relation.key), target_count: relation.target_count }
+                    })
+                    .collect()
+            })
         })
     }
 }

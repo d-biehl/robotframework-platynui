@@ -33,6 +33,8 @@ mod ffi;
 #[cfg(windows)]
 mod handle;
 #[cfg(windows)]
+mod interfaces;
+#[cfg(windows)]
 mod map;
 #[cfg(windows)]
 mod node;

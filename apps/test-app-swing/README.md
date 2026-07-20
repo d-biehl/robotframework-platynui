@@ -63,11 +63,14 @@ out-of-process, so every interactive control carries an explicit, unique
 | Stage 2 panel | `stage2-panel` |
 | Checkbox / radios | `stage2-checkbox`, `stage2-radio-a`, `stage2-radio-b` |
 | Combo / slider / spinner / progress | `stage2-combo`, `stage2-slider`, `stage2-spinner`, `stage2-progress` |
+| Table panel / scroll pane / table | `table-panel`, `table-scroll`, `main-table` |
+| Table cells | content `r<row>c<col>` (4×3 grid, row 2 preselected) — **not** name-addressable: the JDK bridge aliases all JTable cells to the shared renderer, so cell names are volatile; locate cells by row-major child position |
 
 ## Growth rules
 
-The app grows stage by stage (stage 3: tabs/table/tree; stage 4: dialogs/popups —
-`--dialogs`/`--open-modal` are already reserved; stage 5: dynamic content). Two
+The app grows panel by panel (the table panel carries the JAB
+interface-attribute work; tabs/tree may follow; dialogs/popups —
+`--dialogs`/`--open-modal` are already reserved; dynamic content later). Two
 rules keep selectors stable across growth:
 
 1. **Existing accessible names never change.** New stages add names, they never

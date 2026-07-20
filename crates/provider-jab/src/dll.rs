@@ -120,6 +120,15 @@ pub(crate) struct Bridge {
     pub get_minimum_accessible_value: ffi::GetAccessibleValueFn,
     pub get_accessible_selected_children_count: ffi::GetAccessibleSelectedChildrenCountFn,
     pub is_accessible_child_selected: ffi::IsAccessibleChildSelectedFn,
+    pub get_accessible_table_info: ffi::GetAccessibleTableInfoFn,
+    pub get_accessible_table_cell_info: ffi::GetAccessibleTableCellInfoFn,
+    pub get_accessible_table_row_selection_count: ffi::GetAccessibleTableSelectionCountFn,
+    pub get_accessible_table_column_selection_count: ffi::GetAccessibleTableSelectionCountFn,
+    pub get_accessible_text_selection_info: ffi::GetAccessibleTextSelectionInfoFn,
+    pub get_accessible_actions: ffi::GetAccessibleActionsFn,
+    pub get_accessible_hypertext_ext: ffi::GetAccessibleHypertextExtFn,
+    pub get_accessible_key_bindings: ffi::GetAccessibleKeyBindingsFn,
+    pub get_accessible_relation_set: ffi::GetAccessibleRelationSetFn,
     _library: libloading::Library,
 }
 
@@ -160,6 +169,15 @@ impl Bridge {
                 get_minimum_accessible_value: bind!(b"getMinimumAccessibleValueFromContext\0"),
                 get_accessible_selected_children_count: bind!(b"getAccessibleSelectionCountFromContext\0"),
                 is_accessible_child_selected: bind!(b"isAccessibleChildSelectedFromContext\0"),
+                get_accessible_table_info: bind!(b"getAccessibleTableInfo\0"),
+                get_accessible_table_cell_info: bind!(b"getAccessibleTableCellInfo\0"),
+                get_accessible_table_row_selection_count: bind!(b"getAccessibleTableRowSelectionCount\0"),
+                get_accessible_table_column_selection_count: bind!(b"getAccessibleTableColumnSelectionCount\0"),
+                get_accessible_text_selection_info: bind!(b"getAccessibleTextSelectionInfo\0"),
+                get_accessible_actions: bind!(b"getAccessibleActions\0"),
+                get_accessible_hypertext_ext: bind!(b"getAccessibleHypertextExt\0"),
+                get_accessible_key_bindings: bind!(b"getAccessibleKeyBindings\0"),
+                get_accessible_relation_set: bind!(b"getAccessibleRelationSet\0"),
                 _library: library,
             })
         }

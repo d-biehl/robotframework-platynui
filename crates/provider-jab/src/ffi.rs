@@ -128,6 +128,220 @@ pub(crate) struct AccessibleTextInfo {
 
 const _: () = assert!(std::mem::size_of::<AccessibleTextInfo>() == 12);
 
+// ---------------------------------------------------------------------------
+// Interface-getter out-parameter structs (`AccessBridgePackages.h`). All are
+// plain-old-data (integers, handles, fixed UTF-16 buffers); the all-zero bit
+// pattern is a valid value for every one of them. Out-parameters start from
+// `zeroed()` — small structs by value, large ones heap-boxed (`boxed_zeroed`).
+
+/// Fixed array sizes from `AccessBridgePackages.h`.
+pub(crate) const MAX_KEY_BINDINGS: usize = 10;
+pub(crate) const MAX_RELATION_TARGETS: usize = 25;
+pub(crate) const MAX_RELATIONS: usize = 5;
+pub(crate) const MAX_HYPERLINKS: usize = 64;
+pub(crate) const MAX_ACTION_INFO: usize = 256;
+
+/// All-zero heap allocation for the POD out-parameter structs below. Kept
+/// private so the "all-zero is valid" argument stays local to this module.
+#[allow(unsafe_code)]
+fn boxed_zeroed<T>() -> Box<T> {
+    // SAFETY: only instantiated for the `#[repr(C)]` structs in this module,
+    // which consist solely of integers, raw handles, and fixed arrays thereof
+    // — all-zero is a valid, fully initialized value for each of them.
+    unsafe { Box::new_zeroed().assume_init() }
+}
+
+/// `AccessibleTableInfo`: table dimensions plus JVM-side references (caption,
+/// summary, the table's own context, and the `AccessibleTable` object that the
+/// per-cell and selection calls take). Every non-null handle must be released.
+#[repr(C)]
+pub(crate) struct AccessibleTableInfo {
+    pub caption: JObject64,
+    pub summary: JObject64,
+    pub row_count: i32,
+    pub column_count: i32,
+    pub accessible_context: JObject64,
+    pub accessible_table: JObject64,
+}
+
+impl AccessibleTableInfo {
+    pub(crate) fn zeroed() -> Self {
+        Self { caption: 0, summary: 0, row_count: 0, column_count: 0, accessible_context: 0, accessible_table: 0 }
+    }
+}
+
+const _: () = assert!(std::mem::size_of::<AccessibleTableInfo>() == 40);
+const _: () = assert!(std::mem::offset_of!(AccessibleTableInfo, row_count) == 16);
+const _: () = assert!(std::mem::offset_of!(AccessibleTableInfo, accessible_context) == 24);
+const _: () = assert!(std::mem::offset_of!(AccessibleTableInfo, accessible_table) == 32);
+
+/// `AccessibleTableCellInfo`: one cell's coordinates, extents, and selection
+/// state. `accessible_context` (the cell's own context) must be released.
+#[repr(C)]
+pub(crate) struct AccessibleTableCellInfo {
+    pub accessible_context: JObject64,
+    pub index: i32,
+    pub row: i32,
+    pub column: i32,
+    pub row_extent: i32,
+    pub column_extent: i32,
+    /// `jboolean` — a single byte, not a Win32 `BOOL`.
+    pub is_selected: u8,
+}
+
+impl AccessibleTableCellInfo {
+    pub(crate) fn zeroed() -> Self {
+        Self { accessible_context: 0, index: 0, row: 0, column: 0, row_extent: 0, column_extent: 0, is_selected: 0 }
+    }
+}
+
+const _: () = assert!(std::mem::size_of::<AccessibleTableCellInfo>() == 32);
+const _: () = assert!(std::mem::offset_of!(AccessibleTableCellInfo, index) == 8);
+const _: () = assert!(std::mem::offset_of!(AccessibleTableCellInfo, is_selected) == 28);
+
+/// `AccessibleTextSelectionInfo`: selection bounds plus the selected text.
+#[repr(C)]
+pub(crate) struct AccessibleTextSelectionInfo {
+    pub selection_start_index: i32,
+    pub selection_end_index: i32,
+    pub selected_text: [u16; MAX_STRING_SIZE],
+}
+
+impl AccessibleTextSelectionInfo {
+    pub(crate) fn zeroed() -> Box<Self> {
+        boxed_zeroed()
+    }
+}
+
+const _: () = assert!(std::mem::size_of::<AccessibleTextSelectionInfo>() == 2056);
+const _: () = assert!(std::mem::offset_of!(AccessibleTextSelectionInfo, selected_text) == 8);
+
+/// `AccessibleActionInfo` / `AccessibleActions`: the action-name list. No
+/// embedded handles. ~128 KiB — always heap-allocated.
+#[repr(C)]
+pub(crate) struct AccessibleActionInfo {
+    pub name: [u16; SHORT_STRING_SIZE],
+}
+
+#[repr(C)]
+pub(crate) struct AccessibleActions {
+    pub actions_count: i32,
+    pub action_info: [AccessibleActionInfo; MAX_ACTION_INFO],
+}
+
+impl AccessibleActions {
+    pub(crate) fn zeroed() -> Box<Self> {
+        boxed_zeroed()
+    }
+}
+
+const _: () = assert!(std::mem::size_of::<AccessibleActionInfo>() == 512);
+const _: () = assert!(std::mem::size_of::<AccessibleActions>() == 131_076);
+const _: () = assert!(std::mem::offset_of!(AccessibleActions, action_info) == 4);
+
+/// `AccessibleKeyBindingInfo` / `AccessibleKeyBindings`: key bindings
+/// associated with a component. No embedded handles.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub(crate) struct AccessibleKeyBindingInfo {
+    /// `jchar` — a UTF-16 code unit; under `ACCESSIBLE_FKEY_KEYSTROKE` it
+    /// holds the F-key number, under `ACCESSIBLE_CONTROLCODE_KEYSTROKE` a
+    /// control-code constant.
+    pub character: u16,
+    pub modifiers: i32,
+}
+
+#[repr(C)]
+pub(crate) struct AccessibleKeyBindings {
+    pub key_bindings_count: i32,
+    pub key_binding_info: [AccessibleKeyBindingInfo; MAX_KEY_BINDINGS],
+}
+
+impl AccessibleKeyBindings {
+    pub(crate) fn zeroed() -> Self {
+        Self {
+            key_bindings_count: 0,
+            key_binding_info: [AccessibleKeyBindingInfo { character: 0, modifiers: 0 }; MAX_KEY_BINDINGS],
+        }
+    }
+}
+
+const _: () = assert!(std::mem::size_of::<AccessibleKeyBindingInfo>() == 8);
+const _: () = assert!(std::mem::offset_of!(AccessibleKeyBindingInfo, modifiers) == 4);
+const _: () = assert!(std::mem::size_of::<AccessibleKeyBindings>() == 84);
+const _: () = assert!(std::mem::offset_of!(AccessibleKeyBindings, key_binding_info) == 4);
+
+/// `AccessibleRelationInfo` / `AccessibleRelationSetInfo`: relation keys with
+/// target references. Every non-null target handle must be released.
+#[repr(C)]
+pub(crate) struct AccessibleRelationInfo {
+    pub key: [u16; SHORT_STRING_SIZE],
+    pub target_count: i32,
+    pub targets: [JObject64; MAX_RELATION_TARGETS],
+}
+
+#[repr(C)]
+pub(crate) struct AccessibleRelationSetInfo {
+    pub relation_count: i32,
+    pub relations: [AccessibleRelationInfo; MAX_RELATIONS],
+}
+
+impl AccessibleRelationSetInfo {
+    pub(crate) fn zeroed() -> Box<Self> {
+        boxed_zeroed()
+    }
+}
+
+const _: () = assert!(std::mem::size_of::<AccessibleRelationInfo>() == 720);
+const _: () = assert!(std::mem::offset_of!(AccessibleRelationInfo, target_count) == 512);
+const _: () = assert!(std::mem::offset_of!(AccessibleRelationInfo, targets) == 520);
+const _: () = assert!(std::mem::size_of::<AccessibleRelationSetInfo>() == 3608);
+const _: () = assert!(std::mem::offset_of!(AccessibleRelationSetInfo, relations) == 8);
+
+/// `AccessibleHyperlinkInfo` / `AccessibleHypertextInfo`: hyperlink summary.
+/// Each filled link carries an `accessibleHyperlink` handle, and the struct an
+/// `accessibleHypertext` handle — all must be released. ~33 KiB.
+#[repr(C)]
+pub(crate) struct AccessibleHyperlinkInfo {
+    pub text: [u16; SHORT_STRING_SIZE],
+    pub start_index: i32,
+    pub end_index: i32,
+    pub accessible_hyperlink: JObject64,
+}
+
+#[repr(C)]
+pub(crate) struct AccessibleHypertextInfo {
+    pub link_count: i32,
+    pub links: [AccessibleHyperlinkInfo; MAX_HYPERLINKS],
+    pub accessible_hypertext: JObject64,
+}
+
+impl AccessibleHypertextInfo {
+    pub(crate) fn zeroed() -> Box<Self> {
+        boxed_zeroed()
+    }
+}
+
+const _: () = assert!(std::mem::size_of::<AccessibleHyperlinkInfo>() == 528);
+const _: () = assert!(std::mem::offset_of!(AccessibleHyperlinkInfo, accessible_hyperlink) == 520);
+const _: () = assert!(std::mem::size_of::<AccessibleHypertextInfo>() == 33808);
+const _: () = assert!(std::mem::offset_of!(AccessibleHypertextInfo, links) == 8);
+const _: () = assert!(std::mem::offset_of!(AccessibleHypertextInfo, accessible_hypertext) == 33800);
+
+// Key-binding modifier bits (`ACCESSIBLE_*_KEYSTROKE`).
+pub(crate) const KEYSTROKE_SHIFT: i32 = 1;
+pub(crate) const KEYSTROKE_CONTROL: i32 = 2;
+pub(crate) const KEYSTROKE_META: i32 = 4;
+pub(crate) const KEYSTROKE_ALT: i32 = 8;
+pub(crate) const KEYSTROKE_ALT_GRAPH: i32 = 16;
+pub(crate) const KEYSTROKE_BUTTON1: i32 = 32;
+pub(crate) const KEYSTROKE_BUTTON2: i32 = 64;
+pub(crate) const KEYSTROKE_BUTTON3: i32 = 128;
+/// F key pressed; `character` contains 1–24.
+pub(crate) const KEYSTROKE_FKEY: i32 = 256;
+/// Control-code key pressed; `character` contains the `ACCESSIBLE_VK_*` code.
+pub(crate) const KEYSTROKE_CONTROLCODE: i32 = 512;
+
 // Function-pointer types for the lowercase cdecl exports actually present in
 // the DLL. Every call is synchronous blocking IPC (`SendMessage` + shared
 // memory) into the target JVM — a hung JVM blocks the calling thread, which is
@@ -154,6 +368,26 @@ pub(crate) type SetTextContentsFn = unsafe extern "C" fn(VmId, JObject64, *const
 pub(crate) type GetAccessibleValueFn = unsafe extern "C" fn(VmId, JObject64, *mut u16, i16) -> BOOL;
 pub(crate) type GetAccessibleSelectedChildrenCountFn = unsafe extern "C" fn(VmId, JObject64) -> i32;
 pub(crate) type IsAccessibleChildSelectedFn = unsafe extern "C" fn(VmId, JObject64, i32) -> BOOL;
+/// `getAccessibleTableInfo(vmID, accessibleContext, *out)`.
+pub(crate) type GetAccessibleTableInfoFn = unsafe extern "C" fn(VmId, JObject64, *mut AccessibleTableInfo) -> BOOL;
+/// `getAccessibleTableCellInfo(vmID, accessibleTable, row, column, *out)` —
+/// takes the `AccessibleTable` handle from `AccessibleTableInfo`, not the
+/// table's accessible context.
+pub(crate) type GetAccessibleTableCellInfoFn =
+    unsafe extern "C" fn(VmId, JObject64, i32, i32, *mut AccessibleTableCellInfo) -> BOOL;
+/// Shared by `getAccessibleTableRowSelectionCount` and
+/// `getAccessibleTableColumnSelectionCount` (both take the `AccessibleTable`
+/// handle and answer a count, `-1` on error).
+pub(crate) type GetAccessibleTableSelectionCountFn = unsafe extern "C" fn(VmId, JObject64) -> i32;
+pub(crate) type GetAccessibleTextSelectionInfoFn =
+    unsafe extern "C" fn(VmId, JObject64, *mut AccessibleTextSelectionInfo) -> BOOL;
+pub(crate) type GetAccessibleActionsFn = unsafe extern "C" fn(VmId, JObject64, *mut AccessibleActions) -> BOOL;
+/// `getAccessibleHypertextExt(vmID, accessibleContext, nStartIndex, *out)`.
+pub(crate) type GetAccessibleHypertextExtFn =
+    unsafe extern "C" fn(VmId, JObject64, i32, *mut AccessibleHypertextInfo) -> BOOL;
+pub(crate) type GetAccessibleKeyBindingsFn = unsafe extern "C" fn(VmId, JObject64, *mut AccessibleKeyBindings) -> BOOL;
+pub(crate) type GetAccessibleRelationSetFn =
+    unsafe extern "C" fn(VmId, JObject64, *mut AccessibleRelationSetInfo) -> BOOL;
 
 /// Decode the `accessibleInterfaces` bitfield into stable interface names
 /// (used for `native:Interfaces`).
@@ -189,6 +423,30 @@ mod tests {
         assert_eq!(std::mem::size_of::<AccessBridgeVersionInfo>(), 2048);
         assert_eq!(std::mem::size_of::<AccessibleTextInfo>(), 12);
         assert_eq!(std::mem::offset_of!(AccessibleContextInfo, index_in_parent), 6144);
+    }
+
+    #[test]
+    fn interface_struct_layouts_match_header() {
+        assert_eq!(std::mem::size_of::<AccessibleTableInfo>(), 40);
+        assert_eq!(std::mem::size_of::<AccessibleTableCellInfo>(), 32);
+        assert_eq!(std::mem::size_of::<AccessibleTextSelectionInfo>(), 2056);
+        assert_eq!(std::mem::size_of::<AccessibleActions>(), 131_076);
+        assert_eq!(std::mem::size_of::<AccessibleKeyBindings>(), 84);
+        assert_eq!(std::mem::size_of::<AccessibleRelationSetInfo>(), 3608);
+        assert_eq!(std::mem::size_of::<AccessibleHypertextInfo>(), 33808);
+    }
+
+    #[test]
+    fn boxed_zeroed_out_params_start_all_zero() {
+        let table = AccessibleTableInfo::zeroed();
+        assert_eq!((table.row_count, table.column_count), (0, 0));
+        assert_eq!(table.accessible_table, 0);
+        let actions = AccessibleActions::zeroed();
+        assert_eq!(actions.actions_count, 0);
+        assert!(actions.action_info[MAX_ACTION_INFO - 1].name.iter().all(|&c| c == 0));
+        let relations = AccessibleRelationSetInfo::zeroed();
+        assert_eq!(relations.relation_count, 0);
+        assert!(relations.relations[MAX_RELATIONS - 1].targets.iter().all(|&t| t == 0));
     }
 
     #[test]
