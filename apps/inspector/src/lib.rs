@@ -17,7 +17,7 @@
 //!     ├── mod.rs
 //!     ├── tree_view.rs     ← TreeView panel
 //!     ├── attributes.rs    ← Attributes table
-//!     └── toolbar.rs       ← Menu, search bar, results panel
+//!     └── toolbar.rs       ← Menu, main toolbar, search bar
 //! ```
 
 mod model;
@@ -53,11 +53,13 @@ use viewmodel::picker::Modifiers as PickerModifiers;
 struct PersistedSettings {
     /// The live picker's activation modifier combination.
     picker_combo: PickerModifiers,
+    /// The toolbar display style (icons only / icons and text).
+    toolbar_style: toolbar::ToolbarStyle,
 }
 
 impl Default for PersistedSettings {
     fn default() -> Self {
-        Self { picker_combo: PickerModifiers::CTRL_ALT_SHIFT }
+        Self { picker_combo: PickerModifiers::CTRL_ALT_SHIFT, toolbar_style: toolbar::ToolbarStyle::default() }
     }
 }
 
@@ -483,6 +485,8 @@ struct InspectorApp {
     /// Whether live picking is supported here (modifier reader + live cursor
     /// position + hit-test). Computed once at startup; gates the toggle.
     picker_supported: bool,
+    /// Toolbar display style (persisted, editable in the Settings dialog).
+    toolbar_style: toolbar::ToolbarStyle,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -520,6 +524,8 @@ impl InspectorApp {
     ) -> Self {
         let ctx = &cc.egui_ctx;
         Self::apply_system_fonts(ctx);
+        // Image loaders (incl. the SVG loader) back the toolbar's embedded icons.
+        egui_extras::install_image_loaders(ctx);
 
         // Probe live-picker support once: it needs a global modifier reader and
         // a real, live cursor position. Done before `runtime` moves into the vm.
@@ -554,6 +560,7 @@ impl InspectorApp {
             last_pixels_per_point: ctx.pixels_per_point(),
             modifier_reader,
             picker_supported,
+            toolbar_style: settings.toolbar_style,
         }
     }
 
@@ -648,7 +655,11 @@ impl eframe::App for InspectorApp {
     /// Persist the Inspector's explicit settings (called by eframe periodically
     /// and on shutdown).
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        eframe::set_value(storage, eframe::APP_KEY, &PersistedSettings { picker_combo: self.vm.picker_combo() });
+        eframe::set_value(
+            storage,
+            eframe::APP_KEY,
+            &PersistedSettings { picker_combo: self.vm.picker_combo(), toolbar_style: self.toolbar_style },
+        );
     }
 
     /// Only the explicit [`PersistedSettings`] are stored — not egui's own
@@ -694,44 +705,36 @@ impl eframe::App for InspectorApp {
             }
         }
 
-        // View: Live picker toggle (below menu)
-        ui.horizontal(|ui| {
-            let mut armed = self.vm.picker_armed();
-            let toggle =
-                ui.add_enabled(self.picker_supported, egui::Button::selectable(armed, "\u{1F3AF} Pick Element"));
-            if toggle.clicked() {
-                armed = !armed;
-                self.vm.set_picker_armed(armed);
-            }
-
-            let combo = self.vm.picker_combo_label();
-            if !self.picker_supported {
-                toggle.on_hover_text("Live picking is unavailable on this platform");
-                ui.weak("picking unavailable here");
-            } else if self.vm.picker_active() {
-                ui.label("picking\u{2026}");
-            } else if armed {
-                ui.label(format!("armed \u{2014} hold {combo} to pick"));
-            } else {
-                ui.weak(format!("hold {combo} while armed to pick"));
-            }
-        });
-
-        // View: Search Bar (below menu)
-        let search_error_hint = self.vm.search_error_hint().map(ToOwned::to_owned);
-
-        let search_actions = toolbar::show_search_bar(
+        // View: Toolbar (below menu)
+        let toolbar_actions = toolbar::show_toolbar(
             ui,
-            &mut self.vm.search_text,
-            search_error_hint.as_deref(),
-            &mut self.vm.always_on_top,
-            is_searching,
+            self.toolbar_style,
+            self.picker_supported,
+            self.vm.picker_armed(),
+            &self.vm.picker_combo_label(),
+            self.vm.always_on_top,
             has_node_selection,
         );
 
+        for action in toolbar_actions {
+            match action {
+                toolbar::MainToolbarAction::SetPickerArmed(armed) => self.vm.set_picker_armed(armed),
+                toolbar::MainToolbarAction::RefreshNode => self.execute_command(&ctx, AppCommand::RefreshNode),
+                toolbar::MainToolbarAction::RefreshSubtree => self.execute_command(&ctx, AppCommand::RefreshSubtree),
+                toolbar::MainToolbarAction::HighlightNode => self.execute_command(&ctx, AppCommand::HighlightNode),
+                toolbar::MainToolbarAction::SetAlwaysOnTop(on_top) => self.vm.always_on_top = on_top,
+            }
+        }
+
+        // View: Search Bar (below toolbar)
+        let search_error_hint = self.vm.search_error_hint().map(ToOwned::to_owned);
+
+        let search_actions =
+            toolbar::show_search_bar(ui, &mut self.vm.search_text, search_error_hint.as_deref(), is_searching);
+
         // Apply "Always On Top" setting only when it changes to avoid
         // flooding the window manager with _NET_WM_STATE requests every frame.
-        // Must run after toolbar rendering so checkbox changes take effect
+        // Must run after toolbar rendering so toggle changes take effect
         // in the same frame.
         if self.prev_always_on_top != Some(self.vm.always_on_top) {
             self.prev_always_on_top = Some(self.vm.always_on_top);
@@ -742,22 +745,26 @@ impl eframe::App for InspectorApp {
             }));
         }
 
-        // Process toolbar actions (must happen before poll so a new
+        // Process search-row actions (must happen before poll so a new
         // search is started before the first poll in the same frame).
         for action in search_actions {
             match action {
                 toolbar::ToolbarAction::EvaluateXPath => self.execute_command(&ctx, AppCommand::EvaluateXPath),
                 toolbar::ToolbarAction::CancelSearch => self.execute_command(&ctx, AppCommand::CancelSearch),
-                toolbar::ToolbarAction::RefreshNode => self.execute_command(&ctx, AppCommand::RefreshNode),
-                toolbar::ToolbarAction::RefreshSubtree => self.execute_command(&ctx, AppCommand::RefreshSubtree),
                 toolbar::ToolbarAction::SearchTextChanged => self.vm.on_search_text_changed(),
             }
         }
 
         let status_text = self.vm.status_bar_text();
+        let picker_state_text = self.vm.picker_status_text(self.picker_supported);
 
         // View: Status Bar (bottom-most)
-        status_bar::show_status_bar(ui, self.vm.has_pending_background_work(), status_text.as_deref());
+        status_bar::show_status_bar(
+            ui,
+            self.vm.has_pending_background_work(),
+            status_text.as_deref(),
+            &picker_state_text,
+        );
 
         // View: Results Panel (above status bar)
         let result_actions = results_panel::show_results_panel(
@@ -929,11 +936,15 @@ impl eframe::App for InspectorApp {
 
         view::about_dialog::show_about_dialog(&ctx, &mut self.show_about_dialog);
 
-        // The Settings dialog edits the persisted picker combination; the vm
-        // rejects an empty set (the dialog locks the last checked modifier).
-        if let Some(combo) =
-            view::settings_dialog::show_settings_dialog(&ctx, &mut self.show_settings_dialog, self.vm.picker_combo())
-        {
+        // The Settings dialog edits the persisted picker combination (the vm
+        // rejects an empty set; the dialog locks the last checked modifier)
+        // and the toolbar display style.
+        if let Some(combo) = view::settings_dialog::show_settings_dialog(
+            &ctx,
+            &mut self.show_settings_dialog,
+            self.vm.picker_combo(),
+            &mut self.toolbar_style,
+        ) {
             self.vm.set_picker_combo(combo);
         }
     }
@@ -998,4 +1009,30 @@ pub fn run() -> eframe::Result {
             Ok(Box::new(InspectorApp::new(Arc::clone(&runtime), initial_root, search_result_limit.into_limit(), cc)))
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn persisted_settings_round_trip_keeps_toolbar_style() {
+        let settings = PersistedSettings {
+            picker_combo: PickerModifiers { ctrl: true, alt: false, shift: true },
+            toolbar_style: view::toolbar::ToolbarStyle::IconsAndText,
+        };
+        let ron = ron::to_string(&settings).expect("settings must serialize");
+        let loaded: PersistedSettings = ron::from_str(&ron).expect("settings must deserialize");
+        assert_eq!(loaded.picker_combo, settings.picker_combo);
+        assert_eq!(loaded.toolbar_style, settings.toolbar_style);
+    }
+
+    #[test]
+    fn settings_file_without_toolbar_style_loads_icons_only_default() {
+        // A file written before the display-style setting existed.
+        let old = "(picker_combo:(ctrl:true,alt:true,shift:true))";
+        let loaded: PersistedSettings = ron::from_str(old).expect("old settings must still load");
+        assert_eq!(loaded.picker_combo, PickerModifiers::CTRL_ALT_SHIFT);
+        assert_eq!(loaded.toolbar_style, view::toolbar::ToolbarStyle::IconsOnly);
+    }
 }

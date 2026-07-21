@@ -18,7 +18,7 @@ Test Tags           real
 ${INSPECTOR_BIN}        ${{ os.environ.get("PLATYNUI_INSPECTOR_BIN") or os.path.abspath("target/debug/platynui-inspector-rs" + (".exe" if os.name == "nt" else "")) }}
 ${INSP_HANDLE}          ${None}
 ${INSP_WIN}             ${None}
-${PICK_TOGGLE}          //Button[contains(@Name,"Pick Element")]
+${PICK_TOGGLE}          //*[@Id="picker-toggle"]
 
 
 *** Test Cases ***

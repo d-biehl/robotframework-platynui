@@ -2,11 +2,18 @@
 
 use eframe::egui;
 
+use crate::view::toolbar::ToolbarStyle;
 use crate::viewmodel::picker::Modifiers;
 
-/// Render the Settings dialog when `open` is `true`. Returns the new picker
-/// activation combination when the user changed it this frame.
-pub fn show_settings_dialog(ctx: &egui::Context, open: &mut bool, combo: Modifiers) -> Option<Modifiers> {
+/// Render the Settings dialog when `open` is `true`. Edits `toolbar_style`
+/// in place; returns the new picker activation combination when the user
+/// changed it this frame.
+pub fn show_settings_dialog(
+    ctx: &egui::Context,
+    open: &mut bool,
+    combo: Modifiers,
+    toolbar_style: &mut ToolbarStyle,
+) -> Option<Modifiers> {
     if !*open {
         return None;
     }
@@ -40,6 +47,15 @@ pub fn show_settings_dialog(ctx: &egui::Context, open: &mut bool, combo: Modifie
             if changed {
                 changed_combo = Some(mods);
             }
+
+            ui.add_space(10.0);
+            ui.strong("Toolbar");
+            ui.label("Display style of the toolbar buttons:");
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.radio_value(toolbar_style, ToolbarStyle::IconsOnly, "Icons only");
+                ui.radio_value(toolbar_style, ToolbarStyle::IconsAndText, "Icons and text");
+            });
 
             ui.add_space(10.0);
             if ui.button("Close").clicked() {

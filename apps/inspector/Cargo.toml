@@ -21,7 +21,8 @@ mock-provider = [
 [dependencies]
 # `persistence` backs the settings storage (configured picker combination).
 eframe = { version = "0.34", features = ["glow", "persistence"] }
-egui_extras = "0.34"
+# `svg` renders the toolbar's embedded monochrome icon assets (pulls resvg).
+egui_extras = { version = "0.34", features = ["svg"] }
 egui-system-fonts = "0.34"
 egui-async = "0.4"
 clap = { version = "4", features = ["derive"] }
@@ -41,6 +42,10 @@ platynui-platform-mock = { path = "../../crates/platform-mock", optional = true 
 platynui-core = { path = "../../crates/core" }
 platynui-runtime = { path = "../../crates/runtime", default-features = false }
 platynui-link = { path = "../../crates/link" }
+
+# Settings round-trip tests (the same format eframe's persistence uses).
+[dev-dependencies]
+ron = "0.12"
 
 [target.'cfg(target_os = "windows")'.build-dependencies]
 winresource = "0.1"

@@ -31,12 +31,31 @@ struct ActiveChildLoad {
 
 #[derive(Clone, Debug)]
 enum ResultStatus {
-    Searching { count: usize, elapsed_secs: f64 },
-    Draining { visible_count: usize, total_count: usize, pending_count: usize },
-    Completed { count: usize, elapsed_ms: f64 },
-    Limited { count: usize, limit: usize, elapsed_ms: f64 },
-    Cancelled { count: usize, elapsed_ms: f64 },
+    Searching {
+        count: usize,
+        elapsed_secs: f64,
+    },
+    Draining {
+        visible_count: usize,
+        total_count: usize,
+        pending_count: usize,
+    },
+    Completed {
+        count: usize,
+        elapsed_ms: f64,
+    },
+    Limited {
+        count: usize,
+        limit: usize,
+        elapsed_ms: f64,
+    },
+    Cancelled {
+        count: usize,
+        elapsed_ms: f64,
+    },
     Error(String),
+    /// One-off picker event: the element the live picker just resolved.
+    Picked(String),
 }
 
 impl ResultStatus {
@@ -58,7 +77,22 @@ impl ResultStatus {
                 format!("Cancelled \u{2014} {count} result{} ({elapsed_ms:.1}ms)", if *count == 1 { "" } else { "s" })
             }
             Self::Error(summary) => format!("Error: {summary}"),
+            Self::Picked(label) => format!("Picked: {label}"),
         }
+    }
+}
+
+/// Human-readable picker state for the status bar's persistent segment.
+/// Pure so the wording is unit-testable without a runtime or display.
+fn picker_status_text(supported: bool, armed: bool, active: bool, combo_label: &str) -> String {
+    if !supported {
+        "Picker: unavailable on this platform".to_string()
+    } else if active {
+        "Picker: picking\u{2026}".to_string()
+    } else if armed {
+        format!("Picker: armed \u{2014} hold {combo_label} to pick")
+    } else {
+        "Picker: off".to_string()
     }
 }
 
@@ -229,6 +263,12 @@ impl InspectorViewModel {
         self.picker.combo()
     }
 
+    /// Current picker state for the status bar's persistent segment.
+    /// `supported` gates the whole feature (probed once at startup).
+    pub fn picker_status_text(&self, supported: bool) -> String {
+        picker_status_text(supported, self.picker_armed(), self.picker_active(), &self.picker_combo_label())
+    }
+
     /// Reconfigure the activation combination (an empty set is rejected).
     pub fn set_picker_combo(&mut self, combo: Modifiers) {
         self.picker.set_combo(combo);
@@ -268,6 +308,11 @@ impl InspectorViewModel {
         if !node.is_valid() {
             return;
         }
+        // Announce the pick as a transient status message (same slot as the
+        // search/result statuses). Unnamed elements fall back to their role.
+        let name = node.name();
+        let label = if name.is_empty() { node.role().to_string() } else { name };
+        self.result_status = Some(ResultStatus::Picked(label));
         let target_id = node.runtime_id().as_str().to_string();
         // Reset the tree to the arm-time expansion before revealing this pick, so
         // the picker shows only the current element's path rather than
@@ -1004,4 +1049,33 @@ fn number_after_keyword(input: &str, keyword: &str) -> Option<usize> {
     }
 
     if digits.is_empty() { None } else { digits.parse::<usize>().ok() }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::picker_status_text;
+
+    #[test]
+    fn unsupported_states_the_unavailability() {
+        // Unavailability wins over any armed/active flags.
+        assert_eq!(picker_status_text(false, true, true, "Ctrl+Alt+Shift"), "Picker: unavailable on this platform");
+    }
+
+    #[test]
+    fn disarmed_is_off() {
+        assert_eq!(picker_status_text(true, false, false, "Ctrl+Alt+Shift"), "Picker: off");
+    }
+
+    #[test]
+    fn armed_includes_the_configured_combination() {
+        assert_eq!(
+            picker_status_text(true, true, false, "Ctrl+Shift"),
+            "Picker: armed \u{2014} hold Ctrl+Shift to pick"
+        );
+    }
+
+    #[test]
+    fn active_shows_picking() {
+        assert_eq!(picker_status_text(true, true, true, "Ctrl+Alt+Shift"), "Picker: picking\u{2026}");
+    }
 }
