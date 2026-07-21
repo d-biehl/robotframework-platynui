@@ -17,7 +17,7 @@ use crate::ffi::{self, VmId};
 use crate::handle::JabObject;
 use crate::interfaces;
 use crate::map;
-use platynui_core::platform::{WindowId, WindowManager};
+use platynui_core::platform::{WindowId, WindowManager, java};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::attribute_names::{
     activation_target, application, common, element, expandable, focusable, selectable, selection_provider,
@@ -477,6 +477,7 @@ impl UiNode for JabNode {
                 NATIVE_WINDOW_HANDLE,
                 UiValue::from(i64::try_from(self.hwnd).unwrap_or_default()),
             ));
+            push_jvm_classification_attrs(&mut attrs, self.hwnd);
         }
 
         // Raw originals for debugging and native-level selectors.
@@ -890,6 +891,38 @@ fn hit_fallback_node(
 
 fn static_attr(namespace: Namespace, name: &'static str, value: UiValue) -> Arc<dyn UiAttribute> {
     Arc::new(StaticAttr { namespace, name, value })
+}
+
+/// JVM classification facts (java-app-classification) on a top-level window:
+/// a window the bridge serves is by definition JVM-backed and reachable
+/// through native accessibility; the toolkit comes from the window class (a
+/// JavaFX window served through the bridge reports JavaFX).
+fn push_jvm_classification_attrs(attrs: &mut Vec<Arc<dyn UiAttribute>>, hwnd: isize) {
+    let toolkit = window_class_of(hwnd)
+        .as_deref()
+        .and_then(java::JavaToolkit::from_window_class)
+        .unwrap_or(java::JavaToolkit::Unknown);
+    attrs.push(static_attr(Namespace::Native, java::IS_JVM_ATTRIBUTE, UiValue::from(true)));
+    attrs.push(static_attr(Namespace::Native, java::JVM_TOOLKIT_ATTRIBUTE, UiValue::from(toolkit.label())));
+    attrs.push(static_attr(Namespace::Native, java::JVM_ACCESSIBILITY_REACHABLE_ATTRIBUTE, UiValue::from(true)));
+}
+
+/// The top-level window's class name (`GetClassNameW`), the toolkit
+/// discriminator of the JVM classification facts. `None` when the window is
+/// gone or reports no class.
+#[allow(unsafe_code)]
+fn window_class_of(hwnd: isize) -> Option<String> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::GetClassNameW;
+
+    let hwnd = HWND(hwnd as *mut core::ffi::c_void);
+    let mut buffer = [0u16; 256];
+    // SAFETY: read-only query; `buffer` is a valid out-buffer of the given length.
+    let len = unsafe { GetClassNameW(hwnd, &mut buffer) };
+    if len <= 0 {
+        return None;
+    }
+    Some(String::from_utf16_lossy(&buffer[..usize::try_from(len).unwrap_or(0)]))
 }
 
 struct StaticAttr {

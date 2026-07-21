@@ -115,6 +115,7 @@ pub fn create_x11_bundle(
         window_manager: Arc::new(crate::window_manager::X11EwmhWindowManager::new(conn.clone()))
             as Arc<dyn WindowManager>,
         desktop_info: Arc::new(crate::desktop::LinuxDesktopInfo::new(conn.clone())) as Arc<dyn DesktopInfoProvider>,
+        java_classifier: None,
     };
 
     info!(display = %disp, "Linux X11 platform bundle created");

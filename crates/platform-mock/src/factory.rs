@@ -44,6 +44,7 @@ pub fn create_mock_bundle() -> PlatformBundle {
         highlight: Arc::new(MockHighlight::new()),
         window_manager: Arc::new(MockWindowManager::new()),
         desktop_info: Arc::new(MockPlatform),
+        java_classifier: None,
     }
 }
 

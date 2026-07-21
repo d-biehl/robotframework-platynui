@@ -123,6 +123,7 @@ pub fn create_wayland_bundle(
         highlight: Arc::new(crate::highlight::WaylandHighlightProvider) as Arc<dyn HighlightProvider>,
         window_manager: Arc::new(crate::window_manager::WaylandWindowManager) as Arc<dyn WindowManager>,
         desktop_info: Arc::new(crate::desktop::WaylandDesktopInfo) as Arc<dyn DesktopInfoProvider>,
+        java_classifier: None,
     })
 }
 

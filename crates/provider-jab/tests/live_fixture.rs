@@ -65,15 +65,30 @@ struct FixtureApp {
 
 impl FixtureApp {
     fn launch(title_suffix: &str) -> Self {
+        Self::launch_with_bridge(title_suffix, true)
+    }
+
+    /// Launch the fixture JVM with the Access Bridge explicitly enabled or
+    /// disabled. `bridge: false` sets an **empty**
+    /// `javax.accessibility.assistive_technologies` — system properties
+    /// override the persistent properties file, so this disables the bridge
+    /// for the fixture regardless of any `jabswitch -enable` state on the
+    /// machine.
+    fn launch_with_bridge(title_suffix: &str, bridge: bool) -> Self {
         let classes = swing_classes_dir();
         assert!(
             classes.is_dir(),
             "Swing fixture classes not found at {} — run `just build-test-app-swing` first",
             classes.display()
         );
+        let assistive_technologies = if bridge {
+            "-Djavax.accessibility.assistive_technologies=com.sun.java.accessibility.AccessBridge"
+        } else {
+            "-Djavax.accessibility.assistive_technologies="
+        };
         let title = format!("PlatynUI JAB Live {} {}", std::process::id(), title_suffix);
         let child = Command::new("java")
-            .arg("-Djavax.accessibility.assistive_technologies=com.sun.java.accessibility.AccessBridge")
+            .arg(assistive_technologies)
             .arg("-cp")
             .arg(&classes)
             .arg("platynui.testapp.Main")
@@ -563,5 +578,106 @@ fn live_frozen_jvm_stays_contained() {
         std::thread::sleep(Duration::from_millis(500));
     }
 
+    provider.shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// java-app-classifier task 4.1: classification facts + the shared diagnostic
+
+/// The fixture window's HWND, resolved via `FindWindowW` by its unique title,
+/// as the raw claim/diagnostic key (`window_claims` / `platform::java` semantics).
+#[allow(unsafe_code)]
+fn wait_for_native_window(title: &str) -> u64 {
+    use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
+    use windows::core::{HSTRING, PCWSTR};
+
+    let deadline = Instant::now() + DISCOVERY_DEADLINE;
+    loop {
+        // SAFETY: read-only top-level window lookup by title.
+        if let Ok(hwnd) = unsafe { FindWindowW(PCWSTR::null(), &HSTRING::from(title)) }
+            && !hwnd.is_invalid()
+        {
+            return hwnd.0 as u64;
+        }
+        assert!(Instant::now() < deadline, "fixture window {title:?} did not appear on the native desktop");
+        std::thread::sleep(Duration::from_millis(250));
+    }
+}
+
+fn native_value(node: &Arc<dyn UiNode>, name: &str) -> Option<UiValue> {
+    node.attribute(Namespace::Native, name).map(|attr| attr.value())
+}
+
+#[test]
+#[ignore = "needs a desktop, a JDK on PATH, and the built Swing fixture (run via just test-acceptance-windows)"]
+fn live_jvm_classification_facts_and_diagnostic() {
+    use platynui_core::platform::java::{
+        IS_JVM_ATTRIBUTE, JVM_ACCESSIBILITY_REACHABLE_ATTRIBUTE, JVM_TOOLKIT_ATTRIBUTE,
+        jvm_unreachable_diagnostic_emitted,
+    };
+
+    // Bridge on: the JAB window node carries the JVM+Swing+reachable facts.
+    {
+        let app = FixtureApp::launch("classify-on");
+        let provider = build_provider(&RuntimeConfig::default());
+        let parent = desktop_stub();
+        let window = wait_for_window(&provider, &parent, &app.title);
+        let hwnd = wait_for_native_window(&app.title);
+        assert_eq!(native_value(&window, IS_JVM_ATTRIBUTE), Some(UiValue::from(true)));
+        assert_eq!(native_value(&window, JVM_TOOLKIT_ATTRIBUTE), Some(UiValue::from("Swing/AWT")));
+        assert_eq!(native_value(&window, JVM_ACCESSIBILITY_REACHABLE_ATTRIBUTE), Some(UiValue::from(true)));
+        assert!(
+            !jvm_unreachable_diagnostic_emitted(hwnd),
+            "a bridge-served window must not trigger the enablement diagnostic"
+        );
+        provider.shutdown();
+    }
+
+    // Bridge off: the JAB provider surfaces no node for the window, fires the
+    // shared "absent from native accessibility" diagnostic (at most once —
+    // the loop below enumerates repeatedly), and the UIA shell carries the
+    // JVM+Swing+not-reachable facts through the platform classifier.
+    let app = FixtureApp::launch_with_bridge("classify-off", false);
+    let provider = build_provider(&RuntimeConfig::default());
+    let parent = desktop_stub();
+    let hwnd = wait_for_native_window(&app.title);
+
+    let deadline = Instant::now() + DISCOVERY_DEADLINE;
+    loop {
+        let nodes: Vec<_> = provider.get_nodes(Arc::clone(&parent)).expect("jab get_nodes").collect();
+        assert!(
+            nodes.iter().all(|node| node.name() != app.title),
+            "a bridge-less Swing window must not surface as a JAB node"
+        );
+        if jvm_unreachable_diagnostic_emitted(hwnd) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the enablement diagnostic did not fire for the bridge-less window within {DISCOVERY_DEADLINE:?}"
+        );
+        std::thread::sleep(Duration::from_millis(250));
+    }
+
+    // The UIA provider with the platform classifier injected (the runtime
+    // does this wiring from the platform bundle; mirrored here).
+    let uia = platynui_provider_windows_uia::WindowsUiaFactory.create(&RuntimeConfig::default()).expect("uia provider");
+    let bundle = platform_factories()
+        .find(|factory| factory.id() == "windows")
+        .expect("windows platform factory")
+        .create(&RuntimeConfig::default())
+        .expect("windows platform bundle");
+    uia.set_java_classifier(bundle.java_classifier.expect("the Windows bundle carries a Java classifier"));
+
+    let uia_window = wait_for_window(&uia, &parent, &app.title);
+    assert_eq!(native_value(&uia_window, IS_JVM_ATTRIBUTE), Some(UiValue::from(true)), "jvm.dll module signal");
+    assert_eq!(native_value(&uia_window, JVM_TOOLKIT_ATTRIBUTE), Some(UiValue::from("Swing/AWT")));
+    assert_eq!(
+        native_value(&uia_window, JVM_ACCESSIBILITY_REACHABLE_ATTRIBUTE),
+        Some(UiValue::from(false)),
+        "an unclaimed Swing window is not reachable through native accessibility"
+    );
+
+    uia.shutdown();
     provider.shutdown();
 }

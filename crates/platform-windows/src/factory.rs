@@ -22,6 +22,7 @@ use platynui_core::register_platform_factory;
 
 use crate::desktop::WindowsDesktopProvider;
 use crate::highlight::WindowsHighlightProvider;
+use crate::java::WindowsJavaClassifier;
 use crate::keyboard::WindowsKeyboardDevice;
 use crate::pointer::WindowsPointerDevice;
 use crate::screenshot::WindowsScreenshotProvider;
@@ -74,6 +75,7 @@ pub fn create_windows_bundle(_config: &RuntimeConfig) -> Result<PlatformBundle, 
         highlight: Arc::new(WindowsHighlightProvider::new()) as Arc<dyn HighlightProvider>,
         window_manager: Arc::new(Win32WindowManager) as Arc<dyn WindowManager>,
         desktop_info: Arc::new(WindowsDesktopProvider) as Arc<dyn DesktopInfoProvider>,
+        java_classifier: Some(Arc::new(WindowsJavaClassifier::new())),
     };
 
     tracing::info!("Windows platform bundle created");

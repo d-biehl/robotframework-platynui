@@ -1,5 +1,5 @@
 use super::{ProviderDescriptor, ProviderError, ProviderEventListener};
-use crate::platform::WindowManager;
+use crate::platform::{JavaClassifier, WindowManager};
 use crate::types::Point;
 use crate::ui::UiNode;
 use std::sync::Arc;
@@ -48,6 +48,14 @@ pub trait UiTreeProvider: Send + Sync {
     /// the runtime after the platform bundle is built. The default ignores it;
     /// providers that expose no window surfaces need no window manager.
     fn set_window_manager(&self, _window_manager: Arc<dyn WindowManager>) {}
+
+    /// Injects the runtime's Java-app classifier (from its platform bundle,
+    /// see [`crate::platform::java`]) so the provider can surface JVM
+    /// classification facts on its window/application nodes. Called once by
+    /// the runtime when the platform bundle carries a backend; on platforms
+    /// without one it is never called and providers degrade to "unknown".
+    /// The default ignores it.
+    fn set_java_classifier(&self, _classifier: Arc<dyn JavaClassifier>) {}
 
     /// Allows the runtime to signal shutdown so the provider can release resources.
     fn shutdown(&self) {}

@@ -4,13 +4,14 @@ use std::sync::Arc;
 // children via the RawView walker.
 
 use platynui_core::config::RuntimeConfig;
+use platynui_core::platform::JavaClassifier;
 use platynui_core::provider::{ProviderDescriptor, ProviderError, ProviderKind, UiTreeProvider, UiTreeProviderFactory};
 use platynui_core::register_provider;
 use platynui_core::types::Point;
 use platynui_core::ui::{TechnologyId, UiNode};
 use std::collections::{HashSet, VecDeque};
-use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{LazyLock, Mutex};
 
 pub const PROVIDER_ID: &str = "windows-uia";
 pub const PROVIDER_NAME: &str = "Windows UIAutomation";
@@ -41,6 +42,7 @@ struct ElementAndAppIter {
     pending_apps: VecDeque<i32>,
     raw_phase_complete: bool,
     honor_window_claims: bool,
+    java_classifier: Option<Arc<dyn JavaClassifier>>,
 }
 
 /// `EnumWindows` callback: collects each top-level `HWND` into the `Vec` passed
@@ -266,7 +268,11 @@ pub(crate) fn ready_top_level_elements(
 }
 
 impl ElementAndAppIter {
-    fn new(parent: Arc<dyn UiNode>, honor_window_claims: bool) -> Self {
+    fn new(
+        parent: Arc<dyn UiNode>,
+        honor_window_claims: bool,
+        java_classifier: Option<Arc<dyn JavaClassifier>>,
+    ) -> Self {
         Self {
             elements: ready_top_level_elements(None, honor_window_claims).into_iter(),
             parent,
@@ -274,13 +280,19 @@ impl ElementAndAppIter {
             pending_apps: VecDeque::new(),
             raw_phase_complete: false,
             honor_window_claims,
+            java_classifier,
         }
     }
 
     fn stream_next_pending_app(&mut self) -> Option<Arc<dyn UiNode>> {
         while let Some(pid) = self.pending_apps.pop_front() {
             if pid > 0 && pid != *SELF_PID {
-                let app = crate::node::ApplicationNode::new(pid, &self.parent, self.honor_window_claims);
+                let app = crate::node::ApplicationNode::new(
+                    pid,
+                    &self.parent,
+                    self.honor_window_claims,
+                    self.java_classifier.clone(),
+                );
                 return Some(app as Arc<dyn UiNode>);
             }
         }
@@ -303,6 +315,9 @@ impl Iterator for ElementAndAppIter {
             let desktop_node = crate::node::UiaNode::from_elem_with_scope(element, crate::map::UiaIdScope::Desktop);
             desktop_node.set_parent(&self.parent);
             crate::node::UiaNode::init_self(&desktop_node);
+            if let Some(classifier) = &self.java_classifier {
+                desktop_node.set_java_classifier(Arc::clone(classifier));
+            }
 
             // Queue the synthetic application node once per process; queued
             // applications are emitted after all top-level windows.
@@ -363,6 +378,10 @@ pub struct WindowsUiaProvider {
     is_shutdown: AtomicBool,
     /// `providers.windows-uia.honor_window_claims` (default true).
     honor_window_claims: bool,
+    /// Java-app classifier injected via [`UiTreeProvider::set_java_classifier`]
+    /// (from the runtime's platform bundle); `None` until injected — nodes then
+    /// simply carry no JVM classification attributes.
+    java_classifier: Mutex<Option<Arc<dyn JavaClassifier>>>,
 }
 
 impl WindowsUiaProvider {
@@ -376,13 +395,29 @@ impl WindowsUiaProvider {
             )
         });
 
-        Self { descriptor: &DESCRIPTOR, is_shutdown: AtomicBool::new(false), honor_window_claims }
+        Self {
+            descriptor: &DESCRIPTOR,
+            is_shutdown: AtomicBool::new(false),
+            honor_window_claims,
+            java_classifier: Mutex::new(None),
+        }
+    }
+
+    fn java_classifier(&self) -> Option<Arc<dyn JavaClassifier>> {
+        self.java_classifier.lock().expect("java classifier mutex poisoned").clone()
     }
 }
 
 impl UiTreeProvider for WindowsUiaProvider {
     fn descriptor(&self) -> &ProviderDescriptor {
         self.descriptor
+    }
+
+    fn set_java_classifier(&self, classifier: Arc<dyn JavaClassifier>) {
+        let mut slot = self.java_classifier.lock().expect("java classifier mutex poisoned");
+        if slot.is_none() {
+            *slot = Some(classifier);
+        }
     }
 
     fn shutdown(&self) {
@@ -410,7 +445,7 @@ impl UiTreeProvider for WindowsUiaProvider {
         })?;
 
         // Stream: desktop top-level windows (excluding own process), then one app:Application per PID.
-        let it = ElementAndAppIter::new(parent, self.honor_window_claims);
+        let it = ElementAndAppIter::new(parent, self.honor_window_claims, self.java_classifier());
         Ok(Box::new(it))
     }
 

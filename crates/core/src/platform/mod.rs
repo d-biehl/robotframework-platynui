@@ -2,6 +2,7 @@ mod desktop;
 mod error;
 mod factory;
 mod highlight;
+pub mod java;
 mod keyboard;
 mod pointer;
 mod screenshot;
@@ -12,6 +13,7 @@ pub use desktop::{DesktopInfo, DesktopInfoProvider, MonitorInfo};
 pub use error::PlatformError;
 pub use factory::{PlatformBundle, PlatformFactory, PlatformFactoryRegistration, platform_factories};
 pub use highlight::{HighlightProvider, HighlightRequest};
+pub use java::{JavaClassification, JavaClassifier, JavaToolkit};
 pub use keyboard::{
     KeyCode, KeyCodeError, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent, KeyboardOverrides, KeyboardProfile,
 };

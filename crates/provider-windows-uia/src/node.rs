@@ -6,6 +6,7 @@ use std::sync::LazyLock;
 use std::sync::{Arc, Mutex, Weak};
 // no name cache atomics needed
 
+use platynui_core::platform::{JavaClassifier, WindowId, java};
 use platynui_core::types::{Point as UiPoint, Rect};
 use platynui_core::ui::attribute_names::text_content;
 use platynui_core::ui::pattern::{
@@ -77,6 +78,10 @@ pub struct UiaNode {
     ns_cell: std::sync::OnceLock<Namespace>,
     ct_cell: std::sync::OnceLock<i32>,
     id_cell: std::sync::OnceLock<Option<String>>,
+    /// Java-app classifier from the platform bundle; set only on nodes created
+    /// as top-level windows (the classification is keyed on a top-level
+    /// handle), so descendants never classify.
+    java_classifier: Mutex<Option<Arc<dyn JavaClassifier>>>,
 }
 unsafe impl Send for UiaNode {}
 unsafe impl Sync for UiaNode {}
@@ -97,7 +102,15 @@ impl UiaNode {
             ns_cell: std::sync::OnceLock::new(),
             ct_cell: std::sync::OnceLock::new(),
             id_cell: std::sync::OnceLock::new(),
+            java_classifier: Mutex::new(None),
         })
+    }
+    /// Attach the platform's Java-app classifier. Called only for top-level
+    /// window nodes (desktop streaming and per-application window listing).
+    pub(crate) fn set_java_classifier(&self, classifier: Arc<dyn JavaClassifier>) {
+        if let Ok(mut guard) = self.java_classifier.lock() {
+            *guard = Some(classifier);
+        }
     }
     pub fn set_parent(&self, parent: &Arc<dyn UiNode>) {
         if let Ok(mut guard) = self.parent.lock() {
@@ -203,6 +216,46 @@ impl UiaNode {
         })
     }
 
+    /// JVM classification facts (java-app-classification) for this top-level
+    /// window, as ready-made `native:` attributes. Empty when no classifier is
+    /// attached (descendant nodes, platforms without a backend), when the
+    /// element carries no native window handle, when classification fails, or
+    /// when the window is simply not JVM-backed — absence of the attributes is
+    /// the "not a Java app" statement.
+    fn jvm_attributes(&self) -> Vec<Arc<dyn UiAttribute>> {
+        let Some(classifier) = self.java_classifier.lock().ok().and_then(|guard| guard.clone()) else {
+            return Vec::new();
+        };
+        // SAFETY: read-only property query on a valid UIA element.
+        let Some(hwnd) = unsafe { self.elem.CurrentNativeWindowHandle() }.ok().filter(|hwnd| !hwnd.0.is_null()) else {
+            return Vec::new();
+        };
+        let Some(pid) = crate::map::get_process_id(&self.elem).ok().and_then(|pid| u32::try_from(pid).ok()) else {
+            return Vec::new();
+        };
+        let Ok(classification) = classifier.classify(WindowId::new(hwnd.0 as u64), pid) else {
+            return Vec::new();
+        };
+        if !classification.is_jvm {
+            return Vec::new();
+        }
+        let mut attrs: Vec<Arc<dyn UiAttribute>> =
+            vec![Arc::new(NativePropAttr { name: java::IS_JVM_ATTRIBUTE.into(), value: UiValue::from(true) })];
+        if let Some(toolkit) = classification.toolkit {
+            attrs.push(Arc::new(NativePropAttr {
+                name: java::JVM_TOOLKIT_ATTRIBUTE.into(),
+                value: UiValue::from(toolkit.label()),
+            }));
+        }
+        if let Some(reachable) = classification.native_a11y_visible {
+            attrs.push(Arc::new(NativePropAttr {
+                name: java::JVM_ACCESSIBILITY_REACHABLE_ATTRIBUTE.into(),
+                value: UiValue::from(reachable),
+            }));
+        }
+        attrs
+    }
+
     /// Best-effort realization for virtualized items.
     /// If the element supports `VirtualizedItem` pattern, call `Realize()`.
     /// Errors are ignored to keep traversal non-panicking.
@@ -279,7 +332,7 @@ impl UiNode for UiaNode {
         let rid_str = self.runtime_id().as_str().to_string();
         let owner = self.as_ui_node();
         let has_ws = self.has_window_surface();
-        Box::new(AttrsIter::with_window_surface(self.elem.clone(), owner, rid_str, has_ws))
+        Box::new(AttrsIter::with_window_surface(self.elem.clone(), owner, rid_str, has_ws).chain(self.jvm_attributes()))
     }
 
     fn attribute(&self, namespace: Namespace, name: &str) -> Option<Arc<dyn UiAttribute>> {
@@ -331,6 +384,13 @@ impl UiNode for UiaNode {
                 _ => None,
             },
             Namespace::Native => {
+                // JVM classification facts live outside the UIA property set.
+                if matches!(
+                    name,
+                    java::IS_JVM_ATTRIBUTE | java::JVM_TOOLKIT_ATTRIBUTE | java::JVM_ACCESSIBILITY_REACHABLE_ATTRIBUTE
+                ) {
+                    return self.jvm_attributes().into_iter().find(|attr| attr.name() == name);
+                }
                 // Look up a single native property by name without collecting all of them.
                 crate::map::get_native_property_by_name(elem, name)
                     .map(|(n, v)| Arc::new(NativePropAttr { name: n, value: v }) as Arc<dyn UiAttribute>)
@@ -1450,12 +1510,19 @@ pub struct ApplicationNode {
     /// Whether the window enumeration for this app's children skips windows
     /// claimed by other providers (threaded in from the provider config).
     honor_window_claims: bool,
+    /// Java-app classifier handed down to this app's window nodes.
+    java_classifier: Option<Arc<dyn JavaClassifier>>,
 }
 unsafe impl Send for ApplicationNode {}
 unsafe impl Sync for ApplicationNode {}
 
 impl ApplicationNode {
-    fn build(pid: i32, parent: Option<Weak<dyn UiNode>>, honor_window_claims: bool) -> Arc<Self> {
+    fn build(
+        pid: i32,
+        parent: Option<Weak<dyn UiNode>>,
+        honor_window_claims: bool,
+        java_classifier: Option<Arc<dyn JavaClassifier>>,
+    ) -> Arc<Self> {
         let node = Arc::new(Self {
             pid,
             parent: Mutex::new(parent),
@@ -1463,14 +1530,20 @@ impl ApplicationNode {
             rid_cell: std::sync::OnceLock::new(),
             name_cell: std::sync::OnceLock::new(),
             honor_window_claims,
+            java_classifier,
         });
         let arc: Arc<dyn UiNode> = node.clone();
         let _ = node.self_weak.set(Arc::downgrade(&arc));
         node
     }
 
-    pub fn new(pid: i32, parent: &Arc<dyn UiNode>, honor_window_claims: bool) -> Arc<Self> {
-        Self::build(pid, Some(Arc::downgrade(parent)), honor_window_claims)
+    pub fn new(
+        pid: i32,
+        parent: &Arc<dyn UiNode>,
+        honor_window_claims: bool,
+        java_classifier: Option<Arc<dyn JavaClassifier>>,
+    ) -> Arc<Self> {
+        Self::build(pid, Some(Arc::downgrade(parent)), honor_window_claims, java_classifier)
     }
 
     /// Parent-less application node used to cap an off-tree ancestor chain (the
@@ -1479,7 +1552,7 @@ impl ApplicationNode {
     /// the picked node's `parent()` chain up to here, then matches it against the
     /// desktop root's children; `parent()` is `None`, so it is the topmost ancestor.
     pub fn orphan(pid: i32) -> Arc<Self> {
-        Self::build(pid, None, true)
+        Self::build(pid, None, true, None)
     }
 }
 
@@ -1494,14 +1567,21 @@ struct AppWindowIter {
     pid: i32,
     elements: std::vec::IntoIter<IUIAutomationElement>,
     parent: Option<Arc<dyn UiNode>>,
+    java_classifier: Option<Arc<dyn JavaClassifier>>,
 }
 
 impl AppWindowIter {
-    fn new(pid: i32, parent: Option<Arc<dyn UiNode>>, honor_window_claims: bool) -> Self {
+    fn new(
+        pid: i32,
+        parent: Option<Arc<dyn UiNode>>,
+        honor_window_claims: bool,
+        java_classifier: Option<Arc<dyn JavaClassifier>>,
+    ) -> Self {
         Self {
             pid,
             elements: crate::provider::ready_top_level_elements(Some(pid), honor_window_claims).into_iter(),
             parent,
+            java_classifier,
         }
     }
 }
@@ -1515,6 +1595,9 @@ impl Iterator for AppWindowIter {
         let elem = self.elements.next()?;
         let node = UiaNode::from_elem_with_scope(elem, crate::map::UiaIdScope::App { pid: self.pid });
         UiaNode::init_self(&node);
+        if let Some(classifier) = &self.java_classifier {
+            node.set_java_classifier(Arc::clone(classifier));
+        }
         if let Some(ref parent) = self.parent {
             node.set_parent(parent);
         }
@@ -1562,7 +1645,7 @@ impl UiNode for ApplicationNode {
     }
     fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
         let parent = self.self_weak.get().and_then(|w| w.upgrade());
-        Box::new(AppWindowIter::new(self.pid, parent, self.honor_window_claims))
+        Box::new(AppWindowIter::new(self.pid, parent, self.honor_window_claims, self.java_classifier.clone()))
     }
 
     fn has_children(&self) -> bool {

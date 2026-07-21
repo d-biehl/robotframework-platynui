@@ -21,6 +21,8 @@ mod highlight;
 #[cfg(target_os = "windows")]
 mod init;
 #[cfg(target_os = "windows")]
+mod java;
+#[cfg(target_os = "windows")]
 mod keyboard;
 #[cfg(target_os = "windows")]
 mod pointer;
@@ -31,6 +33,8 @@ mod window_manager;
 
 #[cfg(target_os = "windows")]
 pub use factory::create_windows_bundle;
+#[cfg(target_os = "windows")]
+pub use java::WindowsJavaClassifier;
 
 #[cfg(not(target_os = "windows"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

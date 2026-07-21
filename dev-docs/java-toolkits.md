@@ -5,10 +5,19 @@ reaches each Java UI toolkit, per platform. This is the cross-platform map; the
 Windows JAB provider's internals live in [`platform-windows.md`](platform-windows.md)
 §2a and the AT-SPI provider in [`platform-linux.md`](platform-linux.md).
 
-Scope: facts as of 2026-07. The *forward design* — an automatic Java-app
-classifier and an in-JVM agent provider that would fill the gaps below — is
-tracked in OpenSpec, not here; this document records only what is true today and
-the settled decisions that constrain that design.
+Scope: facts as of 2026-07. This document records what is true today and the
+settled decisions that constrain the forward design; the in-JVM *agent
+provider* that would fill the gaps below is tracked in OpenSpec, not here.
+
+The detection half of this map is implemented as the **Java-app classifier**:
+`platynui_core::platform::java` defines the `JavaClassifier` platform-bundle
+capability (is-JVM / toolkit / native-accessibility reachability per top-level
+window), the pure signal→classification logic, and the shared "JVM window
+absent from native accessibility" diagnostic. The Windows backend lives in
+`platform-windows` (`src/java.rs`: window class + Toolhelp `jvm.dll` scan);
+providers surface the result as `native:IsJvm`, `native:JvmToolkit`, and
+`native:JvmAccessibilityReachable` attributes on their top-level window nodes.
+Linux/macOS backends are follow-ups — callers degrade to "unknown".
 
 ## "Is this a JVM?" — the portable primitive
 
@@ -105,9 +114,11 @@ is the only way to reach it. Sources:
 Consequence with the wrapper off: on Linux **only SWT** is covered by the native
 provider (`provider-atspi`, GTK). **Swing/AWT and JavaFX are both agent-only**
 there (JavaFX necessarily so — it has no native path at all). This mirrors the
-Windows `SunAwtSuspect` diagnostic: a JVM process with windows that is *absent
-from the AT-SPI tree* is the agent target; process-level detection finds it, the
-agent classifies the toolkit from inside.
+shared "JVM window absent from native accessibility" diagnostic
+(`platynui_core::platform::java`, emitted on Windows for bridge-less `SunAwt*`
+windows): a JVM process with windows that is *absent from the AT-SPI tree* is
+the agent target; process-level detection finds it, the agent classifies the
+toolkit from inside.
 
 ## Agent injection paths and JEP 451 (facts)
 

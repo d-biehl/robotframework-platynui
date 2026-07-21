@@ -133,6 +133,9 @@ impl Runtime {
         if let Some(bundle) = &platform {
             for provider in &providers {
                 provider.set_window_manager(bundle.window_manager.clone());
+                if let Some(classifier) = &bundle.java_classifier {
+                    provider.set_java_classifier(Arc::clone(classifier));
+                }
             }
         }
 

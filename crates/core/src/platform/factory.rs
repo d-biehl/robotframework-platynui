@@ -12,8 +12,8 @@ use std::sync::Arc;
 use crate::config::RuntimeConfig;
 
 use super::{
-    DesktopInfoProvider, HighlightProvider, KeyboardDevice, PlatformError, PointerDevice, ScreenshotProvider,
-    WindowManager,
+    DesktopInfoProvider, HighlightProvider, JavaClassifier, KeyboardDevice, PlatformError, PointerDevice,
+    ScreenshotProvider, WindowManager,
 };
 
 /// The owned set of platform devices a [`PlatformFactory`] produces for one runtime.
@@ -31,6 +31,9 @@ pub struct PlatformBundle {
     pub highlight: Arc<dyn HighlightProvider>,
     pub window_manager: Arc<dyn WindowManager>,
     pub desktop_info: Arc<dyn DesktopInfoProvider>,
+    /// Java-app classifier (see [`super::java`]). `Option`-typed: a platform
+    /// without a backend yields `None` and callers degrade to "unknown".
+    pub java_classifier: Option<Arc<dyn JavaClassifier>>,
 }
 
 /// Factory that builds a per-runtime [`PlatformBundle`] for one session.

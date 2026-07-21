@@ -90,8 +90,6 @@ pub struct JabProvider {
     window_manager: Mutex<Option<Arc<dyn WindowManager>>>,
     is_shutdown: AtomicBool,
     degraded: Arc<DegradedTracker>,
-    /// HWNDs whose "bridge not enabled" diagnostic has been emitted.
-    sunawt_warned: Mutex<HashSet<isize>>,
     /// JVMs whose bridge version has been info-logged.
     version_logged: Mutex<HashSet<VmId>>,
     /// Window claims currently held by this provider instance.
@@ -111,7 +109,6 @@ impl JabProvider {
             window_manager: Mutex::new(None),
             is_shutdown: AtomicBool::new(false),
             degraded: Arc::new(DegradedTracker::default()),
-            sunawt_warned: Mutex::new(HashSet::new()),
             version_logged: Mutex::new(HashSet::new()),
             claimed: Mutex::new(HashSet::new()),
         }
@@ -175,29 +172,6 @@ impl JabProvider {
             discovery = discover_java_windows(client, None);
         }
         discovery
-    }
-
-    /// Warn once per HWND about a Java-looking window the bridge does not
-    /// answer for — the "bridge not enabled" case. Never mutates any
-    /// target-side configuration; it only tells the user how to.
-    fn emit_enablement_diagnostics(&self, suspects: &[SunAwtSuspect]) {
-        if suspects.is_empty() {
-            return;
-        }
-        let mut warned = self.sunawt_warned.lock().expect("sunawt mutex poisoned");
-        for suspect in suspects {
-            if warned.insert(suspect.hwnd) {
-                warn!(
-                    hwnd = format!("0x{:X}", suspect.hwnd),
-                    class = %suspect.class_name,
-                    pid = suspect.pid,
-                    "Java window found but the Access Bridge does not answer for it. Enable the bridge in the \
-                     target JVM: launch it with \
-                     -Djavax.accessibility.assistive_technologies=com.sun.java.accessibility.AccessBridge \
-                     (per-process), or run 'jabswitch -enable' once for the user (persistent)."
-                );
-            }
-        }
     }
 
     fn log_bridge_versions(&self, client: &Arc<JabClient>, windows: &[JavaWindow]) {
@@ -281,7 +255,7 @@ impl UiTreeProvider for JabProvider {
         };
 
         let discovery = self.discover_with_rendezvous_grace(&client);
-        self.emit_enablement_diagnostics(&discovery.sunawt_suspects);
+        emit_enablement_diagnostics(&discovery.sunawt_suspects);
         self.log_bridge_versions(&client, &discovery.windows);
         self.sync_window_claims(&discovery.windows);
 
@@ -393,6 +367,27 @@ fn top_level_window_at(point: Point) -> Option<(isize, u32)> {
         let mut pid = 0u32;
         GetWindowThreadProcessId(top_level, Some(&raw mut pid));
         Some((top_level.0 as isize, pid))
+    }
+}
+
+/// Emit the shared "JVM window absent from native accessibility" diagnostic
+/// (see `platynui_core::platform::java`) for Java-looking windows the bridge
+/// does not answer for — the "bridge not enabled" case. The shared registry
+/// de-duplicates per window, process-wide. Never mutates any target-side
+/// configuration; it only tells the user how to.
+fn emit_enablement_diagnostics(suspects: &[SunAwtSuspect]) {
+    use platynui_core::platform::java::{JavaToolkit, jvm_unreachable_diagnostic_once};
+    for suspect in suspects {
+        let toolkit = JavaToolkit::from_window_class(&suspect.class_name).unwrap_or(JavaToolkit::Unknown);
+        if let Some(hint) = jvm_unreachable_diagnostic_once(hwnd_as_claim(suspect.hwnd), toolkit) {
+            warn!(
+                hwnd = format!("0x{:X}", suspect.hwnd),
+                class = %suspect.class_name,
+                pid = suspect.pid,
+                toolkit = toolkit.label(),
+                "JVM window is absent from native accessibility. {hint}"
+            );
+        }
     }
 }
 
