@@ -53,6 +53,7 @@ Don't guess conventions — the design docs are authoritative. Consult them befo
 - [`dev-docs/error-handling.md`](dev-docs/error-handling.md) — error type conventions
 - [`dev-docs/testing-strategy.md`](dev-docs/testing-strategy.md) — test layout, mock-provider usage
 - [`dev-docs/platform-linux.md`](dev-docs/platform-linux.md), [`dev-docs/platform-linux-wayland.md`](dev-docs/platform-linux-wayland.md), [`dev-docs/platform-windows.md`](dev-docs/platform-windows.md) — platform specifics
+- [`dev-docs/java-toolkits.md`](dev-docs/java-toolkits.md) — Java UI toolkit (Swing/SWT/JavaFX) detection and accessibility coverage across platforms
 - [`dev-docs/cli.md`](dev-docs/cli.md), [`dev-docs/inspector.md`](dev-docs/inspector.md), [`dev-docs/keyboard-input.md`](dev-docs/keyboard-input.md), [`dev-docs/pointer-input.md`](dev-docs/pointer-input.md) — component-level designs
 
 When a design doc and the code disagree, the code is reality but the doc usually documents the *intent* — flag the divergence rather than silently picking one.
