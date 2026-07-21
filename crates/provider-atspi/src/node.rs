@@ -1,11 +1,8 @@
-use atspi_common::{
-    Action as AtspiAction, CoordType, Interface, InterfaceSet, ObjectRefOwned, RelationType, Role, State, StateSet,
-};
+use atspi_common::{Action as AtspiAction, CoordType, Interface, InterfaceSet, ObjectRefOwned, Role, State, StateSet};
 use atspi_connection::AccessibilityConnection;
 use atspi_proxies::accessible::AccessibleProxy;
 use atspi_proxies::action::ActionProxy;
 use atspi_proxies::application::ApplicationProxy;
-use atspi_proxies::collection::CollectionProxy;
 use atspi_proxies::component::ComponentProxy;
 use atspi_proxies::document::DocumentProxy;
 use atspi_proxies::hyperlink::HyperlinkProxy;
@@ -428,7 +425,6 @@ make_proxy!(accessible_proxy, AccessibleProxy);
 make_proxy!(component_proxy, ComponentProxy);
 make_proxy!(action_proxy, ActionProxy);
 make_proxy!(application_proxy, ApplicationProxy);
-make_proxy!(collection_proxy, CollectionProxy);
 make_proxy!(document_proxy, DocumentProxy);
 make_proxy!(hyperlink_proxy, HyperlinkProxy);
 make_proxy!(hypertext_proxy, HypertextProxy);
@@ -696,18 +692,6 @@ fn string_map_object(map: &std::collections::HashMap<String, String>) -> UiValue
     UiValue::Object(out)
 }
 
-fn object_refs_value(objects: Vec<ObjectRefOwned>) -> UiValue {
-    UiValue::from(objects.into_iter().map(|obj| object_runtime_id(&obj)).collect::<Vec<_>>())
-}
-
-fn relation_set_value(relations: Vec<(RelationType, Vec<ObjectRefOwned>)>) -> UiValue {
-    let mut map = BTreeMap::new();
-    for (relation, targets) in relations {
-        map.insert(format!("{relation:?}"), object_refs_value(targets));
-    }
-    UiValue::Object(map)
-}
-
 fn interface_set_value(interfaces: InterfaceSet) -> UiValue {
     UiValue::from(interfaces.iter().map(|iface| format!("{iface:?}")).collect::<Vec<_>>())
 }
@@ -941,13 +925,10 @@ impl AttrsIter {
             "Accessible.RoleName",
             "Accessible.LocalizedRoleName",
             "Accessible.AccessibleId",
-            "Accessible.Parent",
             "Accessible.ChildCount",
             "Accessible.IndexInParent",
             "Accessible.Interfaces",
             "Accessible.State",
-            "Accessible.RelationSet",
-            "Accessible.Application",
             "Accessible.Attributes",
         ];
         if let Some(ifaces) = interfaces {
@@ -962,9 +943,6 @@ impl AttrsIter {
                     "Application.AtspiVersion",
                     "Application.BusAddress",
                 ]);
-            }
-            if ifaces.contains(Interface::Collection) {
-                native_props.push("Collection.ActiveDescendant");
             }
             if ifaces.contains(Interface::Component) {
                 native_props.extend_from_slice(&[
@@ -1017,8 +995,6 @@ impl AttrsIter {
             }
             if ifaces.contains(Interface::Table) {
                 native_props.extend_from_slice(&[
-                    "Table.Caption",
-                    "Table.Summary",
                     "Table.NColumns",
                     "Table.NRows",
                     "Table.NSelectedColumns",
@@ -1028,12 +1004,7 @@ impl AttrsIter {
                 ]);
             }
             if ifaces.contains(Interface::TableCell) {
-                native_props.extend_from_slice(&[
-                    "TableCell.ColumnSpan",
-                    "TableCell.RowSpan",
-                    "TableCell.Position",
-                    "TableCell.Table",
-                ]);
+                native_props.extend_from_slice(&["TableCell.ColumnSpan", "TableCell.RowSpan", "TableCell.Position"]);
             }
             if ifaces.contains(Interface::Text) {
                 native_props.extend_from_slice(&[
@@ -1806,7 +1777,6 @@ impl UiAttribute for LazyNativeAttr {
             Some(("Accessible", prop)) => self.fetch_accessible(prop),
             Some(("Action", prop)) => self.fetch_action(prop),
             Some(("Application", prop)) => self.fetch_application(prop),
-            Some(("Collection", prop)) => self.fetch_collection(prop),
             Some(("Component", prop)) => self.fetch_component(prop),
             Some(("Document", prop)) => self.fetch_document(prop),
             Some(("Hyperlink", prop)) => self.fetch_hyperlink(prop),
@@ -1864,11 +1834,6 @@ fn size_value((w, h): (i32, i32)) -> UiValue {
     UiValue::from(Size::new(w as f64, h as f64))
 }
 
-/// Convert an [`ObjectRefOwned`] to its runtime-id string value.
-fn object_ref_value(obj: ObjectRefOwned) -> UiValue {
-    UiValue::from(object_runtime_id(&obj))
-}
-
 /// Fetch a D-Bus property that returns a `HashMap<String, String>` and
 /// convert it to a [`UiValue::Object`].  Returns [`UiValue::Null`] when
 /// the call fails, times out, or the map is empty.
@@ -1896,13 +1861,10 @@ impl LazyNativeAttr {
             "RoleName" => fetch_str(proxy.get_role_name()),
             "LocalizedRoleName" => fetch_str(proxy.get_localized_role_name()),
             "AccessibleId" => fetch_str(proxy.accessible_id()),
-            "Parent" => fetch_map(proxy.parent(), object_ref_value),
             "ChildCount" => fetch_int(proxy.child_count()),
             "IndexInParent" => fetch_int(proxy.get_index_in_parent()),
             "Interfaces" => fetch_map(proxy.get_interfaces(), interface_set_value),
             "State" => fetch_map(proxy.get_state(), state_set_value),
-            "RelationSet" => fetch_map(proxy.get_relation_set(), relation_set_value),
-            "Application" => fetch_map(proxy.get_application(), object_ref_value),
             "Attributes" => fetch_map(proxy.get_attributes(), |attrs| {
                 let pairs: Vec<(String, String)> = attrs.into_iter().collect();
                 attributes_object(&pairs)
@@ -1942,16 +1904,6 @@ impl LazyNativeAttr {
             "ToolkitName" => fetch_str(proxy.toolkit_name()),
             "AtspiVersion" => fetch_str(proxy.atspi_version()),
             "BusAddress" => fetch_str(proxy.get_application_bus_address()),
-            _ => UiValue::Null,
-        }
-    }
-
-    fn fetch_collection(&self, prop: &str) -> UiValue {
-        let Some(proxy) = collection_proxy(&self.conn, &self.obj) else {
-            return UiValue::Null;
-        };
-        match prop {
-            "ActiveDescendant" => fetch_map(proxy.get_active_descendant(), object_ref_value),
             _ => UiValue::Null,
         }
     }
@@ -2044,8 +1996,6 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "Caption" => fetch_map(proxy.caption(), object_ref_value),
-            "Summary" => fetch_map(proxy.summary(), object_ref_value),
             "NColumns" => fetch_int(proxy.n_columns()),
             "NRows" => fetch_int(proxy.n_rows()),
             "NSelectedColumns" => fetch_int(proxy.n_selected_columns()),
@@ -2068,7 +2018,6 @@ impl LazyNativeAttr {
             "ColumnSpan" => fetch_int(proxy.column_span()),
             "RowSpan" => fetch_int(proxy.row_span()),
             "Position" => fetch_map(proxy.position(), |(row, col)| row_column_value(row, col)),
-            "Table" => fetch_map(proxy.table(), object_ref_value),
             _ => UiValue::Null,
         }
     }
