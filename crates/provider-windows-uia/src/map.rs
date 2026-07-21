@@ -822,6 +822,14 @@ unsafe fn variant_to_ui_value(variant: &VARIANT) -> Option<UiValue> {
             return None; // unsupported indirection for now
         }
         let base = vt & VT_TYPEMASK.0;
+        // Element-reference arrays (VT_UNKNOWN base) hold pointers to other UI
+        // elements (e.g. ControllerFor, DescribedBy, FlowsTo/FlowsFrom,
+        // Selection, table header items). Those name elements to navigate to
+        // via XPath axes, not values to match in a predicate, and cannot be
+        // decoded here anyway, so drop them like the scalar VT_UNKNOWN case.
+        if base == VT_UNKNOWN.0 {
+            return None;
+        }
         let psa = unsafe { variant.Anonymous.Anonymous.Anonymous.parray };
         if psa.is_null() {
             return None;
