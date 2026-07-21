@@ -1,0 +1,24 @@
+## 1. Build scaffolding
+
+- [ ] 1.1 `apps/test-app-swt`: Gradle project with checked-in wrapper (Gradle 8.x pinned so the wrapper runs on the PATH JDK 8), `application` plugin, Java 21 compile toolchain + `org.gradle.toolchains.foojay-resolver-convention` with `options.release = 8`, and `org.eclipse.platform:org.eclipse.swt.win32.win32.x86_64` pinned to the newest Java-8-compatible release (excluding the `${osgi.platform}` placeholder transitive)
+- [ ] 1.1a Java 8 launch runtime: second toolchain (`languageVersion = 8`, auto-provisioned) plus a Gradle task that resolves the provisioned toolchain homes, so run recipes/acceptance can set `JAVA_HOME` for the `installDist` start script explicitly (8 by default, 21 selectable)
+- [ ] 1.2 Root `Cargo.toml`: add `apps/test-app-swt` to the workspace `exclude` (with the existing "not a Cargo crate" comment pattern)
+- [ ] 1.3 `justfile`: `build-test-app-swt` (wrapper → `installDist`, fail-fast message when `java` is missing) and `run-test-app-swt *ARGS` recipes
+- [ ] 1.4 `apps/test-app-swt/README.md`: what self-bootstraps (Gradle, JDK 21 via Foojay, SWT from Maven Central), what a machine needs (any `java` 8+ on PATH, network on first build), proxy notes
+
+## 2. Fixture app
+
+- [ ] 2.1 `Main` with the fixture CLI contract: `--title` (default "PlatynUI SWT TestApp"), `--auto-close <seconds>`, usage + non-zero exit on unknown arguments
+- [ ] 2.2 Control set with fixed unique accessible names: shell, push button, single-line text field, checkbox, combo, status label (name overrides via `getAccessible().addAccessibleListener` where control text is not the name)
+- [ ] 2.3 Click-observable state change: button clicks update the status label text/accessible name to `clicks-<n>`
+
+## 3. Acceptance coverage
+
+- [ ] 3.1 Wire the fixture into `just test-acceptance-windows`: build with soft-skip (no JDK/network → warn and skip, mirroring the Swing pattern), hand the installDist launcher over as `PLATYNUI_TEST_APP_SWT_BIN` with the provisioned Java 8 runtime as launch `JAVA_HOME`
+- [ ] 3.2 Windows acceptance suite: launch the fixture (on the Java 8 runtime), assert the UIA window node carries `native:IsJvm = true` and `native:JvmToolkit = "SWT"`, no JVM enablement diagnostic fires, and the named controls enumerate with the click-counter observable working
+- [ ] 3.3 Dual-runtime smoke: the same installDist output starts and honors `--auto-close` on both the provisioned Java 8 runtime and the JDK 21 toolchain
+
+## 4. Verification
+
+- [ ] 4.1 `just check` and `just test` stay green (workspace unaffected by the excluded app); `just build-test-app-swt` from a clean checkout succeeds with only a JDK 8 on PATH
+- [ ] 4.2 Windows acceptance run green including the new SWT suite; `dev-docs/java-toolkits.md` gains a pointer to the fixture as the SWT acceptance surface
