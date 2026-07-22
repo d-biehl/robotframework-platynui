@@ -41,14 +41,15 @@ val java21Launcher = javaToolchains.launcherFor {
 val writeJavaLaunchers = tasks.register("writeJavaLaunchers") {
     description = "Write the provisioned Java launcher paths to build/java-launchers.properties"
     val outputFile = layout.buildDirectory.file("java-launchers.properties")
-    inputs.property("java8", java8Launcher.map { it.executablePath.toString() })
-    inputs.property("java21", java21Launcher.map { it.executablePath.toString() })
+    // Resolved into local providers so the doLast lambda captures no script
+    // object references (configuration-cache requirement).
+    val java8Path = java8Launcher.map { it.executablePath.toString().replace('\\', '/') }
+    val java21Path = java21Launcher.map { it.executablePath.toString().replace('\\', '/') }
+    inputs.property("java8", java8Path)
+    inputs.property("java21", java21Path)
     outputs.file(outputFile)
     doLast {
-        outputFile.get().asFile.writeText(
-            "java8=${java8Launcher.get().executablePath.toString().replace('\\', '/')}\n" +
-                "java21=${java21Launcher.get().executablePath.toString().replace('\\', '/')}\n"
-        )
+        outputFile.get().asFile.writeText("java8=${java8Path.get()}\njava21=${java21Path.get()}\n")
     }
 }
 
