@@ -24,9 +24,13 @@ inspector_bin := justfile_directory() / "target" / "debug" / if os() == "windows
 # via __PYVENV_LAUNCHER__ (the mechanism the trampoline itself uses), so the launched PID owns the window.
 qt_venv_python := justfile_directory() / ".venv" / "Scripts" / "python.exe"
 qt_app_main := justfile_directory() / "apps" / "test-app-qt" / "main.py"
-# Swing test app (plain Java 8, built with javac — see apps/test-app-swing/README.md).
+# Swing test app (self-contained Gradle project — see apps/test-app-swing/README.md).
+# The build writes the provisioned JVM paths (java8 = default launch runtime,
+# java21 = compile toolchain) to java-launchers.properties; the run/acceptance
+# recipes resolve the launch JVM from there and fall back to the PATH `java`.
 swing_app_dir := justfile_directory() / "apps" / "test-app-swing"
-swing_app_classes := swing_app_dir / "build" / "classes"
+swing_app_classes := swing_app_dir / "build" / "classes" / "java" / "main"
+swing_app_launchers := swing_app_dir / "build" / "java-launchers.properties"
 # headless runs the Linux acceptance lane with no visible window (compositor uses
 # its headless backend, X11 runs under Xvfb). Defaults to true under CI (the
 # conventional `CI` env var is set); override anywhere with `just headless=… …`.
@@ -271,43 +275,51 @@ test-acceptance-x11 *ARGS: build-native
 # launches it); PySide6 (a dev dependency) is already in the project venv from
 # the build-native sync. All fixtures are handed over via the
 # PLATYNUI_TEST_APP_* / PLATYNUI_INSPECTOR_BIN env vars (Robot Framework
-# launches them). The Swing fixture needs a JDK: without javac on PATH its
-# build fails softly here and the swing suites (plus the JAB live Rust tests)
-# skip with a clear message instead of failing the lane.
+# launches them). The Swing fixture builds via its Gradle wrapper: if that
+# build fails (typically no network on the first run), it fails softly here and
+# the swing suites (plus the JAB live Rust tests) skip with a clear message
+# instead of failing the lane. The fixture runs on the provisioned Java 8
+# runtime (PLATYNUI_TEST_APP_SWING_JAVA, from java-launchers.properties).
 [windows]
 test-acceptance-windows *ARGS: build-native
     cargo build -p platynui-test-app-egui -p platynui-inspector
     -just build-test-app-swing
-    if (Test-Path "{{ swing_app_classes }}") { $env:PLATYNUI_TEST_APP_SWING_CLASSES = "{{ swing_app_classes }}"; cargo nextest run -p platynui-provider-jab --run-ignored ignored-only } else { Write-Warning "Swing fixture not built (no JDK on PATH?) - skipping the JAB live tests" }
-    $qtBasePy = & "{{ qt_venv_python }}" -c "import sys; print(sys._base_executable)"; $env:PLATYNUI_TEST_APP_BIN = "{{ egui_test_app }}"; $env:PLATYNUI_INSPECTOR_BIN = "{{ inspector_bin }}"; $env:PLATYNUI_TEST_APP_QT_PYTHON = $qtBasePy; $env:PLATYNUI_TEST_APP_QT_PYVENV_LAUNCHER = "{{ qt_venv_python }}"; $env:PLATYNUI_TEST_APP_QT_MAIN = "{{ qt_app_main }}"; $env:PLATYNUI_TEST_APP_SWING_CLASSES = "{{ swing_app_classes }}"; uv run --no-sync robotcode {{ if ARGS != "" { ARGS } else { "--profile real run" } }}
+    if (Test-Path "{{ swing_app_classes }}") { $env:PLATYNUI_TEST_APP_SWING_CLASSES = "{{ swing_app_classes }}"; if (Test-Path "{{ swing_app_launchers }}") { $env:PLATYNUI_TEST_APP_SWING_JAVA = ((Get-Content -Raw "{{ swing_app_launchers }}") | ConvertFrom-StringData).java8 }; cargo nextest run -p platynui-provider-jab --run-ignored ignored-only } else { Write-Warning "Swing fixture not built (Gradle build failed - no network on first run?) - skipping the JAB live tests" }
+    $qtBasePy = & "{{ qt_venv_python }}" -c "import sys; print(sys._base_executable)"; $env:PLATYNUI_TEST_APP_BIN = "{{ egui_test_app }}"; $env:PLATYNUI_INSPECTOR_BIN = "{{ inspector_bin }}"; $env:PLATYNUI_TEST_APP_QT_PYTHON = $qtBasePy; $env:PLATYNUI_TEST_APP_QT_PYVENV_LAUNCHER = "{{ qt_venv_python }}"; $env:PLATYNUI_TEST_APP_QT_MAIN = "{{ qt_app_main }}"; $env:PLATYNUI_TEST_APP_SWING_CLASSES = "{{ swing_app_classes }}"; if (Test-Path "{{ swing_app_launchers }}") { $env:PLATYNUI_TEST_APP_SWING_JAVA = ((Get-Content -Raw "{{ swing_app_launchers }}") | ConvertFrom-StringData).java8 }; uv run --no-sync robotcode {{ if ARGS != "" { ARGS } else { "--profile real run" } }}
 
 # ─── Swing Test App (Java fixture for the JAB provider work) ───────────────────
 
-# Build the Swing test app with plain javac (requires a JDK 8+ on PATH).
+# Build the Swing test app via its Gradle wrapper (needs only a `java` 8+ on
+# PATH: the Gradle daemon JVM, the JDK 21 compile toolchain and the Java 8
+# launch runtime are all auto-provisioned — network access required on the
+# first build).
 [unix]
 build-test-app-swing:
-    @command -v javac >/dev/null 2>&1 || { echo "error: javac not found on PATH - install a JDK 8+ (e.g. Eclipse Temurin) to build the Swing test app"; exit 1; }
-    rm -rf "{{ swing_app_classes }}"
-    mkdir -p "{{ swing_app_classes }}"
-    find "{{ swing_app_dir }}/src" -name '*.java' -print0 | xargs -0 javac -encoding UTF-8 -source 8 -target 8 -d "{{ swing_app_classes }}"
+    cd "{{ swing_app_dir }}" && ./gradlew --console=plain classes writeJavaLaunchers
 
-# Build the Swing test app with plain javac (requires a JDK 8+ on PATH).
+# Build the Swing test app via its Gradle wrapper (needs only a `java` 8+ on
+# PATH: the Gradle daemon JVM, the JDK 21 compile toolchain and the Java 8
+# launch runtime are all auto-provisioned — network access required on the
+# first build).
 [windows]
 build-test-app-swing:
-    if (-not (Get-Command javac -ErrorAction SilentlyContinue)) { Write-Error "javac not found on PATH - install a JDK 8+ (e.g. Eclipse Temurin) to build the Swing test app"; exit 1 }
-    if (Test-Path "{{ swing_app_classes }}") { Remove-Item -Recurse -Force "{{ swing_app_classes }}" }
-    New-Item -ItemType Directory -Force "{{ swing_app_classes }}" | Out-Null; $files = Get-ChildItem -Recurse "{{ swing_app_dir }}/src" -Filter *.java | ForEach-Object FullName; javac -encoding UTF-8 -source 8 -target 8 -d "{{ swing_app_classes }}" $files
+    Set-Location "{{ swing_app_dir }}"; & .\gradlew.bat --console=plain classes writeJavaLaunchers; exit $LASTEXITCODE
 
-# Run the Swing test app; the Java Access Bridge is enabled for this process only
-# (no jabswitch, no persistent config). ARGS mirror the Qt/egui apps.
+# Run the Swing test app (Gradle `run` task: provisioned Java 8 runtime; on
+# Windows the Java Access Bridge is enabled for this process only — no
+# jabswitch, no persistent config; Linux ATK-wrapper enablement is documented
+# in the app README). ARGS mirror the Qt/egui apps.
 [windows]
-run-test-app-swing *ARGS: build-test-app-swing
-    java "-Djavax.accessibility.assistive_technologies=com.sun.java.accessibility.AccessBridge" -cp "{{ swing_app_classes }}" platynui.testapp.Main {{ ARGS }}
+run-test-app-swing *ARGS:
+    Set-Location "{{ swing_app_dir }}"; & .\gradlew.bat --console=plain run {{ if ARGS != "" { '"--args=' + ARGS + '"' } else { "" } }}; exit $LASTEXITCODE
 
-# Run the Swing test app (Linux ATK-wrapper enablement is documented in the app README).
+# Run the Swing test app (Gradle `run` task: provisioned Java 8 runtime; on
+# Windows the Java Access Bridge is enabled for this process only — no
+# jabswitch, no persistent config; Linux ATK-wrapper enablement is documented
+# in the app README). ARGS mirror the Qt/egui apps.
 [unix]
-run-test-app-swing *ARGS: build-test-app-swing
-    java -cp "{{ swing_app_classes }}" platynui.testapp.Main {{ ARGS }}
+run-test-app-swing *ARGS:
+    cd "{{ swing_app_dir }}" && ./gradlew --console=plain run {{ if ARGS != "" { "--args='" + ARGS + "'" } else { "" } }}
 
 # ─── Desktop Integration ────────────────────────────────────────────────────────
 

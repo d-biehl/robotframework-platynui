@@ -3,10 +3,11 @@ Documentation     Launch and tear down Swing fixture instances (apps/test-app-sw
 ...               Framework, so each suite owns the instance(s) it needs — the top-level suite launches
 ...               nothing.
 ...
-...               The fixture is plain Java 8 run straight from its class directory. The directory (and
-...               optionally the launcher) come from PLATYNUI_TEST_APP_SWING_CLASSES /
-...               PLATYNUI_TEST_APP_SWING_JAVA (prepared by the test-acceptance-windows recipe; set them
-...               yourself when running outside it). Every launch passes
+...               The fixture is plain Java 8 run straight from its class directory (the Gradle build's
+...               classes output). The directory and the launch JVM (the provisioned Java 8 by default)
+...               come from PLATYNUI_TEST_APP_SWING_CLASSES / PLATYNUI_TEST_APP_SWING_JAVA (prepared by
+...               the test-acceptance-windows recipe; set them yourself when running outside it, PATH
+...               ``java`` is the fallback launcher). Every launch passes
 ...               -Djavax.accessibility.assistive_technologies=com.sun.java.accessibility.AccessBridge,
 ...               enabling the Access Bridge for that process only — no jabswitch, no machine state.
 ...
@@ -22,7 +23,7 @@ Resource          ${CURDIR}/testapp_locators.resource
 
 *** Variables ***
 ${SWING_JAVA}           ${{ os.environ.get("PLATYNUI_TEST_APP_SWING_JAVA") or "java" }}
-${SWING_CLASSES}        ${{ os.environ.get("PLATYNUI_TEST_APP_SWING_CLASSES") or os.path.abspath("apps/test-app-swing/build/classes") }}
+${SWING_CLASSES}        ${{ os.environ.get("PLATYNUI_TEST_APP_SWING_CLASSES") or os.path.abspath("apps/test-app-swing/build/classes/java/main") }}
 ${SWING_ENABLE_FLAG}    -Djavax.accessibility.assistive_technologies\=com.sun.java.accessibility.AccessBridge
 ${APP_WAIT_TIMEOUT}     20s
 # Handle/title of the instance started by Launch Default Swing Instance.
@@ -36,7 +37,7 @@ Require Swing Prerequisites
     ...    non-Windows platform, no java launcher, or the fixture classes have not been built.
     Skip If    ${{ os.name != "nt" }}    Swing/JAB acceptance is Windows-only (Linux Swing rides AT-SPI in a future lane)
     ${java_missing}=    Run Keyword And Return Status    Run Process    ${SWING_JAVA}    -version
-    Skip If    not ${java_missing}    no usable Java launcher (${SWING_JAVA}) — install a JDK 8+ and put it on PATH
+    Skip If    not ${java_missing}    no usable Java launcher (${SWING_JAVA}) — run `just build-test-app-swing` (sets up the provisioned runtime) or put a `java` 8+ on PATH
     Skip If    ${{ not os.path.isdir($SWING_CLASSES) }}
     ...    Swing fixture not built at ${SWING_CLASSES} — run `just build-test-app-swing`
 

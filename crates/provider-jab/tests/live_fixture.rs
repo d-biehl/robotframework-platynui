@@ -1,6 +1,7 @@
 //! Live real-provider checks against the Swing fixture app.
 //!
-//! These tests need a desktop session, a JDK (`java` on `PATH`), and the built
+//! These tests need a desktop session, a Java runtime (the explicit selection
+//! in `PLATYNUI_TEST_APP_SWING_JAVA`, or `java` on `PATH`), and the built
 //! fixture app (`just build-test-app-swing`); they are `#[ignore]`d so the
 //! plain `just test` lane stays desktop-free. The Windows acceptance recipe
 //! runs them explicitly:
@@ -87,7 +88,7 @@ impl FixtureApp {
             "-Djavax.accessibility.assistive_technologies="
         };
         let title = format!("PlatynUI JAB Live {} {}", std::process::id(), title_suffix);
-        let child = Command::new("java")
+        let child = Command::new(swing_java_launcher())
             .arg(assistive_technologies)
             .arg("-cp")
             .arg(&classes)
@@ -97,7 +98,7 @@ impl FixtureApp {
             .arg("--auto-close")
             .arg("180")
             .spawn()
-            .expect("failed to launch the fixture JVM — is `java` on PATH?");
+            .expect("failed to launch the fixture JVM — set PLATYNUI_TEST_APP_SWING_JAVA or put `java` on PATH");
         Self { child, title }
     }
 
@@ -127,9 +128,18 @@ fn swing_classes_dir() -> PathBuf {
                 .join("test-app-swing")
                 .join("build")
                 .join("classes")
+                .join("java")
+                .join("main")
         },
         PathBuf::from,
     )
+}
+
+/// Launch JVM for the fixture: the explicit runtime selection from the
+/// acceptance recipe (the provisioned Java 8), or the PATH `java` for ad-hoc
+/// local runs.
+fn swing_java_launcher() -> PathBuf {
+    std::env::var_os("PLATYNUI_TEST_APP_SWING_JAVA").map_or_else(|| PathBuf::from("java"), PathBuf::from)
 }
 
 /// Minimal desktop stand-in handed to `get_nodes` as the parent.
@@ -222,7 +232,7 @@ fn structure_signature(nodes: &[Arc<dyn UiNode>]) -> Vec<(String, String, String
 // Task 4.5: contract testkit + interaction against the live fixture
 
 #[test]
-#[ignore = "needs a desktop, a JDK on PATH, and the built Swing fixture (run via just test-acceptance-windows)"]
+#[ignore = "needs a desktop, a Java runtime, and the built Swing fixture (run via just test-acceptance-windows)"]
 fn live_fixture_contract_and_interaction() {
     let mut app = FixtureApp::launch("contract");
     let provider = build_provider(&RuntimeConfig::default());
@@ -447,7 +457,7 @@ fn set_process_frozen(pid: u32, frozen: bool) {
 }
 
 #[test]
-#[ignore = "needs a desktop, a JDK on PATH, and the built Swing fixture; may be run manually if flaky in CI"]
+#[ignore = "needs a desktop, a Java runtime, and the built Swing fixture; may be run manually if flaky in CI"]
 fn live_frozen_jvm_stays_contained() {
     const CALL_TIMEOUT: Duration = Duration::from_millis(750);
 
@@ -609,7 +619,7 @@ fn native_value(node: &Arc<dyn UiNode>, name: &str) -> Option<UiValue> {
 }
 
 #[test]
-#[ignore = "needs a desktop, a JDK on PATH, and the built Swing fixture (run via just test-acceptance-windows)"]
+#[ignore = "needs a desktop, a Java runtime, and the built Swing fixture (run via just test-acceptance-windows)"]
 fn live_jvm_classification_facts_and_diagnostic() {
     use platynui_core::platform::java::{
         IS_JVM_ATTRIBUTE, JVM_ACCESSIBILITY_REACHABLE_ATTRIBUTE, JVM_TOOLKIT_ATTRIBUTE,

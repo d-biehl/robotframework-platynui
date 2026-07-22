@@ -20,6 +20,9 @@ wheels/
 results/
 .robot.toml
 
+# gradle (Java test fixtures; their build/ output is covered by build/ above)
+.gradle/
+
 # rust
 target/
 
