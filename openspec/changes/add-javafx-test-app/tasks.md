@@ -1,6 +1,6 @@
 ## 1. Build scaffolding
 
-- [ ] 1.1 `apps/test-app-javafx`: Gradle project with checked-in wrapper (Gradle 8.x pinned so the wrapper runs on the PATH JDK 8), `application` plugin, Java 21 toolchain + `org.gradle.toolchains.foojay-resolver-convention`, and the `org.openjfx.javafxplugin` plugin with a pinned JavaFX version and `javafx.controls` module
+- [ ] 1.1 `apps/test-app-javafx`: Gradle project copying the scaffold from `apps/test-app-swing` (current-Gradle wrapper with checksum-verified jar, committed daemon JVM criteria `gradle-daemon-jvm.properties`, `.gitattributes`, foojay-resolver-convention 1.0.0), plus `application` plugin, Java 21 toolchain, and the `org.openjfx.javafxplugin` plugin with a pinned JavaFX version and `javafx.controls` module
 - [ ] 1.2 Root `Cargo.toml`: add `apps/test-app-javafx` to the workspace `exclude` (with the existing "not a Cargo crate" comment pattern)
 - [ ] 1.3 `justfile`: `build-test-app-javafx` (wrapper → `installDist`, fail-fast message when `java` is missing) and `run-test-app-javafx *ARGS` recipes
 - [ ] 1.4 `apps/test-app-javafx/README.md`: what self-bootstraps (Gradle, JDK 21 via Foojay, OpenJFX from Maven Central), what a machine needs (any `java` 8+ on PATH, network on first build), proxy notes, and the Linux note (JavaFX has no native accessibility there — the fixture is the future agent-lane target)

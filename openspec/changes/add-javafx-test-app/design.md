@@ -1,6 +1,6 @@
 ## Context
 
-JavaFX left the JDK with Java 11: no JDK distribution the project requires ships it (Temurin never has), so the fixture must pull OpenJFX itself — JARs with platform classifiers carrying the Glass/Prism natives, launched over the module path. That makes a real build tool non-negotiable, and the toolchain decision is already settled by the sibling `add-swt-test-app` change: Gradle wrapper (8.x, runs on the PATH JDK 8) + Java 21 toolchain auto-provisioned via the Foojay resolver. This design covers only what is JavaFX-specific.
+JavaFX left the JDK with Java 11: no JDK distribution the project requires ships it (Temurin never has), so the fixture must pull OpenJFX itself — JARs with platform classifiers carrying the Glass/Prism natives, launched over the module path. That makes a real build tool non-negotiable, and the toolchain decision is already settled by the archived `migrate-swing-test-app-to-gradle` change (reused by the sibling `add-swt-test-app`): current-Gradle wrapper whose client runs on the PATH `java` 8+, daemon JVM auto-provisioned via committed daemon JVM criteria, Java 21 toolchain via the Foojay resolver (convention plugin 1.0.0). This design covers only what is JavaFX-specific.
 
 The strategic weight of this fixture is on the *agent* side: on Windows JavaFX implements UIA natively (activated on demand when an accessibility client asks), but on Linux JavaFX has no accessibility at all — this app is the future `provider-java-agent` proving ground.
 
@@ -37,7 +37,7 @@ The strategic weight of this fixture is on the *agent* side: on Windows JavaFX i
 - [First build downloads Gradle + JDK 21 + OpenJFX (~400 MB total, one-time per machine)] → accepted; pinned, cached user-level, proxy-configurable.
 - [`Glass*` window-class literal has drifted across JavaFX versions (documented in `java-toolkits.md`)] → the classifier matches on the `Glass` prefix; the acceptance test pins today's behavior and will catch a drift on version bumps — which is a feature of having the fixture.
 - [JavaFX's on-demand UIA activation could make the first enumeration racy] → poll-based acceptance assertions (existing suite convention) absorb it.
-- [Two fixtures duplicate Gradle wrapper + toolchain boilerplate] → accepted for per-app independence (decision in `add-swt-test-app`); consolidation is a possible later cleanup.
+- [Three fixtures (Swing/SWT/JavaFX) duplicate Gradle wrapper + toolchain boilerplate] → accepted for per-app independence (decision in `add-swt-test-app`); consolidation is a possible later cleanup.
 
 ## Migration Plan
 

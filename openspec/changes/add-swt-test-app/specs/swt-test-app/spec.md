@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Self-bootstrapping build via Gradle wrapper
-The SWT test app SHALL build via the checked-in Gradle wrapper driven by a `just` recipe (`just build-test-app-swt`), requiring only a `java` (8+) on PATH: the wrapper SHALL run on that JVM (Gradle 8.x pin), the build SHALL compile with an auto-provisioned JDK 21 toolchain (Foojay resolver) targeting Java 8 bytecode (`--release 8`), and SWT SHALL resolve from Maven Central pinned to the newest release whose class files still target Java 8. The sources SHALL remain outside the Cargo workspace (root `Cargo.toml` `exclude`).
+The SWT test app SHALL build via the checked-in Gradle wrapper (current Gradle) driven by a `just` recipe (`just build-test-app-swt`), requiring only a `java` (8+) on PATH: the wrapper client SHALL run on that JVM, the Gradle daemon JVM SHALL be auto-provisioned via committed daemon JVM criteria (`gradle/gradle-daemon-jvm.properties`), the build SHALL compile with an auto-provisioned JDK 21 toolchain (Foojay resolver) targeting Java 8 bytecode (`--release 8`), and SWT SHALL resolve from Maven Central pinned to the newest release whose class files still target Java 8. The sources SHALL remain outside the Cargo workspace (root `Cargo.toml` `exclude`).
 
 #### Scenario: Clean build with only the PATH JDK
 - **WHEN** `just build-test-app-swt` runs on a machine with any JDK 8+ on PATH (and network access on first run)
