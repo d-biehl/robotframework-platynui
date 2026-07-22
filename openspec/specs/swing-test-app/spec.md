@@ -2,24 +2,35 @@
 
 ## Purpose
 
-Swing implements no UIA provider on Windows, so a Swing window is opaque to the existing Windows provider; the Java Access Bridge (JAB) is the only sanctioned out-of-process channel. The Swing test app (`apps/test-app-swing`, plain Java 8, no build system) is the controlled fixture the JAB provider work develops and tests against — and, because its sources are platform-neutral, the same app later serves a Linux acceptance lane through `java-atk-wrapper` and the existing AT-SPI2 provider. Every interactive control carries an explicit unique accessible name because JAB exposes no AutomationId equivalent: the accessible name is the locator contract, and it must stay stable as the app grows stage by stage.
+Swing implements no UIA provider on Windows, so a Swing window is opaque to the existing Windows provider; the Java Access Bridge (JAB) is the only sanctioned out-of-process channel. The Swing test app (`apps/test-app-swing`, plain Java 8 sources, self-contained Gradle project) is the controlled fixture the JAB provider work develops and tests against — and, because its sources are platform-neutral, the same app later serves a Linux acceptance lane through `java-atk-wrapper` and the existing AT-SPI2 provider. Every interactive control carries an explicit unique accessible name because JAB exposes no AutomationId equivalent: the accessible name is the locator contract, and it must stay stable as the app grows stage by stage.
 
 ## Requirements
 
-### Requirement: Buildable with a plain JDK via just recipes
-The Swing test app SHALL build from plain Java 8 sources using only `javac` driven by a `just` recipe (`just build-test-app-swing`), with no Maven/Gradle or other build-system dependency, and the sources SHALL remain outside the Cargo workspace (workspace `exclude`).
+### Requirement: Self-bootstrapping build via Gradle wrapper
+The Swing test app SHALL build via the checked-in Gradle wrapper (current Gradle) driven by a `just` recipe (`just build-test-app-swing`), requiring only a `java` (8+) on PATH: the wrapper client SHALL run on that JVM, the Gradle daemon JVM SHALL be auto-provisioned via committed daemon JVM criteria (`gradle/gradle-daemon-jvm.properties`), the build SHALL compile with an auto-provisioned JDK 21 toolchain (Foojay resolver) targeting Java 8 bytecode (`--release 8`), and the app SHALL keep depending on nothing beyond the JDK APIs (no external libraries). The sources SHALL remain outside the Cargo workspace (root `Cargo.toml` `exclude`) and SHALL NOT change for this migration.
 
-#### Scenario: Clean build with a JDK on PATH
-- **WHEN** `just build-test-app-swing` runs on a machine with a JDK 8+ (`javac`) on `PATH`
-- **THEN** all sources under `apps/test-app-swing/src` compile with `-encoding UTF-8 -source 8 -target 8` into `apps/test-app-swing/build/classes` and the recipe exits successfully
+#### Scenario: Clean build with only a PATH java
+- **WHEN** `just build-test-app-swing` runs on a machine with any `java` 8+ on PATH (and network access on first run)
+- **THEN** the build compiles all sources with the JDK 21 toolchain at `--release 8` into Gradle's classes output and the recipe exits successfully, with no manually installed JDK or library
 
-#### Scenario: Missing JDK fails fast
-- **WHEN** `just build-test-app-swing` runs on a machine without `javac` on `PATH`
-- **THEN** the recipe aborts with a message naming the missing tool and how to get it, and no partial build output is left behind
+#### Scenario: Launch contract is preserved
+- **WHEN** a consumer (JAB live test, Robot suite, `just run-test-app-swing`) launches the fixture
+- **THEN** it still builds its own `java` command line against a classes directory (`PLATYNUI_TEST_APP_SWING_CLASSES`, now Gradle's output) with full control over JVM flags — in particular the per-launch AccessBridge enable/disable system property
 
-#### Scenario: Cargo workspace is unaffected
-- **WHEN** `cargo metadata` (or `just check`) runs after the app directory is added
-- **THEN** the Cargo workspace resolves without errors because `apps/test-app-swing` is listed in the root `Cargo.toml` `exclude`
+#### Scenario: Unavailable build fails fast, acceptance skips softly
+- **WHEN** the fixture cannot be built (e.g. no network on first run) and the Windows acceptance lane runs
+- **THEN** the build step reports the actionable cause, and the Swing suites (plus the JAB live tests) skip with a clear message instead of failing the lane
+
+### Requirement: Runs on Java 8 and Java 21 runtimes
+The built fixture SHALL run unmodified on a genuine Java 8 runtime and on the JDK 21 toolchain. The launch path used by tests SHALL select the runtime explicitly (provisioned Temurin 8 by default, PATH `java` only as ad-hoc fallback), so what the acceptance lane tests does not drift with the machine's PATH JDK.
+
+#### Scenario: Same classes run on both runtimes
+- **WHEN** the compiled classes are launched once with the provisioned Java 8 runtime and once with the JDK 21 toolchain
+- **THEN** the fixture starts, renders its control set, and honors `--auto-close` identically on both
+
+#### Scenario: Acceptance tests a real Java 8 process
+- **WHEN** the Windows acceptance suites and the JAB live tests launch the fixture
+- **THEN** the fixture process runs on the explicitly selected Java 8 runtime, and all existing suite assertions (JAB discovery, classification facts, interaction) hold unchanged
 
 ### Requirement: Per-process accessibility enablement at launch
 The run recipe (`just run-test-app-swing`) SHALL launch the app with `-Djavax.accessibility.assistive_technologies=com.sun.java.accessibility.AccessBridge` on Windows, and enabling accessibility SHALL NOT write any persistent machine or user configuration (no `jabswitch`, no `.accessibility.properties`).

@@ -2,12 +2,12 @@
 
 ### Requirement: Buildable with a plain JDK via just recipes
 
-*Reason: retired in favor of the fixture-wide self-bootstrapping Gradle pattern (established by `add-swt-test-app`). The "no build system, javac only" property is consciously traded for one unified toolchain across all Java fixtures; the machine requirement drops from "JDK with javac" to "any `java` 8+" (plus network on first build).*
+*Reason: retired in favor of the fixture-wide self-bootstrapping Gradle pattern. The "no build system, javac only" property is consciously traded for one unified toolchain across all Java fixtures; the machine requirement drops from "JDK with javac" to "any `java` 8+" (plus network on first build).*
 
 ## ADDED Requirements
 
 ### Requirement: Self-bootstrapping build via Gradle wrapper
-The Swing test app SHALL build via the checked-in Gradle wrapper driven by a `just` recipe (`just build-test-app-swing`), requiring only a `java` (8+) on PATH: the wrapper SHALL run on that JVM (Gradle 8.x pin), the build SHALL compile with an auto-provisioned JDK 21 toolchain (Foojay resolver) targeting Java 8 bytecode (`--release 8`), and the app SHALL keep depending on nothing beyond the JDK APIs (no external libraries). The sources SHALL remain outside the Cargo workspace (root `Cargo.toml` `exclude`) and SHALL NOT change for this migration.
+The Swing test app SHALL build via the checked-in Gradle wrapper (current Gradle) driven by a `just` recipe (`just build-test-app-swing`), requiring only a `java` (8+) on PATH: the wrapper client SHALL run on that JVM, the Gradle daemon JVM SHALL be auto-provisioned via committed daemon JVM criteria (`gradle/gradle-daemon-jvm.properties`), the build SHALL compile with an auto-provisioned JDK 21 toolchain (Foojay resolver) targeting Java 8 bytecode (`--release 8`), and the app SHALL keep depending on nothing beyond the JDK APIs (no external libraries). The sources SHALL remain outside the Cargo workspace (root `Cargo.toml` `exclude`) and SHALL NOT change for this migration.
 
 #### Scenario: Clean build with only a PATH java
 - **WHEN** `just build-test-app-swing` runs on a machine with any `java` 8+ on PATH (and network access on first run)
