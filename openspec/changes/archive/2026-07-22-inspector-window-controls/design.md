@@ -62,6 +62,11 @@ One subtlety: `StartDrag` must be sent on `drag_started_by`, not on press — a 
 
 The pointer path for the drag test uses the BareMetal pointer keywords against coordinates derived from the menu-bar element's rectangle (empty area = right of the last menu, left of the window buttons).
 
+## Findings during implementation
+
+- **egui-winit swallows `StartDrag` on unfocused windows** (`if window.has_focus()`, a guard against an X11 input-grab bug) — no warning, no protocol request. Consequence for the acceptance suite: the window must be activated before the drag (a real user drags a window they clicked into anyway); the grip logs the focus state at drag start to make a swallowed request diagnosable.
+- **The test compositor's move grabs dropped sub-pixel motion** — `MoveSurfaceGrab`/`TouchMoveSurfaceGrab` re-anchor per event and truncated each per-event delta to whole pixels, so drags whose events carry sub-pixel deltas (the EIS virtual pointer's interpolation, high-rate mice) truncated to zero total movement. Fixed in this change by accumulating the fractional remainder in the grabs.
+
 ## Risks / Trade-offs
 
 - [KDE Wayland loses the KWin title bar] → intended consequence of declare-don't-detect; the in-app controls replace it. The deferred escape hatch would restore choice if anyone objects.
