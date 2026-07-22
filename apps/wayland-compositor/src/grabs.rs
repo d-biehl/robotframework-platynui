@@ -167,6 +167,10 @@ pub struct MoveSurfaceGrab {
     /// `Some` while the window is still maximized and waiting for the first
     /// pointer motion to trigger unmaximize.
     maximized: Option<MaximizedMoveState>,
+    /// Sub-pixel motion carried between events: per-event deltas from
+    /// high-frequency sources (gaming mice, virtual pointers) are routinely
+    /// below one pixel, and truncating each one would drop the entire drag.
+    pending: Point<f64, Logical>,
 }
 
 impl PointerGrab<State> for MoveSurfaceGrab {
@@ -291,9 +295,19 @@ impl PointerGrab<State> for MoveSurfaceGrab {
         let was_on_output = data.point_in_any_output(prev_location);
 
         if on_output && was_on_output {
-            let new_location = self.initial_window_location + Point::from((delta.x as i32, delta.y as i32));
-            self.initial_window_location = new_location;
-            data.space.map_element(self.window.clone(), new_location, true);
+            // Accumulate the (often sub-pixel) per-event delta and move by
+            // whole pixels only, carrying the fractional remainder.
+            self.pending.x += delta.x;
+            self.pending.y += delta.y;
+            let step_x = self.pending.x as i32;
+            let step_y = self.pending.y as i32;
+            if step_x != 0 || step_y != 0 {
+                self.pending.x -= f64::from(step_x);
+                self.pending.y -= f64::from(step_y);
+                let new_location = self.initial_window_location + Point::from((step_x, step_y));
+                self.initial_window_location = new_location;
+                data.space.map_element(self.window.clone(), new_location, true);
+            }
         }
     }
 
@@ -361,6 +375,7 @@ pub fn handle_move_request(
         return false;
     };
 
+    tracing::debug!(?serial, "move_request: starting interactive move grab");
     // Verify the serial matches a recent pointer button press
     if !pointer.has_grab(serial) {
         // Fall back: allow the grab anyway (some clients send stale serials)
@@ -383,7 +398,13 @@ pub fn handle_move_request(
     // resets its cursor on pointer-leave (caused by GrabFocus::Clear).
     data.compositor_cursor_shape = crate::decorations::CursorShape::Move;
 
-    let grab = MoveSurfaceGrab { start_data, window: window.clone(), initial_window_location, maximized };
+    let grab = MoveSurfaceGrab {
+        start_data,
+        window: window.clone(),
+        initial_window_location,
+        maximized,
+        pending: Point::default(),
+    };
 
     pointer.set_grab(data, grab, serial, GrabFocus::Clear);
     true
@@ -602,6 +623,8 @@ pub struct TouchMoveSurfaceGrab {
     pub start_data: TouchGrabStartData<State>,
     pub window: Window,
     pub initial_window_location: Point<i32, Logical>,
+    /// Sub-pixel motion carried between events (see [`MoveSurfaceGrab::pending`]).
+    pending: Point<f64, Logical>,
 }
 
 impl TouchGrab<State> for TouchMoveSurfaceGrab {
@@ -662,9 +685,19 @@ impl TouchGrab<State> for TouchMoveSurfaceGrab {
         let was_on_output = data.point_in_any_output(prev_location);
 
         if on_output && was_on_output {
-            let new_location = self.initial_window_location + Point::from((delta.x as i32, delta.y as i32));
-            self.initial_window_location = new_location;
-            data.space.map_element(self.window.clone(), new_location, true);
+            // Accumulate the (often sub-pixel) per-event delta and move by
+            // whole pixels only, carrying the fractional remainder.
+            self.pending.x += delta.x;
+            self.pending.y += delta.y;
+            let step_x = self.pending.x as i32;
+            let step_y = self.pending.y as i32;
+            if step_x != 0 || step_y != 0 {
+                self.pending.x -= f64::from(step_x);
+                self.pending.y -= f64::from(step_y);
+                let new_location = self.initial_window_location + Point::from((step_x, step_y));
+                self.initial_window_location = new_location;
+                data.space.map_element(self.window.clone(), new_location, true);
+            }
         }
     }
 
@@ -866,7 +899,8 @@ pub fn handle_touch_move_request(
 
     let start_data = TouchGrabStartData { focus: None, slot, location };
 
-    let grab = TouchMoveSurfaceGrab { start_data, window: window.clone(), initial_window_location };
+    let grab =
+        TouchMoveSurfaceGrab { start_data, window: window.clone(), initial_window_location, pending: Point::default() };
 
     let touch = data.touch();
     touch.set_grab(data, grab, serial);
