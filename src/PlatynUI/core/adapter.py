@@ -107,6 +107,16 @@ class Adapter(ABC):
         return ''
 
     @property
+    def description(self) -> str | None:
+        """The accessible description, mirroring `name`.
+
+        ``None`` unless the backing element exposes a non-empty
+        ``control:Description`` (see the Rust `UiNode::description`); adapters
+        with a real source override this.
+        """
+        return None
+
+    @property
     @abstractmethod
     def role(self) -> str:
         """The primary role in PascalCase, for example ``"Button"``."""

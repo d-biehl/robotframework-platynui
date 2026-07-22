@@ -4,7 +4,7 @@ use crate::tree::{NodeSpec, StaticMockTree, install_mock_tree, reset_mock_tree};
 use platynui_core::provider::{ProviderDescriptor, ProviderError, UiTreeProvider, provider_factories};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::attribute_names::{
-    activation_target, element, focusable, maximizable, minimizable, movable, resizable,
+    activation_target, common, element, focusable, maximizable, minimizable, movable, resizable,
 };
 use platynui_core::ui::contract::testkit::{
     AttributeExpectation, NodeExpectation, PatternExpectation, require_node, verify_node,
@@ -360,6 +360,49 @@ fn focusable_pattern_switches_focus() {
 
     assert_eq!(button_focus, UiValue::from(false));
     assert_eq!(cancel_focus, UiValue::from(true));
+}
+
+// ---------------------------------------------------------------------------
+//  Description attribute (control:Description)
+// ---------------------------------------------------------------------------
+
+#[rstest]
+#[serial]
+fn mock_node_with_description_is_queryable() {
+    let window = NodeSpec::new(Namespace::Control, "Window", "W", "mock://desc/window").with_child(
+        NodeSpec::new(Namespace::Control, "Button", "OK", "mock://desc/button").with_description("Demo description"),
+    );
+    let guard = install_mock_tree(StaticMockTree::new(vec![window]));
+    let provider = MockProvider::new(MockProviderFactory::descriptor_static());
+    drop(guard);
+    let desktop: Arc<dyn UiNode> = Arc::new(DesktopNode);
+    let root = provider.get_nodes(Arc::clone(&desktop)).unwrap().next().unwrap();
+    let button = find_by_runtime_id(root, "mock://desc/button").expect("button present");
+
+    let attr = button.attribute(Namespace::Control, common::DESCRIPTION).expect("Description attribute present");
+    assert_eq!(attr.value(), UiValue::from("Demo description".to_owned()));
+    assert_eq!(button.description(), Some("Demo description".to_owned()));
+}
+
+#[rstest]
+#[serial]
+fn mock_node_without_description_omits_attribute() {
+    let window = NodeSpec::new(Namespace::Control, "Window", "W", "mock://desc/window").with_child(NodeSpec::new(
+        Namespace::Control,
+        "Button",
+        "OK",
+        "mock://desc/button",
+    ));
+    let guard = install_mock_tree(StaticMockTree::new(vec![window]));
+    let provider = MockProvider::new(MockProviderFactory::descriptor_static());
+    drop(guard);
+    let desktop: Arc<dyn UiNode> = Arc::new(DesktopNode);
+    let root = provider.get_nodes(Arc::clone(&desktop)).unwrap().next().unwrap();
+    let button = find_by_runtime_id(root, "mock://desc/button").expect("button present");
+
+    assert!(button.attribute(Namespace::Control, common::DESCRIPTION).is_none());
+    assert!(!button.attributes().any(|attr| attr.name() == common::DESCRIPTION));
+    assert_eq!(button.description(), None);
 }
 
 // ---------------------------------------------------------------------------

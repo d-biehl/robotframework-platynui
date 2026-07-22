@@ -56,3 +56,14 @@ Non-Text Widget Has No control:Text
     BM.Get Attribute    ${WINDOW}${BTN_CLICK_ME}    Name    ==    Click Me
     Run Keyword And Expect Error    *attribute not found*Text*
     ...    BM.Get Attribute    ${WINDOW}${BTN_CLICK_ME}    control:Text
+
+Widget With AccessKit Description Exposes control:Description
+    [Documentation]    The Click Me button sets an AccessKit description, forwarded through
+    ...    AT-SPI ``Accessible.Description`` to the common ``control:Description`` attribute.
+    BM.Get Attribute    ${WINDOW}${BTN_CLICK_ME}    Description    ==    Increments the click counter
+
+Widget Without A Description Has No control:Description
+    [Documentation]    ``control:Description`` is emitted only when the platform value is non-empty —
+    ...    the Reset button sets no AccessKit description, so the attribute is absent (not empty).
+    Run Keyword And Expect Error    *attribute not found*Description*
+    ...    BM.Get Attribute    ${WINDOW}${BTN_RESET}    Description

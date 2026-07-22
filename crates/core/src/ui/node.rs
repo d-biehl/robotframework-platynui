@@ -21,6 +21,12 @@ pub trait UiNode: Send + Sync {
     fn id(&self) -> Option<String> {
         None
     }
+    /// Optional accessible description (control:Description), sourced strictly from the
+    /// platform's accessible-description property. Empty or missing means "not set".
+    /// Default: None.
+    fn description(&self) -> Option<String> {
+        None
+    }
     /// Weak reference to the parent node, if available.
     fn parent(&self) -> Option<Weak<dyn UiNode>>;
     /// Child nodes. Providers may return iterators over prepared or lazily produced material.

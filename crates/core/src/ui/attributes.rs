@@ -10,6 +10,9 @@ pub mod pattern {
         pub const RUNTIME_ID: &str = "RuntimeId";
         pub const TECHNOLOGY: &str = "Technology";
         pub const SUPPORTED_PATTERNS: &str = "SupportedPatterns";
+        /// Accessible description, sourced strictly from the platform's
+        /// accessible-description property (optional; present only when non-empty).
+        pub const DESCRIPTION: &str = "Description";
     }
 
     /// Base attributes for visible UI elements (Element-Pattern).

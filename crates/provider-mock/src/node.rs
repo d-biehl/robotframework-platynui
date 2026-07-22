@@ -115,6 +115,13 @@ impl UiNode for MockNode {
         &self.runtime_id
     }
 
+    fn description(&self) -> Option<String> {
+        match self.attribute(self.namespace, common::DESCRIPTION).map(|attr| attr.value()) {
+            Some(UiValue::String(value)) if !value.is_empty() => Some(value),
+            _ => None,
+        }
+    }
+
     fn parent(&self) -> Option<Weak<dyn UiNode>> {
         self.parent.lock().unwrap().clone()
     }

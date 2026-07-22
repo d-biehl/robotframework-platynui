@@ -303,6 +303,10 @@ class ContextBase:
         return self.adapter.name
 
     @property
+    def description(self) -> str | None:
+        return self.adapter.description
+
+    @property
     def class_name(self) -> str:
         return self.adapter.class_name
 

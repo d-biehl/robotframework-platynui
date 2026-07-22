@@ -100,6 +100,11 @@ class AdapterProxy(Adapter):
 
     @property
     @override
+    def description(self) -> str | None:
+        return self._adapter.description
+
+    @property
+    @override
     def class_name(self) -> str:
         return self._adapter.class_name
 

@@ -4,7 +4,7 @@ use crate::node::{MockNode, NodePatternContext, attr};
 use crate::window;
 use platynui_core::provider::ProviderDescriptor;
 use platynui_core::types::{Point, Rect};
-use platynui_core::ui::attribute_names::{activation_target, element, focusable};
+use platynui_core::ui::attribute_names::{activation_target, common, element, focusable};
 use platynui_core::ui::{
     FocusableAction, Namespace, PatternName, PatternRegistry, RuntimeId, UiAttribute, UiNode, UiPattern, UiValue,
     pattern_names,
@@ -71,6 +71,7 @@ pub struct NodeSpec {
     expose_flat: bool,
     order_key: Option<u64>,
     text: Option<String>,
+    description: Option<String>,
 }
 
 impl NodeSpec {
@@ -91,6 +92,7 @@ impl NodeSpec {
             expose_flat: false,
             order_key: None,
             text: None,
+            description: None,
         }
     }
 
@@ -120,6 +122,15 @@ impl NodeSpec {
 
     pub fn with_text(mut self, text: impl Into<String>) -> Self {
         self.text = Some(text.into());
+        self
+    }
+
+    /// Sets the node's accessible description (`control:Description`). Empty
+    /// strings are ignored so the attribute follows the "emit only when
+    /// non-empty" rule.
+    pub fn with_description(mut self, description: impl Into<String>) -> Self {
+        let description = description.into();
+        self.description = (!description.is_empty()).then_some(description);
         self
     }
 
@@ -251,6 +262,8 @@ struct XmlNode {
     patterns: Option<XmlPatternList>,
     #[serde(rename = "text")]
     text: Option<String>,
+    #[serde(rename = "@description")]
+    description: Option<String>,
     #[serde(rename = "node", default)]
     children: Vec<XmlNode>,
 }
@@ -291,6 +304,10 @@ fn build_node(node: XmlNode) -> Result<NodeSpec, MockTreeLoadError> {
 
     if let Some(text) = node.text.as_ref() {
         spec.text = Some(text.clone());
+    }
+
+    if let Some(description) = node.description.as_ref() {
+        spec = spec.with_description(description.clone());
     }
 
     if let Some(point_str) = node.activation_point.as_ref() {
@@ -465,6 +482,10 @@ fn instantiate_node(
 
     if let Some(text) = spec.text.as_ref() {
         dynamic_attributes.push(input::register_text_attribute(spec.namespace, &runtime_id, text));
+    }
+
+    if let Some(description) = spec.description.as_ref() {
+        dynamic_attributes.push(attr(spec.namespace, common::DESCRIPTION, UiValue::from(description.clone())));
     }
 
     let has_window_surface = spec.patterns.iter().any(|pattern| pattern == pattern_names::ACTIVATABLE);

@@ -1,4 +1,5 @@
-from platynui_native import Point, Rect, Runtime, UiNode
+import pytest
+from platynui_native import AttributeNotFoundError, Point, Rect, Runtime, UiNode
 
 
 def test_mock_windows_and_buttons(rt_mock_platform: Runtime) -> None:
@@ -18,6 +19,24 @@ def test_mock_windows_and_buttons(rt_mock_platform: Runtime) -> None:
     assert isinstance(ap, Point)
     assert ap.to_tuple() == (200.0, 636.0)
     assert ok_btn.attribute('MyProperty', 'control') == 'My Value'
+
+
+def test_mock_description_attribute(rt_mock_platform: Runtime) -> None:
+    # The OK button carries an accessible description in the mock tree.
+    by_desc = rt_mock_platform.evaluate_single("//control:Button[@Description='Confirms the operation']")
+    assert isinstance(by_desc, UiNode)
+    assert by_desc.name == 'OK'
+    assert by_desc.attribute('Description', 'control') == 'Confirms the operation'
+    assert by_desc.description == 'Confirms the operation'
+
+
+def test_mock_description_absent(rt_mock_platform: Runtime) -> None:
+    # The Cancel button has no description: attribute absent, getter is None.
+    cancel = rt_mock_platform.evaluate_single("//control:Button[@Name='Cancel']")
+    assert isinstance(cancel, UiNode)
+    assert cancel.description is None
+    with pytest.raises(AttributeNotFoundError):
+        cancel.attribute('Description', 'control')
 
 
 def test_mock_lists_and_items(rt_mock_platform: Runtime) -> None:

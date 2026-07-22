@@ -621,6 +621,11 @@ class UiNodeAdapter(Adapter):
 
     @property
     @override
+    def description(self) -> str | None:
+        return self._node.description
+
+    @property
+    @override
     def class_name(self) -> str:
         return self._safe_str_attr('ClassName', 'control')
 

@@ -269,6 +269,10 @@ impl UiNode for AtspiNode {
         resolve_id(self.conn.as_ref(), &self.obj)
     }
 
+    fn description(&self) -> Option<String> {
+        resolve_description(self.conn.as_ref(), &self.obj)
+    }
+
     fn parent(&self) -> Option<Weak<dyn UiNode>> {
         self.parent.lock().ok()?.clone()
     }
@@ -659,6 +663,17 @@ fn resolve_name(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Option<
     }
     resolve_attributes(conn, obj)
         .and_then(|attrs| pick_attr_value(&attrs, &["accessible-name", "name", "label", "title"]))
+}
+
+/// Resolve the accessible description (`Accessible.Description`), the strict
+/// source for `control:Description`. Empty/whitespace values normalize to
+/// `None` so the attribute is emitted only when non-empty. Deliberately does
+/// NOT fall back to `HelpText`.
+fn resolve_description(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Option<String> {
+    if let Some(Ok(description)) = accessible_proxy(conn, obj).and_then(|p| block_on_timeout_call(p.description())) {
+        return normalize_value(description);
+    }
+    None
 }
 
 fn resolve_id(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Option<String> {
@@ -1063,9 +1078,23 @@ impl Iterator for AttrsIter {
                     kind: StdAttrKind::Id,
                     ctx: self.ctx.clone(),
                 })),
-                3 => Some(Arc::new(RuntimeIdAttr { namespace: self.namespace, rid: self.rid_str.clone() })),
-                4 => Some(Arc::new(TechnologyAttr { namespace: self.namespace })),
-                5 => {
+                3 => {
+                    // Gated on a non-empty accessible description (D2). The
+                    // resolve is cached on the ctx, so the later `.value()`
+                    // call on the yielded attribute reuses this roundtrip.
+                    if self.ctx.resolve_description().is_some() {
+                        Some(Arc::new(LazyStdAttr {
+                            namespace: self.namespace,
+                            kind: StdAttrKind::Description,
+                            ctx: self.ctx.clone(),
+                        }))
+                    } else {
+                        None
+                    }
+                }
+                4 => Some(Arc::new(RuntimeIdAttr { namespace: self.namespace, rid: self.rid_str.clone() })),
+                5 => Some(Arc::new(TechnologyAttr { namespace: self.namespace })),
+                6 => {
                     if self.supports_component {
                         Some(Arc::new(LazyStdAttr {
                             namespace: self.namespace,
@@ -1076,7 +1105,7 @@ impl Iterator for AttrsIter {
                         None
                     }
                 }
-                6 => {
+                7 => {
                     if self.supports_component {
                         Some(Arc::new(LazyStdAttr {
                             namespace: self.namespace,
@@ -1087,7 +1116,7 @@ impl Iterator for AttrsIter {
                         None
                     }
                 }
-                7 => {
+                8 => {
                     if self.supports_component {
                         Some(Arc::new(LazyStdAttr {
                             namespace: self.namespace,
@@ -1098,7 +1127,7 @@ impl Iterator for AttrsIter {
                         None
                     }
                 }
-                8 => {
+                9 => {
                     if self.supports_component {
                         Some(Arc::new(LazyStdAttr {
                             namespace: self.namespace,
@@ -1109,7 +1138,7 @@ impl Iterator for AttrsIter {
                         None
                     }
                 }
-                9 => {
+                10 => {
                     if self.supports_component {
                         Some(Arc::new(LazyStdAttr {
                             namespace: self.namespace,
@@ -1120,7 +1149,7 @@ impl Iterator for AttrsIter {
                         None
                     }
                 }
-                10 => {
+                11 => {
                     if self.supports_component {
                         Some(Arc::new(LazyStdAttr {
                             namespace: self.namespace,
@@ -1131,7 +1160,7 @@ impl Iterator for AttrsIter {
                         None
                     }
                 }
-                11 => {
+                12 => {
                     if self.supports_component {
                         Some(Arc::new(LazyStdAttr {
                             namespace: self.namespace,
@@ -1142,14 +1171,14 @@ impl Iterator for AttrsIter {
                         None
                     }
                 }
-                12 => self.process_id.map(|pid| Arc::new(ProcessIdAttr { pid }) as Arc<dyn UiAttribute>),
-                13 => self.process_id.map(|pid| Arc::new(AppProcessNameAttr { pid }) as Arc<dyn UiAttribute>),
-                14 => self.process_id.map(|pid| Arc::new(AppExecutablePathAttr { pid }) as Arc<dyn UiAttribute>),
-                15 => self.process_id.map(|pid| Arc::new(AppCommandLineAttr { pid }) as Arc<dyn UiAttribute>),
-                16 => self.process_id.map(|pid| Arc::new(AppUserNameAttr { pid }) as Arc<dyn UiAttribute>),
-                17 => self.process_id.map(|pid| Arc::new(AppStartTimeAttr { pid }) as Arc<dyn UiAttribute>),
-                18 => self.process_id.map(|pid| Arc::new(AppArchitectureAttr { pid }) as Arc<dyn UiAttribute>),
-                19 => {
+                13 => self.process_id.map(|pid| Arc::new(ProcessIdAttr { pid }) as Arc<dyn UiAttribute>),
+                14 => self.process_id.map(|pid| Arc::new(AppProcessNameAttr { pid }) as Arc<dyn UiAttribute>),
+                15 => self.process_id.map(|pid| Arc::new(AppExecutablePathAttr { pid }) as Arc<dyn UiAttribute>),
+                16 => self.process_id.map(|pid| Arc::new(AppCommandLineAttr { pid }) as Arc<dyn UiAttribute>),
+                17 => self.process_id.map(|pid| Arc::new(AppUserNameAttr { pid }) as Arc<dyn UiAttribute>),
+                18 => self.process_id.map(|pid| Arc::new(AppStartTimeAttr { pid }) as Arc<dyn UiAttribute>),
+                19 => self.process_id.map(|pid| Arc::new(AppArchitectureAttr { pid }) as Arc<dyn UiAttribute>),
+                20 => {
                     if self.is_window_surface {
                         Some(Arc::new(LazyStdAttr {
                             namespace: self.namespace,
@@ -1160,7 +1189,7 @@ impl Iterator for AttrsIter {
                         None
                     }
                 }
-                20 => {
+                21 => {
                     if self.is_window_surface {
                         Some(Arc::new(LazyStdAttr {
                             namespace: self.namespace,
@@ -1171,7 +1200,7 @@ impl Iterator for AttrsIter {
                         None
                     }
                 }
-                21 => {
+                22 => {
                     if self.supports_text {
                         Some(Arc::new(LazyStdAttr {
                             namespace: self.namespace,
@@ -1202,7 +1231,7 @@ impl Iterator for AttrsIter {
             match item {
                 Some(attr) => return Some(attr),
                 None => {
-                    if self.idx > 22 {
+                    if self.idx > 23 {
                         return None;
                     }
                     continue;
@@ -1238,6 +1267,9 @@ struct LazyNodeData {
     extents: OnceLock<Option<Rect>>,
     name: OnceLock<String>,
     id: OnceLock<Option<String>>,
+    /// Cached accessible description (`Accessible.Description`). `None` when
+    /// empty/unset — see [`resolve_description`].
+    description: OnceLock<Option<String>>,
     /// Cached full text content (`GetText(0,-1)`) for text-bearing nodes.
     /// `Some("")` for an empty field; `None` only when the D-Bus read fails.
     text: OnceLock<Option<String>>,
@@ -1263,6 +1295,7 @@ impl LazyNodeData {
             extents: OnceLock::new(),
             name: OnceLock::new(),
             id: OnceLock::new(),
+            description: OnceLock::new(),
             text: OnceLock::new(),
         }
     }
@@ -1418,6 +1451,10 @@ impl LazyNodeData {
         self.id.get_or_init(|| resolve_id(&self.conn, &self.obj)).as_deref()
     }
 
+    fn resolve_description(&self) -> Option<&str> {
+        self.description.get_or_init(|| resolve_description(&self.conn, &self.obj)).as_deref()
+    }
+
     /// Check if this window is the currently active (foreground) window via
     /// the registered [`WindowManager`].  Returns `None` when the
     /// window ID cannot be resolved (e.g. no provider registered, or the node
@@ -1433,6 +1470,7 @@ impl LazyNodeData {
 enum StdAttrKind {
     Name,
     Id,
+    Description,
     Bounds,
     ActivationPoint,
     IsEnabled,
@@ -1467,6 +1505,7 @@ impl UiAttribute for LazyStdAttr {
         match self.kind {
             StdAttrKind::Name => common::NAME,
             StdAttrKind::Id => common::ID,
+            StdAttrKind::Description => common::DESCRIPTION,
             StdAttrKind::Bounds => element::BOUNDS,
             StdAttrKind::ActivationPoint => activation_target::ACTIVATION_POINT,
             StdAttrKind::IsEnabled => element::IS_ENABLED,
@@ -1484,6 +1523,7 @@ impl UiAttribute for LazyStdAttr {
         match self.kind {
             StdAttrKind::Name => UiValue::from(self.ctx.resolve_name().to_string()),
             StdAttrKind::Id => UiValue::from(self.ctx.resolve_id().unwrap_or_default().to_string()),
+            StdAttrKind::Description => UiValue::from(self.ctx.resolve_description().unwrap_or_default().to_string()),
             StdAttrKind::Bounds => {
                 let rect = self.ctx.resolve_extents().unwrap_or_else(|| Rect::new(0.0, 0.0, 0.0, 0.0));
                 UiValue::from(rect)

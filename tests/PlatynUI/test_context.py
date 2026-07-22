@@ -64,11 +64,13 @@ def _make_adapter(
     parent: Adapter | None = None,
     children: list[Adapter] | None = None,
     supported_roles: set[str] | None = None,
+    description: str | None = None,
 ) -> Adapter:
     """Build a `MagicMock(spec=Adapter)` populated with the given fields."""
     a = MagicMock(spec=Adapter)
     a.role = role
     a.name = name
+    a.description = description
     a.class_name = class_name
     a.framework_id = framework_id
     a.runtime_id = runtime_id
@@ -207,12 +209,18 @@ def test_is_valid_reflects_adapter_state() -> None:
 
 
 def test_property_passthrough_uses_adapter() -> None:
-    a = _make_adapter(role='Button', name='OK', class_name='QPushButton')
+    a = _make_adapter(role='Button', name='OK', class_name='QPushButton', description='Confirms the operation')
     ctx = ContextBase(adapter=a)
     assert ctx.role == 'Button'
     assert ctx.name == 'OK'
+    assert ctx.description == 'Confirms the operation'
     assert ctx.class_name == 'QPushButton'
     assert ctx.runtime_id == 'rid'
+
+
+def test_description_passthrough_none_when_absent() -> None:
+    ctx = ContextBase(adapter=_make_adapter(role='Button', name='OK'))
+    assert ctx.description is None
 
 
 # ----------------------------------------------------------------------

@@ -88,6 +88,20 @@ pub fn get_name(elem: &IUIAutomationElement) -> Result<String, crate::error::Uia
     unsafe { crate::error::uia_api("IUIAutomationElement::CurrentName", elem.CurrentName()).map(|b| b.to_string()) }
 }
 
+/// Reads the strict accessible description from `UIA_FullDescriptionPropertyId`.
+///
+/// Returns `None` when the property is empty, unset, or unsupported (it is a
+/// Win10 1703+ property; older targets simply yield nothing). Deliberately does
+/// NOT fall back to `HelpText` or `LegacyIAccessible.Description` — those remain
+/// reachable only under the `native:` namespace. The value is returned
+/// unmodified so `control:Description` matches the platform string exactly.
+pub fn get_description(elem: &IUIAutomationElement) -> Option<String> {
+    match read_uia_property(elem, UIA_FullDescriptionPropertyId) {
+        Some(UiValue::String(s)) if !s.is_empty() => Some(s),
+        _ => None,
+    }
+}
+
 pub fn get_control_type(elem: &IUIAutomationElement) -> Result<i32, crate::error::UiaError> {
     unsafe { crate::error::uia_api("IUIAutomationElement::CurrentControlType", elem.CurrentControlType()).map(|v| v.0) }
 }

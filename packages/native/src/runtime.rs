@@ -46,6 +46,11 @@ impl PyNode {
     fn id(&self) -> Option<String> {
         self.inner.id()
     }
+    /// Returns the optional accessible description if the platform exposes a non-empty one.
+    #[getter]
+    fn description(&self) -> Option<String> {
+        self.inner.description()
+    }
     /// Returns the localized name announced for this node.
     #[getter]
     fn name(&self) -> String {

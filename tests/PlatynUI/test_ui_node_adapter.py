@@ -161,6 +161,14 @@ def test_basic_attributes(main_window_adapter: UiNodeAdapter) -> None:
     assert main_window_adapter.role == 'Window'
 
 
+def test_description_returns_native_value(ok_button_adapter: UiNodeAdapter) -> None:
+    assert ok_button_adapter.description == 'Confirms the operation'
+
+
+def test_description_none_when_absent(main_window_adapter: UiNodeAdapter) -> None:
+    assert main_window_adapter.description is None
+
+
 def test_supported_roles_contains_primary(main_window_adapter: UiNodeAdapter) -> None:
     roles = main_window_adapter.supported_roles
     assert 'Window' in roles

@@ -156,7 +156,7 @@ Creating a runtime happens in a fixed order, because each step depends on the on
 
 1. **Build the platform bundle.** Constructing a runtime selects one `PlatformFactory` — the backend named by its `config` (`platform.backend`), or the first that can serve the detected session — and calls it to build a *platform bundle*: this runtime's own pointer, keyboard, screenshot, highlight, window manager, and desktop-info devices, all sharing that session's connection. The bundle is owned by the runtime, not shared; a second runtime builds its own. (Genuinely once-per-process host state still lives behind its own guard inside a factory — on Windows, declaring Per-Monitor-V2 DPI awareness — but the *devices and their connection* are per-runtime.) If no backend can serve, the runtime comes up without a platform (providers-only, e.g. a headless test); if a named backend cannot serve, construction fails.
 2. **Bring up the providers.** The runtime instantiates its provider factories through the provider registry (see §7.2), each producing a provider that knows how to read one accessibility technology (see §7), and hands each the bundle's window manager so a provider's window nodes drive *this* runtime's session rather than a global.
-3. **Wire up events.** Finally, the runtime subscribes its event listeners to the providers, so that changes observed in the underlying UI can be delivered back through the event pipeline (see §5.7, §7.2).
+3. **Wire up events.** Finally, the runtime subscribes its event listeners to the providers, so that changes observed in the underlying UI can be delivered back through the event pipeline (see §5.8, §7.2).
 
 ### Shutdown & Resource Cleanup
 
@@ -182,11 +182,11 @@ A node answers three kinds of questions:
 
 - **Who am I?** Its namespace (see §5.2), its role ("Window", "Button", "ListItem", …), its name, an optional developer-set stable id (see §5.5), and a runtime id that identifies it uniquely for its lifetime (see §5.4).
 - **Who is around me?** Its parent and its children. Children are produced *lazily* — the tree is walked only on demand, never built up front. Opening a desktop with thousands of controls is therefore cheap until you actually descend into it. A node can also report cheaply whether it has any children at all (by default this just probes the child walk, but a provider can override it with a cheaper check), and it carries an optional hint for its position in document order.
-- **What can you tell me, and what can you do?** Its **attributes** (typed values such as bounds, name, state — see §5.6) and its **patterns** (capabilities such as "focusable" or "activatable" — see §6). A node lists the patterns it supports and can hand back the implementation of a named pattern when asked.
+- **What can you tell me, and what can you do?** Its **attributes** (typed values such as bounds, name, state — see §5.7) and its **patterns** (capabilities such as "focusable" or "activatable" — see §6). A node lists the patterns it supports and can hand back the implementation of a named pattern when asked.
 
 Attributes are lazy too: a node lists which attributes it has — and lets you look one up by namespace and name — but the concrete value is computed only when something reads it, because reading a value can mean a round-trip to the operating system's accessibility API.
 
-A node also manages its own freshness. It can report whether it is still **valid** (a cheap liveness check — by default a node assumes it is alive until told otherwise) and it can be **invalidated**, which tells it to discard whatever it has cached so the next access fetches fresh data from the native API. This is the hook the event pipeline (see §5.7) pulls on when the platform reports that something changed.
+A node also manages its own freshness. It can report whether it is still **valid** (a cheap liveness check — by default a node assumes it is alive until told otherwise) and it can be **invalidated**, which tells it to discard whatever it has cached so the next access fetches fresh data from the native API. This is the hook the event pipeline (see §5.8) pulls on when the platform reports that something changed.
 
 The other two model types are deliberately minimal. An **attribute** knows its namespace, its name (always PascalCase), and how to produce its value on demand. A **pattern** knows its own name and can be downcast to its concrete capability type, which is how interaction code recovers, say, the "activatable" behavior from a generic pattern handle.
 
@@ -236,7 +236,23 @@ Visible labels change — they get renamed, translated, or reworded — so they 
 
 Each platform sources this id from its own native concept: on Windows it is the `AutomationId`, on Linux/AT-SPI2 the `accessible_id`, and on macOS/AX the `AXIdentifier`. The node only emits the attribute when the underlying value is actually set, so an empty developer id simply doesn't appear rather than showing up blank.
 
-### 5.6 UiValue & Attribute Normalization
+### 5.6 Accessible Description (`control:Description`)
+
+The **description** is the accessibility API's longer, human-readable explanation of an element — distinct from its short accessible name. It is a common attribute (see §6.3), and like the developer id it is **optional**: a node emits `control:Description` only when its platform value is non-empty, so absence is normal and expected rather than an error.
+
+The mapping is deliberately **strict** — `control:Description` maps 1:1 to the platform's genuine accessible-description property and nothing else:
+
+| Platform | Source | Explicitly excluded |
+|---|---|---|
+| Windows UIA | `FullDescription` (`UIA_FullDescriptionPropertyId`) | `HelpText`, `LegacyIAccessible.Description` |
+| Linux AT-SPI2 | `Accessible.Description` | `Accessible.HelpText` |
+| macOS AX | open (stub provider; `AXHelp` is help text, not a description) | — |
+
+There is **no fallback** to help/tooltip-like properties: HelpText is a different concept (tooltip/help semantics), and returning it as a "description" would surface plausible-looking but semantically wrong values. The excluded properties remain reachable under the `native:` namespace for callers who genuinely want them; a dedicated help/tooltip attribute, if ever wanted, would be a separate concept. UIA `FullDescription` requires Windows 10 1703+ and app support, so on older targets or apps that never set it the attribute is simply absent — again, correct behavior, not an error.
+
+The value parity with `name`/`id` extends up the stack: `UiNode::description()` is the first-class accessor (see §5.1), exposed through the native bindings and as a read-only `description` property on the Python `Adapter` and `Context`.
+
+### 5.7 UiValue & Attribute Normalization
 
 Attribute values are **typed** rather than stringly-typed: a `UiValue` is one of String, Bool, Integer, Number (an `f64`), or Null, plus the structured values Rect, Point, Size, Array, and Object. Carrying real types means the XPath and interaction layers can compare and compute on values without re-parsing them out of text.
 
@@ -244,7 +260,7 @@ For the structured values, the runtime makes the parts directly addressable. Fro
 
 Naming is normalized so that queries look the same everywhere. All attribute names use **PascalCase**, and native role names are mapped onto PascalCase roles — for example UIA's `UIA_ButtonControlTypeId` becomes simply `Button` — while the untouched original role is still available as `native:Role` for when you need the platform's own term. To keep these names consistent across the codebase rather than scattered as string literals, `platynui-core::ui::attribute_names::<pattern>::*` provides the canonical string constants.
 
-### 5.7 Event Capabilities & Invalidation
+### 5.8 Event Capabilities & Invalidation
 
 Providers differ in how much they can tell the runtime about change, and the runtime adapts to whatever a given provider is capable of. A `ProviderDescriptor` advertises this with an `event_capabilities` bitset, and the runtime picks its refresh strategy accordingly:
 
@@ -295,6 +311,20 @@ Each action can fail — a platform may refuse a move, or the window may have go
 *The exact trait definitions live in `crates/core/src/ui/`. The code is the source of truth for signatures; this section explains what they are for.*
 
 ### 6.3 Pattern Catalog
+
+#### Common Attributes
+
+Every `control:`/`item:` node carries a small common attribute set independent of its patterns. `Role`, `Name`, `RuntimeId`, and `Technology` are always present; `Id`, `Description`, and `SupportedPatterns` are present conditionally as noted. The canonical name constants live in `crates/core/src/ui/attributes.rs` (`attribute_names::common`).
+
+| Attribute | Presence | Meaning |
+|---|---|---|
+| **Role** | always | Normalized PascalCase role (XPath local-name), e.g. `Button`. |
+| **Name** | always | Accessible name; may be empty. |
+| **Id** | when non-empty | Developer-set stable identifier (§5.5). Absent when unset. |
+| **Description** | when non-empty | Accessible description (§5.6), strict per-platform source. Absent when unset. |
+| **RuntimeId** | always | Provider-stable runtime identifier (§5.4). |
+| **Technology** | always | Backing UI technology (e.g. `UIA`, `AT-SPI2`). |
+| **SupportedPatterns** | always | The patterns the node advertises. |
 
 #### ClientPatterns (Attribute Contracts)
 
@@ -360,6 +390,16 @@ Each capability is defined once, in platform-neutral terms, but it has to be sat
 | Dialog | Window (IsDialog) | DIALOG | AXSheet / AXDialog |
 
 #### Pattern-per-Platform Attribute Mapping
+
+**Common attributes** (platform-sourced members of the common set; see §5.5, §5.6)
+
+| Attribute | UIA | AT-SPI2 | macOS AX |
+|-----------|-----|---------|----------|
+| Name | CurrentName | Accessible.Name | AXTitle / AXDescription (role-dependent) |
+| Id | AutomationId | accessible_id | AXIdentifier |
+| Description | FullDescription (`UIA_FullDescriptionPropertyId`) | Accessible.Description | open (stub; `AXHelp` is help text, not a description) |
+
+`Description` maps strictly to the true accessible-description property and never falls back to HelpText-like sources (`HelpText`, `LegacyIAccessible.Description`, `Accessible.HelpText`), which remain under `native:`. `Id` and `Description` are emitted only when non-empty.
 
 **TextContent**
 
@@ -469,7 +509,7 @@ Each capability is defined once, in platform-neutral terms, but it has to be sat
 
 A **provider** is the piece that actually knows how to read *one* accessibility technology — UIA on Windows, AT-SPI2 on Linux, the mock tree in tests. The runtime never talks to UIA or AT-SPI directly; it only ever talks to providers. That is exactly what keeps the rest of the system platform-agnostic.
 
-Each provider carries a **descriptor** — a small record of who it is: an id, a display name, which technology it speaks (`TechnologyId`), whether it is a real "native" provider or an external one (`ProviderKind`), and which change events it can emit (its `event_capabilities`, see §5.7). A **factory** creates the provider on demand. Creation can fail — a technology may be unavailable on the running system — and the runtime is prepared for that; nothing extra is handed to the factory at creation time.
+Each provider carries a **descriptor** — a small record of who it is: an id, a display name, which technology it speaks (`TechnologyId`), whether it is a real "native" provider or an external one (`ProviderKind`), and which change events it can emit (its `event_capabilities`, see §5.8). A **factory** creates the provider on demand. Creation can fail — a technology may be unavailable on the running system — and the runtime is prepared for that; nothing extra is handed to the factory at creation time.
 
 Once created, a provider has three jobs:
 
@@ -507,6 +547,7 @@ All providers must:
 - Deliver all coordinates in the desktop coordinate system (DPI-aware).
 - Maintain stable `RuntimeId` values for element lifetimes (format: `prefix:value`).
 - Emit `Id` only when non-empty.
+- Emit `Description` only when non-empty, sourced strictly from the platform's accessible-description property (no HelpText/tooltip fallback; see §5.6).
 - Set `parent` references correctly in children iterators.
 - Keep `SupportedPatterns` consistent with available pattern instances.
 - Normalize roles to PascalCase; preserve originals under `native:*`.
@@ -522,6 +563,7 @@ All providers must:
 - Bounds from `BoundingRectangle` in desktop coordinates (Per-Monitor-V2 DPI active).
 - ActivationPoint via `GetClickablePoint()` or center of bounds as fallback.
 - `control:Text` (TextContent) priority: `TextPattern.DocumentRange.GetText` → `ValuePattern.Value`; never the accessible name. Absent when the element supports neither pattern.
+- `control:Description` from `FullDescription` (`UIA_FullDescriptionPropertyId`) only — never `HelpText` or `LegacyIAccessible.Description`. Win10 1703+ property; absent when empty/unsupported. The hardcoded `attribute()` fast-path must agree with the `attributes()` iterator.
 - Window capability patterns (Activatable, Minimizable, Maximizable, Restorable, Closeable, Movable, Resizable) via `WindowPattern`/`TransformPattern`; `ResponsivePattern::accepts_user_input()` via `IsEnabled && IsInView` + `WaitForInputIdle`.
 - Application node: process metadata (`ProcessId`, `Name`, `ExecutablePath`, `CommandLine`, `UserName`, `StartTime`, `Architecture`).
 - `SelectionItemPattern`/`SelectionPattern` sync verified.
@@ -537,6 +579,7 @@ All providers must:
 - SelectionProvider via AT-SPI `Selection` interface.
 - Window capability actions (Activatable, Minimizable, Maximizable, Restorable, Closeable, Movable, Resizable) delegate to EWMH WindowManager (not direct X11 calls from provider).
 - Component-gated attributes (`Bounds`, `ActivationPoint`, `IsEnabled`, `IsVisible`, `IsInView`, `IsFocused`) only present when Component interface available.
+- `control:Description` from `Accessible.Description` only — never `Accessible.HelpText` (which stays under `native:`). Emitted only when non-empty.
 - Native attributes: `Native/<Interface>.<Property>` format for all AT-SPI interfaces.
 - Virtual desktops: provider does NOT handle desktop switching — that is `WindowManager::ensure_window_accessible()` responsibility.
 
@@ -551,6 +594,7 @@ All providers must:
 #### Platform-Specific Checklist: Mock
 
 - Reference data covers typical pattern combinations (Button, Window, TextBox, List, TreeItem).
+- Spec-driven `control:Description`: emitted (and returned from `description()`) when the mock tree spec sets a description, omitted otherwise. Deliberately partial — not authoritative for platform mapping semantics.
 - Desktop coordinates tested (multi-monitor arrangement: 2160x3840 left, 3840x2160 center primary, 1920x1080 right).
 - Scripted mock allows negative scenarios (missing patterns, failing focus).
 - Pointer/keyboard mock produce deterministic logging (`take_pointer_log`, `take_keyboard_log`, `reset_*` helpers).

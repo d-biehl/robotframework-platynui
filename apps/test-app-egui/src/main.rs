@@ -243,6 +243,20 @@ impl WithAuthorId for egui::Response {
     }
 }
 
+/// Extension to set a widget's AccessKit description, surfaced to the accessibility
+/// tree as `@Description` (via AT-SPI `Accessible.Description`) so the acceptance
+/// suite can verify the common `control:Description` attribute end-to-end.
+trait WithDescription {
+    fn with_description(self, description: &str) -> Self;
+}
+
+impl WithDescription for egui::Response {
+    fn with_description(self, description: &str) -> Self {
+        self.ctx.accesskit_node_builder(self.id, |node| node.set_description(description));
+        self
+    }
+}
+
 impl TestApp {
     /// Render the top menu bar.
     fn show_menu_bar(ui: &mut egui::Ui, ctx: &egui::Context) {
@@ -333,7 +347,8 @@ impl TestApp {
         // --- Buttons ---
         ui.heading("Buttons");
         ui.horizontal(|ui| {
-            if ui.button("Click Me").with_id("btn-click-me").clicked() {
+            if ui.button("Click Me").with_id("btn-click-me").with_description("Increments the click counter").clicked()
+            {
                 self.click_count += 1;
                 tracing::debug!(count = self.click_count, "button clicked");
             }

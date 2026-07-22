@@ -78,6 +78,7 @@ pub struct UiaNode {
     ns_cell: std::sync::OnceLock<Namespace>,
     ct_cell: std::sync::OnceLock<i32>,
     id_cell: std::sync::OnceLock<Option<String>>,
+    description_cell: std::sync::OnceLock<Option<String>>,
     /// Java-app classifier from the platform bundle; set only on nodes created
     /// as top-level windows (the classification is keyed on a top-level
     /// handle), so descendants never classify.
@@ -102,6 +103,7 @@ impl UiaNode {
             ns_cell: std::sync::OnceLock::new(),
             ct_cell: std::sync::OnceLock::new(),
             id_cell: std::sync::OnceLock::new(),
+            description_cell: std::sync::OnceLock::new(),
             java_classifier: Mutex::new(None),
         })
     }
@@ -313,6 +315,9 @@ impl UiNode for UiaNode {
             })
             .clone()
     }
+    fn description(&self) -> Option<String> {
+        self.description_cell.get_or_init(|| crate::map::get_description(&self.elem)).clone()
+    }
     fn parent(&self) -> Option<Weak<dyn UiNode>> {
         match self.parent.lock() {
             Ok(g) => g.clone(),
@@ -344,6 +349,13 @@ impl UiNode for UiaNode {
                 "Id" => {
                     if self.id().is_some() {
                         Some(Arc::new(IdAttr { owner: self.self_weak.get().cloned() }) as Arc<dyn UiAttribute>)
+                    } else {
+                        None
+                    }
+                }
+                "Description" => {
+                    if self.description().is_some() {
+                        Some(Arc::new(DescriptionAttr { owner: self.self_weak.get().cloned() }) as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
@@ -854,63 +866,73 @@ impl Iterator for AttrsIter {
                         None
                     }
                 }
-                3 => Some(Arc::new(RuntimeIdAttr { rid: self.rid_str.clone() }) as Arc<dyn UiAttribute>),
-                4 => Some(Arc::new(BoundsAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-                5 => Some(Arc::new(ActivationPointAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-                6 => Some(Arc::new(IsEnabledAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-                7 => Some(Arc::new(IsInViewAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-                8 => Some(Arc::new(IsVisibleAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-                9 => Some(Arc::new(IsFocusedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-                10 => {
+                3 => {
+                    // Only expose Description when node.description() is present
+                    // (D2: non-empty `FullDescription`).
+                    let present = self.owner.as_ref().and_then(|w| w.upgrade()).and_then(|n| n.description()).is_some();
+                    if present {
+                        Some(Arc::new(DescriptionAttr { owner: self.owner.clone() }) as Arc<dyn UiAttribute>)
+                    } else {
+                        None
+                    }
+                }
+                4 => Some(Arc::new(RuntimeIdAttr { rid: self.rid_str.clone() }) as Arc<dyn UiAttribute>),
+                5 => Some(Arc::new(BoundsAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                6 => Some(Arc::new(ActivationPointAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                7 => Some(Arc::new(IsEnabledAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                8 => Some(Arc::new(IsInViewAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                9 => Some(Arc::new(IsVisibleAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                10 => Some(Arc::new(IsFocusedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
+                11 => {
                     if self.has_window_surface {
                         Some(Arc::new(IsMinimizedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
                 }
-                11 => {
+                12 => {
                     if self.has_window_surface {
                         Some(Arc::new(IsMaximizedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
                 }
-                12 => {
+                13 => {
                     if self.has_window_surface {
                         Some(Arc::new(IsTopmostAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
                 }
-                13 => {
+                14 => {
                     if self.has_window_surface {
                         Some(Arc::new(CanMoveAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
                 }
-                14 => {
+                15 => {
                     if self.has_window_surface {
                         Some(Arc::new(CanResizeAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
                 }
-                15 => {
+                16 => {
                     if self.has_window_surface {
                         Some(Arc::new(IsActiveAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
                 }
-                16 => {
+                17 => {
                     if self.has_window_surface {
                         Some(Arc::new(IsModalAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
                 }
-                17 => {
+                18 => {
                     // Canonical read-only `control:Text` (TextContent), gated on
                     // the element supporting a UIA Text/Value pattern. Absent
                     // otherwise — never sourced from the accessible name.
@@ -921,7 +943,7 @@ impl Iterator for AttrsIter {
                     }
                 }
                 // Native property attributes (dynamic): build once, then stream
-                18 => {
+                19 => {
                     if self.native_cache.is_none() {
                         let pairs = crate::map::collect_native_properties(&elem);
                         let attrs: Vec<Arc<dyn UiAttribute>> = pairs
@@ -945,7 +967,7 @@ impl Iterator for AttrsIter {
             match item {
                 Some(attr) => return Some(attr),
                 None => {
-                    if self.idx > 18 && self.native_cache.is_some() {
+                    if self.idx > 19 && self.native_cache.is_some() {
                         // Continue streaming native cache until exhausted
                         if let Some(list) = self.native_cache.as_ref()
                             && self.native_pos < list.len()
@@ -957,11 +979,11 @@ impl Iterator for AttrsIter {
                             return Some(attr);
                         }
                     }
-                    if self.idx > 18 && self.native_cache.is_none() {
+                    if self.idx > 19 && self.native_cache.is_none() {
                         // No native props at all
                         return None;
                     }
-                    if self.idx > 18 && self.native_cache.as_ref().map(|v| self.native_pos >= v.len()).unwrap_or(false)
+                    if self.idx > 19 && self.native_cache.as_ref().map(|v| self.native_pos >= v.len()).unwrap_or(false)
                     {
                         return None;
                     }
@@ -1689,3 +1711,28 @@ impl UiAttribute for IdAttr {
 }
 unsafe impl Send for IdAttr {}
 unsafe impl Sync for IdAttr {}
+
+/// `control:Description`, mirroring [`IdAttr`]: owner-backed so the value
+/// reuses the node's cached `description()` read (strict `FullDescription`).
+struct DescriptionAttr {
+    owner: Option<Weak<dyn UiNode>>,
+}
+impl UiAttribute for DescriptionAttr {
+    fn namespace(&self) -> Namespace {
+        Namespace::Control
+    }
+    fn name(&self) -> &str {
+        platynui_core::ui::attribute_names::common::DESCRIPTION
+    }
+    fn value(&self) -> UiValue {
+        if let Some(ref weak) = self.owner
+            && let Some(node) = weak.upgrade()
+            && let Some(description) = node.description()
+        {
+            return UiValue::from(description);
+        }
+        UiValue::Null
+    }
+}
+unsafe impl Send for DescriptionAttr {}
+unsafe impl Sync for DescriptionAttr {}
