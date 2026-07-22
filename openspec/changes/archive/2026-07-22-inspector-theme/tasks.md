@@ -18,6 +18,6 @@
 ## 4. Verification and docs
 
 - [x] 4.1 `just check` and `just test` (workspace gates)
-- [ ] 4.2 Run the egui acceptance lane unchanged and confirm it stays green and dark (no portal in the compositor session → fallback path proven); judge via `robotcode results`
+- [x] 4.2 Run the egui acceptance lane unchanged and confirm it stays green and dark (no portal in the compositor session → fallback path proven); judge via `robotcode results`
 - [x] 4.3 Scripted visual pass in a real session using the override: `--theme light` and `--theme dark` screenshots (toolbar icons tinted correctly in both, no unthemed regions — exercises the `inspector-toolbar` light-theme scenarios), plus a run on a portal desktop with System to see detection and, if possible, a live switch
 - [x] 4.4 Update `dev-docs/inspector.md` (theme behavior and precedence, the setting, the `--theme`/`PLATYNUI_INSPECTOR_THEME` override, portal detection and dark fallback)
