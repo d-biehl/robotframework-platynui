@@ -126,6 +126,32 @@ fn always_on_top_spec() -> ToolbarButtonSpec {
     }
 }
 
+/// The Maximize/Restore window button (headerbar mode): icon and label follow
+/// the current window state under the one stable author id.
+fn window_maximize_spec(maximized: bool) -> ToolbarButtonSpec {
+    ToolbarButtonSpec {
+        icon: if maximized {
+            egui::include_image!("../../assets/icons/corners-in.svg")
+        } else {
+            egui::include_image!("../../assets/icons/corners-out.svg")
+        },
+        active_icon: None,
+        label: if maximized { "Restore" } else { "Maximize" },
+        author_id: "window-maximize",
+        shortcut: None,
+    }
+}
+
+fn window_close_spec() -> ToolbarButtonSpec {
+    ToolbarButtonSpec {
+        icon: egui::include_image!("../../assets/icons/x.svg"),
+        active_icon: None,
+        label: "Close",
+        author_id: "window-close",
+        shortcut: None,
+    }
+}
+
 /// Actions emitted by the main toolbar.
 pub enum MainToolbarAction {
     /// Arm/disarm the live mouse-picker.
@@ -236,8 +262,17 @@ pub fn search_field_id() -> egui::Id {
     egui::Id::new("inspector_xpath_search_field")
 }
 
-/// Render the application menu bar.
-pub fn show_menu_bar(ui: &mut egui::Ui, has_node_selection: bool, is_searching: bool) -> Vec<MenuAction> {
+/// Render the application menu bar. With `window_controls` (headerbar mode on
+/// decoration-less Wayland sessions) the bar additionally hosts right-aligned
+/// Maximize/Restore and Close window buttons, and the empty space between the
+/// menus and those buttons acts as a move grip: drag starts a compositor-side
+/// interactive window move, double-click toggles maximized.
+pub fn show_menu_bar(
+    ui: &mut egui::Ui,
+    has_node_selection: bool,
+    is_searching: bool,
+    window_controls: bool,
+) -> Vec<MenuAction> {
     let mut actions = Vec::new();
 
     egui::Panel::top("menu_bar").show_inside(ui, |ui| {
@@ -336,10 +371,51 @@ pub fn show_menu_bar(ui: &mut egui::Ui, has_node_selection: bool, is_searching: 
                     ui.close();
                 }
             });
+
+            if window_controls {
+                show_window_controls(ui);
+            }
         });
     });
 
     actions
+}
+
+/// Render the headerbar window controls into the space right of the menus:
+/// right-aligned Close and Maximize/Restore buttons, then the leftover width
+/// as the move grip. The grip is allocated after every clickable widget and
+/// only covers genuinely empty space, so it can never shadow a menu or button
+/// click; it carries no label, so the accessibility tree gains no addressable
+/// element.
+fn show_window_controls(ui: &mut egui::Ui) {
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        let ctx = ui.ctx().clone();
+        let maximized = ctx.input(|input| input.viewport().maximized.unwrap_or(false));
+
+        // Window buttons are always icon-only (GNOME headerbar style),
+        // independent of the toolbar's display-style setting.
+        if toolbar_button(ui, ToolbarStyle::IconsOnly, &window_close_spec(), true, None, None).clicked() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        if toolbar_button(ui, ToolbarStyle::IconsOnly, &window_maximize_spec(maximized), true, None, None).clicked() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+        }
+
+        let grip = ui.allocate_response(ui.available_size(), egui::Sense::click_and_drag());
+        // Only a started drag begins the move — a plain press must stay a
+        // no-op so it remains available for the double-click.
+        if grip.drag_started_by(egui::PointerButton::Primary) {
+            // egui-winit honors StartDrag only while the window has keyboard
+            // focus — worth having in a trace when a drag seems swallowed.
+            let focused = ctx.input(|input| input.viewport().focused);
+            tracing::debug!(?focused, "menu-bar move grip: drag started, requesting interactive window move");
+            ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+        }
+        if grip.double_clicked() {
+            tracing::debug!("menu-bar move grip: double click, toggling maximized");
+            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+        }
+    });
 }
 
 /// Render the search row: the XPath field and the Search/Stop button, laid
@@ -673,4 +749,26 @@ fn show_auto_error_preview(
             });
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maximize_spec_swaps_icon_and_label_with_window_state() {
+        let normal = window_maximize_spec(false);
+        let maximized = window_maximize_spec(true);
+        assert_eq!(normal.label, "Maximize");
+        assert_eq!(maximized.label, "Restore");
+        assert_ne!(normal.icon.uri(), maximized.icon.uri());
+        // The author id — the acceptance-test contract — never changes.
+        assert_eq!(normal.author_id, "window-maximize");
+        assert_eq!(maximized.author_id, "window-maximize");
+    }
+
+    #[test]
+    fn close_spec_has_the_stable_author_id() {
+        assert_eq!(window_close_spec().author_id, "window-close");
+    }
 }

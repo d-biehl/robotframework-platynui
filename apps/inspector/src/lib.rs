@@ -217,6 +217,49 @@ impl std::fmt::Display for ThemeChoice {
     }
 }
 
+/// Window chrome mode, decided once at startup. Whether a Wayland compositor
+/// actually draws the negotiated server-side decorations is not observable
+/// (niri negotiates server-side and draws none), so on Wayland the Inspector
+/// follows GTK's headerbar model — declare client-side, request no
+/// decorations, and host its own window controls in the menu bar. Windows,
+/// macOS, and X11 keep native decorations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WindowChrome {
+    /// Native/window-manager decorations; no in-app window controls.
+    Native,
+    /// No decorations requested; the menu bar hosts a move grip and
+    /// Maximize/Close buttons.
+    Headerbar,
+}
+
+impl WindowChrome {
+    /// Decide the chrome mode for this session: headerbar on Wayland, native
+    /// everywhere else.
+    fn detect() -> Self {
+        if cfg!(all(unix, not(target_os = "macos"))) {
+            Self::from_wayland_display(std::env::var_os("WAYLAND_DISPLAY").as_deref())
+        } else {
+            Self::Native
+        }
+    }
+
+    /// Pure decision core: a non-empty `WAYLAND_DISPLAY` means winit will run
+    /// on its Wayland backend — the same rule winit itself applies. An empty
+    /// value cannot name a socket and falls back to X11.
+    fn from_wayland_display(wayland_display: Option<&std::ffi::OsStr>) -> Self {
+        if wayland_display.is_some_and(|value| !value.is_empty()) { Self::Headerbar } else { Self::Native }
+    }
+}
+
+impl std::fmt::Display for WindowChrome {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Native => "native".fmt(formatter),
+            Self::Headerbar => "headerbar".fmt(formatter),
+        }
+    }
+}
+
 /// Supported log level values for the `--log-level` CLI flag.
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum LogLevel {
@@ -579,6 +622,9 @@ struct InspectorApp {
     system_scheme: Arc<AtomicU8>,
     /// Last scheme applied to egui's fallback theme, to apply changes once.
     last_applied_scheme: Option<u8>,
+    /// Window chrome mode (headerbar on Wayland, native elsewhere); gates the
+    /// menu bar's window controls and move grip.
+    window_chrome: WindowChrome,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -613,6 +659,7 @@ impl InspectorApp {
         initial_root: Arc<UiNodeData>,
         search_result_limit: Option<usize>,
         theme_override: Option<ThemeChoice>,
+        window_chrome: WindowChrome,
         cc: &eframe::CreationContext<'_>,
     ) -> Self {
         let ctx = &cc.egui_ctx;
@@ -672,6 +719,7 @@ impl InspectorApp {
             theme_override,
             system_scheme,
             last_applied_scheme: None,
+            window_chrome,
         }
     }
 
@@ -818,7 +866,8 @@ impl eframe::App for InspectorApp {
         let has_node_selection = self.vm.selected_index.is_some();
 
         // View: Menu Bar (top)
-        let menu_actions = toolbar::show_menu_bar(ui, has_node_selection, is_searching);
+        let window_controls = self.window_chrome == WindowChrome::Headerbar;
+        let menu_actions = toolbar::show_menu_bar(ui, has_node_selection, is_searching, window_controls);
 
         for action in menu_actions {
             match action {
@@ -1107,12 +1156,14 @@ pub fn run() -> eframe::Result {
     let glow_hardware_acceleration = requested_glow_hardware_acceleration.effective_for_renderer(renderer);
     let search_result_limit = SearchResultLimitChoice::resolve(args.search_result_limit);
     let theme_override = ThemeChoice::resolve_override(args.theme);
+    let window_chrome = WindowChrome::detect();
 
     tracing::info!(
         renderer = %renderer,
         glow_hardware_acceleration = %glow_hardware_acceleration,
         requested_glow_hardware_acceleration = %requested_glow_hardware_acceleration,
         search_result_limit = %search_result_limit,
+        window_chrome = %window_chrome,
         "starting inspector renderer"
     );
 
@@ -1121,6 +1172,16 @@ pub fn run() -> eframe::Result {
     let initial_root = create_initial_root(&runtime);
 
     let icon = load_icon();
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_inner_size([1100.0, 750.0])
+        .with_title("PlatynUI Inspector")
+        .with_app_id("org.platynui.inspector")
+        .with_icon(Arc::new(icon));
+    if window_chrome == WindowChrome::Headerbar {
+        // Declare client-side decorations and draw none — the menu bar
+        // carries the window controls instead (see [`WindowChrome`]).
+        viewport = viewport.with_decorations(false);
+    }
     let options = eframe::NativeOptions {
         renderer: renderer.to_eframe(),
         hardware_acceleration: glow_hardware_acceleration.to_eframe(),
@@ -1131,11 +1192,7 @@ pub fn run() -> eframe::Result {
         // Settings live in the config directory (see [`settings_path`]); `None`
         // (no resolvable home) falls back to eframe's data-dir default.
         persistence_path: settings_path(),
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1100.0, 750.0])
-            .with_title("PlatynUI Inspector")
-            .with_app_id("org.platynui.inspector")
-            .with_icon(Arc::new(icon)),
+        viewport,
         ..Default::default()
     };
 
@@ -1148,6 +1205,7 @@ pub fn run() -> eframe::Result {
                 initial_root,
                 search_result_limit.into_limit(),
                 theme_override,
+                window_chrome,
                 cc,
             )))
         }),
@@ -1223,5 +1281,18 @@ mod tests {
         assert_eq!(ThemeChoice::System.to_theme_preference(), egui::ThemePreference::System);
         assert_eq!(ThemeChoice::Light.to_theme_preference(), egui::ThemePreference::Light);
         assert_eq!(ThemeChoice::Dark.to_theme_preference(), egui::ThemePreference::Dark);
+    }
+
+    #[test]
+    fn window_chrome_wayland_session_gets_headerbar() {
+        let display = std::ffi::OsStr::new("wayland-1");
+        assert_eq!(WindowChrome::from_wayland_display(Some(display)), WindowChrome::Headerbar);
+    }
+
+    #[test]
+    fn window_chrome_without_wayland_display_stays_native() {
+        assert_eq!(WindowChrome::from_wayland_display(None), WindowChrome::Native);
+        // Set but empty cannot name a socket — winit falls back to X11.
+        assert_eq!(WindowChrome::from_wayland_display(Some(std::ffi::OsStr::new(""))), WindowChrome::Native);
     }
 }
