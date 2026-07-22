@@ -754,7 +754,7 @@ fn cell_selection_from_state(state: Option<&egui::text_edit::TextEditState>, cel
         .and_then(|s| s.cursor.char_range())
         .map(|range| {
             let r = range.as_sorted_char_range();
-            cell_text.chars().skip(r.start).take(r.end - r.start).collect::<String>()
+            cell_text.chars().skip(r.start.into()).take((r.end - r.start).into()).collect::<String>()
         })
         .filter(|s| !s.is_empty())
 }

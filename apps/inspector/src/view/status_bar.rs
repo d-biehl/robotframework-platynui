@@ -11,7 +11,7 @@ use eframe::egui;
 /// pick). The right segment renders `picker_state_text` — persistent state
 /// that transient messages never overwrite or hide.
 pub fn show_status_bar(ui: &mut egui::Ui, has_active_tasks: bool, status_text: Option<&str>, picker_state_text: &str) {
-    egui::Panel::bottom("status_bar").resizable(false).exact_size(28.0).show_inside(ui, |ui| {
+    egui::Panel::bottom("status_bar").resizable(false).exact_size(28.0).show(ui, |ui| {
         ui.horizontal(|ui| {
             if has_active_tasks {
                 // Red rotating indicator for active background tasks.

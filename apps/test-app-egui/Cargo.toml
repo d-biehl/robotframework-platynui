@@ -12,7 +12,7 @@ license.workspace = true
 description = "egui test application for PlatynUI integration and functional testing"
 
 [dependencies]
-eframe = "0.34"
+eframe = "0.35"
 clap = { version = "4", features = ["derive"] }
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = [

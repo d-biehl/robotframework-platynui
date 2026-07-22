@@ -436,11 +436,11 @@ impl GlowHardwareAccelerationChoice {
         }
     }
 
-    fn to_eframe(self) -> eframe::HardwareAcceleration {
+    fn to_eframe(self) -> eframe::egui_glow::HardwareAcceleration {
         match self {
-            Self::Required => eframe::HardwareAcceleration::Required,
-            Self::Preferred => eframe::HardwareAcceleration::Preferred,
-            Self::Off => eframe::HardwareAcceleration::Off,
+            Self::Required => eframe::egui_glow::HardwareAcceleration::Required,
+            Self::Preferred => eframe::egui_glow::HardwareAcceleration::Preferred,
+            Self::Off => eframe::egui_glow::HardwareAcceleration::Off,
         }
     }
 
@@ -987,7 +987,7 @@ impl eframe::App for InspectorApp {
             .default_size(450.0)
             .min_size(200.0)
             .max_size(ctx.content_rect().width() - 200.0)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.set_min_height(ui.available_height());
                 ui.strong("UI Elements");
                 ui.separator();
@@ -1096,7 +1096,7 @@ impl eframe::App for InspectorApp {
             });
 
         // View: Attributes Panel (remaining central area)
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             if self.vm.selected_index.is_some() {
                 attributes::show_attributes(
                     ui,
@@ -1184,7 +1184,10 @@ pub fn run() -> eframe::Result {
     }
     let options = eframe::NativeOptions {
         renderer: renderer.to_eframe(),
-        hardware_acceleration: glow_hardware_acceleration.to_eframe(),
+        glow_options: eframe::egui_glow::GlowConfiguration {
+            hardware_acceleration: glow_hardware_acceleration.to_eframe(),
+            ..Default::default()
+        },
         wgpu_options: inspector_wgpu_options(),
         // Storage only carries the explicit [`PersistedSettings`]; window
         // geometry stays at the defaults below on every start.

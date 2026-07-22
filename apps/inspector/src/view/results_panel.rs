@@ -48,7 +48,7 @@ pub fn show_results_panel(
         .min_size(60.0)
         .max_size(ui.ctx().content_rect().height() * 0.6)
         .default_size(150.0)
-        .show_inside(ui, |ui| {
+        .show(ui, |ui| {
             // ── Header ───────────────────────────────────────────────
             ui.horizontal(|ui| {
                 ui.strong("Results");

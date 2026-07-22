@@ -28,7 +28,7 @@ platynui-platform-windows = { path = "../platform-windows" }
 platynui-provider-windows-uia = { path = "../provider-windows-uia" }
 platynui-provider-jab = { path = "../provider-jab" }
 # Used by the throwaway `jab_spike` bin (OpenSpec change add-swing-test-app).
-libloading = "0.8"
+libloading = "0.9"
 windows = { version = "0.62", features = [
   "Win32_Foundation",
   "Win32_UI_WindowsAndMessaging",

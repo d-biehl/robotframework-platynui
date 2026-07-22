@@ -180,7 +180,7 @@ pub fn show_toolbar(
 ) -> Vec<MainToolbarAction> {
     let mut actions = Vec::new();
 
-    egui::Panel::top("main_toolbar").show_inside(ui, |ui| {
+    egui::Panel::top("main_toolbar").show(ui, |ui| {
         ui.horizontal(|ui| {
             let picker_tooltip = if picker_supported {
                 format!("Pick Element \u{2014} hold {picker_combo_label} while armed to pick")
@@ -275,7 +275,7 @@ pub fn show_menu_bar(
 ) -> Vec<MenuAction> {
     let mut actions = Vec::new();
 
-    egui::Panel::top("menu_bar").show_inside(ui, |ui| {
+    egui::Panel::top("menu_bar").show(ui, |ui| {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui.button("Settings\u{2026}").clicked() {
@@ -442,7 +442,7 @@ pub fn show_search_bar(
     // an unwanted newline insertion on plain Enter.
     let text_before = search_text.clone();
 
-    egui::Panel::top("search_bar").exact_size(ui_height).show_inside(ui, |ui| {
+    egui::Panel::top("search_bar").exact_size(ui_height).show(ui, |ui| {
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             ui.label("\u{1F50D}");

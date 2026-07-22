@@ -196,10 +196,9 @@ impl TestApp {
 }
 
 impl eframe::App for TestApp {
-    fn ui(&mut self, _ui: &mut egui::Ui, _frame: &mut eframe::Frame) {}
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
 
-    #[expect(deprecated)]
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Auto-close logic
         if self.auto_close_secs > 0 && self.start_time.elapsed().as_secs() >= self.auto_close_secs {
             tracing::info!("auto-close timeout reached, shutting down");
@@ -214,15 +213,15 @@ impl eframe::App for TestApp {
             node.set_label(self.title.clone());
         });
 
-        egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| Self::show_menu_bar(ui, ctx));
-        egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| self.show_status_bar(ui));
+        egui::Panel::top("menu_bar").show(ui, |ui| Self::show_menu_bar(ui, &ctx));
+        egui::Panel::bottom("status_bar").show(ui, |ui| self.show_status_bar(ui));
         // The scroll-box fixture lives in its own panel, outside the central ScrollArea, so
         // over-scrolling it clamps at the box's own edges instead of leaking to an outer area —
         // which keeps the box (and a fixed hover point inside it) put for the acceptance suite.
-        egui::SidePanel::right("scroll_fixture").resizable(false).exact_width(250.0).show(ctx, |ui| {
+        egui::Panel::right("scroll_fixture").resizable(false).exact_size(250.0).show(ui, |ui| {
             Self::show_scroll_box(ui);
         });
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| self.show_widgets(ui));
         });
     }
