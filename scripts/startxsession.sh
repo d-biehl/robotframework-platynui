@@ -18,6 +18,13 @@ set -u
 # Environment variables:
 #   PLATYNUI_BACKEND   Override backend (default: auto-detect), same as startcompositor.sh.
 #
+
+# Run the whole session in a transient systemd user scope so that everything
+# it spawns — including double-forked AT-SPI daemons — is torn down on exit
+# (no-op re-entry / without a systemd user manager; see lane-scope.sh).
+source "$(cd "$(dirname "$0")" && pwd)/lane-scope.sh"
+platynui_lane_scope "$0" "$@"
+
 SESSION_CMD=()
 DPI=""
 BACKEND="${PLATYNUI_BACKEND:-}"

@@ -23,6 +23,12 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Run the whole session in a transient systemd user scope so that everything
+# it spawns — including double-forked AT-SPI daemons — is torn down on exit
+# (no-op re-entry / without a systemd user manager; see lane-scope.sh).
+source "$SCRIPT_DIR/lane-scope.sh"
+platynui_lane_scope "$0" "$@"
+
 # ---------------------------------------------------------------------------
 # Parse arguments: everything before `--` is for this script, everything
 # after `--` is the session command.
