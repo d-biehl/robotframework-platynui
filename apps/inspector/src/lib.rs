@@ -22,6 +22,7 @@
 
 mod model;
 mod modifiers;
+mod theme_watch;
 mod view;
 mod viewmodel;
 
@@ -34,6 +35,7 @@ use platynui_link::platynui_link_providers;
 use platynui_runtime::Runtime;
 use std::collections::BTreeSet;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 #[cfg(target_os = "windows")]
 use winreg::RegKey;
@@ -55,11 +57,17 @@ struct PersistedSettings {
     picker_combo: PickerModifiers,
     /// The toolbar display style (icons only / icons and text).
     toolbar_style: toolbar::ToolbarStyle,
+    /// The theme preference (follow the system, or force light/dark).
+    theme: ThemeChoice,
 }
 
 impl Default for PersistedSettings {
     fn default() -> Self {
-        Self { picker_combo: PickerModifiers::CTRL_ALT_SHIFT, toolbar_style: toolbar::ToolbarStyle::default() }
+        Self {
+            picker_combo: PickerModifiers::CTRL_ALT_SHIFT,
+            toolbar_style: toolbar::ToolbarStyle::default(),
+            theme: ThemeChoice::default(),
+        }
     }
 }
 
@@ -108,6 +116,7 @@ const RENDERER_ENV: &str = "PLATYNUI_INSPECTOR_RENDERER";
 const GLOW_HARDWARE_ACCELERATION_ENV: &str = "PLATYNUI_INSPECTOR_GLOW_HARDWARE_ACCELERATION";
 const SEARCH_RESULT_LIMIT_ENV: &str = "PLATYNUI_INSPECTOR_SEARCH_RESULT_LIMIT";
 const SETTINGS_PATH_ENV: &str = "PLATYNUI_INSPECTOR_SETTINGS_PATH";
+const THEME_ENV: &str = "PLATYNUI_INSPECTOR_THEME";
 const DEFAULT_SEARCH_RESULT_LIMIT: usize = 5_000;
 
 /// CLI arguments for the inspector.
@@ -134,6 +143,78 @@ struct InspectorArgs {
     /// Overrides the `PLATYNUI_INSPECTOR_SEARCH_RESULT_LIMIT` environment variable.
     #[arg(long = "search-result-limit", value_name = "COUNT|unlimited", value_parser = parse_search_result_limit)]
     search_result_limit: Option<SearchResultLimitChoice>,
+
+    /// Theme override for this run (`system`, `light`, or `dark`).
+    /// Overrides the `PLATYNUI_INSPECTOR_THEME` environment variable and the
+    /// persisted Settings choice; never written to the settings file.
+    #[arg(long = "theme", value_enum)]
+    theme: Option<ThemeChoice>,
+}
+
+/// Theme preference: follow the system color scheme, or force light/dark.
+/// Doubles as the persisted Settings value and the `--theme` CLI override.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum, serde::Serialize, serde::Deserialize)]
+pub enum ThemeChoice {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+impl ThemeChoice {
+    /// Resolve the ephemeral theme override for this run: the CLI flag beats
+    /// the environment variable; `None` means "use the persisted setting".
+    fn resolve_override(cli_choice: Option<Self>) -> Option<Self> {
+        match std::env::var(THEME_ENV) {
+            Ok(value) => Self::override_from(cli_choice, Some(&value)),
+            Err(std::env::VarError::NotPresent) => Self::override_from(cli_choice, None),
+            Err(error) => {
+                tracing::warn!(env = THEME_ENV, %error, "ignoring unreadable inspector theme override");
+                Self::override_from(cli_choice, None)
+            }
+        }
+    }
+
+    /// Pure resolution core: CLI beats environment; an invalid environment
+    /// value is ignored with a warning.
+    fn override_from(cli_choice: Option<Self>, env_value: Option<&str>) -> Option<Self> {
+        if let Some(choice) = cli_choice {
+            return Some(choice);
+        }
+        let value = env_value?;
+        let parsed = Self::parse_env_value(value);
+        if parsed.is_none() {
+            tracing::warn!(env = THEME_ENV, value = %value, "ignoring invalid inspector theme override");
+        }
+        parsed
+    }
+
+    fn parse_env_value(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "system" | "auto" => Some(Self::System),
+            "light" => Some(Self::Light),
+            "dark" => Some(Self::Dark),
+            _ => None,
+        }
+    }
+
+    fn to_theme_preference(self) -> egui::ThemePreference {
+        match self {
+            Self::System => egui::ThemePreference::System,
+            Self::Light => egui::ThemePreference::Light,
+            Self::Dark => egui::ThemePreference::Dark,
+        }
+    }
+}
+
+impl std::fmt::Display for ThemeChoice {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::System => "system".fmt(formatter),
+            Self::Light => "light".fmt(formatter),
+            Self::Dark => "dark".fmt(formatter),
+        }
+    }
 }
 
 /// Supported log level values for the `--log-level` CLI flag.
@@ -487,6 +568,17 @@ struct InspectorApp {
     picker_supported: bool,
     /// Toolbar display style (persisted, editable in the Settings dialog).
     toolbar_style: toolbar::ToolbarStyle,
+    /// Persisted theme preference (editable in the Settings dialog).
+    theme_pref: ThemeChoice,
+    /// Ephemeral theme override (`--theme` / `PLATYNUI_INSPECTOR_THEME`);
+    /// pins the theme for this run and is never persisted.
+    theme_override: Option<ThemeChoice>,
+    /// Latest system color-scheme reported by the watcher (portal value on
+    /// Linux; stays at [`theme_watch::NO_SIGNAL`] elsewhere and without a
+    /// portal).
+    system_scheme: Arc<AtomicU8>,
+    /// Last scheme applied to egui's fallback theme, to apply changes once.
+    last_applied_scheme: Option<u8>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -520,6 +612,7 @@ impl InspectorApp {
         runtime: Arc<Runtime>,
         initial_root: Arc<UiNodeData>,
         search_result_limit: Option<usize>,
+        theme_override: Option<ThemeChoice>,
         cc: &eframe::CreationContext<'_>,
     ) -> Self {
         let ctx = &cc.egui_ctx;
@@ -542,6 +635,20 @@ impl InspectorApp {
         let settings: PersistedSettings =
             cc.storage.and_then(|storage| eframe::get_value(storage, eframe::APP_KEY)).unwrap_or_default();
 
+        // Theme: the dark fallback covers "System" without an OS signal; on
+        // Linux the portal watcher steers that fallback (winit reports the
+        // theme itself on Windows/macOS, so the fallback is never consulted
+        // there). The effective preference is the override, if any.
+        ctx.options_mut(|options| options.fallback_theme = egui::Theme::Dark);
+        let system_scheme = theme_watch::spawn(ctx.clone());
+        let effective_theme = theme_override.unwrap_or(settings.theme);
+        ctx.set_theme(effective_theme.to_theme_preference());
+        tracing::info!(
+            persisted_theme = %settings.theme,
+            theme_override = theme_override.map(|t| t.to_string()),
+            "theme preference"
+        );
+
         let mut vm = InspectorViewModel::new(runtime, initial_root, search_result_limit);
         // An empty stored combination (hand-edited file) is rejected by the vm,
         // which then keeps the default.
@@ -561,6 +668,22 @@ impl InspectorApp {
             modifier_reader,
             picker_supported,
             toolbar_style: settings.toolbar_style,
+            theme_pref: settings.theme,
+            theme_override,
+            system_scheme,
+            last_applied_scheme: None,
+        }
+    }
+
+    /// Feed the latest watcher-reported system color scheme into egui's
+    /// fallback theme. The fallback is only consulted while the effective
+    /// preference is System and the windowing system reports no theme —
+    /// i.e. on Linux; forced Light/Dark preferences bypass it entirely.
+    fn apply_system_scheme(&mut self, ctx: &egui::Context) {
+        let scheme = self.system_scheme.load(Ordering::Relaxed);
+        if self.last_applied_scheme != Some(scheme) {
+            self.last_applied_scheme = Some(scheme);
+            ctx.options_mut(|options| options.fallback_theme = theme_watch::theme_from_color_scheme(scheme));
         }
     }
 
@@ -654,11 +777,17 @@ impl InspectorApp {
 impl eframe::App for InspectorApp {
     /// Persist the Inspector's explicit settings (called by eframe periodically
     /// and on shutdown).
+    /// Persists the user-chosen settings only — an active `--theme`/env
+    /// override is deliberately not written back.
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(
             storage,
             eframe::APP_KEY,
-            &PersistedSettings { picker_combo: self.vm.picker_combo(), toolbar_style: self.toolbar_style },
+            &PersistedSettings {
+                picker_combo: self.vm.picker_combo(),
+                toolbar_style: self.toolbar_style,
+                theme: self.theme_pref,
+            },
         );
     }
 
@@ -672,6 +801,7 @@ impl eframe::App for InspectorApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.plugin_or_default::<egui_async::EguiAsyncPlugin>();
         self.maybe_refresh_system_fonts(ctx);
+        self.apply_system_scheme(ctx);
 
         for command in Self::collect_shortcut_commands(ctx) {
             self.execute_command(ctx, command);
@@ -937,15 +1067,23 @@ impl eframe::App for InspectorApp {
         view::about_dialog::show_about_dialog(&ctx, &mut self.show_about_dialog);
 
         // The Settings dialog edits the persisted picker combination (the vm
-        // rejects an empty set; the dialog locks the last checked modifier)
-        // and the toolbar display style.
+        // rejects an empty set; the dialog locks the last checked modifier),
+        // the toolbar display style, and the theme preference.
+        let theme_before = self.theme_pref;
         if let Some(combo) = view::settings_dialog::show_settings_dialog(
             &ctx,
             &mut self.show_settings_dialog,
             self.vm.picker_combo(),
             &mut self.toolbar_style,
+            &mut self.theme_pref,
+            self.theme_override.is_some(),
         ) {
             self.vm.set_picker_combo(combo);
+        }
+        // Apply a changed preference immediately — unless an override pins
+        // this run (the edit still persists for the next start).
+        if self.theme_pref != theme_before && self.theme_override.is_none() {
+            ctx.set_theme(self.theme_pref.to_theme_preference());
         }
     }
 }
@@ -968,6 +1106,7 @@ pub fn run() -> eframe::Result {
     let requested_glow_hardware_acceleration = GlowHardwareAccelerationChoice::resolve(args.glow_hardware_acceleration);
     let glow_hardware_acceleration = requested_glow_hardware_acceleration.effective_for_renderer(renderer);
     let search_result_limit = SearchResultLimitChoice::resolve(args.search_result_limit);
+    let theme_override = ThemeChoice::resolve_override(args.theme);
 
     tracing::info!(
         renderer = %renderer,
@@ -1004,9 +1143,13 @@ pub fn run() -> eframe::Result {
         "PlatynUI Inspector",
         options,
         Box::new(move |cc| {
-            cc.egui_ctx.set_visuals(egui::Visuals::dark());
-
-            Ok(Box::new(InspectorApp::new(Arc::clone(&runtime), initial_root, search_result_limit.into_limit(), cc)))
+            Ok(Box::new(InspectorApp::new(
+                Arc::clone(&runtime),
+                initial_root,
+                search_result_limit.into_limit(),
+                theme_override,
+                cc,
+            )))
         }),
     )
 }
@@ -1020,6 +1163,7 @@ mod tests {
         let settings = PersistedSettings {
             picker_combo: PickerModifiers { ctrl: true, alt: false, shift: true },
             toolbar_style: view::toolbar::ToolbarStyle::IconsAndText,
+            ..PersistedSettings::default()
         };
         let ron = ron::to_string(&settings).expect("settings must serialize");
         let loaded: PersistedSettings = ron::from_str(&ron).expect("settings must deserialize");
@@ -1034,5 +1178,50 @@ mod tests {
         let loaded: PersistedSettings = ron::from_str(old).expect("old settings must still load");
         assert_eq!(loaded.picker_combo, PickerModifiers::CTRL_ALT_SHIFT);
         assert_eq!(loaded.toolbar_style, view::toolbar::ToolbarStyle::IconsOnly);
+    }
+
+    #[test]
+    fn settings_round_trip_keeps_theme() {
+        let settings = PersistedSettings { theme: ThemeChoice::Light, ..PersistedSettings::default() };
+        let ron = ron::to_string(&settings).expect("settings must serialize");
+        let loaded: PersistedSettings = ron::from_str(&ron).expect("settings must deserialize");
+        assert_eq!(loaded.theme, ThemeChoice::Light);
+    }
+
+    #[test]
+    fn settings_file_without_theme_loads_system_default() {
+        // A file written before the theme setting existed.
+        let old = "(picker_combo:(ctrl:true,alt:true,shift:true),toolbar_style:IconsAndText)";
+        let loaded: PersistedSettings = ron::from_str(old).expect("old settings must still load");
+        assert_eq!(loaded.theme, ThemeChoice::System);
+    }
+
+    #[test]
+    fn theme_cli_override_wins_over_environment() {
+        assert_eq!(ThemeChoice::override_from(Some(ThemeChoice::Dark), Some("light")), Some(ThemeChoice::Dark));
+    }
+
+    #[test]
+    fn theme_environment_used_without_cli() {
+        assert_eq!(ThemeChoice::override_from(None, Some("light")), Some(ThemeChoice::Light));
+        assert_eq!(ThemeChoice::override_from(None, Some(" DARK ")), Some(ThemeChoice::Dark));
+        assert_eq!(ThemeChoice::override_from(None, Some("system")), Some(ThemeChoice::System));
+    }
+
+    #[test]
+    fn theme_invalid_environment_value_is_ignored() {
+        assert_eq!(ThemeChoice::override_from(None, Some("blue")), None);
+    }
+
+    #[test]
+    fn theme_no_override_means_persisted_setting() {
+        assert_eq!(ThemeChoice::override_from(None, None), None);
+    }
+
+    #[test]
+    fn theme_preference_mapping_is_verbatim() {
+        assert_eq!(ThemeChoice::System.to_theme_preference(), egui::ThemePreference::System);
+        assert_eq!(ThemeChoice::Light.to_theme_preference(), egui::ThemePreference::Light);
+        assert_eq!(ThemeChoice::Dark.to_theme_preference(), egui::ThemePreference::Dark);
     }
 }

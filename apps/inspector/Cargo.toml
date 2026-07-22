@@ -61,6 +61,9 @@ windows = { version = "0.62", features = ["Win32_UI_Input_KeyboardAndMouse", "Wi
 [target.'cfg(target_os = "linux")'.dependencies]
 platynui-platform-linux = { path = "../../crates/platform-linux" }
 platynui-provider-atspi = { path = "../../crates/provider-atspi" }
+# System color-scheme detection via the XDG Desktop Portal (already in the
+# dependency tree at this version through the AT-SPI stack).
+zbus = "5"
 # Inspector-internal global modifier reading for the live picker (X11 XQueryPointer mask).
 x11rb = "0.13"
 # Modifier reading under the PlatynUI compositor (get_modifiers over the control socket).

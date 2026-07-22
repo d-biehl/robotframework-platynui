@@ -2,17 +2,22 @@
 
 use eframe::egui;
 
+use crate::ThemeChoice;
 use crate::view::toolbar::ToolbarStyle;
 use crate::viewmodel::picker::Modifiers;
 
 /// Render the Settings dialog when `open` is `true`. Edits `toolbar_style`
-/// in place; returns the new picker activation combination when the user
-/// changed it this frame.
+/// and `theme` in place; returns the new picker activation combination when
+/// the user changed it this frame. `theme_overridden` marks a run pinned by
+/// the `--theme`/environment override — edits still persist, but only take
+/// effect on the next start.
 pub fn show_settings_dialog(
     ctx: &egui::Context,
     open: &mut bool,
     combo: Modifiers,
     toolbar_style: &mut ToolbarStyle,
+    theme: &mut ThemeChoice,
+    theme_overridden: bool,
 ) -> Option<Modifiers> {
     if !*open {
         return None;
@@ -56,6 +61,19 @@ pub fn show_settings_dialog(
                 ui.radio_value(toolbar_style, ToolbarStyle::IconsOnly, "Icons only");
                 ui.radio_value(toolbar_style, ToolbarStyle::IconsAndText, "Icons and text");
             });
+
+            ui.add_space(10.0);
+            ui.strong("Theme");
+            ui.label("Follow the system color scheme, or force an appearance:");
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.radio_value(theme, ThemeChoice::System, "System");
+                ui.radio_value(theme, ThemeChoice::Light, "Light");
+                ui.radio_value(theme, ThemeChoice::Dark, "Dark");
+            });
+            if theme_overridden {
+                ui.weak("This run is pinned by --theme / PLATYNUI_INSPECTOR_THEME; changes apply from the next start.");
+            }
 
             ui.add_space(10.0);
             if ui.button("Close").clicked() {
