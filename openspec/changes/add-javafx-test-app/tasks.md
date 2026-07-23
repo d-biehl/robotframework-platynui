@@ -15,7 +15,7 @@
 
 - [ ] 3.1 Wire the fixture into `just test-acceptance-windows`: build as a hard prerequisite (a failed Gradle build fails the lane, mirroring the Swing pattern per `tag-based-acceptance-selection`), tag the JavaFX suites `platform:windows`, make their prerequisite check fail (not skip) with a message naming the build recipe, and hand the installDist launcher over as `PLATYNUI_TEST_APP_JAVAFX_BIN`
 - [ ] 3.2 Windows acceptance suite: launch the fixture, assert the UIA window node carries `native:IsJvm = true` and `native:JvmToolkit = "JavaFX"`, no JVM enablement diagnostic fires, and the named controls enumerate (poll-based — JavaFX activates UIA on demand) with the click-counter observable working
-- [ ] 3.2a Catalog onboarding: thin `tests/acceptance/javafx/catalog.robot` over the shared catalog resource (from `add-qml-test-app`) with launch config only; documented skips for verified JavaFX/UIA limitations
+- [ ] 3.2a Catalog onboarding: self-contained `tests/acceptance/javafx/catalog.robot` replicating the canonical catalog test set (reference: `add-qml-test-app`) with the JavaFX launch config; documented skips for verified JavaFX/UIA limitations
 
 ## 4. Verification
 

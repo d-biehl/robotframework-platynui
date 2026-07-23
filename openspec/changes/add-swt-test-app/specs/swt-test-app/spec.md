@@ -57,11 +57,11 @@ The app SHALL implement the `test-app-blueprint` core-tier control catalog under
 - **THEN** an element named `menu-file-new-activated` is resolvable in the tree
 
 ### Requirement: Catalog-suite onboarding
-The fixture SHALL be onboarded to the shared catalog acceptance suite via a thin `tests/acceptance/swt/catalog.robot` that supplies only launch configuration (installDist launcher from `PLATYNUI_TEST_APP_SWT_BIN`, Java 8 runtime by default) and declares the catalog tests; SWT/UIA limitations SHALL surface as documented skips naming the limitation. The shared catalog keywords themselves are delivered by `add-qml-test-app` and SHALL NOT be modified with SWT-specific logic.
+The fixture SHALL be onboarded to the catalog acceptance suite via a self-contained `tests/acceptance/swt/catalog.robot` that replicates the blueprint's canonical catalog test set with its launch configuration (installDist launcher from `PLATYNUI_TEST_APP_SWT_BIN`, Java 8 runtime by default) and declares the catalog tests; SWT/UIA limitations SHALL surface as documented skips naming the limitation. The canonical test set and observables are defined by the blueprint (reference implementation in `add-qml-test-app`) and SHALL NOT be given SWT-specific variants.
 
 #### Scenario: Catalog suite runs from launch configuration alone
 - **WHEN** `catalog.robot` runs in the Windows acceptance lane with the fixture built
-- **THEN** the shared catalog tests execute against the SWT fixture, and each non-passing catalog test is a documented skip naming its limitation
+- **THEN** the canonical catalog tests execute against the SWT fixture, and each non-passing catalog test is a documented skip naming its limitation
 
 ### Requirement: Classifies as a JVM+SWT application served by UIA
 The running fixture SHALL be the real-app acceptance surface for `java-app-classification` on SWT: its top-level window carries an `SWT_Window*` window class, classifies as JVM-backed with toolkit SWT, is served by the UIA provider (no JAB claim), and triggers no "absent from native accessibility" diagnostic.
