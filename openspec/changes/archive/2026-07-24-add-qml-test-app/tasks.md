@@ -37,4 +37,4 @@
 - [x] 6.2 Simplify the suites: launcher pins the instance via `Set Root` (SUITE scope), locators relative, hand-rolled wait/click wrappers replaced by BareMetal's `Wait Until Exists`/`Wait Until Gone`/built-in action waits, single-use keywords inlined into their suites
 - [x] 6.3 Linux lanes (X11 + compositor) re-run green after the redesign
 - [x] 6.4 Dissolve the shared keyword resource (`tests/acceptance/resources/`): catalog/popups test bodies are self-contained in their suites; blueprint spec + testing-strategy reframed to "canonical test set, not shared keyword code"
-- [ ] 6.5 Windows lane re-run + spot-check of the last-action observable on UIA (redoes the 2.1/5.2 facts the redesign touches)
+- [x] 6.5 Windows lane re-run + spot-check of the last-action observable on UIA (redoes the 2.1/5.2 facts the redesign touches)
