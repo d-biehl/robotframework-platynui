@@ -8,7 +8,7 @@
 
 - A blueprint-conforming QML fixture (core tier + custom-controls chapter) with verified `@Name` surfacing on UIA and AT-SPI.
 - Both popup realities (in-scene default, native via Qt ≥ 6.8) and both dialog faces (native child `Window`, in-scene modal `Dialog`).
-- The shared catalog resource as reference implementation, onboarded for QML on the Windows and Linux lanes.
+- The canonical catalog test set as reference implementation (self-contained suite), onboarded for QML on the Windows and Linux lanes.
 
 **Non-Goals:**
 

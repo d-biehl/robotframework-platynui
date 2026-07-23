@@ -1,7 +1,7 @@
 // PlatynUI QML fixture — the blueprint core-tier catalog (dev-docs/testing-strategy.md §5.1)
 // plus the optional custom-controls chapter. Every interactive control carries an explicit
 // Accessible.name (the locator contract); action observables are name-based (counter label,
-// rename-on-activate) so no test needs screenshots.
+// last-action label) so no test needs screenshots and no control ever changes its name.
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -21,6 +21,9 @@ ApplicationWindow {
 
     property int clickCount: 0
     property int customClickCount: 0
+    // Ident of the last activated menu item / dialog button, reported through the
+    // always-visible last-action label ("none" until the first activation).
+    property string lastAction: "none"
 
     title: appTitle
     visible: true
@@ -34,19 +37,20 @@ ApplicationWindow {
             title: "menu-file"
             popupType: root.menuPopupType
 
-            // Activation renames the item to "<ident>-activated" — a name-based
-            // observable that the entry was really activated, not just hovered.
+            // Activation reports the item's ident through the main window's
+            // last-action label — observable without reopening the menu, and
+            // no item ever changes its name.
             MenuItem {
                 text: "menu-file-new"
-                onTriggered: text = "menu-file-new-activated"
+                onTriggered: root.lastAction = text
             }
             MenuItem {
                 text: "menu-file-open"
-                onTriggered: text = "menu-file-open-activated"
+                onTriggered: root.lastAction = text
             }
             MenuItem {
                 text: "menu-file-quit"
-                onTriggered: text = "menu-file-quit-activated"
+                onTriggered: root.lastAction = text
             }
         }
 
@@ -56,11 +60,11 @@ ApplicationWindow {
 
             MenuItem {
                 text: "menu-edit-undo"
-                onTriggered: text = "menu-edit-undo-activated"
+                onTriggered: root.lastAction = text
             }
             MenuItem {
                 text: "menu-edit-redo"
-                onTriggered: text = "menu-edit-redo-activated"
+                onTriggered: root.lastAction = text
             }
 
             // Menu-bar submenu (the context menu has its own, ctx-more): both
@@ -71,11 +75,11 @@ ApplicationWindow {
 
                 MenuItem {
                     text: "menu-edit-sub-one"
-                    onTriggered: text = "menu-edit-sub-one-activated"
+                    onTriggered: root.lastAction = text
                 }
                 MenuItem {
                     text: "menu-edit-sub-two"
-                    onTriggered: text = "menu-edit-sub-two-activated"
+                    onTriggered: root.lastAction = text
                 }
             }
         }
@@ -86,7 +90,7 @@ ApplicationWindow {
 
             MenuItem {
                 text: "menu-help-about"
-                onTriggered: text = "menu-help-about-activated"
+                onTriggered: root.lastAction = text
             }
         }
     }
@@ -102,15 +106,15 @@ ApplicationWindow {
 
         MenuItem {
             text: "ctx-cut"
-            onTriggered: text = "ctx-cut-activated"
+            onTriggered: root.lastAction = text
         }
         MenuItem {
             text: "ctx-copy"
-            onTriggered: text = "ctx-copy-activated"
+            onTriggered: root.lastAction = text
         }
         MenuItem {
             text: "ctx-paste"
-            onTriggered: text = "ctx-paste-activated"
+            onTriggered: root.lastAction = text
         }
 
         Menu {
@@ -119,11 +123,11 @@ ApplicationWindow {
 
             MenuItem {
                 text: "ctx-sub-alpha"
-                onTriggered: text = "ctx-sub-alpha-activated"
+                onTriggered: root.lastAction = text
             }
             MenuItem {
                 text: "ctx-sub-beta"
-                onTriggered: text = "ctx-sub-beta-activated"
+                onTriggered: root.lastAction = text
             }
         }
     }
@@ -156,6 +160,13 @@ ApplicationWindow {
             // Counter observable: name and text are "status-label-clicks-<n>".
             Label {
                 text: "status-label-clicks-" + root.clickCount
+                Accessible.name: text
+            }
+            // Last-action observable: name and text are "last-action-<ident>" of
+            // the last activated menu item / dialog button ("last-action-none"
+            // until the first activation).
+            Label {
+                text: "last-action-" + root.lastAction
                 Accessible.name: text
             }
             CheckBox {
@@ -364,10 +375,9 @@ ApplicationWindow {
             Button {
                 text: "Click Me"
                 Accessible.name: "dialog-modeless-button"
-                onClicked: {
-                    Accessible.name = "dialog-modeless-button-clicked";
-                    text = "Clicked";
-                }
+                // Reports through the main window's last-action label: only a
+                // click really landing on THIS button can set its ident.
+                onClicked: root.lastAction = Accessible.name
             }
             Item {
                 Layout.fillHeight: true
@@ -404,10 +414,7 @@ ApplicationWindow {
             Button {
                 text: "Click Me"
                 Accessible.name: "dialog-modal-button"
-                onClicked: {
-                    Accessible.name = "dialog-modal-button-clicked";
-                    text = "Clicked";
-                }
+                onClicked: root.lastAction = Accessible.name
             }
         }
     }

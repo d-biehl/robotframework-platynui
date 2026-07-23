@@ -9,7 +9,7 @@
 ## 2. Reality verification (before encoding tests)
 
 - [x] 2.1 Windows/UIA: verify every canonical name, role, and observable surfaces as expected (Inspector / `Get Attribute` against the running fixture); record deviations in the README
-- [ ] 2.2 Linux/AT-SPI (X11): same verification; note in-scene popup exposure behavior (top-down visibility vs event-driven grafting) and modal-state surfacing; record deviations and derive the documented-skip list
+- [x] 2.2 Linux/AT-SPI (X11): same verification; note in-scene popup exposure behavior (top-down visibility vs event-driven grafting) and modal-state surfacing; record deviations and derive the documented-skip list
 - [x] 2.3 Feed any blueprint friction (names, observables, tier content) back into the open `test-app-blueprint` change before either change is archived
 
 ## 3. Shared catalog suite + QML onboarding
@@ -28,5 +28,13 @@
 
 - [x] 5.1 `just check` green (ruff + strict mypy cover `main.py`); fixture starts standalone via `uv run apps/test-app-qml/main.py` and honors `--auto-close`
 - [x] 5.2 Windows acceptance lane green including the QML suites (with the documented-skip list applied)
-- [ ] 5.3 Linux acceptance lane green including the QML suites; skips match the verified deviation list, none silent
+- [x] 5.3 Linux acceptance lane green including the QML suites; skips match the verified deviation list, none silent
 - [x] 5.4 `openspec validate add-qml-test-app` passes; blueprint reconciliation (task 2.3) confirmed done
+
+## 6. Last-action observable + suite simplification (post-review)
+
+- [x] 6.1 Replace rename-on-activate with the always-visible `last-action-<ident>` label (fixture `Main.qml`, blueprint observables delta, qml spec delta, README) — no control changes its name on activation anymore
+- [x] 6.2 Simplify the suites: launcher pins the instance via `Set Root` (SUITE scope), locators relative, hand-rolled wait/click wrappers replaced by BareMetal's `Wait Until Exists`/`Wait Until Gone`/built-in action waits, single-use keywords inlined into their suites
+- [x] 6.3 Linux lanes (X11 + compositor) re-run green after the redesign
+- [x] 6.4 Dissolve the shared keyword resource (`tests/acceptance/resources/`): catalog/popups test bodies are self-contained in their suites; blueprint spec + testing-strategy reframed to "canonical test set, not shared keyword code"
+- [ ] 6.5 Windows lane re-run + spot-check of the last-action observable on UIA (redoes the 2.1/5.2 facts the redesign touches)

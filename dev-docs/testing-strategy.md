@@ -150,7 +150,7 @@ Two rules follow, and they are strict:
   as the model).
 
 The one sanctioned skip in the acceptance lanes is the fixture blueprint's **documented
-technology limitation** (§5.1): a shared catalog test a technology's bridge provably
+technology limitation** (§5.1): a catalog test a technology's bridge provably
 cannot satisfy is skipped in that technology's onboarding suite with a message naming the
 limitation and where it is tracked. That skip is deterministic — identical on every run of
 that lane, independent of the machine — which is exactly what distinguishes it from the
@@ -232,7 +232,7 @@ same blueprint.
 
 - **Blueprint conformance.** Fixture apps implement the fixture blueprint defined in §5.1
   below: a tiered control catalog under canonical names, name-based action observables, a
-  common CLI contract, and onboarding to the shared catalog acceptance suite.
+  common CLI contract, and onboarding to the catalog acceptance suite.
   Scenario-specific surfaces (e.g. the Qt Widgets dialog-bounds reproduction) live beside
   the catalog, not inside it.
 - **Current matrix.** egui (`apps/test-app-egui`) — Rust/AccessKit — stays the
@@ -244,7 +244,7 @@ same blueprint.
   controls with full patterns. Swing (`apps/test-app-swing`) covers the Java Access Bridge
   surface. Qt Quick/QML (`apps/test-app-qml`) is the **first full blueprint instance**:
   scene-graph rendering, `Accessible` attached properties, in-scene popups — and the home
-  of the shared catalog suite's reference onboarding (`tests/acceptance/qml/catalog.robot`).
+  of the catalog suite's reference implementation (`tests/acceptance/qml/catalog.robot`).
   Planned rows: SWT, JavaFX, and later WPF, Avalonia, and native Win32. Fixtures that
   predate the blueprint conform after their per-app retrofit changes; until then their
   historic names and suites stay valid.
@@ -302,12 +302,14 @@ their title.
 
 **Observables.** Every catalog action has an effect observable through the tree by name or
 text — never by screenshot: activating `button-basic` updates `status-label` to end with
-`clicks-<n>`; activating a menu/context-menu item renames it to `<ident>-activated`;
-activating a dialog button renames it to `<ident>-button-clicked` (which doubles as the
-bounds-correctness proof that a click landed inside the dialog). State-bearing controls
-(toggle, selection, expansion, value) expose state via the provider's read attributes;
-where a bridge provably drops a state, the fixture adds a name-based observable and
-documents the deviation in its README.
+`clicks-<n>`; activating a menu/context-menu item or a dialog button updates the
+always-visible **last-action label** to `last-action-<ident>` (`last-action-none` before
+the first activation). Controls never change their own names on activation — canonical
+names stay stable, the report is observable without reopening a popup, and for dialog
+buttons it doubles as the bounds-correctness proof that a click landed inside the dialog.
+State-bearing controls (toggle, selection, expansion, value) expose state via the
+provider's read attributes; where a bridge provably drops a state, the fixture adds a
+name-based observable and documents the deviation in its README.
 
 **CLI contract.** `--title <text>` (default `PlatynUI <Technology> TestApp`),
 `--auto-close <seconds>`, `--open-modal` (opens `dialog-modal` at startup so modal state
@@ -317,12 +319,16 @@ facts); unknown arguments fail with a usage message and non-zero exit.
 Technology-specific flags (e.g. `--app-id`, `--popup-mode`) are allowed, but defaults
 always produce the conforming catalog.
 
-**Shared catalog suite.** Catalog tests are written once as technology-neutral keywords
-under `tests/acceptance/resources/` (Given/When/Then, canonical names only). Each
-technology onboards with a thin `tests/acceptance/<tech>/catalog.robot` that supplies only
-launch configuration (`PLATYNUI_TEST_APP_<TECH>_*` env vars) and declares the tests — no
-per-technology variable files. A technology limitation is an explicitly skipped test whose
-message names the limitation and where it is tracked; core-tier behavior is never silently
+**Catalog suite.** The catalog tests form one canonical test set; each technology
+implements it as a self-contained `tests/acceptance/<tech>/catalog.robot`. Test bodies are
+written directly against `PlatynUI.BareMetal` — the launcher pins the fixture instance as
+the query root (`Set Root`, SUITE scope), locators are relative and canonical-name-only,
+and no wrapper-keyword layer sits between test and library (the flows are a handful of
+lines each; a keyword named like its test would only hide them). Shared across
+technologies is the contract — names, observables, the test set — not keyword code.
+Launch configuration comes from `PLATYNUI_TEST_APP_<TECH>_*` env vars; no per-technology
+variable files. A technology limitation is an explicitly skipped or platform-scoped test
+naming the limitation and where it is tracked; core-tier behavior is never silently
 absent. Before a suite encodes a name or state, verify it against the real tree
 (Inspector / `Get Attribute`) per §7.
 
