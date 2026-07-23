@@ -182,22 +182,113 @@ quirks (UIA COM lifecycle, AT-SPI2 D-Bus timing, AX permissions).
 
 ## 5. Testing against real UIs
 
-The acceptance lane needs a real application that exposes itself to the OS accessibility
-APIs. PlatynUI uses two tiers, chosen by what a behavior needs:
+The acceptance lane needs real applications that expose themselves to the OS accessibility
+APIs. Because UI toolkits implement accessibility differently (different bridges, tree
+shapes, and pattern coverage) — and because the semantic keyword layer will ship
+per-technology proxies that must be proven against each toolkit — PlatynUI maintains a
+**fixture technology matrix**: one fixture app per UI technology, all implementing the
+same blueprint.
 
-- **egui (`apps/test-app-egui`) — the lightweight smoke target.** egui ships AccessKit,
-  which exposes widgets natively (UIA on Windows, AT-SPI on Linux, NSAccessibility on
-  macOS) through the winit adapter built into eframe — Rust-native, already a dependency,
-  trivial to run in CI. Because it renders its own widgets and exposes a flatter tree with
-  a limited role set, it is best for **provider smoke** coverage: behavior reproducible on
-  that tree belongs here. The current widget/role mapping and its limits live in
-  **[egui Accessibility API Guide](egui-accessibility-guide.md)**, which is where that
-  detail is kept up to date.
-- **Qt / PySide6 — the native-widget tier.** Behavior that needs real native controls and
-  full patterns (Selectable, Toggleable, Expandable, Scrollable, Menu, Tab, Dialog) belongs
-  on a native-widget app built with PySide6 (chosen for its LGPL license). Native-widget
-  tiers carry heavier CI cost, so this tier complements the egui smoke target rather than
-  replacing it.
+- **Blueprint conformance.** Fixture apps implement the fixture blueprint defined in §5.1
+  below: a tiered control catalog under canonical names, name-based action observables, a
+  common CLI contract, and onboarding to the shared catalog acceptance suite.
+  Scenario-specific surfaces (e.g. the Qt Widgets dialog-bounds reproduction) live beside
+  the catalog, not inside it.
+- **Current matrix.** egui (`apps/test-app-egui`) — Rust/AccessKit — stays the
+  **lightweight smoke target**: it renders its own widgets and exposes a flatter tree with
+  a limited role set (details in the
+  **[egui Accessibility API Guide](egui-accessibility-guide.md)**), is trivial to run in
+  CI, and behavior reproducible on that tree belongs there. Qt Widgets (`apps/test-app-qt`,
+  PySide6 — chosen for its LGPL license) is the **native-widget tier**: real native
+  controls with full patterns. Swing (`apps/test-app-swing`) covers the Java Access Bridge
+  surface. Qt Quick/QML (`apps/test-app-qml`) is the **first full blueprint instance**:
+  scene-graph rendering, `Accessible` attached properties, in-scene popups — and the home
+  of the shared catalog suite's reference onboarding (`tests/acceptance/qml/catalog.robot`).
+  Planned rows: SWT, JavaFX, and later WPF, Avalonia, and native Win32. Fixtures that
+  predate the blueprint conform after their per-app retrofit changes; until then their
+  historic names and suites stay valid.
+- **Choosing a target.** Prove behavior on the cheapest row that can show it: egui for
+  provider smoke, a native-widget or toolkit-specific fixture when the behavior needs that
+  technology's real controls or bridge. Per-technology lanes remain separate CI jobs, so a
+  lane needs only its own fixture built.
+
+### 5.1 The fixture blueprint
+
+The blueprint is the contract every fixture app implements. The `test-app-blueprint`
+capability spec carries it as testable requirements (one scenario per acceptance
+criterion); this section is the developer-facing description — keep both in sync when the
+blueprint evolves.
+
+**Tiered control catalog.** The catalog derives from the pattern families of the semantic
+keyword layer (`python-library-design.md` §5a). The **core tier** is mandatory for a
+conforming fixture; the **extended tier** is adopted incrementally. Canonical names are
+kebab-case, pairwise-unique app-wide, and identical across technologies — one locator set
+drives every fixture. The accessible **name** is the locator contract; technology-private
+IDs (AutomationId, objectName) are never relied on.
+
+| Tier | Control | Canonical names |
+|---|---|---|
+| core | main window | `main-window` (title from `--title`) |
+| core | push button + status label | `button-basic`, `status-label` |
+| core | checkbox | `checkbox-basic` |
+| core | group box + radio group | `groupbox-basic` (title = name), grouping `radio-first`, `radio-second` |
+| core | single-line text field | `textfield-basic` |
+| core | multi-line text area | `textarea-basic` |
+| core | static label | `label-basic` |
+| core | plain static text | `text-basic` |
+| core | image | `image-basic` |
+| core | combo box | `combobox-basic`, items `combo-item-1`…`combo-item-3` |
+| core | list | `list-basic`, items `list-item-1`…`list-item-5` |
+| core | tree (3 levels) | `tree-basic`; `tree-node-a`/`tree-node-b`, `tree-node-a-1`/`tree-node-a-2`, `tree-node-a-1-i` |
+| core | menu bar (3 menus, 1 submenu) | `main-menubar`; `menu-file` (`menu-file-new`/`-open`/`-quit`); `menu-edit` (`menu-edit-undo`/`-redo`; submenu `menu-edit-more` with `menu-edit-sub-one`/`-two`); `menu-help` (`menu-help-about`) |
+| core | context menu + submenu | `context-menu`, items `ctx-cut`/`ctx-copy`/`ctx-paste`; `ctx-more` with `ctx-sub-alpha`/`ctx-sub-beta` |
+| core | dialogs (modeless, modal) | `dialog-modeless`, `dialog-modal`; each with `<ident>-button`, `<ident>-label` |
+| extended | table/grid | `table-basic`, cells `table-cell-<row>-<col>` (1-based) |
+| extended | slider / progress bar | `slider-basic`, `progress-basic` |
+| extended | tabs | `tabs-basic`, tabs `tab-one`/`tab-two` |
+
+Names are stable: additions never rename or repurpose existing catalog names. Deliberate
+gaps (role variants whose patterns a catalog control already exercises — Link → button,
+ToggleButton → checkbox, PasswordBox → text field, Spinner → slider — and scrolling
+surfaces, whose `Scrollable` pattern is post-Phase-4 in the library design) are closed
+later by adding controls under new names. Shared catalog
+locators address controls by `@Name` **alone** — roles differ across bridges (Qt Quick
+exposes lists/trees as `Group` and tree rows as `ListItem`) and are not part of the shared
+contract. Where a technology derives a *window's* name from its title and the name cannot
+be set independently (Qt Quick), the main window is matched via the launch configuration
+instead of the `main-window` name, and dialog child windows carry their canonical name as
+their title.
+
+**Observables.** Every catalog action has an effect observable through the tree by name or
+text — never by screenshot: activating `button-basic` updates `status-label` to end with
+`clicks-<n>`; activating a menu/context-menu item renames it to `<ident>-activated`;
+activating a dialog button renames it to `<ident>-button-clicked` (which doubles as the
+bounds-correctness proof that a click landed inside the dialog). State-bearing controls
+(toggle, selection, expansion, value) expose state via the provider's read attributes;
+where a bridge provably drops a state, the fixture adds a name-based observable and
+documents the deviation in its README.
+
+**CLI contract.** `--title <text>` (default `PlatynUI <Technology> TestApp`),
+`--auto-close <seconds>`, `--open-modal` (opens `dialog-modal` at startup so modal state
+needs no interaction; where a bridge exposes no modal state — Qt Quick's in-scene `Dialog`
+on UIA — the deviation rule applies and presence + interactability are the asserted
+facts); unknown arguments fail with a usage message and non-zero exit.
+Technology-specific flags (e.g. `--app-id`, `--popup-mode`) are allowed, but defaults
+always produce the conforming catalog.
+
+**Shared catalog suite.** Catalog tests are written once as technology-neutral keywords
+under `tests/acceptance/resources/` (Given/When/Then, canonical names only). Each
+technology onboards with a thin `tests/acceptance/<tech>/catalog.robot` that supplies only
+launch configuration (`PLATYNUI_TEST_APP_<TECH>_*` env vars) and declares the tests — no
+per-technology variable files. A technology limitation is an explicitly skipped test whose
+message names the limitation and where it is tracked; core-tier behavior is never silently
+absent. Before a suite encodes a name or state, verify it against the real tree
+(Inspector / `Get Attribute`) per §7.
+
+**Custom-controls chapter (optional).** A fixture may add hand-built controls to probe the
+default-proxy lower bound: `custom-button` (self-drawn, manually wired accessibility,
+counter on `custom-status-label`) and one deliberately non-exposed drawn element whose
+absence from the tree is asserted as expected behavior.
 
 ## 6. CI
 
