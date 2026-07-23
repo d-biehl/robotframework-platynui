@@ -71,7 +71,8 @@ project interpreter + entrypoint are handed over via `PLATYNUI_TEST_APP_QT_PYTHO
 the `test-acceptance-windows` recipe (Windows); Robot Framework launches that
 interpreter directly so the started PID is the app's PID (`@ProcessId` pinning).
 
-`ruff` and strict `mypy` both cover the app in `just check`. `main.py` is listed
-in `[tool.mypy] files` (the `mypy` recipe runs `uv run mypy` with no path, so that
-setting is the single source of truth for the scope); PySide6's stubs come from
-the dev group.
+`ruff` and strict `mypy` both cover the app in `just check`. The `mypy` recipe
+checks `main.py` in its own invocation (the Python fixture apps are standalone
+PEP 723 scripts that all share the module name `main`, which one mypy run
+rejects as duplicates — see the note in `pyproject.toml`); PySide6's stubs come
+from the dev group.

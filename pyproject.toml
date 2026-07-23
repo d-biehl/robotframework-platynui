@@ -232,12 +232,15 @@ namespace_packages = true
 # returned to the caller. Pyright (also part of CI) does not raise this
 # diagnostic, so no real coverage is lost.
 disable_error_code = ["type-abstract"]
+# The Python fixture apps (apps/test-app-*/main.py) are NOT listed here: they are
+# standalone PEP 723 scripts that all share the module name "main" (their directories
+# are not importable packages), which mypy rejects as duplicate modules in one run.
+# The `just mypy` recipe checks each of them in a separate invocation instead.
 files = [
     "src",
     "packages/native/python",
     "packages/native/tests",
     "tests",
-    "apps/test-app-qt",
 ]
 exclude = [
     '^\.mypy_cache/',

@@ -2,7 +2,7 @@
 members = ["crates/*", "apps/*", "packages/*"]
 # apps/test-app-qt is a Python (PySide6) test fixture and apps/test-app-swing a
 # Java (Swing) test fixture — neither is a Cargo crate.
-exclude = ["apps/test-app-qt", "apps/test-app-swing"]
+exclude = ["apps/test-app-qt", "apps/test-app-qml", "apps/test-app-swing"]
 default-members = ["crates/playground"]
 resolver = "3"
 

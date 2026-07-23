@@ -24,6 +24,9 @@ inspector_bin := justfile_directory() / "target" / "debug" / if os() == "windows
 # via __PYVENV_LAUNCHER__ (the mechanism the trampoline itself uses), so the launched PID owns the window.
 qt_venv_python := justfile_directory() / ".venv" / "Scripts" / "python.exe"
 qt_app_main := justfile_directory() / "apps" / "test-app-qt" / "main.py"
+# QML (Qt Quick) test app — same launch mechanics as the Qt Widgets app (base
+# interpreter + __PYVENV_LAUNCHER__ redirect, handed over via PLATYNUI_TEST_APP_QML_*).
+qml_app_main := justfile_directory() / "apps" / "test-app-qml" / "main.py"
 # Swing test app (self-contained Gradle project — see apps/test-app-swing/README.md).
 # The build writes the provisioned JVM paths (java8 = default launch runtime,
 # java21 = compile toolchain) to java-launchers.properties; the run/acceptance
@@ -153,9 +156,13 @@ clippy-macos-arm: _check-macos-cross-tools
 ruff:
     uv run ruff check
 
-# Type-check Python code (scope comes from [tool.mypy] files in pyproject.toml)
+# Type-check Python code (scope comes from [tool.mypy] files in pyproject.toml).
+# The Python fixture apps are standalone PEP 723 scripts that all share the module
+# name "main", so each needs its own mypy invocation (see the note in pyproject.toml).
 mypy:
     uv run mypy
+    uv run mypy --no-warn-unused-configs apps/test-app-qt/main.py
+    uv run mypy --no-warn-unused-configs apps/test-app-qml/main.py
 
 # Run all checks (format, clippy, ruff, mypy)
 check: fmt clippy ruff mypy
@@ -285,7 +292,12 @@ test-acceptance-windows *ARGS: build-native
     cargo build -p platynui-test-app-egui -p platynui-inspector
     -just build-test-app-swing
     if (Test-Path "{{ swing_app_classes }}") { $env:PLATYNUI_TEST_APP_SWING_CLASSES = "{{ swing_app_classes }}"; if (Test-Path "{{ swing_app_launchers }}") { $env:PLATYNUI_TEST_APP_SWING_JAVA = ((Get-Content -Raw "{{ swing_app_launchers }}") | ConvertFrom-StringData).java8 }; cargo nextest run -p platynui-provider-jab --run-ignored ignored-only } else { Write-Warning "Swing fixture not built (Gradle build failed - no network on first run?) - skipping the JAB live tests" }
-    $qtBasePy = & "{{ qt_venv_python }}" -c "import sys; print(sys._base_executable)"; $env:PLATYNUI_TEST_APP_BIN = "{{ egui_test_app }}"; $env:PLATYNUI_INSPECTOR_BIN = "{{ inspector_bin }}"; $env:PLATYNUI_TEST_APP_QT_PYTHON = $qtBasePy; $env:PLATYNUI_TEST_APP_QT_PYVENV_LAUNCHER = "{{ qt_venv_python }}"; $env:PLATYNUI_TEST_APP_QT_MAIN = "{{ qt_app_main }}"; $env:PLATYNUI_TEST_APP_SWING_CLASSES = "{{ swing_app_classes }}"; if (Test-Path "{{ swing_app_launchers }}") { $env:PLATYNUI_TEST_APP_SWING_JAVA = ((Get-Content -Raw "{{ swing_app_launchers }}") | ConvertFrom-StringData).java8 }; uv run --no-sync robotcode {{ if ARGS != "" { ARGS } else { "--profile real run" } }}
+    $qtBasePy = & "{{ qt_venv_python }}" -c "import sys; print(sys._base_executable)"; $env:PLATYNUI_TEST_APP_BIN = "{{ egui_test_app }}"; $env:PLATYNUI_INSPECTOR_BIN = "{{ inspector_bin }}"; $env:PLATYNUI_TEST_APP_QT_PYTHON = $qtBasePy; $env:PLATYNUI_TEST_APP_QT_PYVENV_LAUNCHER = "{{ qt_venv_python }}"; $env:PLATYNUI_TEST_APP_QT_MAIN = "{{ qt_app_main }}"; $env:PLATYNUI_TEST_APP_QML_PYTHON = $qtBasePy; $env:PLATYNUI_TEST_APP_QML_PYVENV_LAUNCHER = "{{ qt_venv_python }}"; $env:PLATYNUI_TEST_APP_QML_MAIN = "{{ qml_app_main }}"; $env:PLATYNUI_TEST_APP_SWING_CLASSES = "{{ swing_app_classes }}"; if (Test-Path "{{ swing_app_launchers }}") { $env:PLATYNUI_TEST_APP_SWING_JAVA = ((Get-Content -Raw "{{ swing_app_launchers }}") | ConvertFrom-StringData).java8 }; uv run --no-sync robotcode {{ if ARGS != "" { ARGS } else { "--profile real run" } }}
+
+# Run the QML (Qt Quick) test app on the project venv (PySide6 is a dev
+# dependency, installed by `uv sync`). Extra args are forwarded to the app.
+run-test-app-qml *ARGS:
+    uv run python apps/test-app-qml/main.py {{ ARGS }}
 
 # ─── Swing Test App (Java fixture for the JAB provider work) ───────────────────
 

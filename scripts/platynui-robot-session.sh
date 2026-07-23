@@ -80,11 +80,16 @@ echo "Inspector binary: $PLATYNUI_INSPECTOR_BIN (Robot Framework launches it)" >
 # PID (uv spawns Python as a child), breaking the @ProcessId window pinning.
 export PLATYNUI_TEST_APP_QT_PYTHON="$PROJECT_DIR/.venv/bin/python"
 export PLATYNUI_TEST_APP_QT_MAIN="$PROJECT_DIR/apps/test-app-qt/main.py"
+# The QML (Qt Quick) fixture uses the same launch mechanics (PySide6 from the
+# project venv, launched directly so the PID owns the window).
+export PLATYNUI_TEST_APP_QML_PYTHON="$PROJECT_DIR/.venv/bin/python"
+export PLATYNUI_TEST_APP_QML_MAIN="$PROJECT_DIR/apps/test-app-qml/main.py"
 # Qt only exposes its AT-SPI bridge when accessibility is enabled. The
 # screen-reader status enabled above covers AccessKit; these cover Qt.
 export QT_ACCESSIBILITY=1
 export QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1
 echo "Qt test app: $PLATYNUI_TEST_APP_QT_PYTHON $PLATYNUI_TEST_APP_QT_MAIN (Robot Framework launches it)" >&2
+echo "QML test app: $PLATYNUI_TEST_APP_QML_PYTHON $PLATYNUI_TEST_APP_QML_MAIN (Robot Framework launches it)" >&2
 
 # Default RobotCode command if none was supplied.
 if [ "$#" -eq 0 ]; then
