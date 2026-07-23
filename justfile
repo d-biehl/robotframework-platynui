@@ -247,11 +247,13 @@ test-all: test test-python
 
 # ─── Acceptance (real desktop, needs the non-mock build) ──────────────────────────
 #
-# The acceptance lane (tests/acceptance, tag `real`, profile `real`) drives the real
-# platform provider against the test apps there (egui today). Each recipe rebuilds the non-mock
+# The acceptance lane (tests/acceptance, tag `real`) drives the real platform
+# provider against the test apps there. Each recipe rebuilds the non-mock
 # native module first (a mock-provider build would silently resolve the built-in
 # mock tree instead). Robot Framework launches the app instance(s) itself; extra
-# ARGS are forwarded to robotcode and default to `--profile real run`.
+# ARGS are forwarded to robotcode and default to the lane profile matching the
+# session (`real-wayland` / `real-x11` via the session script, `real-windows` on
+# Windows) — the profiles exclude foreign `platform:*` tags, see robot.toml.
 #
 # headless defaults to true under CI (the `CI` env var) and runs the Linux backends
 # with no visible window — the compositor uses its headless backend and X11 runs
@@ -282,17 +284,17 @@ test-acceptance-x11 *ARGS: build-native
 # launches it); PySide6 (a dev dependency) is already in the project venv from
 # the build-native sync. All fixtures are handed over via the
 # PLATYNUI_TEST_APP_* / PLATYNUI_INSPECTOR_BIN env vars (Robot Framework
-# launches them). The Swing fixture builds via its Gradle wrapper: if that
-# build fails (typically no network on the first run), it fails softly here and
-# the swing suites (plus the JAB live Rust tests) skip with a clear message
-# instead of failing the lane. The fixture runs on the provisioned Java 8
-# runtime (PLATYNUI_TEST_APP_SWING_JAVA, from java-launchers.properties).
+# launches them). The Swing fixture (Gradle wrapper, self-provisioned JVMs) is
+# a HARD prerequisite: a failed build fails the lane — the swing suites are
+# selected by the real-windows profile and never skip. The fixture runs on the
+# provisioned Java 8 runtime (PLATYNUI_TEST_APP_SWING_JAVA, from
+# java-launchers.properties).
 [windows]
 test-acceptance-windows *ARGS: build-native
     cargo build -p platynui-test-app-egui -p platynui-inspector
-    -just build-test-app-swing
-    if (Test-Path "{{ swing_app_classes }}") { $env:PLATYNUI_TEST_APP_SWING_CLASSES = "{{ swing_app_classes }}"; if (Test-Path "{{ swing_app_launchers }}") { $env:PLATYNUI_TEST_APP_SWING_JAVA = ((Get-Content -Raw "{{ swing_app_launchers }}") | ConvertFrom-StringData).java8 }; cargo nextest run -p platynui-provider-jab --run-ignored ignored-only } else { Write-Warning "Swing fixture not built (Gradle build failed - no network on first run?) - skipping the JAB live tests" }
-    $qtBasePy = & "{{ qt_venv_python }}" -c "import sys; print(sys._base_executable)"; $env:PLATYNUI_TEST_APP_BIN = "{{ egui_test_app }}"; $env:PLATYNUI_INSPECTOR_BIN = "{{ inspector_bin }}"; $env:PLATYNUI_TEST_APP_QT_PYTHON = $qtBasePy; $env:PLATYNUI_TEST_APP_QT_PYVENV_LAUNCHER = "{{ qt_venv_python }}"; $env:PLATYNUI_TEST_APP_QT_MAIN = "{{ qt_app_main }}"; $env:PLATYNUI_TEST_APP_QML_PYTHON = $qtBasePy; $env:PLATYNUI_TEST_APP_QML_PYVENV_LAUNCHER = "{{ qt_venv_python }}"; $env:PLATYNUI_TEST_APP_QML_MAIN = "{{ qml_app_main }}"; $env:PLATYNUI_TEST_APP_SWING_CLASSES = "{{ swing_app_classes }}"; if (Test-Path "{{ swing_app_launchers }}") { $env:PLATYNUI_TEST_APP_SWING_JAVA = ((Get-Content -Raw "{{ swing_app_launchers }}") | ConvertFrom-StringData).java8 }; uv run --no-sync robotcode {{ if ARGS != "" { ARGS } else { "--profile real run" } }}
+    just build-test-app-swing
+    $env:PLATYNUI_TEST_APP_SWING_CLASSES = "{{ swing_app_classes }}"; if (Test-Path "{{ swing_app_launchers }}") { $env:PLATYNUI_TEST_APP_SWING_JAVA = ((Get-Content -Raw "{{ swing_app_launchers }}") | ConvertFrom-StringData).java8 }; cargo nextest run -p platynui-provider-jab --run-ignored ignored-only
+    $qtBasePy = & "{{ qt_venv_python }}" -c "import sys; print(sys._base_executable)"; $env:PLATYNUI_TEST_APP_BIN = "{{ egui_test_app }}"; $env:PLATYNUI_INSPECTOR_BIN = "{{ inspector_bin }}"; $env:PLATYNUI_TEST_APP_QT_PYTHON = $qtBasePy; $env:PLATYNUI_TEST_APP_QT_PYVENV_LAUNCHER = "{{ qt_venv_python }}"; $env:PLATYNUI_TEST_APP_QT_MAIN = "{{ qt_app_main }}"; $env:PLATYNUI_TEST_APP_QML_PYTHON = $qtBasePy; $env:PLATYNUI_TEST_APP_QML_PYVENV_LAUNCHER = "{{ qt_venv_python }}"; $env:PLATYNUI_TEST_APP_QML_MAIN = "{{ qml_app_main }}"; $env:PLATYNUI_TEST_APP_SWING_CLASSES = "{{ swing_app_classes }}"; if (Test-Path "{{ swing_app_launchers }}") { $env:PLATYNUI_TEST_APP_SWING_JAVA = ((Get-Content -Raw "{{ swing_app_launchers }}") | ConvertFrom-StringData).java8 }; uv run --no-sync robotcode {{ if ARGS != "" { ARGS } else { "--profile real-windows run" } }}
 
 # Run the QML (Qt Quick) test app on the project venv (PySide6 is a dev
 # dependency, installed by `uv sync`). Extra args are forwarded to the app.

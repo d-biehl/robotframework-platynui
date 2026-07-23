@@ -8,6 +8,13 @@ paths = "tests"
 #   tag `real` -> needs the non-mock build      (just build-native)
 #   tag `mock` -> needs the mock-provider build  (just build-native-mock)
 # Pair the build with the tag/profile (CI: a separate job per lane).
+#
+# Within the real lane, platform-bound suites/tests additionally carry a
+# `platform:*` tag (`platform:x11`, `platform:wayland`, `platform:windows`).
+# No platform tag = runs on every lane. Each lane profile below selects by
+# EXCLUDING the foreign platforms' tags, so untagged suites always stay in.
+# Environment fitness is decided here, by selection — never by runtime
+# `Skip If` guards inside a suite (see dev-docs/testing-strategy.md).
 # ---------------------------------------------------------------------------
 
 # Real-provider acceptance lane: drive the test apps under tests/acceptance/ (egui
@@ -26,6 +33,24 @@ includes = ["real"]
 # Deterministic, needs no display, runs on any OS. REQUIRES the mock-provider
 # native build (just build-native-mock). Run with `robotcode --profile mock run`
 # (or `just test-baremetal`).
+# Per-platform refinements of `real`. The session script / just recipes pick
+# the one matching the session they establish; `real` itself stays runnable as
+# the select-everything parent (discover/dry-run).
+[profiles.real-x11]
+description = "Real lane on an X11 session (excludes wayland/windows-only suites)"
+inherits = ["real"]
+excludes = ["platform:wayland", "platform:windows"]
+
+[profiles.real-wayland]
+description = "Real lane on a Wayland session (excludes x11/windows-only suites)"
+inherits = ["real"]
+excludes = ["platform:x11", "platform:windows"]
+
+[profiles.real-windows]
+description = "Real lane on the Windows desktop (excludes x11/wayland-only suites)"
+inherits = ["real"]
+excludes = ["platform:x11", "platform:wayland"]
+
 [profiles.mock]
 description = "BareMetal RF suites against the built-in mock tree (tag 'mock'; needs the mock-provider build)"
 paths = ["tests/BareMetal"]

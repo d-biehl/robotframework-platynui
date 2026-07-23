@@ -33,13 +33,16 @@ ${SWING_TITLE}          ${None}
 
 *** Keywords ***
 Require Swing Prerequisites
-    [Documentation]    Skip the suite (with an actionable message) when the JAB lane cannot run here:
-    ...    non-Windows platform, no java launcher, or the fixture classes have not been built.
-    Skip If    ${{ os.name != "nt" }}    Swing/JAB acceptance is Windows-only (Linux Swing rides AT-SPI in a future lane)
-    ${java_missing}=    Run Keyword And Return Status    Run Process    ${SWING_JAVA}    -version
-    Skip If    not ${java_missing}    no usable Java launcher (${SWING_JAVA}) — run `just build-test-app-swing` (sets up the provisioned runtime) or put a `java` 8+ on PATH
-    Skip If    ${{ not os.path.isdir($SWING_CLASSES) }}
-    ...    Swing fixture not built at ${SWING_CLASSES} — run `just build-test-app-swing`
+    [Documentation]    Fail the suite (with an actionable message) when the fixture cannot be launched:
+    ...    no usable java launcher, or the fixture classes have not been built. These are hard
+    ...    failures, not skips — the `real-windows` lane profile selected this suite, so a missing
+    ...    fixture is a defect of the lane setup (`just test-acceptance-windows` builds it as a hard
+    ...    prerequisite). Platform scoping happens via the suite's `platform:windows` tag, not here.
+    ${java_ok}=    Run Keyword And Return Status    Run Process    ${SWING_JAVA}    -version
+    Should Be True    ${java_ok}
+    ...    msg=no usable Java launcher (${SWING_JAVA}) — run `just build-test-app-swing` (sets up the provisioned runtime) or put a `java` 8+ on PATH
+    Should Be True    ${{ os.path.isdir($SWING_CLASSES) }}
+    ...    msg=Swing fixture not built at ${SWING_CLASSES} — run `just build-test-app-swing`
 
 Launch Swing Test App
     [Documentation]    Start one fixture instance with a unique window title and wait until its main

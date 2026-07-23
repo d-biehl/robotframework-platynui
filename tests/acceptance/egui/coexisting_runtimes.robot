@@ -8,17 +8,18 @@ Documentation       Real-lane proof that two BareMetal runtimes coexist in one p
 ...                 resolve and drive the same live session independently.
 ...
 ...                 X11-only: forcing ``platform.backend=x11`` cannot serve the Wayland compositor lane,
-...                 so Suite Setup skips there. The runtimes are built lazily on first keyword use, so the
-...                 skip (before any keyword) keeps the forced-backend imports harmless under Wayland.
+...                 so the suite is tagged ``platform:x11`` and only the X11 lane profile selects it.
+...                 The runtimes are built lazily on first keyword use, so the forced-backend imports are
+...                 harmless in lanes that never select the suite.
 
 Resource            resources/testapp.resource
 Library             PlatynUI.BareMetal    config={'platform': {'backend': 'x11', 'x11': {'display': '%{DISPLAY=}'}}, 'providers': {'atspi': {'bus_address': '%{AT_SPI_BUS_ADDRESS=}'}}}    auto_activate=${True}    AS    A
 Library             PlatynUI.BareMetal    config={'platform': {'backend': 'x11', 'x11': {'display': '%{DISPLAY=}'}}, 'providers': {'atspi': {'bus_address': '%{AT_SPI_BUS_ADDRESS=}'}}}    auto_activate=${False}    AS    B
 
-Suite Setup         Set Up Coexisting Runtimes Suite
+Suite Setup         Launch Default Instance
 Suite Teardown      Run Keyword And Ignore Error    Terminate Default Instance
 
-Test Tags           real
+Test Tags           real    platform:x11
 
 
 *** Test Cases ***
@@ -45,11 +46,3 @@ One Runtime Keeps Working While The Other Acts
     ${after}=    B.Get Attribute    ${WINDOW}${STATUS_CLICKS}    Name
     Should Be True    ${{ int($after.split(":")[1]) }} > ${{ int($before.split(":")[1]) }}
     ...    msg=B did not observe the click A performed on the shared session
-
-
-*** Keywords ***
-Set Up Coexisting Runtimes Suite
-    [Documentation]    Skip on non-X11 sessions (the forced x11 backend cannot serve Wayland), then
-    ...    launch the default instance so ``${WINDOW}`` addresses a live window on the session.
-    Skip If    '%{XDG_SESSION_TYPE=}' != 'x11'    same-display coexistence scenarios are X11-only
-    Launch Default Instance

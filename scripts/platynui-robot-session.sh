@@ -17,15 +17,19 @@ set -u
 #   # X11 (Xephyr):
 #   uv run scripts/startxsession.sh   -- scripts/platynui-robot-session.sh [robotcode-args...]
 #
-# With no robotcode-args, the default command is:
+# With no robotcode-args, the default command is the lane profile matching the
+# session the wrapper established (it exports XDG_SESSION_TYPE):
 #
-#   robotcode --profile real run
+#   robotcode --profile real-wayland run    # under startcompositor.sh
+#   robotcode --profile real-x11 run        # under startxsession.sh
 #
-# i.e. the real AT-SPI runtime driving the egui app (see the "egui" profile in
-# robot.toml). For interactive debugging — which halts on the first uncaught
-# failure and drops into a live (rdb) prompt — pass `run-debug` instead, e.g.
+# i.e. the real AT-SPI runtime driving the egui app, with foreign-platform
+# suites excluded by their platform:* tags (see robot.toml). For interactive
+# debugging — which halts on the first uncaught failure and drops into a live
+# (rdb) prompt — pass an explicit command instead (it overrides the default
+# entirely), e.g.
 #
-#   uv run scripts/startcompositor.sh -- scripts/platynui-robot-session.sh --profile real run-debug
+#   uv run scripts/startcompositor.sh -- scripts/platynui-robot-session.sh --profile real-wayland run-debug
 #
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -91,9 +95,19 @@ export QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1
 echo "Qt test app: $PLATYNUI_TEST_APP_QT_PYTHON $PLATYNUI_TEST_APP_QT_MAIN (Robot Framework launches it)" >&2
 echo "QML test app: $PLATYNUI_TEST_APP_QML_PYTHON $PLATYNUI_TEST_APP_QML_MAIN (Robot Framework launches it)" >&2
 
-# Default RobotCode command if none was supplied.
+# Default RobotCode command if none was supplied: pick the lane profile
+# matching the session type the wrapper exported. The profile excludes the
+# foreign platforms' `platform:*` tags (see robot.toml) — environment fitness
+# is decided by selection, not by runtime skips.
 if [ "$#" -eq 0 ]; then
-  set -- --profile real run
+  case "${XDG_SESSION_TYPE:-}" in
+    wayland) set -- --profile real-wayland run ;;
+    x11) set -- --profile real-x11 run ;;
+    *)
+      echo "WARNING: unknown XDG_SESSION_TYPE '${XDG_SESSION_TYPE:-}' — falling back to the unfiltered 'real' profile (platform-bound suites of other platforms will fail, not skip)" >&2
+      set -- --profile real run
+      ;;
+  esac
 fi
 
 echo "Running: robotcode $*" >&2

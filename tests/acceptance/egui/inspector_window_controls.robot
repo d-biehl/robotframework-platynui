@@ -13,7 +13,10 @@ Library             PlatynUI.BareMetal    AS    BM
 
 Suite Setup         Setup Inspector
 Suite Teardown      Teardown Inspector
-Test Tags           real
+# platform:wayland — headerbar window controls exist only on decoration-less
+# Wayland sessions; on X11 (and Windows/macOS) the Inspector keeps native
+# decorations and shows none of the elements this suite drives.
+Test Tags           real    platform:wayland
 
 
 *** Variables ***
@@ -144,11 +147,6 @@ Inspector Window Gone
     Should Be Equal    ${w}    ${None}    msg=Inspector window still on the a11y tree
 
 Setup Inspector
-    # Headerbar window controls exist only on Wayland sessions — on X11 (and
-    # Windows/macOS) the Inspector keeps native decorations and shows none of
-    # the elements this suite drives.
-    Skip If    '%{XDG_SESSION_TYPE=}' != 'wayland'
-    ...    Inspector window controls are Wayland-only (native decorations elsewhere)
     # Hermetic settings: keep the user's real settings file out of the run.
     VAR    ${settings}    ${OUTPUT DIR}${/}inspector-window-controls-settings.ron
     Remove File    ${settings}

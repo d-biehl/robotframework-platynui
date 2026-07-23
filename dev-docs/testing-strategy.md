@@ -116,16 +116,45 @@ behavior under test.
   the guard for the per-runtime platform architecture — the mock cannot stand in for it
   (it shares process-global state and holds no real connection), so the real `…-x11` /
   `…-compositor` lanes run *several* suites in one process on purpose.
-- **Where:** `tests/acceptance` (egui app); tagged `real`, selected by the `real` profile.
+- **Where:** `tests/acceptance` (one directory per fixture app); every suite is tagged
+  `real`, platform-bound suites additionally carry a `platform:*` tag (see below).
 - **How:** unlike a mock suite (static tree, no setup), an acceptance suite **owns its
   app instance**: launch it in `Suite Setup` and terminate it in `Suite Teardown`, pin the
   window root by `ProcessId` (not title, to survive stacking/ambiguity), and keep launch
   and locator keywords in a shared page-object resource
   (`tests/acceptance/egui/resources/testapp.resource`) rather than inline. Assert on
-  observable results through the real provider; use poll-based waits (§7) and `platform:*`
-  tags for selective runs.
+  observable results through the real provider; use poll-based waits (§7).
 - **Needs:** the **non-mock** native build and an isolated session via
   `scripts/platynui-robot-session.sh` (`just test-acceptance*`).
+
+**Platform scoping is selection, never a runtime skip.** A suite (or single test) that can
+only run on one platform declares that with a tag — `platform:x11`, `platform:wayland`,
+`platform:windows` — via `Test Tags` (suite-wide, inherited from an `__init__.robot` by
+all child suites) or `[Tags]` (per test). No platform tag means the suite runs on **every**
+lane. Each lane then selects through its `robot.toml` profile, which inherits `real` and
+*excludes the foreign platforms' tags* — `real-x11`, `real-wayland`, `real-windows` — so
+untagged suites always stay in. The lane entry points pick the matching profile themselves
+(`platynui-robot-session.sh` from the `XDG_SESSION_TYPE` its session wrapper exported;
+`just test-acceptance-windows` passes `real-windows`).
+
+Two rules follow, and they are strict:
+
+- **Never probe the environment to skip.** A `Skip If` on session type or OS hides a
+  permanently-dead suite behind a yellow report line and makes discovery lie about lane
+  coverage. If a suite runs somewhere else, tag it — a mis-tagged suite fails loudly on
+  the wrong lane, which is the point.
+- **Runtime-unknowable prerequisites fail, they don't skip.** If a selected suite finds
+  its fixture missing (binary not built, launcher unusable), that is a defect of the lane
+  setup: fail with an actionable message naming the `just` recipe that provisions it (see
+  `Require Swing Prerequisites` in `tests/acceptance/swing/resources/testapp.resource`
+  as the model).
+
+The one sanctioned skip in the acceptance lanes is the fixture blueprint's **documented
+technology limitation** (§5.1): a shared catalog test a technology's bridge provably
+cannot satisfy is skipped in that technology's onboarding suite with a message naming the
+limitation and where it is tracked. That skip is deterministic — identical on every run of
+that lane, independent of the machine — which is exactly what distinguishes it from the
+environment probing banned above.
 
 > Not a strategy layer: `tests/playground` holds manual `.robot` experiments against
 > pre-installed desktop apps. They have no assertions and are not run in CI — a scratchpad,
@@ -138,7 +167,7 @@ crates/**/src (#[cfg(test)]), crates/*/tests   Rust unit + integration
 packages/native/tests                          Python — native bindings (native mock)
 tests/PlatynUI                                  Python — high-level library (stubs)
 tests/BareMetal                                 RF mock lane      (tag: mock)
-tests/acceptance                                RF acceptance lane (tag: real)
+tests/acceptance                                RF acceptance lane (tag: real, + platform:*)
 tests/playground                                manual experiments (no CI)
 ```
 
@@ -148,6 +177,18 @@ tests/playground                                manual experiments (no CI)
 | Python bindings + RF mock | `just test-python` · `just test-baremetal` |
 | RF acceptance (real provider) | `just test-acceptance` (this OS) · `…-compositor` / `…-x11` (Linux) · `…-windows` |
 | Full local mock gate | `just pre-commit` |
+
+The RF tag vocabulary and the `robot.toml` profiles that select by it:
+
+| Tag | Meaning | Selected by profile |
+|---|---|---|
+| `mock` | needs the mock-provider build | `mock` |
+| `real` | needs the non-mock build + a real session | `real` (everything) and the lane profiles below |
+| `platform:x11` / `platform:wayland` / `platform:windows` | additionally bound to one platform; **no platform tag = every lane** | `real-x11` / `real-wayland` / `real-windows` — each inherits `real` and excludes the *other* platforms' tags |
+
+The lane entry points choose the profile (§2.6); running the plain `real` profile selects
+everything and is meant for discovery/dry-runs — on a concrete machine, foreign-platform
+suites will fail rather than skip, by design.
 
 `just`/`CONTRIBUTING.md` are the source of truth for exact recipe names; the durable point
 is the **build duality**: the mock and real lanes need **different native builds and
@@ -312,7 +353,10 @@ concrete job list; the strategy only requires that no lane is left ungated.
 - **Lowest layer first.** Prove logic in Rust/Python/RF-mock; reserve the acceptance lane
   for what only a real platform can show.
 - **Tag by build and platform.** `mock` / `real` select the lane; `platform:*` scopes
-  platform-specific acceptance suites.
+  platform-bound acceptance suites (§2.6, §3). Environment fitness is decided by tag
+  selection before the run — never by `Skip If` probes inside a suite, and a selected
+  suite with a missing prerequisite fails with an actionable message instead of skipping.
+  The only sanctioned skip is the blueprint's documented technology limitation (§2.6, §5.1).
 - **Verify platform facts against reality.** Before encoding an attribute namespace/value
   or a liveness expectation, read the *actual* value from a real target — run the
   **Inspector** (see [dev-docs/inspector.md](inspector.md)) or a `Query` / `Get Attribute`
@@ -331,6 +375,6 @@ concrete job list; the strategy only requires that no lane is left ungated.
 | Choice | Decision |
 |---|---|
 | Native Qt binding | **PySide6** (LGPL; functionally equivalent to PyQt6/GPL) |
-| Lane selection | `robot.toml` profiles `mock` / `real`, plus `platform:*` tags |
+| Lane selection | `robot.toml` profiles: `mock` / `real`, refined per platform by `real-{x11,wayland,windows}` excluding foreign `platform:*` tags; no runtime skips |
 | Mock vs real builds | Separate native builds per lane; one CI job each |
 | Live-test waits | Poll-based (`Wait Until …`) — preferred for robustness against timing variation |

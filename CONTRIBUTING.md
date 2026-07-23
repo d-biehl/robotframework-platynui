@@ -272,7 +272,7 @@ End‑to‑end / acceptance:
   | `just test-acceptance-x11` | Linux — under an isolated X11/Xephyr session. |
   | `just test-acceptance-windows` | Windows — on the native desktop (UIA), no isolated session. |
 
-  Extra arguments pass through to robotcode (default `--profile real run`), e.g. `just test-acceptance-compositor --profile real run --suite "Auto Activate"`.
+  Extra arguments pass through to robotcode and replace the default command entirely. The default is the lane profile matching the session — `real-wayland` / `real-x11` (chosen by the session script) or `real-windows` — which excludes suites tagged for other platforms (`platform:*`, see `robot.toml`); e.g. `just test-acceptance-compositor --profile real-wayland run --suite "Auto Activate"`.
 - **Headless / CI.** `headless=true` runs the Linux backends with no visible window (default under `CI`); it needs a GPU render node or Mesa software GL so egui can draw.
 - UI automation is platform-sensitive: include OS/session details (compositor vs X11, headless or not) when reporting failures or adding manual verification notes.
 
