@@ -8,7 +8,7 @@ The strategic weight of this fixture is on the *agent* side: on Windows JavaFX i
 
 **Goals:**
 
-- A real JavaFX window on the Windows desktop with the standard fixture ergonomics (unique title, auto-close, stable accessible names, click observable).
+- A real JavaFX window on the Windows desktop that is a `test-app-blueprint`-conforming fixture: core-tier catalog under the canonical names, blueprint CLI, name-based observables, catalog-suite onboarding.
 - Zero manual installs, same as the SWT fixture: PATH `java` 8+ suffices, everything else self-bootstraps pinned.
 - Acceptance coverage for the `java-app-classification` facts on a real JavaFX app (JVM + JavaFX via the `Glass*` window class, served by UIA, no diagnostic).
 
@@ -28,7 +28,7 @@ The strategic weight of this fixture is on the *agent* side: on Windows JavaFX i
 
 4. **Launch through the `installDist` output** (`bin/test-app-javafx(.bat)` carries the module-path setup), handed to the acceptance lane as `PLATYNUI_TEST_APP_JAVAFX_BIN` — same pattern as the SWT fixture, no Gradle invocation at test time.
 
-5. **Accessible-name discipline via JavaFX's accessibility API**: `Node.setAccessibleText(...)` (JavaFX's accessible name; surfaces as the UIA `Name`) on every interactive control, unique app-wide. JavaFX exposes no AutomationId equivalent, so the accessible name is the locator contract — same rule as Swing/JAB and SWT.
+5. **Blueprint conformance instead of an ad-hoc control set**: the fixture implements the `test-app-blueprint` core-tier catalog under the canonical names (all plain `javafx.controls` widgets — Button, CheckBox, RadioButton, TextField, ComboBox, ListView, TreeView, MenuBar, ContextMenu, dialog stages), the blueprint CLI (`--open-modal` added), and the standard observables (`clicks-<n>` counter, rename-on-activate). Names are wired via `Node.setAccessibleText(...)` (JavaFX's accessible name; surfaces as the UIA `Name`), unique app-wide. JavaFX exposes no AutomationId equivalent, so the accessible name is the locator contract — same rule as Swing/JAB and SWT, exactly as the blueprint prescribes. Catalog acceptance runs through the shared catalog resource (delivered by `add-qml-test-app`) via a thin `tests/acceptance/javafx/catalog.robot`; the classification suites stay JavaFX-specific.
 
 6. **UIA activation is demand-driven in JavaFX** (the Glass a11y layer spins up when Windows asks): the acceptance suite must tolerate the first UIA query being the activation trigger — poll-based assertions as in the existing suites, no fixed sleeps.
 
@@ -48,3 +48,4 @@ Purely additive: new app directory, recipes, exclude entry, acceptance suite. Ro
 - Exact JavaFX version pin (newest stable working with the JDK 21 toolchain at implementation time).
 - Whether a legacy JavaFX-on-Java-8 lane (Zulu FX 8 / Liberica Full 8 runtime) is ever needed for a real customer scenario — out of scope here, would be its own change.
 - Whether the click observable is a plain `Label` text change (UIA `Name`) or additionally mirrored via `accessibleText` — decide against what the UIA provider actually surfaces during implementation.
+- Which core-tier catalog behaviors JavaFX's on-demand UIA layer cannot satisfy (candidates: menu items while closed, modal state, tree-row expansion states) — verify against the running fixture and encode as documented skips per the blueprint, not as suite adaptations.

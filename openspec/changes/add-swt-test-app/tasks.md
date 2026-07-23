@@ -8,14 +8,15 @@
 
 ## 2. Fixture app
 
-- [ ] 2.1 `Main` with the fixture CLI contract: `--title` (default "PlatynUI SWT TestApp"), `--auto-close <seconds>`, usage + non-zero exit on unknown arguments
-- [ ] 2.2 Control set with fixed unique accessible names: shell, push button, single-line text field, checkbox, combo, status label (name overrides via `getAccessible().addAccessibleListener` where control text is not the name)
-- [ ] 2.3 Click-observable state change: button clicks update the status label text/accessible name to `clicks-<n>`
+- [ ] 2.1 `Main` with the blueprint CLI contract: `--title` (default "PlatynUI SWT TestApp"), `--auto-close <seconds>`, `--open-modal`, usage + non-zero exit on unknown arguments
+- [ ] 2.2 Blueprint core-tier catalog under canonical names (name overrides via `getAccessible().addAccessibleListener` where control text is not the name): `main-window`, `button-basic`+`status-label`, `checkbox-basic`, `groupbox-basic`+`radio-first`/`radio-second`, `textfield-basic`, `textarea-basic` (`SWT.MULTI`), `label-basic`, `text-basic`, `image-basic`, `combobox-basic`+items, `list-basic`+`list-item-1..5`, `tree-basic` (three levels), `main-menubar` with `menu-file`/`menu-edit` (+submenu `menu-edit-more`)/`menu-help`, `context-menu`+submenu `ctx-more`, dialogs `dialog-modeless`/`dialog-modal`
+- [ ] 2.3 Blueprint observables: `status-label` click counter (`clicks-<n>`), menu-item rename to `<ident>-activated`, dialog-button rename to `<ident>-clicked`; verify surfaced UIA names against the running fixture before encoding them in suites
 
 ## 3. Acceptance coverage
 
 - [ ] 3.1 Wire the fixture into `just test-acceptance-windows`: build with soft-skip (no JDK/network → warn and skip, mirroring the Swing pattern), hand the installDist launcher over as `PLATYNUI_TEST_APP_SWT_BIN` with the provisioned Java 8 runtime as launch `JAVA_HOME`
 - [ ] 3.2 Windows acceptance suite: launch the fixture (on the Java 8 runtime), assert the UIA window node carries `native:IsJvm = true` and `native:JvmToolkit = "SWT"`, no JVM enablement diagnostic fires, and the named controls enumerate with the click-counter observable working
+- [ ] 3.2a Catalog onboarding: thin `tests/acceptance/swt/catalog.robot` over the shared catalog resource (from `add-qml-test-app`) with launch config only; documented skips for verified SWT/UIA limitations
 - [ ] 3.3 Dual-runtime smoke: the same installDist output starts and honors `--auto-close` on both the provisioned Java 8 runtime and the JDK 21 toolchain
 
 ## 4. Verification

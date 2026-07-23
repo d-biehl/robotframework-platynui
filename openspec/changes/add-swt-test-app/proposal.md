@@ -4,7 +4,8 @@ The `java-app-classifier` change landed with its SWT scenario verified only agai
 
 ## What Changes
 
-- A new Java fixture **`apps/test-app-swt`**: a self-contained Gradle project mirroring the Swing fixture's CLI contract (`--title`, `--auto-close`, usage on unknown args) and accessible-name discipline, with a small fixed control set and a click-observable state change.
+- A new Java fixture **`apps/test-app-swt`**: a self-contained Gradle project that is a **`test-app-blueprint`-conforming fixture** — it implements the blueprint's core-tier control catalog (button + click counter, checkbox, radio group, text field, label, combo, list, tree, menu bar, context menu with submenu, modeless + modal dialog) under the canonical names, the blueprint CLI contract (`--title`, `--auto-close`, `--open-modal`, usage on unknown args), and the name-based action observables (`clicks-<n>` on `status-label`, rename-on-activate for menu items and dialog buttons).
+- **Catalog-suite onboarding**: a thin `tests/acceptance/swt/catalog.robot` supplies only the SWT launch configuration and runs the shared catalog keywords (reference implementation lands with `add-qml-test-app`); SWT-specific limitations surface as documented skips per the blueprint.
 - **Self-bootstrapping toolchain** (the pattern established by the archived `migrate-swing-test-app-to-gradle` change): checked-in current-Gradle wrapper whose client runs on the existing PATH `java` (8+), committed daemon JVM criteria auto-provision the Gradle daemon JVM, and Gradle Toolchains + the Foojay resolver plugin auto-provision the toolchain JDKs into `~/.gradle/jdks` — nothing to install manually. SWT itself resolves from Maven Central (`org.eclipse.platform:org.eclipse.swt.win32.win32.x86_64`, natives bundled in the JAR).
 - **Build on 21, target 8, test on 8 and 21**: the fixture compiles with the JDK 21 toolchain using `--release 8`, SWT is pinned to the newest release that still ships Java-8-compatible class files (real-world SWT apps are exactly that vintage), and a Temurin 8 JRE is auto-provisioned as a second toolchain so the acceptance lane can launch the fixture on a genuine Java 8 runtime as well as on 21.
 - `just build-test-app-swt` / `just run-test-app-swt` recipes; `apps/test-app-swt` added to the Cargo workspace `exclude`.
@@ -14,7 +15,7 @@ The `java-app-classifier` change landed with its SWT scenario verified only agai
 
 ### New Capabilities
 
-- `swt-test-app`: the SWT fixture application — self-bootstrapping Gradle build, fixture CLI conventions, named control set, and the JVM+SWT classification acceptance surface.
+- `swt-test-app`: the SWT fixture application — self-bootstrapping Gradle build, blueprint-conforming core-tier catalog and CLI, catalog-suite onboarding, and the JVM+SWT classification acceptance surface.
 
 ### Modified Capabilities
 
@@ -26,4 +27,4 @@ The `java-app-classifier` change landed with its SWT scenario verified only agai
 - **Modified**: `justfile` (build/run recipes, acceptance-lane wiring with soft-skip when the fixture is not built), root `Cargo.toml` (`exclude` entry), `AGENTS.md`/docs pointers where fixture apps are listed.
 - **No Rust or Python code changes, no native rebuild** — pure fixture + test surface. No BREAKING changes.
 - **Environment**: first build needs network access (Gradle distribution, JDK 21 auto-provision, Maven Central); machines only need the already-required `java` on PATH. Platform scope: Windows (the SWT artifact is per-platform; a Linux/GTK variant is a follow-up for the AT-SPI lane).
-- **Depends on**: nothing open — the Gradle scaffold, runtime selection (`writeJavaLaunchers` → `build/java-launchers.properties`, per-app `PLATYNUI_TEST_APP_*` env vars), and daemon JVM criteria are established by the archived `migrate-swing-test-app-to-gradle` change and reused here. **Unblocks**: real-app SWT coverage for `java-app-classification`; an SWT target for `provider-java-agent`.
+- **Depends on**: `test-app-blueprint` (catalog, canonical names, CLI, suite conventions) and `add-qml-test-app` (the shared catalog resource this fixture's `catalog.robot` consumes). The Gradle scaffold, runtime selection (`writeJavaLaunchers` → `build/java-launchers.properties`, per-app `PLATYNUI_TEST_APP_*` env vars), and daemon JVM criteria are established by the archived `migrate-swing-test-app-to-gradle` change and reused here. **Unblocks**: real-app SWT coverage for `java-app-classification`; an SWT target for `provider-java-agent`; the SWT row of the fixture technology matrix.

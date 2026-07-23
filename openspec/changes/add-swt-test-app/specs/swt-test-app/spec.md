@@ -26,27 +26,42 @@ The built fixture SHALL run unmodified on a genuine Java 8 runtime and on the JD
 - **WHEN** the Windows acceptance suite launches the fixture
 - **THEN** the fixture process runs on the provisioned Java 8 runtime, and the classification facts (JVM + SWT) hold for that process
 
-### Requirement: Test-app CLI conventions
-The app SHALL support the CLI surface of the existing fixture apps: `--title <text>` (shell title, default "PlatynUI SWT TestApp") and `--auto-close <seconds>` (self-terminate for CI). Unknown arguments SHALL fail with a usage message and a non-zero exit code.
+### Requirement: Blueprint CLI contract
+The app SHALL implement the `test-app-blueprint` CLI contract: `--title <text>` (shell title, default "PlatynUI SWT TestApp"), `--auto-close <seconds>` (self-terminate for CI), and `--open-modal` (additionally open the modal dialog at startup). Unknown arguments SHALL fail with a usage message and a non-zero exit code.
 
 #### Scenario: Custom title and auto-close
 - **WHEN** the app is started with `--title "My SWT Window" --auto-close 5`
 - **THEN** the top-level shell's title is "My SWT Window" and the process exits with code 0 no later than a few seconds after the 5-second deadline without user interaction
 
+#### Scenario: Modal dialog reachable without interaction
+- **WHEN** the app is started with `--open-modal`
+- **THEN** `dialog-modal` is present in the accessibility tree with modal state exposed, without any prior pointer or keyboard input
+
 #### Scenario: Unknown argument
 - **WHEN** the app is started with `--bogus`
 - **THEN** it prints a usage message naming the unknown argument and exits with a non-zero code
 
-### Requirement: Named control set with an observable state change
-The app SHALL contain, with fixed unique accessible names (SWT exposes no AutomationId equivalent — the accessible name is the locator contract): a top-level shell, a push button, a single-line text field, a checkbox, a combo, and a status label. Clicking the button SHALL change the status label's text (and accessible name) to include a click counter (`clicks-1`, `clicks-2`, …) so interaction tests can assert a click landed without screenshots. Additions later SHALL NOT change existing names.
+### Requirement: Blueprint core-tier catalog
+The app SHALL implement the `test-app-blueprint` core-tier control catalog under the blueprint's canonical names, wired through SWT accessible names (SWT exposes no AutomationId equivalent — the accessible name is the locator contract; name overrides via `getAccessible().addAccessibleListener` where control text is not the name): `main-window` (shell), `button-basic` with `status-label` (`clicks-<n>` counter), `checkbox-basic`, `groupbox-basic` (SWT `Group`) grouping `radio-first`/`radio-second`, `textfield-basic`, `textarea-basic` (multi-line, `SWT.MULTI`), `label-basic`, `text-basic` (plain text label), `image-basic` (an image label), `combobox-basic` with items, `list-basic` with `list-item-1..5`, `tree-basic` with three levels of `tree-node-*`, menu bar `main-menubar` with menus `menu-file`, `menu-edit` (incl. submenu `menu-edit-more` with `menu-edit-sub-*` items), and `menu-help` (items rename to `<ident>-activated` on activation), `context-menu` with items and submenu `ctx-more`, and dialogs `dialog-modeless`/`dialog-modal` with the `-clicked` rename observable on their buttons. Additions later SHALL NOT change existing names; surfaced UIA names SHALL be verified against the running fixture before the acceptance suites encode them.
 
-#### Scenario: Controls enumerable through UIA
+#### Scenario: Core tier enumerable through UIA
 - **WHEN** the Windows UIA provider walks the tree under the fixture's shell (real-provider verification)
-- **THEN** it finds the button, text field, checkbox, combo, and label with their designated names, and no interactive control reports an empty or duplicate name
+- **THEN** every core-tier control resolves under its canonical name, and no interactive control reports an empty or duplicate name
 
 #### Scenario: Click updates the observable
-- **WHEN** the button is activated twice
-- **THEN** the status label's text and accessible name end with `clicks-2`
+- **WHEN** `button-basic` is activated twice
+- **THEN** `status-label`'s text and accessible name end with `clicks-2`
+
+#### Scenario: Menu activation observable
+- **WHEN** the menu item `menu-file-new` is activated via the real UI
+- **THEN** an element named `menu-file-new-activated` is resolvable in the tree
+
+### Requirement: Catalog-suite onboarding
+The fixture SHALL be onboarded to the shared catalog acceptance suite via a thin `tests/acceptance/swt/catalog.robot` that supplies only launch configuration (installDist launcher from `PLATYNUI_TEST_APP_SWT_BIN`, Java 8 runtime by default) and declares the catalog tests; SWT/UIA limitations SHALL surface as documented skips naming the limitation. The shared catalog keywords themselves are delivered by `add-qml-test-app` and SHALL NOT be modified with SWT-specific logic.
+
+#### Scenario: Catalog suite runs from launch configuration alone
+- **WHEN** `catalog.robot` runs in the Windows acceptance lane with the fixture built
+- **THEN** the shared catalog tests execute against the SWT fixture, and each non-passing catalog test is a documented skip naming its limitation
 
 ### Requirement: Classifies as a JVM+SWT application served by UIA
 The running fixture SHALL be the real-app acceptance surface for `java-app-classification` on SWT: its top-level window carries an `SWT_Window*` window class, classifies as JVM-backed with toolkit SWT, is served by the UIA provider (no JAB claim), and triggers no "absent from native accessibility" diagnostic.

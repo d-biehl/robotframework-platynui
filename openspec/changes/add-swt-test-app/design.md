@@ -6,7 +6,7 @@ The Java-fixture toolchain story is already settled: the Swing fixture (`apps/te
 
 **Goals:**
 
-- A real SWT window on the Windows desktop with the same fixture ergonomics as the Swing app (unique title, auto-close, stable names).
+- A real SWT window on the Windows desktop that is a `test-app-blueprint`-conforming fixture: core-tier catalog under the canonical names, blueprint CLI, name-based observables, catalog-suite onboarding.
 - Zero manual installs: existing `java` on PATH is enough; everything else self-bootstraps with pinned versions.
 - Acceptance coverage for the `java-app-classification` facts on a real SWT app (JVM + SWT, served by UIA, no diagnostic).
 
@@ -28,7 +28,7 @@ The Java-fixture toolchain story is already settled: the Swing fixture (`apps/te
 
 5. **Launchable output via `installDist`** (Gradle `application` plugin): `just build-test-app-swt` produces `apps/test-app-swt/build/install/test-app-swt/bin/test-app-swt(.bat)` with the correct classpath; the acceptance lane hands the path over as `PLATYNUI_TEST_APP_SWT_BIN`, mirroring the existing `PLATYNUI_TEST_APP_*` pattern. Robot suites (and any Rust live test) launch the script directly — no Gradle invocation at test time.
 
-6. **Accessible-name discipline carries over**: every interactive control gets an explicit, unique accessible name (SWT: control text where natural, `getAccessible().addAccessibleListener` name override where not). SWT maps to UIA natively, so these surface as UIA `Name`; SWT exposes no AutomationId equivalent, so — as with JAB — the name is the locator contract.
+6. **Blueprint conformance instead of an ad-hoc control set**: the fixture implements the `test-app-blueprint` core-tier catalog under the canonical names (every control is a plain SWT widget — Shell, Button, Text, Combo, List, Tree, Menu — so the full core tier stays cheap), the blueprint CLI (`--open-modal` added to the Swing-derived contract), and the standard observables (`clicks-<n>` counter, rename-on-activate). Names are wired via SWT accessible names (control text where natural, `getAccessible().addAccessibleListener` override where not) and surface as UIA `Name`; SWT exposes no AutomationId equivalent, so — as with JAB — the name is the locator contract, exactly as the blueprint prescribes. The catalog acceptance runs through the shared catalog resource (delivered by `add-qml-test-app`) via a thin `tests/acceptance/swt/catalog.robot`; the classification suites stay SWT-specific.
 
 7. **Acceptance soft-skips like the Swing fixture**: if the fixture is not built (no network on first run, Gradle failure), the SWT suites skip with a clear message instead of failing the lane.
 
@@ -46,4 +46,4 @@ Purely additive: new app directory, recipes, exclude entry, acceptance suite. Ro
 ## Open Questions
 
 - Exact SWT version pin: the newest release on Maven Central whose class files still target Java 8 (determine at implementation).
-- Whether the acceptance robot suite reuses the generic app-launch keywords or needs an SWT-specific resource file — decide against the existing Swing suite structure during implementation.
+- Which core-tier catalog behaviors SWT's UIA mapping cannot satisfy (candidates: submenu exposure while closed, modal state on `--open-modal` dialogs) — verify against the running fixture and encode as documented skips per the blueprint, not as suite adaptations.
