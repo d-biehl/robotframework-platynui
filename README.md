@@ -58,35 +58,46 @@ platynui-cli keyboard list | head -n 20
 platynui-cli keyboard type "Hello <Ctrl+A>\\u00A7"
 platynui-cli snapshot "//control:Window" --pretty
 platynui-cli snapshot "//control:Window" --format xml --output windows.xml
+platynui-cli highlight "//control:Window"
+platynui-cli screenshot desktop.png
+platynui-cli element-at-point 100 200
 platynui-inspector
 ```
+
+The CLI also offers `watch` (stream provider events), `focus`, `window` (activate, minimize, move, resize, ...), and `pointer` (move, click, scroll, drag) subcommands; see [packages/cli/README.md](packages/cli/README.md) for the full command overview.
 
 Useful Inspector options:
 
 ```sh
-platynui-inspector --search-result-limit 5000
+platynui-inspector --theme dark
 platynui-inspector --search-result-limit unlimited
 PLATYNUI_INSPECTOR_SEARCH_RESULT_LIMIT=5000 platynui-inspector
 ```
 
-The Inspector shows the first 5000 XPath search results by default. Use `--search-result-limit <COUNT|unlimited>` or `PLATYNUI_INSPECTOR_SEARCH_RESULT_LIMIT=<COUNT|unlimited>` to override that guard. Command-line options take precedence over environment variables.
+The Inspector includes a live mouse picker ("Pick Element" in the toolbar): while armed, holding the activation combination (default Ctrl+Alt+Shift, configurable under File → Settings) selects and highlights the element under the mouse cursor, including in other applications. See the platform-support table below for where live picking is available.
+
+By default the Inspector follows the system light/dark theme; `--theme <system|light|dark>` or `PLATYNUI_INSPECTOR_THEME` forces one for a single run. It shows the first 5000 XPath search results; `--search-result-limit <COUNT|unlimited>` or `PLATYNUI_INSPECTOR_SEARCH_RESULT_LIMIT` overrides that guard. Command-line options take precedence over environment variables. Settings changed in the UI (picker combination, toolbar style, theme) persist in `<config dir>/platynui/inspector.ron`; `PLATYNUI_INSPECTOR_SETTINGS_PATH` overrides the settings file location. See [packages/inspector/README.md](packages/inspector/README.md) for rendering and troubleshooting options.
 
 ## Platform support
 
-| Component | Windows | Linux X11 | Linux Wayland | macOS | Mock |
-|-----------|---------|-----------|---------------|-------|------|
-| UI tree provider | ✅ UIA | ✅ AT-SPI2 | ✅ AT-SPI2 with Wayland coordinate limits | ❌ AX stub | ✅ |
-| Java Swing/AWT provider | ⚠️ experimental JAB (Java Access Bridge) | ✅ via AT-SPI2 (java-atk-wrapper) | ✅ via AT-SPI2 (java-atk-wrapper) | — (JDK implements AX natively) | — |
-| Pointer | ✅ SendInput | ✅ XTest | ⚠️ EIS / portal / virtual-input / test-compositor backends | ❌ stub | ✅ |
-| Keyboard | ✅ SendInput | ✅ XTest | ⚠️ EIS / portal / virtual-input / test-compositor backends | ❌ stub | ✅ |
-| Desktop info | ✅ Win32 | ✅ XRandR/root geometry | ⚠️ `wl_output` plus compositor enrichment | ❌ stub | ✅ |
-| Screenshot | ✅ GDI | ✅ XGetImage | ❌ not implemented yet | ❌ stub | ✅ |
-| Highlight | ✅ layered window | ✅ override-redirect windows | ⚠️ PlatynUI test compositor only | ❌ stub | ✅ |
-| Window management | ✅ Win32 | ⚠️ partial EWMH | ⚠️ PlatynUI test compositor only | ❌ stub | ✅ |
-| Inspector | ✅ | ✅ | ⚠️ experimental through Linux mediator | ❌ | ✅ with mock feature |
-| Inspector live mouse picker | ✅ UIA | ✅ AT-SPI | ❌ not yet (no live cursor position) | ❌ AX stub | — |
+| Component | Windows | Linux X11 | Linux Wayland | PlatynUI compositor | macOS | Mock |
+|-----------|---------|-----------|---------------|---------------------|-------|------|
+| UI tree provider | ✅ UIA | ✅ AT-SPI2 | ✅ AT-SPI2, window-relative coordinates | ✅ AT-SPI2 + compositor window geometry | ❌ AX stub | ✅ |
+| Java Swing/AWT provider | ⚠️ experimental JAB (Java Access Bridge) | ❌ planned in-JVM agent | ❌ planned in-JVM agent | ❌ planned in-JVM agent | — (JDK implements AX natively) | — |
+| Pointer | ✅ SendInput | ✅ XTest | ⚠️ portal (Mutter/KWin) / virtual-input (wlroots) / EIS | ✅ EIS | ❌ stub | ✅ |
+| Keyboard | ✅ SendInput | ✅ XTest | ⚠️ portal (Mutter/KWin) / virtual-input (wlroots) / EIS | ✅ EIS | ❌ stub | ✅ |
+| Desktop info | ✅ Win32 | ✅ XRandR/root geometry | ⚠️ `wl_output` + Mutter/KWin D-Bus enrichment | ✅ `wl_output` | ❌ stub | ✅ |
+| Screenshot | ✅ GDI | ✅ XGetImage | ❌ planned (portal / screencopy) | ✅ compositor capture | ❌ stub | ✅ |
+| Highlight | ✅ layered window | ✅ override-redirect windows | ❌ | ✅ compositor overlay | ❌ stub | ✅ |
+| Window management | ✅ Win32 | ⚠️ partial EWMH | ❌ | ✅ | ❌ stub | ✅ |
+| Inspector | ✅ | ✅ | ⚠️ tree and queries only | ✅ | ❌ | ✅ with mock feature |
+| Inspector live mouse picker | ✅ UIA | ✅ AT-SPI | ❌ no live cursor position | ✅ | ❌ AX stub | — |
 
-Linux uses `platynui-platform-linux` as a runtime session mediator. It detects X11 vs Wayland from the environment and delegates to the matching backend. X11 remains the most complete Linux path today. Wayland support is active but experimental; see the working notes under [dev-docs/](dev-docs/) and [apps/wayland-compositor/docs/](apps/wayland-compositor/docs/) for current protocol work.
+Linux uses `platynui-platform-linux` as a runtime session mediator. It detects X11 vs Wayland from the environment and delegates to the matching backend. X11 remains the most complete Linux path today. On generic Wayland compositors, capabilities that need compositor cooperation (global coordinates, screenshots, highlighting, window management, live picking) are not available yet; portal- and protocol-based backends are planned. See the working notes under [dev-docs/](dev-docs/) and [apps/wayland-compositor/docs/](apps/wayland-compositor/docs/) for current protocol work.
+
+The **PlatynUI compositor** column is [apps/wayland-compositor](apps/wayland-compositor/README.md), the project's own Wayland test compositor: it exposes input injection (EIS), window geometry and management, screenshots, highlighting, and modifier state over a control socket, optionally hosts X11 applications through XWayland, and backs the Linux acceptance test lanes (windowed or headless). Under it, the full capability set works on Wayland today.
+
+For Java UI toolkits on Linux, `java-atk-wrapper` is deliberately not part of the strategy (it is fragile and requires modifying the target application's launch): Swing/AWT and JavaFX are planned to be reached through an in-JVM agent provider, while SWT is already covered by the native providers on every platform. See [dev-docs/java-toolkits.md](dev-docs/java-toolkits.md) for the full detection and coverage picture.
 
 ## Package docs
 
