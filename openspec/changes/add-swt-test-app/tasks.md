@@ -14,7 +14,7 @@
 
 ## 3. Acceptance coverage
 
-- [ ] 3.1 Wire the fixture into `just test-acceptance-windows`: build with soft-skip (no JDK/network → warn and skip, mirroring the Swing pattern), hand the installDist launcher over as `PLATYNUI_TEST_APP_SWT_BIN` with the provisioned Java 8 runtime as launch `JAVA_HOME`
+- [ ] 3.1 Wire the fixture into `just test-acceptance-windows`: build as a hard prerequisite (a failed Gradle build fails the lane, mirroring the Swing pattern per `tag-based-acceptance-selection`), tag the SWT suites `platform:windows`, make their prerequisite check fail (not skip) with a message naming the build recipe, and hand the installDist launcher over as `PLATYNUI_TEST_APP_SWT_BIN` with the provisioned Java 8 runtime as launch `JAVA_HOME`
 - [ ] 3.2 Windows acceptance suite: launch the fixture (on the Java 8 runtime), assert the UIA window node carries `native:IsJvm = true` and `native:JvmToolkit = "SWT"`, no JVM enablement diagnostic fires, and the named controls enumerate with the click-counter observable working
 - [ ] 3.2a Catalog onboarding: thin `tests/acceptance/swt/catalog.robot` over the shared catalog resource (from `add-qml-test-app`) with launch config only; documented skips for verified SWT/UIA limitations
 - [ ] 3.3 Dual-runtime smoke: the same installDist output starts and honors `--auto-close` on both the provisioned Java 8 runtime and the JDK 21 toolchain

@@ -23,7 +23,7 @@ Like SWT, the JavaFX half of the `java-app-classifier` verification ran only aga
 ## Impact
 
 - **New**: `apps/test-app-javafx/**` (Gradle project + Java sources; wrapper JAR checked in), acceptance suite under `tests/acceptance`.
-- **Modified**: `justfile` (build/run recipes, acceptance-lane wiring with soft-skip when the fixture is not built), root `Cargo.toml` (`exclude` entry), docs pointers where fixture apps are listed.
+- **Modified**: `justfile` (build/run recipes; acceptance-lane wiring with the fixture build as a hard prerequisite, per `tag-based-acceptance-selection`), root `Cargo.toml` (`exclude` entry), docs pointers where fixture apps are listed.
 - **No Rust or Python code changes, no native rebuild** — pure fixture + test surface. No BREAKING changes.
 - **Environment**: first build needs network access (Gradle distribution, JDK 21 auto-provision, OpenJFX from Maven Central — ~40 MB of JavaFX artifacts incl. Windows natives); machines only need the already-required `java` on PATH. Platform scope: Windows now; the fixture's sources are platform-neutral, and the Linux run (where JavaFX is invisible to AT-SPI) becomes the agent lane's test bed.
 - **Depends on**: `test-app-blueprint` (catalog, canonical names, CLI, suite conventions) and `add-qml-test-app` (the shared catalog resource this fixture's `catalog.robot` consumes); the toolchain pattern is settled by the archived `migrate-swing-test-app-to-gradle` change (copy the scaffold from `apps/test-app-swing`); `add-swt-test-app` additionally establishes the `installDist` launch wiring this fixture mirrors. **Unblocks**: real-app JavaFX coverage for `java-app-classification`; the primary target for `provider-java-agent`; the JavaFX row of the fixture technology matrix.

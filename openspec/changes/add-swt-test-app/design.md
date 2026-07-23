@@ -30,7 +30,7 @@ The Java-fixture toolchain story is already settled: the Swing fixture (`apps/te
 
 6. **Blueprint conformance instead of an ad-hoc control set**: the fixture implements the `test-app-blueprint` core-tier catalog under the canonical names (every control is a plain SWT widget — Shell, Button, Text, Combo, List, Tree, Menu — so the full core tier stays cheap), the blueprint CLI (`--open-modal` added to the Swing-derived contract), and the standard observables (`clicks-<n>` counter, rename-on-activate). Names are wired via SWT accessible names (control text where natural, `getAccessible().addAccessibleListener` override where not) and surface as UIA `Name`; SWT exposes no AutomationId equivalent, so — as with JAB — the name is the locator contract, exactly as the blueprint prescribes. The catalog acceptance runs through the shared catalog resource (delivered by `add-qml-test-app`) via a thin `tests/acceptance/swt/catalog.robot`; the classification suites stay SWT-specific.
 
-7. **Acceptance soft-skips like the Swing fixture**: if the fixture is not built (no network on first run, Gradle failure), the SWT suites skip with a clear message instead of failing the lane.
+7. **Acceptance selection and prerequisites follow the tag-based scheme** (`tag-based-acceptance-selection`, as retrofitted onto the Swing fixture): the SWT suites are tagged `platform:windows` so only the `real-windows` lane profile selects them; `just test-acceptance-windows` builds the fixture as a hard prerequisite (a failed Gradle build fails the lane), and the suites' runtime prerequisite check fails with an actionable message naming the build recipe — it never skips.
 
 ## Risks / Trade-offs
 

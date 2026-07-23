@@ -24,7 +24,7 @@ The `java-app-classifier` change landed with its SWT scenario verified only agai
 ## Impact
 
 - **New**: `apps/test-app-swt/**` (Gradle project + Java sources; wrapper JAR checked in), acceptance suite under `tests/acceptance`.
-- **Modified**: `justfile` (build/run recipes, acceptance-lane wiring with soft-skip when the fixture is not built), root `Cargo.toml` (`exclude` entry), `AGENTS.md`/docs pointers where fixture apps are listed.
+- **Modified**: `justfile` (build/run recipes; acceptance-lane wiring with the fixture build as a hard prerequisite, per `tag-based-acceptance-selection`), root `Cargo.toml` (`exclude` entry), `AGENTS.md`/docs pointers where fixture apps are listed.
 - **No Rust or Python code changes, no native rebuild** — pure fixture + test surface. No BREAKING changes.
 - **Environment**: first build needs network access (Gradle distribution, JDK 21 auto-provision, Maven Central); machines only need the already-required `java` on PATH. Platform scope: Windows (the SWT artifact is per-platform; a Linux/GTK variant is a follow-up for the AT-SPI lane).
 - **Depends on**: `test-app-blueprint` (catalog, canonical names, CLI, suite conventions) and `add-qml-test-app` (the shared catalog resource this fixture's `catalog.robot` consumes). The Gradle scaffold, runtime selection (`writeJavaLaunchers` → `build/java-launchers.properties`, per-app `PLATYNUI_TEST_APP_*` env vars), and daemon JVM criteria are established by the archived `migrate-swing-test-app-to-gradle` change and reused here. **Unblocks**: real-app SWT coverage for `java-app-classification`; an SWT target for `provider-java-agent`; the SWT row of the fixture technology matrix.
