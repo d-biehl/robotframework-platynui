@@ -2,17 +2,23 @@ paths = "tests"
 # log-level = "TRACE"
 
 # ---------------------------------------------------------------------------
-# Acceptance lanes need DIFFERENT native builds and CANNOT share one:
-# a mock-provider build makes `Runtime()` resolve the built-in mock tree
-# instead of the real platform provider. Tests are tagged by build requirement:
-#   tag `real` -> needs the non-mock build      (just build-native)
-#   tag `mock` -> needs the mock-provider build  (just build-native-mock)
-# Pair the build with the tag/profile (CI: a separate job per lane).
+# Tags encode three ORTHOGONAL dimensions; profiles select by combining them:
 #
-# Within the real lane, platform-bound suites/tests additionally carry a
-# `platform:*` tag (`platform:x11`, `platform:wayland`, `platform:windows`).
-# No platform tag = runs on every lane. Each lane profile below selects by
-# EXCLUDING the foreign platforms' tags, so untagged suites always stay in.
+#   Test level:        `acceptance` — drives a fixture app end-to-end through
+#                      real providers (tests/acceptance/*). Other levels (e.g.
+#                      the BareMetal keyword-behavior suites) carry no level
+#                      tag until a second kind of the same level exists.
+#   Build requirement: `real` -> needs the non-mock build      (just build-native)
+#                      `mock` -> needs the mock-provider build (just build-native-mock)
+#                      The lanes need DIFFERENT native builds and CANNOT share
+#                      one: a mock-provider build makes `Runtime()` resolve the
+#                      built-in mock tree instead of the real platform provider.
+#                      Pair the build with the tag/profile (CI: a job per lane).
+#   Platform binding:  `platform:x11` / `platform:wayland` / `platform:windows`
+#                      on platform-bound suites/tests. No platform tag = runs on
+#                      every lane. Each lane profile below selects by EXCLUDING
+#                      the foreign platforms' tags, so untagged suites stay in.
+#
 # Environment fitness is decided here, by selection — never by runtime
 # `Skip If` guards inside a suite (see dev-docs/testing-strategy.md).
 # ---------------------------------------------------------------------------
@@ -25,9 +31,9 @@ paths = "tests"
 #   uv run scripts/startxsession.sh   -- scripts/platynui-robot-session.sh   # X11
 # (the session script defaults to `robotcode --profile real run`).
 [profiles.real]
-description = "Real-provider acceptance suites under tests/acceptance (tag 'real'; needs the non-mock build)"
+description = "Real-provider acceptance suites under tests/acceptance (tags 'acceptance' AND 'real'; needs the non-mock build)"
 paths = ["tests/acceptance"]
-includes = ["real"]
+includes = ["acceptanceANDreal"]
 
 # Mock lane: drive the PlatynUI.BareMetal library against the built-in mock tree.
 # Deterministic, needs no display, runs on any OS. REQUIRES the mock-provider

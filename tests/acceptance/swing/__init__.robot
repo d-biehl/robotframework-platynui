@@ -16,11 +16,12 @@ Documentation       Java Swing acceptance suites — they drive the REAL Windows
 ...                 as a hard prerequisite. A missing launcher or unbuilt fixture FAILS
 ...                 the suites with an actionable message — it never skips.
 ...
-...                 All tests are tagged ``real`` and ``platform:windows`` (the JAB
+...                 All tests are tagged ``acceptance``, ``real``, and
+...                 ``platform:windows`` (the JAB
 ...                 channel is Windows-only; Linux Swing rides AT-SPI via
 ...                 java-atk-wrapper in a future lane), so only the ``real-windows``
 ...                 lane profile selects them. This top-level suite launches nothing:
 ...                 each child suite starts and tears down the instance(s) it needs,
 ...                 pinned by ProcessId — see resources/testapp.resource.
 
-Test Tags           real    platform:windows
+Test Tags           acceptance    real    platform:windows

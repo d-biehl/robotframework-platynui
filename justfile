@@ -247,7 +247,7 @@ test-all: test test-python
 
 # ─── Acceptance (real desktop, needs the non-mock build) ──────────────────────────
 #
-# The acceptance lane (tests/acceptance, tag `real`) drives the real platform
+# The acceptance lane (tests/acceptance, tags `acceptance` + `real`) drives the real platform
 # provider against the test apps there. Each recipe rebuilds the non-mock
 # native module first (a mock-provider build would silently resolve the built-in
 # mock tree instead). Robot Framework launches the app instance(s) itself; extra

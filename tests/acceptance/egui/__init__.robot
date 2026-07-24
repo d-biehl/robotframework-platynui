@@ -7,7 +7,8 @@ Documentation       egui acceptance suites — they drive the REAL platform
 ...                 mock-provider build makes ``Runtime()`` resolve the built-in
 ...                 mock tree instead of the real provider, so these tests fail.
 ...
-...                 All tests here are tagged ``real`` so the run can be matched
+...                 All tests here are tagged ``acceptance`` (the test level) and
+...                 ``real`` (the build requirement) so the run can be matched
 ...                 to the build (e.g. ``robotcode robot -i real`` on a non-mock
 ...                 build; mock-tree suites are tagged ``mock`` and need
 ...                 ``just build-native-mock``).
@@ -17,4 +18,4 @@ Documentation       egui acceptance suites — they drive the REAL platform
 ...                 so every suite begins from a known state — see
 ...                 resources/testapp.resource.
 
-Test Tags           real
+Test Tags           acceptance    real

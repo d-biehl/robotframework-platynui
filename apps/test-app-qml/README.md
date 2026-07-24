@@ -152,7 +152,7 @@ is its **title** (launch-configuration matching applies), and the child windows
 ## Acceptance lane
 
 Wired into the real-provider lane under
-[`tests/acceptance/qml`](../../tests/acceptance/qml) (profile `real`, tag `real`):
+[`tests/acceptance/qml`](../../tests/acceptance/qml) (profile `real`, tags `acceptance` + `real`):
 `catalog.robot` carries the blueprint's canonical catalog test set (the reference
 implementation — self-contained test bodies, instance pinned via `Set Root`,
 canonical-name locators), plus QML-specific suites for popup modes, both dialog

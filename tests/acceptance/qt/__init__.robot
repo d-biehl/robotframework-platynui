@@ -17,10 +17,11 @@ Documentation       Qt (PySide6) acceptance suites — they drive the REAL platf
 ...                 spawns Python as a child whose PID differs from uv's and would
 ...                 break the ``@ProcessId`` window pinning).
 ...
-...                 All tests here are tagged ``real`` so the run matches the build.
+...                 All tests here are tagged ``acceptance`` (the test level) and
+...                 ``real`` (the build requirement) so the run matches the build.
 ...                 This top-level suite launches nothing: each child suite starts
 ...                 and tears down the instance(s) it needs (pinned by ProcessId),
 ...                 so every suite begins from a known state — see
 ...                 resources/testapp.resource.
 
-Test Tags           real
+Test Tags           acceptance    real
