@@ -39,10 +39,9 @@ Each Coexisting Runtime Drives Its Own Highlight
 
 One Runtime Keeps Working While The Other Acts
     [Documentation]    An action through one runtime does not disturb the other: A clicks the button and
-    ...    B, reading the same live tree through its own connection, observes the incremented count.
-    ${before}=    B.Get Attribute    ${WINDOW}${STATUS_CLICKS}    Name
-    A.Pointer Click    ${WINDOW}${BTN_CLICK_ME}
-    Sleep    0.3s
-    ${after}=    B.Get Attribute    ${WINDOW}${STATUS_CLICKS}    Name
-    Should Be True    ${{ int($after.split(":")[1]) }} > ${{ int($before.split(":")[1]) }}
+    ...    B, reading the same live tree through its own connection, observes the incremented count
+    ...    (Wait Until Query polls B's view instead of sleeping a fixed time).
+    ${before}=    B.Get Attribute    ${WINDOW}//*[@Id="status-clicks"]    Name
+    A.Pointer Click    ${WINDOW}//*[@Id="btn-click-me"]
+    B.Wait Until Query    ${WINDOW}//*[@Id="status-clicks"]/@Name    !=    ${before}
     ...    msg=B did not observe the click A performed on the shared session

@@ -7,24 +7,14 @@ Documentation       Contract checks for the Inspector's headerbar window control
 ...                 implements the real xdg-toplevel move/maximize grabs, so effects are observable
 ...                 as window-bounds changes.
 
-Library             OperatingSystem
-Library             Process
-Library             PlatynUI.BareMetal    AS    BM
+Resource            resources/inspector.resource
 
-Suite Setup         Setup Inspector
-Suite Teardown      Teardown Inspector
+Suite Setup         Launch Inspector    inspector-window-controls-settings.ron
+Suite Teardown      Terminate Inspector
 # platform:wayland — headerbar window controls exist only on decoration-less
 # Wayland sessions; on X11 (and Windows/macOS) the Inspector keeps native
 # decorations and shows none of the elements this suite drives.
 Test Tags           real    platform:wayland
-
-
-*** Variables ***
-${INSPECTOR_BIN}        ${{ os.environ.get("PLATYNUI_INSPECTOR_BIN") or os.path.abspath("target/debug/platynui-inspector-rs" + (".exe" if os.name == "nt" else "")) }}
-${INSP_HANDLE}          ${None}
-${INSP_WIN}             ${None}
-${MAXIMIZE_BTN}         //*[@Id="window-maximize"]
-${CLOSE_BTN}            //*[@Id="window-close"]
 
 
 *** Test Cases ***
@@ -44,7 +34,7 @@ Dragging Empty Menu-Bar Space Moves The Window
     # request only on a focused window (its guard against an X11 input-grab
     # bug). A real user drags a window they clicked into anyway.
     BM.Activate Window    ${INSP_WIN}
-    Sleep    0.3s
+    BM.Get Attribute    ${INSP_WIN}    IsActive    ==    ${True}
     ${before}=    BM.Get Attribute    ${INSP_WIN}    Bounds
     ${x}    ${y}=    Empty Menu Bar Point
     Drag Pointer From    ${x}    ${y}
@@ -54,9 +44,9 @@ Maximize Button Toggles The Window State
     [Documentation]    The Maximize button grows the window to the output; the same control —
     ...    now presenting as Restore under the unchanged @Id — restores the previous size.
     ${before}=    BM.Get Attribute    ${INSP_WIN}    Bounds
-    BM.Pointer Click    ${INSP_WIN}${MAXIMIZE_BTN}
+    BM.Pointer Click    ${INSP_WIN}//*[@Id="window-maximize"]
     Wait Until Keyword Succeeds    5s    0.3s    Window Grew Beyond    ${before}
-    BM.Pointer Click    ${INSP_WIN}${MAXIMIZE_BTN}
+    BM.Pointer Click    ${INSP_WIN}//*[@Id="window-maximize"]
     Wait Until Keyword Succeeds    5s    0.3s    Window Restored To    ${before}
 
 Double-Click On Empty Menu-Bar Space Maximizes
@@ -73,7 +63,7 @@ Double-Click On Empty Menu-Bar Space Maximizes
     BM.Pointer Click    x=${x}    y=${y}    overrides=${fast}
     BM.Pointer Click    x=${x}    y=${y}    overrides=${fast}
     Wait Until Keyword Succeeds    5s    0.3s    Window Grew Beyond    ${before}
-    BM.Pointer Click    ${INSP_WIN}${MAXIMIZE_BTN}
+    BM.Pointer Click    ${INSP_WIN}//*[@Id="window-maximize"]
     Wait Until Keyword Succeeds    5s    0.3s    Window Restored To    ${before}
 
 Menu Clicks Are Not Stolen By The Grip
@@ -81,8 +71,7 @@ Menu Clicks Are Not Stolen By The Grip
     ...    genuinely empty space.
     BM.Pointer Click    ${INSP_WIN}//*[@Name="Help"]
     TRY
-        Wait Until Keyword Succeeds    5s    0.3s    Inspector Shows Element
-        ...    contains(@Name,"About PlatynUI Inspector")
+        BM.Wait Until Exists    ${INSP_WIN}//*[contains(@Name,"About PlatynUI Inspector")]
     FINALLY
         BM.Keyboard Type    ${None}    <Escape>
     END
@@ -90,8 +79,8 @@ Menu Clicks Are Not Stolen By The Grip
 Close Button Removes The Window
     [Documentation]    Activating the Close button ends the Inspector — the window leaves the
     ...    accessibility tree. Runs last; the teardown tolerates the process being gone.
-    BM.Pointer Click    ${INSP_WIN}${CLOSE_BTN}
-    Wait Until Keyword Succeeds    10s    0.3s    Inspector Window Gone
+    BM.Pointer Click    ${INSP_WIN}//*[@Id="window-close"]
+    BM.Wait Until Gone    ${INSP_WIN}    query_overrides={'timeout': 10}
 
 
 *** Keywords ***
@@ -99,9 +88,9 @@ Empty Menu Bar Point
     [Documentation]    Screen point on the menu bar's empty middle: horizontally between the last
     ...    menu (Help) and the Maximize button, vertically centered on the menu row.
     ${help}=    BM.Get Attribute    ${INSP_WIN}//*[@Name="Help"]    Bounds
-    ${max}=    BM.Get Attribute    ${INSP_WIN}${MAXIMIZE_BTN}    Bounds
-    ${x}=    Evaluate    (${help.x} + ${help.width} + ${max.x}) / 2
-    ${y}=    Evaluate    ${help.y} + ${help.height} / 2
+    ${max}=    BM.Get Attribute    ${INSP_WIN}//*[@Id="window-maximize"]    Bounds
+    VAR    ${x}    ${{ ($help.x + $help.width + $max.x) / 2 }}
+    VAR    ${y}    ${{ $help.y + $help.height / 2 }}
     RETURN    ${x}    ${y}
 
 Drag Pointer From
@@ -136,32 +125,3 @@ Window Restored To
     ${now}=    BM.Get Attribute    ${INSP_WIN}    Bounds
     Should Be True    ${now.width} == ${before.width} and ${now.height} == ${before.height}
     ...    msg=window did not restore (before ${before}, now ${now})
-
-Inspector Shows Element
-    [Arguments]    ${predicate}
-    ${el}=    BM.Query    ${INSP_WIN}//*[${predicate}]    only_first=${True}
-    Should Not Be Equal    ${el}    ${None}    msg=no element matching [${predicate}] on the Inspector's a11y tree
-
-Inspector Window Gone
-    ${w}=    BM.Query    ${INSP_WIN}    only_first=${True}
-    Should Be Equal    ${w}    ${None}    msg=Inspector window still on the a11y tree
-
-Setup Inspector
-    # Hermetic settings: keep the user's real settings file out of the run.
-    VAR    ${settings}    ${OUTPUT DIR}${/}inspector-window-controls-settings.ron
-    Remove File    ${settings}
-    ${insp}=    Start Process    ${INSPECTOR_BIN}
-    ...    stdout=${TEMPDIR}/inspector-window-controls.log    stderr=STDOUT
-    ...    env:RUST_LOG=platynui_inspector=trace,platynui=debug
-    ...    env:PLATYNUI_INSPECTOR_SETTINGS_PATH=${settings}
-    VAR    ${INSP_HANDLE}    ${insp}    scope=SUITE
-    ${insp_pid}=    Get Process Id    ${insp}
-    VAR    ${INSP_WIN}    /app:Application[@ProcessId=${insp_pid}]/(Frame|Window)    scope=SUITE
-    Wait Until Keyword Succeeds    15s    0.3s    Inspector Window Present
-
-Inspector Window Present
-    ${w}=    BM.Query    ${INSP_WIN}    only_first=${True}
-    Should Not Be Equal    ${w}    ${None}    msg=Inspector window not on the a11y tree yet
-
-Teardown Inspector
-    Run Keyword And Ignore Error    Terminate Process    ${INSP_HANDLE}

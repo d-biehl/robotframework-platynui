@@ -56,14 +56,16 @@ Each widget carries a stable identity via `accessibleName` (surfaced as `@Name`
 on the AT-SPI / UIA tree — verified against the running app; `@Id` is a compound
 object path and is not used for locating). `objectName` is set too, for Qt-side
 tooling. The three child dialogs use **distinct sizes** so tests can assert they
-are pairwise different. Clicking a dialog's "Click Me" button renames its
-`@Name` to `…-button-clicked`, giving tests a name-based observable that a click
-landed inside the dialog.
+are pairwise different. Activating a dialog's "Click Me" button or a File-menu
+action reports its ident through the always-visible `last-action-<ident>` status
+label (`last-action-none` until the first activation) — a name-based observable
+that the activation really happened (for the dialog buttons: that the click
+landed inside the dialog), while every control keeps its stable name.
 
 ## Acceptance lane
 
 Wired into the real-provider lane under
-[`tests/acceptance/qt`](../../tests/acceptance/qt) (profile `real`, tag `real`):
+[`tests/acceptance/qt`](../../tests/acceptance/qt) (profile `real`, tags `acceptance` + `real`):
 `bounds.robot` (the regression + correctness checks), `interaction.robot` (click
 lands in the dialog), and `modal.robot` (modal opened via `--open-modal`). The
 project interpreter + entrypoint are handed over via `PLATYNUI_TEST_APP_QT_PYTHON`

@@ -11,21 +11,22 @@ Documentation     Launch and tear down Swing fixture instances (apps/test-app-sw
 ...               -Djavax.accessibility.assistive_technologies=com.sun.java.accessibility.AccessBridge,
 ...               enabling the Access Bridge for that process only — no jabswitch, no machine state.
 ...
-...               Each instance is pinned by its launched ProcessId (``${APP}`` =
-...               ``/app:Application[@ProcessId=...]``) and gets a per-suite unique window title (the
-...               frame's accessibleName tracks the title), so parallel instances never cross-talk.
+...               ``Launch Default Swing Instance`` pins its instance as the suite-wide query root
+...               (``Set Root`` on ``/app:Application[@ProcessId=...]``), so suite locators are
+...               relative (``.//``) and address controls by their explicit unique accessibleName —
+...               JAB has no AutomationId equivalent, so ``@Name`` is the locator contract. The main
+...               window's ``@Name`` is its (per-suite unique) launch title, exposed as
+...               ``${SWING_TITLE}``, so parallel instances never cross-talk.
 Library           OperatingSystem
 Library           Process
 Library           PlatynUI.BareMetal    AS    BM
-
-Resource          ${CURDIR}/testapp_locators.resource
 
 
 *** Variables ***
 ${SWING_JAVA}           ${{ os.environ.get("PLATYNUI_TEST_APP_SWING_JAVA") or "java" }}
 ${SWING_CLASSES}        ${{ os.environ.get("PLATYNUI_TEST_APP_SWING_CLASSES") or os.path.abspath("apps/test-app-swing/build/classes/java/main") }}
 ${SWING_ENABLE_FLAG}    -Djavax.accessibility.assistive_technologies\=com.sun.java.accessibility.AccessBridge
-${APP_WAIT_TIMEOUT}     20s
+${APP_WAIT_TIMEOUT}     20
 # Handle/title of the instance started by Launch Default Swing Instance.
 ${SWING_APP_HANDLE}     ${None}
 ${SWING_TITLE}          ${None}
@@ -47,51 +48,27 @@ Require Swing Prerequisites
 Launch Swing Test App
     [Documentation]    Start one fixture instance with a unique window title and wait until its main
     ...    window — pinned by the launched ProcessId — is on the accessibility tree with
-    ...    ``@Technology = "JAB"``. Extra CLI args are forwarded. Returns the Process handle.
+    ...    ``@Technology = "JAB"``. Extra CLI args are forwarded. Returns the Process handle; the
+    ...    query root is untouched (use Launch Default Swing Instance for the pinned suite instance).
     [Arguments]    ${title}    @{extra_args}
     ${handle}=    Start Process    ${SWING_JAVA}    ${SWING_ENABLE_FLAG}    -cp    ${SWING_CLASSES}
     ...    platynui.testapp.Main    --title    ${title}    @{extra_args}
     ...    stdout=${TEMPDIR}/swing-${title}.log    stderr=STDOUT
-    ${root}=    App Root    ${handle}
-    Wait Until Keyword Succeeds    ${APP_WAIT_TIMEOUT}    0.25s    Node Is Present    ${root}${{ '//Window[@Name="' + $title + '"]' }}
+    ${pid}=    Get Process Id    ${handle}
+    BM.Wait Until Exists    /app:Application[@ProcessId=${pid}]//Window[@Name="${title}"]
+    ...    query_overrides={'timeout': ${APP_WAIT_TIMEOUT}}
     RETURN    ${handle}
 
-App Root
-    [Documentation]    App root locator for a launched instance, pinned by its ProcessId:
-    ...    ``/app:Application[@ProcessId=<pid>]``. Prepend it to the control locators.
-    [Arguments]    ${handle}
-    ${pid}=    Get Process Id    ${handle}
-    RETURN    /app:Application[@ProcessId=${pid}]
-
-Window Locator
-    [Documentation]    App-relative locator of the fixture's main window (its @Name is the launch title).
-    [Arguments]    ${title}
-    RETURN    //Window[@Name="${title}"]
-
-Node Is Present
-    [Documentation]    Assert a node is currently resolvable on the accessibility tree (predicate for
-    ...    Wait Until Keyword Succeeds).
-    [Arguments]    ${locator}
-    ${node}=    BM.Query    ${locator}    only_first=${True}
-    Should Not Be Equal    ${node}    ${None}    msg=not on the accessibility tree yet: ${locator}
-
-Node Is Absent
-    [Documentation]    Assert a node does NOT currently resolve on the accessibility tree.
-    [Arguments]    ${locator}
-    ${node}=    BM.Query    ${locator}    only_first=${True}
-    Should Be Equal    ${node}    ${None}    msg=node unexpectedly present: ${locator}
-
 Launch Default Swing Instance
-    [Documentation]    Suite Setup helper: check prerequisites, launch one fixture instance with a
-    ...    suite-unique title, pin it by ProcessId, and expose ``${APP}`` (app root), ``${SWING_TITLE}``
-    ...    (window title), ``${WINDOW}`` (app-relative window locator) at SUITE scope.
+    [Documentation]    Suite Setup: check prerequisites, launch one fixture instance with a
+    ...    suite-unique title, and pin it as the suite-wide query root (``Set Root`` on its
+    ...    ``app:Application`` node). Exposes ``${SWING_TITLE}`` (the window's @Name) and the Process
+    ...    handle at SUITE scope.
     [Arguments]    ${title}
     Require Swing Prerequisites
     ${handle}=    Launch Swing Test App    ${title}
-    ${root}=    App Root    ${handle}
-    ${window}=    Window Locator    ${title}
-    VAR    ${APP}    ${root}    scope=SUITE
-    VAR    ${WINDOW}    ${window}    scope=SUITE
+    ${pid}=    Get Process Id    ${handle}
+    BM.Set Root    /app:Application[@ProcessId=${pid}]    scope=SUITE
     VAR    ${SWING_TITLE}    ${title}    scope=SUITE
     VAR    ${SWING_APP_HANDLE}    ${handle}    scope=SUITE
 

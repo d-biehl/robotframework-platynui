@@ -11,11 +11,10 @@ Documentation       Bounds resolution for a MODAL dialog — a different window 
 ...                 application-modal in Qt — that looks like a separate provider/toolkit gap and is out
 ...                 of scope here, so this suite asserts bounds, not modality.
 
-Library             PlatynUI.BareMetal    AS    BM
 Resource            resources/testapp.resource
 
-Suite Setup         Launch Qt Instance With Modal
-Suite Teardown      Terminate Default Qt Instance
+Suite Setup         Launch Qt Test App    PlatynUI Test App (Qt Modal)    org.platynui.test.qt.modal    --open-modal
+Suite Teardown      Terminate Qt Instance
 
 Test Tags           real
 
@@ -27,13 +26,13 @@ ${SIZE_TOL}         ${8}
 *** Test Cases ***
 Modal Dialog Is Exposed
     [Documentation]    Sanity: the modal dialog opened at startup resolves on the tree.
-    Node Is Present    ${APP}${DIALOG_MODAL}
+    BM.Wait Until Exists    .//(Dialog|Window|Frame)[@Name="dialog-modal"]
 
 Modal Dialog Bounds Are Its Own Not The Main Window's
     [Documentation]    The modal dialog must report its own ~340x200 client rect, smaller than and
     ...    distinct from the main window — the same guarantee as the modeless dialogs.
-    ${main}=    Get Bounds    ${APP}${MAIN_WINDOW}
-    ${b}=    Get Bounds    ${APP}${DIALOG_MODAL}
+    ${main}=    BM.Get Attribute    .//(Frame|Window)[@Name="main-window"]    Bounds
+    ${b}=    BM.Get Attribute    .//(Dialog|Window|Frame)[@Name="dialog-modal"]    Bounds
     Should Be True    $b.width < $main.width and $b.height < $main.height
     ...    msg=modal dialog reports the main window size (${main.width}x${main.height})
     Should Be True    abs($b.width - 340) <= ${SIZE_TOL} and abs($b.height - 200) <= ${SIZE_TOL}

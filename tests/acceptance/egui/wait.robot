@@ -6,45 +6,38 @@ Documentation       Acceptance coverage for the explicit wait keywords — Wait 
 ...                 (Escape) makes it vanish. This is the only place the captured-element "gone success"
 ...                 direction can be exercised, since the mock never invalidates a captured node.
 ...
-...                 Suite Setup scopes the whole suite to the app window with Set Root, so widget
-...                 locators are relative (``.//<Role>[@Id=...]``), exactly like interaction.robot.
+...                 The launcher scopes the whole suite to the app window with Set Root, so widget
+...                 locators are relative (``.//*[@Id=...]``), exactly like interaction.robot.
 
-Library             PlatynUI.BareMetal    AS    BM
 Resource            resources/testapp.resource
 
-Suite Setup         Open Wait Window
+Suite Setup         Launch Default Instance
 Suite Teardown      Terminate Default Instance
 
 Test Teardown       Close Any Open Menu
-
-
-*** Variables ***
-# Menu items are buttons inside the File menu popup; the role union keeps the locator robust across
-# how the popup item surfaces on the AT-SPI tree, while still pinning the stable @Id (never a bare *).
-${MENU_FILE_NEW}        .//(Button|MenuItem)[@Id="menu-file-new"]
 
 
 *** Test Cases ***
 Wait Until Exists Returns A Widget That Appears
     [Documentation]    Opening the File menu makes its items appear; Wait Until Exists waits for one
     ...    and returns it.
-    BM.Pointer Click    .${MENU_FILE}
-    ${item}=    BM.Wait Until Exists    ${MENU_FILE_NEW}
+    BM.Pointer Click    .//*[@Id="menu-file"]
+    ${item}=    BM.Wait Until Exists    .//*[@Id="menu-file-new"]
     Should Be Equal    ${item.id}    menu-file-new
 
 Wait Until Gone Waits For A Selector To Disappear
     [Documentation]    With the menu open the item is on the tree; closing the menu removes it, and
     ...    Wait Until Gone returns once the selector matches nothing.
-    BM.Pointer Click    .${MENU_FILE}
-    BM.Wait Until Exists    ${MENU_FILE_NEW}
+    BM.Pointer Click    .//*[@Id="menu-file"]
+    BM.Wait Until Exists    .//*[@Id="menu-file-new"]
     BM.Keyboard Type    ${None}    <Escape>
-    BM.Wait Until Gone    ${MENU_FILE_NEW}
+    BM.Wait Until Gone    .//*[@Id="menu-file-new"]
 
 Wait Until Gone Waits For A Captured Element To Become Invalid
     [Documentation]    Capture the menu item while open, close the menu, then wait until the captured
     ...    node reports itself invalid — the real-provider path the mock cannot cover.
-    BM.Pointer Click    .${MENU_FILE}
-    ${item}=    BM.Wait Until Exists    ${MENU_FILE_NEW}
+    BM.Pointer Click    .//*[@Id="menu-file"]
+    ${item}=    BM.Wait Until Exists    .//*[@Id="menu-file-new"]
     BM.Keyboard Type    ${None}    <Escape>
     BM.Wait Until Gone    ${item}
 
@@ -52,17 +45,11 @@ Wait Until Query Waits For A Computed Condition
     [Documentation]    Click the button, then wait until the status label's text reflects the new
     ...    count — a real attribute condition that becomes true after the action.
     ${before}=    Get Click Count
-    BM.Pointer Click    .${BTN_CLICK_ME}
-    BM.Wait Until Query    .${STATUS_CLICKS}/@Name    ==    Clicks: ${{ $before + 1 }}
+    BM.Pointer Click    .//*[@Id="btn-click-me"]
+    BM.Wait Until Query    .//*[@Id="status-clicks"]/@Name    ==    Clicks: ${{ $before + 1 }}
 
 
 *** Keywords ***
-Open Wait Window
-    [Documentation]    Launch this suite's egui instance and scope all relative locators to it with
-    ...    Set Root, so the tests address widgets as ``.//<Role>[@Id=...]``.
-    Launch Default Instance
-    BM.Set Root    ${WINDOW}    scope=SUITE
-
 Close Any Open Menu
     [Documentation]    Best-effort: dismiss an open menu so a failing test cannot leak menu state into
     ...    the next one.

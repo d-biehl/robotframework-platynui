@@ -116,14 +116,20 @@ behavior under test.
   the guard for the per-runtime platform architecture — the mock cannot stand in for it
   (it shares process-global state and holds no real connection), so the real `…-x11` /
   `…-compositor` lanes run *several* suites in one process on purpose.
-- **Where:** `tests/acceptance` (one directory per fixture app); every suite is tagged
-  `real`, platform-bound suites additionally carry a `platform:*` tag (see below).
+- **Where:** `tests/acceptance` (one directory per fixture app). Tags encode three
+  orthogonal dimensions: every suite here is tagged `acceptance` (the test level) and
+  `real` (the build requirement — needs the non-mock build, as opposed to `mock`);
+  platform-bound suites additionally carry a `platform:*` tag (see below).
 - **How:** unlike a mock suite (static tree, no setup), an acceptance suite **owns its
-  app instance**: launch it in `Suite Setup` and terminate it in `Suite Teardown`, pin the
-  window root by `ProcessId` (not title, to survive stacking/ambiguity), and keep launch
-  and locator keywords in a shared page-object resource
-  (`tests/acceptance/egui/resources/testapp.resource`) rather than inline. Assert on
-  observable results through the real provider; use poll-based waits (§7).
+  app instance**: launch it in `Suite Setup` and terminate it in `Suite Teardown`, and pin
+  the instance by `ProcessId` (not title, to survive stacking/ambiguity) — the launcher
+  keyword sets it as the query root (`Set Root`), so suite locators are relative (`.//`)
+  and written inline where they are used. A shared resource
+  (`tests/acceptance/<app>/resources/testapp.resource`) holds only the launch/teardown
+  flow, never a page-object locator layer or wrappers around BareMetal keywords: assert
+  appearance/disappearance with the self-waiting `Wait Until Exists` / `Wait Until Gone`,
+  attribute effects with `Get Attribute    ==` (which waits), and rely on the action
+  keywords' built-in waiting instead of pre-checks (§7).
 - **Needs:** the **non-mock** native build and an isolated session via
   `scripts/platynui-robot-session.sh` (`just test-acceptance*`).
 
@@ -131,9 +137,9 @@ behavior under test.
 only run on one platform declares that with a tag — `platform:x11`, `platform:wayland`,
 `platform:windows` — via `Test Tags` (suite-wide, inherited from an `__init__.robot` by
 all child suites) or `[Tags]` (per test). No platform tag means the suite runs on **every**
-lane. Each lane then selects through its `robot.toml` profile, which inherits `real` and
-*excludes the foreign platforms' tags* — `real-x11`, `real-wayland`, `real-windows` — so
-untagged suites always stay in. The lane entry points pick the matching profile themselves
+lane. Each lane then selects through its `robot.toml` profile, which inherits `real`
+(selecting `acceptance` AND `real`) and *excludes the foreign platforms' tags* —
+`real-x11`, `real-wayland`, `real-windows` — so untagged suites always stay in. The lane entry points pick the matching profile themselves
 (`platynui-robot-session.sh` from the `XDG_SESSION_TYPE` its session wrapper exported;
 `just test-acceptance-windows` passes `real-windows`).
 

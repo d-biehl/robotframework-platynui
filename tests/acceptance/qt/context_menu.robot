@@ -9,31 +9,23 @@ Documentation       Real acceptance for transient-popup findability, driven by t
 ...
 ...                 The app opens the menu non-blocking (``popup()`` in ``contextMenuEvent``), so it
 ...                 stays open after the right-click until explicitly dismissed (Escape). Popup
-...                 registration is event-driven and therefore asynchronous — every visibility
-...                 assertion polls instead of reading once.
+...                 registration is event-driven and therefore asynchronous — appearance and
+...                 disappearance are asserted with the self-waiting Wait Until Exists / Gone.
 
-Library             PlatynUI.BareMetal    AS    BM
 Resource            resources/testapp.resource
 
+Test Setup          Launch Qt Test App With Open Context Menu
 Test Teardown       Teardown Context Menu Test
+
 Test Tags           real
-
-
-*** Variables ***
-# How long the event-driven popup surfacing may take to show up in / vanish from the tree.
-${POPUP_SETTLE_TIMEOUT}     5s
 
 
 *** Test Cases ***
 Open Context Menu Items Are Findable
     [Documentation]    Right-click opens the context menu; its items must resolve by XPath query
-    ...    (``//MenuItem[@Name="ctx-copy"]``) and the hit-test over an item must return that item,
+    ...    (``.//MenuItem[@Name="ctx-copy"]``) and the hit-test over an item must return that item,
     ...    not the widget beneath the popup.
-    Launch Main Window Only
-    Open The Context Menu
-    Wait Until Keyword Succeeds    ${POPUP_SETTLE_TIMEOUT}    0.25s
-    ...    Node Is Present    ${APP}${CTX_MENU_COPY}
-    BM.Pointer Move To    ${APP}${CTX_MENU_COPY}
+    BM.Pointer Move To    .//MenuItem[@Name="ctx-copy"]
     ${p}=    BM.Get Pointer Position
     ${el}=    BM.Get Element At Point    ${p.x}    ${p.y}
     Should Not Be Equal    ${el}    ${None}    msg=hit-test resolved nothing over the open context-menu item
@@ -43,27 +35,16 @@ Open Context Menu Items Are Findable
 Closed Context Menu Items Are Not Found
     [Documentation]    Dismissing the menu must remove its items from the tree again — no stale
     ...    popup may stay grafted (guards the registry's remove path).
-    Launch Main Window Only
-    Open The Context Menu
-    Wait Until Keyword Succeeds    ${POPUP_SETTLE_TIMEOUT}    0.25s
-    ...    Node Is Present    ${APP}${CTX_MENU_COPY}
     Dismiss The Context Menu
-    Wait Until Keyword Succeeds    ${POPUP_SETTLE_TIMEOUT}    0.25s
-    ...    Node Is Absent    ${APP}${CTX_MENU_COPY}
+    BM.Wait Until Gone    .//MenuItem[@Name="ctx-copy"]
 
 Open Submenu Items Are Findable And Hit-Testable
     [Documentation]    Clicking the "ctx-more" entry cascades a submenu — on X11 yet another
     ...    override-redirect QMenu window. Its items must resolve by XPath query, and the hit-test
     ...    over one must return that item even though the submenu is drawn beside (outside) the
     ...    root popup's own bounds.
-    Launch Main Window Only
-    Open The Context Menu
-    Wait Until Keyword Succeeds    ${POPUP_SETTLE_TIMEOUT}    0.25s
-    ...    Node Is Present    ${APP}${CTX_MENU_MORE}
-    BM.Pointer Click    ${APP}${CTX_MENU_MORE}
-    Wait Until Keyword Succeeds    ${POPUP_SETTLE_TIMEOUT}    0.25s
-    ...    Node Is Present    ${APP}${CTX_MENU_SUB_ALPHA}
-    BM.Pointer Move To    ${APP}${CTX_MENU_SUB_ALPHA}
+    BM.Pointer Click    .//MenuItem[@Name="ctx-more"]
+    BM.Pointer Move To    .//MenuItem[@Name="ctx-sub-alpha"]
     ${p}=    BM.Get Pointer Position
     ${el}=    BM.Get Element At Point    ${p.x}    ${p.y}
     Should Not Be Equal    ${el}    ${None}    msg=hit-test resolved nothing over the open submenu item
@@ -74,17 +55,9 @@ A Nested Submenu Item Is Resolved By Hit Test
     [Documentation]    Two cascade levels deep: ctx-more → ctx-deep → ctx-deep-item. Each open
     ...    level is its own transient window, so this guards that grafted popups stay walkable in
     ...    depth, not just at the first level.
-    Launch Main Window Only
-    Open The Context Menu
-    Wait Until Keyword Succeeds    ${POPUP_SETTLE_TIMEOUT}    0.25s
-    ...    Node Is Present    ${APP}${CTX_MENU_MORE}
-    BM.Pointer Click    ${APP}${CTX_MENU_MORE}
-    Wait Until Keyword Succeeds    ${POPUP_SETTLE_TIMEOUT}    0.25s
-    ...    Node Is Present    ${APP}${CTX_MENU_DEEP}
-    BM.Pointer Click    ${APP}${CTX_MENU_DEEP}
-    Wait Until Keyword Succeeds    ${POPUP_SETTLE_TIMEOUT}    0.25s
-    ...    Node Is Present    ${APP}${CTX_MENU_DEEP_ITEM}
-    BM.Pointer Move To    ${APP}${CTX_MENU_DEEP_ITEM}
+    BM.Pointer Click    .//MenuItem[@Name="ctx-more"]
+    BM.Pointer Click    .//MenuItem[@Name="ctx-deep"]
+    BM.Pointer Move To    .//MenuItem[@Name="ctx-deep-item"]
     ${p}=    BM.Get Pointer Position
     ${el}=    BM.Get Element At Point    ${p.x}    ${p.y}
     Should Not Be Equal    ${el}    ${None}    msg=hit-test resolved nothing over the nested submenu item
@@ -95,38 +68,27 @@ Dismissed Submenus Leave No Stale Items
     [Documentation]    After opening the full cascade and dismissing everything, no item from any
     ...    level may remain findable — neither the root menu's nor a submenu's (guards the remove
     ...    path across cascade levels).
-    Launch Main Window Only
-    Open The Context Menu
-    Wait Until Keyword Succeeds    ${POPUP_SETTLE_TIMEOUT}    0.25s
-    ...    Node Is Present    ${APP}${CTX_MENU_MORE}
-    BM.Pointer Click    ${APP}${CTX_MENU_MORE}
-    Wait Until Keyword Succeeds    ${POPUP_SETTLE_TIMEOUT}    0.25s
-    ...    Node Is Present    ${APP}${CTX_MENU_SUB_ALPHA}
+    BM.Pointer Click    .//MenuItem[@Name="ctx-more"]
+    BM.Wait Until Exists    .//MenuItem[@Name="ctx-sub-alpha"]
     Dismiss The Context Menu
-    Wait Until Keyword Succeeds    ${POPUP_SETTLE_TIMEOUT}    0.25s
-    ...    Node Is Absent    ${APP}${CTX_MENU_SUB_ALPHA}
-    Wait Until Keyword Succeeds    ${POPUP_SETTLE_TIMEOUT}    0.25s
-    ...    Node Is Absent    ${APP}${CTX_MENU_COPY}
+    BM.Wait Until Gone    .//MenuItem[@Name="ctx-sub-alpha"]
+    BM.Wait Until Gone    .//MenuItem[@Name="ctx-copy"]
 
 
 *** Keywords ***
-Launch Main Window Only
-    [Documentation]    Launch a single top-level Qt window (``--dialogs 0``) and pin it as ``${APP}``.
-    ${handle}=    Launch Qt Test App    PlatynUI Test App (Qt Ctx)    org.platynui.test.qt.ctx    --dialogs    0
-    ${root}=    App Root    ${handle}
-    VAR    ${APP}    ${root}    scope=TEST
-    VAR    ${QT_APP_HANDLE}    ${handle}    scope=TEST
-
-Open The Context Menu
-    [Documentation]    Right-click the main window's center; ``contextMenuEvent`` pops the pre-built
-    ...    menu at the cursor via non-blocking ``popup()``, so it stays open after the release.
-    ...    Retried as a whole: right after launch the WM may still be placing the window, so a
-    ...    single right-click can miss — click again until an item is actually on the tree.
+Launch Qt Test App With Open Context Menu
+    [Documentation]    Launch a single top-level Qt window (``--dialogs 0``) and right-click its
+    ...    center; ``contextMenuEvent`` pops the pre-built menu at the cursor via non-blocking
+    ...    ``popup()``, so it stays open after the release. The right-click is retried as a whole:
+    ...    right after launch the WM may still be placing the window, so a single click can miss —
+    ...    click again until an item is actually on the tree.
+    Launch Qt Test App    PlatynUI Test App (Qt Ctx)    org.platynui.test.qt.ctx    --dialogs    0
+    ...    scope=TEST
     Wait Until Keyword Succeeds    3x    0.5s    Right Click Opens The Menu
 
 Right Click Opens The Menu
-    BM.Pointer Click    ${APP}${MAIN_WINDOW}    button=right
-    Wait Until Keyword Succeeds    2s    0.25s    Node Is Present    ${APP}${CTX_MENU_COPY}
+    BM.Pointer Click    .//(Frame|Window)[@Name="main-window"]    button=right
+    BM.Wait Until Exists    .//MenuItem[@Name="ctx-copy"]    query_overrides={'timeout': 2}
 
 Dismiss The Context Menu
     [Documentation]    Close the menu — including any open submenu cascade — without activating an
@@ -140,4 +102,4 @@ Teardown Context Menu Test
     [Documentation]    Best-effort menu dismissal (so no popup grab outlives a failed test), then
     ...    terminate the app instance.
     Run Keyword And Ignore Error    Dismiss The Context Menu
-    Terminate Default Qt Instance
+    Terminate Qt Instance

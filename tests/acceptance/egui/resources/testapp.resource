@@ -5,13 +5,15 @@ Documentation     Launch and tear down platynui-test-app-egui instances from Rob
 ...               and handed over via the PLATYNUI_TEST_APP_BIN environment variable; set it yourself
 ...               when launching the app outside that script (e.g. the repl).
 ...
-...               Each instance is pinned by its launched ProcessId, so its window root locator
-...               (``\${WINDOW}``, or Alpha/Beta in auto_activate) addresses exactly that copy of the
-...               program regardless of window title or stacking. Re-exports the page-object locators.
+...               ``Launch Default Instance`` pins the launched instance's window as the suite-wide
+...               query root (``Set Root``, SUITE scope) and exposes it as ``${WINDOW}``, so
+...               single-instance suites address widgets relatively (``.//*[@Id=...]``) while suites
+...               with several windows or library instances (auto_activate, the inspector suites,
+...               coexisting_runtimes) prefix the absolute per-window root. Every interactive widget
+...               carries a stable AccessKit author id, surfaced as ``@Id`` (language-independent,
+...               stable across label/layout changes) — the locator contract of this fixture.
 Library           Process
 Library           PlatynUI.BareMetal    AS    BM
-
-Resource          ${CURDIR}/testapp_locators.resource
 
 
 *** Variables ***
@@ -20,8 +22,9 @@ Resource          ${CURDIR}/testapp_locators.resource
 # forward-slash exe path even when it exists, and it needs the .exe suffix.
 # os.path.abspath resolves against the project root (robotcode's CWD).
 ${TEST_APP_BIN}        ${{ os.environ.get("PLATYNUI_TEST_APP_BIN") or os.path.abspath("target/debug/platynui-test-app-egui" + (".exe" if os.name == "nt" else "")) }}
-${APP_WAIT_TIMEOUT}    15s
-# Handle of the instance started by Launch Default Instance — read by Terminate Default Instance.
+${APP_WAIT_TIMEOUT}    15
+# Window root of the instance started by Launch Default Instance, plus its handle.
+${WINDOW}              ${None}
 ${TEST_APP_HANDLE}     ${None}
 
 
@@ -33,7 +36,8 @@ Launch Test App
     [Arguments]    ${title}    ${app_id}
     ${handle}=    Start Process    ${TEST_APP_BIN}    --app-id    ${app_id}    --title    ${title}
     ...    stdout=${TEMPDIR}/egui-${app_id}.log    stderr=STDOUT
-    Wait For App Window    ${handle}
+    ${window}=    App Window Root    ${handle}
+    BM.Wait Until Exists    ${window}    query_overrides={'timeout': ${APP_WAIT_TIMEOUT}}
     RETURN    ${handle}
 
 App Window Root
@@ -44,23 +48,13 @@ App Window Root
     ${pid}=    Get Process Id    ${handle}
     RETURN    /app:Application[@ProcessId=${pid}]/(Frame|Window)
 
-Wait For App Window
-    [Documentation]    Poll the accessibility tree until the launched instance's window is present.
-    [Arguments]    ${handle}    ${timeout}=${APP_WAIT_TIMEOUT}
-    ${window}=    App Window Root    ${handle}
-    Wait Until Keyword Succeeds    ${timeout}    0.25s    App Window Is Present    ${window}
-
-App Window Is Present
-    [Arguments]    ${window}
-    ${win}=    BM.Query    ${window}    only_first=${True}
-    Should Not Be Equal    ${win}    ${None}    msg=window not on the accessibility tree yet: ${window}
-
 Launch Default Instance
-    [Documentation]    Suite Setup helper for the single-window suites: launch the default egui
-    ...    instance, pin it by ProcessId, expose its window root as the suite variable ``\${WINDOW}``,
-    ...    and remember the handle for Terminate Default Instance.
+    [Documentation]    Suite Setup for the single-instance suites: launch the default egui instance,
+    ...    pin its window as the suite-wide query root (``Set Root``) and as ``${WINDOW}``, and
+    ...    remember the handle for Terminate Default Instance.
     ${handle}=    Launch Test App    PlatynUI Test App    com.platynui.test
     ${root}=    App Window Root    ${handle}
+    BM.Set Root    ${root}    scope=SUITE
     VAR    ${WINDOW}    ${root}    scope=SUITE
     VAR    ${TEST_APP_HANDLE}    ${handle}    scope=SUITE
 
@@ -72,3 +66,11 @@ Terminate App
     [Documentation]    Terminate a single instance by the handle returned from Launch Test App.
     [Arguments]    ${handle}
     Terminate Process    ${handle}
+
+Get Click Count
+    [Documentation]    Read the integer N from the "Clicks: N" status label of the given window
+    ...    (default: the current query root's instance). ``Get Attribute`` waits/retries for the
+    ...    label, then N is scraped from ``@Name`` — the dynamic count stays in the label text.
+    [Arguments]    ${window}=.
+    ${name}=    BM.Get Attribute    ${window}//*[@Id="status-clicks"]    Name
+    RETURN    ${{ int($name.split(":")[1]) }}

@@ -30,7 +30,7 @@ Highlight Skips A Missing Descriptor
 Highlight Skips Only The Missing Ones In A List
     [Documentation]    A mix of found and missing descriptors highlights the found ones and skips the
     ...    rest, without raising.
-    @{nodes}=    Create List    ${OC_OK}    ${MISSING}    ${DETAIL_TEXT}
+    VAR    @{nodes}    ${OC_OK}    ${MISSING}    ${DETAIL_TEXT}
     Highlight    ${nodes}
 
 Activate Is Accepted On The New Keywords

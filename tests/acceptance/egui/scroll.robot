@@ -9,10 +9,10 @@ Documentation       Acceptance coverage for Pointer Scroll against the real egui
 ...                 (egui maps wheel notches to points device-dependently); the restore over-scrolls
 ...                 so the offset clamps cleanly back to 0.
 ...
-...                 Suite Setup scopes the suite to the app window with ``Set Root`` (so locators are
-...                 relative) and captures a fixed point inside the box to scroll over.
+...                 The launcher scopes the suite to the app window (``Set Root``, so locators are
+...                 relative); the Suite Setup additionally captures a fixed point inside the box to
+...                 scroll over.
 
-Library             PlatynUI.BareMetal    AS    BM
 Resource            resources/testapp.resource
 
 Suite Setup         Open Scroll Window
@@ -24,7 +24,7 @@ Suite Teardown      Terminate Default Instance
 ${OFFSET_X}         number(.//(Label|Text)[@Id="scrollbox-offset-x"]/@Name)
 ${OFFSET_Y}         number(.//(Label|Text)[@Id="scrollbox-offset-y"]/@Name)
 # A fixed point inside the box, set at SUITE scope by Open Scroll Window. Placeholders so the
-# usages resolve statically; the real values are computed at runtime (like ${WINDOW}).
+# usages resolve statically; the real values are computed at runtime.
 ${BOX_X}            ${0}
 ${BOX_Y}            ${0}
 
@@ -60,11 +60,10 @@ Scroll Over An Element Scrolls The Box
 
 *** Keywords ***
 Open Scroll Window
-    [Documentation]    Launch this suite's egui instance, scope all relative locators to it with Set
-    ...    Root, and capture a fixed screen point inside the scroll box (the top row at offset 0) to
-    ...    scroll over. The box is in its own panel, so this point stays inside it for the whole suite.
+    [Documentation]    Launch this suite's egui instance (the launcher sets the suite-wide root) and
+    ...    capture a fixed screen point inside the scroll box (the top row at offset 0) to scroll
+    ...    over. The box is in its own panel, so this point stays inside it for the whole suite.
     Launch Default Instance
-    BM.Set Root    ${WINDOW}    scope=SUITE
     # The top row is visible at the box's top-left at offset 0; move over it to learn a point inside.
     BM.Pointer Move To    .//(Label|Text)[@Id="scrollbox-row-00"]
     ${pt}=    BM.Get Pointer Position

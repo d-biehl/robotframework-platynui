@@ -5,7 +5,6 @@ Documentation       Real hit-test acceptance against the egui test app. Moves th
 ...                 the full path end-to-end: window-manager window selection (EWMH stacking on
 ...                 X11 / compositor surface-under-point) plus the AT-SPI in-window descent.
 
-Library             PlatynUI.BareMetal    AS    BM
 Resource            resources/testapp.resource
 
 Suite Setup         Launch Default Instance
@@ -17,7 +16,7 @@ Test Tags           real
 Element Under The Cursor Is Resolved
     [Documentation]    Move the real cursor onto the "Click Me" button, read the cursor position,
     ...    and hit-test there — the resolved element must be that button (by stable @Id).
-    BM.Pointer Move To    ${WINDOW}${BTN_CLICK_ME}
+    BM.Pointer Move To    .//*[@Id="btn-click-me"]
     ${p}=    BM.Get Pointer Position
     ${el}=    BM.Get Element At Point    ${p.x}    ${p.y}
     Should Not Be Equal    ${el}    ${None}    msg=hit-test resolved nothing under the cursor
@@ -27,7 +26,7 @@ Element Under The Cursor Is Resolved
 Hit Test Follows The Cursor To A Second Widget
     [Documentation]    Moving to a different widget resolves that widget — proves the result tracks
     ...    the cursor rather than returning a stale/first element.
-    BM.Pointer Move To    ${WINDOW}${BTN_RESET}
+    BM.Pointer Move To    .//*[@Id="btn-reset"]
     ${p}=    BM.Get Pointer Position
     ${el}=    BM.Get Element At Point    ${p.x}    ${p.y}
     Should Not Be Equal    ${el}    ${None}    msg=hit-test resolved nothing under the cursor
@@ -40,9 +39,9 @@ Menu Item In An Open Menu Is Resolved
     ...    smallest-area node under the cursor, so the menu item wins over the content behind it. (This
     ...    is a geometric bounds search, not AccessKit's own point hit-test, which returns the widget
     ...    *beneath* the overlay.)
-    BM.Pointer Click    ${WINDOW}${MENU_FILE}
-    Sleep    0.5s    reason=let the menu overlay open and register its items on the tree
-    BM.Pointer Move To    ${WINDOW}//*[@Id="menu-file-new"]
+    BM.Pointer Click    .//*[@Id="menu-file"]
+    BM.Wait Until Exists    .//*[@Id="menu-file-new"]
+    BM.Pointer Move To    .//*[@Id="menu-file-new"]
     ${p}=    BM.Get Pointer Position
     ${el}=    BM.Get Element At Point    ${p.x}    ${p.y}
     Should Not Be Equal    ${el}    ${None}    msg=hit-test resolved nothing over the open menu item

@@ -89,14 +89,17 @@ def _tag(widget: QWidget, ident: str) -> None:
 class SampleDialog(QDialog):
     """A simple dialog, parented to the main window, with a stable identity.
 
-    Clicking the dialog's button renames the button's ``@Name`` from
-    ``<ident>-button`` to ``<ident>-button-clicked``. That gives acceptance tests
-    a purely name-based, cross-platform observable that a pointer click actually
+    Clicking the dialog's button reports ``<ident>-button`` through the main
+    window's always-visible last-action label. That gives acceptance tests a
+    purely name-based, cross-platform observable that a pointer click actually
     landed *inside this dialog* — the real-world payoff of correct bounds (before
-    the fix, a click at the dialog's coordinates hit the main window instead).
+    the fix, a click at the dialog's coordinates hit the main window instead) —
+    while every control keeps its stable name.
     """
 
-    def __init__(self, ident: str, title: str, *, modal: bool, parent: QWidget) -> None:
+    def __init__(
+        self, ident: str, title: str, *, modal: bool, parent: QWidget, report_action: Callable[[str], None]
+    ) -> None:
         super().__init__(parent)
         self._ident = ident
         _tag(self, ident)
@@ -105,21 +108,17 @@ class SampleDialog(QDialog):
         layout = QVBoxLayout(self)
         label = QLabel(f'{"Modal" if modal else "Modeless"} dialog: {ident}')
         _tag(label, f'{ident}-label')
-        self._button = QPushButton('Click Me')
-        _tag(self._button, f'{ident}-button')
-        self._button.clicked.connect(self._on_button_clicked)
+        button = QPushButton('Click Me')
+        _tag(button, f'{ident}-button')
+        button.clicked.connect(lambda: report_action(f'{ident}-button'))
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         _tag(buttons, f'{ident}-buttons')
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(label)
-        layout.addWidget(self._button)
+        layout.addWidget(button)
         layout.addStretch(1)
         layout.addWidget(buttons)
-
-    def _on_button_clicked(self) -> None:
-        _tag(self._button, f'{self._ident}-button-clicked')
-        self._button.setText('Clicked')
 
 
 class MainWindow(QMainWindow):
@@ -176,9 +175,10 @@ class MainWindow(QMainWindow):
         The menu-bar's File menu is exposed on the AT-SPI accessibility tree
         (its items appear even while closed), so the hit-test acceptance suite
         picks one of its items to exercise the resolver's popup path. Triggering
-        a File action renames its ``@Name`` to ``<ident>-activated`` — the same
-        name-based observable as the dialog button — so the menu acceptance
-        suite can assert an entry really was activated.
+        any action reports its ident through the main window's last-action label
+        — the same name-based observable as the dialog buttons — so the menu
+        acceptance suite can assert an entry really was activated while the
+        entry keeps its stable name.
 
         The right-click context menu is a harder case, kept as realistic UI: Qt
         exposes the transient popup ``QMenu`` on AT-SPI only *event-driven* —
@@ -196,17 +196,12 @@ class MainWindow(QMainWindow):
         file_menu = menubar.addMenu('File')
         file_menu.setObjectName('menu-file')
         for ident in ('menu-file-new', 'menu-file-open', 'menu-file-quit'):
-            action = QAction(ident, self)
-            action.setObjectName(ident)
-            action.triggered.connect(self._make_action_activation_marker(action, ident))
-            file_menu.addAction(action)
+            file_menu.addAction(self._make_action(ident))
 
         self._context_menu = QMenu(self)
         self._context_menu.setObjectName('context-menu')
         for ident in ('ctx-cut', 'ctx-copy', 'ctx-paste'):
-            action = QAction(ident, self)
-            action.setObjectName(ident)
-            self._context_menu.addAction(action)
+            self._context_menu.addAction(self._make_action(ident))
 
         # A submenu (and a nested one below it) so acceptance tests can probe
         # whether submenu items are reachable through the event-grafted popup:
@@ -217,29 +212,27 @@ class MainWindow(QMainWindow):
         submenu = self._context_menu.addMenu('ctx-more')
         submenu.setObjectName('ctx-more')
         for ident in ('ctx-sub-alpha', 'ctx-sub-beta'):
-            action = QAction(ident, self)
-            action.setObjectName(ident)
-            submenu.addAction(action)
+            submenu.addAction(self._make_action(ident))
         nested = submenu.addMenu('ctx-deep')
         nested.setObjectName('ctx-deep')
-        deep_action = QAction('ctx-deep-item', self)
-        deep_action.setObjectName('ctx-deep-item')
-        nested.addAction(deep_action)
+        nested.addAction(self._make_action('ctx-deep-item'))
 
-    @staticmethod
-    def _make_action_activation_marker(action: QAction, ident: str) -> Callable[[], None]:
-        """Slot that renames *action* to ``<ident>-activated`` when triggered.
+    def _make_action(self, ident: str) -> QAction:
+        """A menu action whose trigger reports *ident* through the last-action label.
 
-        A menu action's ``@Name`` on the accessibility tree is its text, so the
-        rename is observable by locator — proof that the entry was activated,
-        not merely hovered or hit-tested.
+        A menu action's ``@Name`` on the accessibility tree is its text and stays
+        stable; the activation itself is observable on the last-action label —
+        proof that the entry was activated, not merely hovered or hit-tested.
         """
+        action = QAction(ident, self)
+        action.setObjectName(ident)
+        action.triggered.connect(lambda: self._report_action(ident))
+        return action
 
-        def _mark() -> None:
-            action.setText(f'{ident}-activated')
-            action.setObjectName(f'{ident}-activated')
-
-        return _mark
+    def _report_action(self, ident: str) -> None:
+        """Report the last activated action/button on the always-visible label."""
+        _tag(self._last_action, f'last-action-{ident}')
+        self._last_action.setText(f'last-action-{ident}')
 
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:  # noqa: N802 (Qt override)
         """Open the right-click context menu at the cursor.
@@ -257,12 +250,18 @@ class MainWindow(QMainWindow):
         _tag(self.readout, 'geometry-readout')
         self.readout.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.statusBar().addWidget(self.readout, 1)
+        # Last-action observable: text and @Name are "last-action-<ident>" of the
+        # last activated menu action / dialog button ("last-action-none" until the
+        # first activation). Controls never change their own names.
+        self._last_action = QLabel('last-action-none')
+        _tag(self._last_action, 'last-action-none')
+        self.statusBar().addPermanentWidget(self._last_action)
         self.statusBar().setObjectName('main-statusbar')
 
     def _spawn_child_dialogs(self) -> None:
         origin = self.geometry().topLeft()  # main window client-area top-left, global
         for ident, title, dx, dy, w, h in CHILD_DIALOGS[: self._dialog_count]:
-            dialog = SampleDialog(ident, title, modal=False, parent=self)
+            dialog = SampleDialog(ident, title, modal=False, parent=self, report_action=self._report_action)
             dialog.resize(w, h)
             self._register_dialog(dialog)
             dialog.show()
@@ -273,7 +272,9 @@ class MainWindow(QMainWindow):
         # acceptance test. Opened here rather than on demand so no pointer click is
         # needed to bring it up.
         if self._open_modal_on_start:
-            modal = SampleDialog('dialog-modal', 'Modal Dialog', modal=True, parent=self)
+            modal = SampleDialog(
+                'dialog-modal', 'Modal Dialog', modal=True, parent=self, report_action=self._report_action
+            )
             modal.resize(340, 200)
             self._register_dialog(modal)
             # show() (not open()) keeps setModal(True)'s ApplicationModal modality,
