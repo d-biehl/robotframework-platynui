@@ -9,7 +9,7 @@
 
 - [ ] 2.1 `Main` (JavaFX `Application`) with the blueprint CLI contract: `--title` (default "PlatynUI JavaFX TestApp"), `--auto-close <seconds>`, `--open-modal`, usage + non-zero exit on unknown arguments
 - [ ] 2.2 Blueprint core-tier catalog under canonical names via `setAccessibleText`: `main-window`, `button-basic`+`status-label`, `checkbox-basic`, `groupbox-basic`+`radio-first`/`radio-second`, `textfield-basic`, `textarea-basic` (multi-line `TextArea`), `label-basic`, `text-basic`, `image-basic`, `combobox-basic`+items, `list-basic`+`list-item-1..5`, `tree-basic` (three levels), `main-menubar` with `menu-file`/`menu-edit` (+submenu `menu-edit-more`)/`menu-help`, `context-menu`+submenu `ctx-more`, dialogs `dialog-modeless`/`dialog-modal`
-- [ ] 2.3 Blueprint observables: `status-label` click counter (`clicks-<n>`), menu-item rename to `<ident>-activated`, dialog-button rename to `<ident>-clicked`; verify surfaced UIA names against the running fixture before encoding them in suites
+- [ ] 2.3 Blueprint observables: `status-label` click counter (`clicks-<n>`), always-visible `last-action-<ident>` label reporting menu-item/dialog-button activations (`last-action-none` initially; controls never rename themselves); verify surfaced UIA names against the running fixture before encoding them in suites
 
 ## 3. Acceptance coverage
 
