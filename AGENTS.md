@@ -27,6 +27,7 @@ The Python native package (`packages/native`) is a Cargo workspace member (the r
 	- Owning paths: `src/PlatynUI`, `packages/`.
 	- The Rust/Python boundary lives in `packages/native`; see [`dev-docs/python-bindings.md`](dev-docs/python-bindings.md).
 	- Robot Framework surface state, incl. the `PlatynUI` vs `PlatynUI.BareMetal` situation: [`dev-docs/python-library-design.md`](dev-docs/python-library-design.md), [`dev-docs/python-migration-status.md`](dev-docs/python-migration-status.md).
+	- Writing/reviewing Robot Framework suites: follow the `robot-test-style` skill (`.claude/skills/robot-test-style/SKILL.md`) — the authoring checklist for [`dev-docs/testing-strategy.md`](dev-docs/testing-strategy.md) §2.5/§2.6.
 - Docs:
 	- Owning paths: `dev-docs/` (developer & design docs), `docs/` (user-facing documentation), root Markdown files.
 
