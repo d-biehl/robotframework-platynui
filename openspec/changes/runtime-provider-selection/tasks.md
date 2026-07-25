@@ -7,9 +7,10 @@
 
 ## 2. Robot library surface
 
-- [ ] 2.1 Library import parameters (`providers=`, `exclude_providers=`) mapping to include/exclude; each instance builds its own runtime
-- [ ] 2.2 Verify two instances in one suite (`WITH NAME`) run as independent sessions with different provider sets and no cross-talk
-- [ ] 2.3 Document the pattern in the library docs (incl. why there is no live switching)
+- [ ] 2.1 Verify selection works through the **existing** `config=` import parameter with no library change (`config={'providers': {'include': [...]}}`) — this is the mechanism; everything below is convenience
+- [ ] 2.2 *Optional* shorthand parameters (`providers=`, `exclude_providers=`) mapping to include/exclude; drop them if they do not clearly beat the nested dict
+- [ ] 2.3 Acceptance for two selections in one suite, following the established patterns of `tests/BareMetal/library_instance_isolation.robot` and `tests/acceptance/egui/coexisting_runtimes.robot` (each aliased import is its own instance — the library is suite-scoped — so no import argument has to be varied to force that); verify the two instances keep separate scoped state under their per-name variables
+- [ ] 2.4 Document in the library docs: selection via `config=`, that each aliased import is its own session, and why there is no live switching
 
 ## 3. Inspector
 

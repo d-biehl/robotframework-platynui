@@ -34,11 +34,15 @@ When `include` is present but matches no registered provider, construction SHALL
 - **THEN** the AT-SPI provider is active, the unmatched entry is ignored with a warning, and construction succeeds
 
 ### Requirement: Independent sessions per library instance
-The Robot Framework library import SHALL accept the provider selection, and each library instance SHALL build its own runtime with its own selection. Two instances imported under different names in one suite SHALL behave as fully independent sessions — neither shares provider state with the other, and each one's tree reflects only its own selection.
+The provider selection SHALL be expressible through the library's existing session-configuration import parameter, without requiring a dedicated parameter; any shorthand parameter SHALL be a pure alias for the same keys. Each library instance SHALL build its own runtime with its own selection, and two instances imported with different selections SHALL behave as fully independent sessions — neither shares provider state with the other, and each one's tree reflects only its own selection.
 
 #### Scenario: Two library instances with different provider sets
-- **WHEN** a suite imports the library twice, once with a Java-only selection and once with an AT-SPI-only selection, under different names
+- **WHEN** a suite imports the library twice under different names, once with a Java-only selection and once with an AT-SPI-only selection
 - **THEN** each instance serves only its selected technology's nodes, and queries through one instance are unaffected by the other
+
+#### Scenario: Selection via the session config alone
+- **WHEN** the library is imported with the selection given in its session-configuration argument and no dedicated selection parameter
+- **THEN** the session applies that selection exactly as if a shorthand parameter had been used
 
 ### Requirement: Inspector toggles rebuild the session
 The Inspector SHALL allow enabling and disabling providers interactively. Because session configuration is fixed at construction, a toggle SHALL rebuild the runtime with the new selection and re-root the displayed tree, rather than mutating a live runtime. The Inspector SHALL show which providers are active and indicate when a provider contributes nothing because it was suppressed by selection.
