@@ -60,9 +60,19 @@ pub trait UiNode: Send + Sync {
         None
     }
     /// Returns whether the underlying platform node is still valid/available.
-    /// Default returns true; providers may override with a cheap liveness check
-    /// (e.g., a lightweight property call that fails with a platform-specific
-    /// "element not available" error when the node is stale).
+    ///
+    /// Implement this with a cheap liveness check — one lightweight property call
+    /// that fails with the platform's "element not available" error once the node
+    /// is stale (UIA `CurrentProcessId`, JAB `isSameObject`, AT-SPI reading the
+    /// role are the existing ones).
+    ///
+    /// The `true` default is a convenience for stub and test providers, **not** a
+    /// safe fallback for a real one: clients treat this as the signal that a node
+    /// they hold on to has to be looked up again. The Robot Framework library, for
+    /// one, reuses the element a scoped root resolved to for as long as this says
+    /// `true` — with the default, such a root would never be re-resolved, so it
+    /// would not survive its window closing and reopening. Any provider that hands
+    /// out nodes with a real lifetime owns this method.
     fn is_valid(&self) -> bool {
         true
     }

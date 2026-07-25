@@ -1,5 +1,4 @@
 import base64
-import hashlib
 import re
 import time
 from dataclasses import dataclass, replace
@@ -76,6 +75,34 @@ class ForeignNodeError(BareMetalError):
     """
 
 
+class PinnedElementGoneError(BareMetalError):
+    """Raised when a reference pins an element that no longer exists and cannot be looked up again.
+
+    A captured element names one concrete element and carries no selector, so when the provider
+    reports it as gone there is nothing left to re-evaluate. Query it again, or use a selector —
+    which is what a reference re-evaluated on every use is for.
+    """
+
+
+class UnsharableRootError(BareMetalError):
+    """Raised when a root pinning an element is set at a scope that outlives its runtime.
+
+    ``SUITES`` and ``GLOBAL`` hand the value to suites that get their own library instance,
+    and therefore their own runtime, in which a pinned element means nothing and cannot be
+    re-found. A selector can be shared at those scopes; an element cannot.
+    """
+
+
+# Scope names and their mapping to Robot Framework's variable scopes, mirroring the `VAR`
+# syntax (`robot/running/model.py`, `Var._get_scope`) so the vocabulary is RF's, not ours:
+# `TASK` is an alias of `TEST`, and `SUITES` is the suite scope extended to child suites.
+Scope = Literal['LOCAL', 'TEST', 'TASK', 'SUITE', 'SUITES', 'GLOBAL']
+
+# Scopes that reach suites other than the one setting the value — those suites have their own
+# library instance and runtime, so only re-resolvable data (a selector) may travel there.
+_CROSS_SUITE_SCOPES: tuple[Scope, ...] = ('SUITES', 'GLOBAL')
+
+
 PLATYNUI_QUERY_SETTINGS = (
     'PLATYNUI_QUERY_SETTINGS'  # Variable name for storing the current query settings in Robot Framework variables
 )
@@ -123,6 +150,16 @@ class UiNodeDescriptor:
     per-call overrides — is supplied by the caller, never stored here. That is what makes a
     reference safe to hand between library imports: it is resolved by whoever is running,
     against that instance's root and runtime.
+
+    One exception to "holds no resolved element": a selector used **as a root** keeps the element
+    it resolved to, reused while that element is still live and still belongs to the resolving
+    instance. A root is looked up once per keyword on top of the keyword's own target, so it is
+    repetition the suite never asked for — and unlike a target selector, whose re-evaluation *is*
+    the observation the keyword makes, a root names a container that was pinned on purpose. The
+    element is dropped as soon as it stops being valid, so a root still survives its window closing
+    and reopening. Note what this rests on: `platynui_native.UiNode.is_valid` is a provider-side
+    liveness check whose trait default is ``True`` — a provider that does not implement it gets a
+    root that is never looked up again.
     """
 
     def __init__(
@@ -143,6 +180,11 @@ class UiNodeDescriptor:
         # Whether the query needs a context node at all. A function of the query string alone, so
         # it is safe to remember on a shared selector; ``None`` until first asked.
         self._context_dependent: bool | None = None
+        # The element this selector last resolved to *as a root* (see the class docs). Safe here and
+        # nowhere else: `set_root` builds a fresh binding per call, so the object identity is the
+        # invalidation — unlike the shared per-query descriptors handed out by
+        # `descriptor_from_query`, where a cached element outlived the root it was found under.
+        self._root_node: UiNode | None = None
 
     def needs_root(self, library: 'BareMetal') -> bool:
         """Whether resolving this selector has to resolve the library's root first.
@@ -177,9 +219,30 @@ class UiNodeDescriptor:
             library.require_own_node(self.node)
             if self.node.is_valid():
                 return self.node
+            if self.query is None:
+                raise PinnedElementGoneError(
+                    f'The pinned element {self.node.runtime_id!r} is no longer available, and this '
+                    f'reference holds no selector to look it up again. Query it again to get a '
+                    f'current element, or use a selector, which is re-evaluated on every use.'
+                )
 
         if self.query is None:
             raise NoQueryError('UiNodeDescriptor has no query to resolve the node')
+
+        # A root is looked up once per keyword *in addition* to the keyword's own target, so it is
+        # the one repetition the suite did not ask for. Reuse it while it is live: a root names a
+        # container that was pinned deliberately, and skipping its lookup skips a descendant search
+        # with an attribute read per visited node — on a deep tree (Electron, WPF) that is the
+        # dominant cost, and `is_valid()` is a single provider call. Target selectors are never
+        # cached: re-evaluating them *is* what the keyword is for (see the class docs).
+        if as_root and self._root_node is not None:
+            cached = self._root_node
+            # A selector root may legitimately be handed to another import, which then shares this
+            # object — so the owner is part of the question, not just liveness. Foreign or stale
+            # means: look it up again, which a selector can always do.
+            if cached.owner_id == library.runtime.instance_id and cached.is_valid():
+                return cached
+            self._root_node = None
 
         # Resolving a stored root (as_root=True) evaluates the query against the captured parent
         # chain, so a relative root drills into the enclosing root while an absolute query ignores
@@ -223,6 +286,9 @@ class UiNodeDescriptor:
         if not isinstance(result, UiNode):
             raise ResultTypeError(f'Query for UiNodeDescriptor {self.query!r} did not return a UiNode, got: {result!r}')
 
+        if as_root:
+            self._root_node = result
+
         return result
 
     @staticmethod
@@ -244,32 +310,15 @@ _DEFAULT_LIBRARY_NAME = 'PlatynUI.BareMetal'
 def _variable_suffix(library_name: str | None) -> str:
     """Suffix identifying which import a scoped variable belongs to.
 
-    The registered library name is the identity Robot Framework itself uses, and it is stable
-    across the per-suite instances a suite-scoped library goes through — unlike the instance,
-    which changes for every suite and would lose an inherited suite-scoped value.
+    The registered library name is the identity Robot Framework itself uses: within a namespace it
+    maps one-to-one to an import (RF rejects a duplicate name), and unlike the instance — which is
+    rebuilt for every suite, the library being suite-scoped — it is readable in the variable table.
     """
     if library_name is None or library_name == _DEFAULT_LIBRARY_NAME:
         return ''
     # Anything outside [A-Z0-9_] would collide with Robot's extended variable syntax (``${a.b}``
     # means attribute access), so a dotted or spaced alias has to be folded down.
     return '_' + re.sub(r'[^A-Z0-9_]', '_', library_name.upper())
-
-
-@dataclass(frozen=True)
-class _ScopedValue:
-    """A scoped value plus the import fingerprint of the instance that stored it.
-
-    The variable name separates imports by registered name; the fingerprint closes the one gap
-    that leaves — the same name with different import arguments across a suite boundary, where
-    a child suite would otherwise inherit a root belonging to a differently configured session.
-    """
-
-    fingerprint: str
-    value: Any
-
-    @staticmethod
-    def unwrap(stored: Any) -> Any:
-        return stored.value if isinstance(stored, _ScopedValue) else stored
 
 
 def _assertion_value(result: Any) -> Any:
@@ -597,24 +646,38 @@ class BareMetal(OurDynamicCore):
 
     == Scope ==
 
-    A root lives as long as the Robot Framework variable it is kept in; ``scope`` chooses which, and
-    each scope clears itself when it ends — no teardown to remember:
+    A root lives as long as the Robot Framework variable it is kept in; ``scope`` chooses which. All
+    of them except ``GLOBAL`` clear themselves when that scope ends, so there is no teardown to
+    remember:
 
     | = scope = | = The root applies to = |
     | ``LOCAL`` (default) | the current test or keyword, not the keywords it calls |
-    | ``TEST`` | the whole test, including called keywords |
-    | ``SUITE`` | every test in the suite, and every suite below it |
+    | ``TEST`` (or ``TASK``) | the whole test, including called keywords |
+    | ``SUITE`` | every test in the suite, but not the suites below it |
+    | ``SUITES`` | the suite *and* every suite below it |
+    | ``GLOBAL`` | everywhere, for the rest of the run |
 
     | `Set Root`    /app:Application[@Name="Editor"]    scope=SUITE
 
-    ``SUITE`` reaching the suites below means a directory's ``__init__.robot`` can launch the
-    application once and pin it as the root for every suite it contains, instead of each suite
-    repeating that itself.
+    These are Robot Framework's own scope names, with the same meanings its ``VAR`` syntax gives
+    them — including that ``SUITE`` stops at this suite while ``SUITES`` continues into the suites
+    below. ``SUITES`` is what makes a directory's ``__init__.robot`` usable as a fixture: launch the
+    application once and pin it as the root for every suite it contains.
+
+    Also Robot Framework's behavior: setting a value at a wider scope overwrites it in the narrower
+    ones. After a ``GLOBAL`` root, clearing it therefore leaves you at the desktop — an earlier
+    ``TEST`` or ``SUITE`` root does not come back. `Set Root` returns the root that was set at the
+    scope you name, so keep that return value if you want to restore it.
 
     The root stores the *selector*, not a fixed element, so it re-resolves against the live tree and
     keeps working even after its window closes and reopens. (It lives in
     ``${PLATYNUI_ROOT_DESCRIPTOR}``, but set it through `Set Root` — the raw variable holds an
     internal value.)
+
+    You can also pin one concrete element, by passing something you captured from `Query` instead of
+    a selector. That is fine at ``LOCAL``, ``TEST`` and ``SUITE``, but not at the two scopes that
+    leave this suite: a suite below builds its own runtime, in which a pinned element cannot be found
+    again, so a captured root at ``SUITES`` or ``GLOBAL`` is refused rather than stored.
 
     == One root per import ==
 
@@ -712,9 +775,10 @@ class BareMetal(OurDynamicCore):
     | Library    PlatynUI.BareMetal    query_settings={'timeout': 60}
 
     *For a stretch of a test* that needs more (or less) patience than the rest — a slow login, say —
-    with `Set Query Settings`. It works exactly like `Set Root`: the change lives as long as its
-    ``LOCAL``/``TEST``/``SUITE`` scope and clears itself when that scope ends, so there is no teardown
-    to remember.
+    with `Set Query Settings`. It works exactly like `Set Root` and takes the same ``scope`` names: a
+    change at ``LOCAL``, ``TEST``, ``SUITE`` or ``SUITES`` clears itself when that scope ends, so
+    there is no teardown to remember. ``GLOBAL`` is the exception — it lasts for the rest of the run
+    and has to be reset deliberately.
 
     | `Set Query Settings`    {'timeout': 60}    scope=TEST
 
@@ -904,12 +968,6 @@ class BareMetal(OurDynamicCore):
         self._pointer_settings = pointer_settings
         self._pointer_profile = pointer_profile
         self._descriptor_cache: dict[str, UiNodeDescriptor] = {}
-        # Identifies this import's configuration. Two imports of the same library with equal
-        # arguments drive equivalent sessions and may share scoped state; differing ones may not.
-        self._import_fingerprint = hashlib.sha256(
-            repr((use_mock, config, auto_activate, query_settings, keyboard_profile, pointer_settings, pointer_profile))
-            .encode('utf-8')
-        ).hexdigest()[:12]
         self._variable_suffix_cache: str | None = None
 
     def descriptor_from_query(self, query: str) -> UiNodeDescriptor:
@@ -963,30 +1021,68 @@ class BareMetal(OurDynamicCore):
         return f'${{{PLATYNUI_QUERY_SETTINGS}{self._variable_suffix()}}}'
 
     def _scoped_value(self, store: Any, name: str) -> Any:
-        """Read a scoped value from a variable store, ignoring one stored by a differently
-        configured import.
+        """Read a scoped value from a variable store.
 
         ``store`` is a Robot Framework ``VariableStore`` — ``variables.current`` for a
         nearest-scope-wins read, or one specific scope's store. (The enclosing ``VariableScopes``
         object has no ``get``.)
-
-        Same registered name, different import arguments — a child suite inheriting a parent's
-        suite-scoped value. Resolving it would run against a session this import never bound to,
-        so it is dropped with a warning instead.
         """
-        stored = store.get(name, default=None)
-        if stored is None:
-            return None
-        if isinstance(stored, _ScopedValue):
-            if stored.fingerprint == self._import_fingerprint:
-                return stored.value
-            logger.warn(
-                f'Ignoring {name} set by a differently configured import of this library '
-                f'(stored by {stored.fingerprint}, this import is {self._import_fingerprint}). '
-                f'Set it again through this import if it should apply here.'
-            )
-            return None
-        return stored
+        return store.get(name, default=None)
+
+    # ---- Robot Framework variable scopes ------------------------------------------------
+
+    @staticmethod
+    def _scope_store(variables: Any, scope: Scope) -> Any:
+        """The variable store a value set at ``scope`` is read back from.
+
+        Read directly rather than through ``BuiltIn()``, so a same-scope restore is exact and
+        nothing is logged in the wrong step context. Falls back to the innermost store while
+        Robot Framework has no suite scope yet (i.e. outside keyword execution).
+        """
+        suite_vars = getattr(variables, '_suite', None)
+        store: Any
+        if scope == 'GLOBAL':
+            store = getattr(variables, '_global', None)
+        elif scope in ('SUITE', 'SUITES'):
+            store = suite_vars
+        elif scope in ('TEST', 'TASK'):
+            test_vars = getattr(variables, '_test', None)
+            store = test_vars if test_vars is not None else suite_vars
+        else:  # 'LOCAL'
+            store = variables.current
+        return store if store is not None else variables.current
+
+    @staticmethod
+    def _write_scoped(variables: Any, scope: Scope, name: str, value: Any) -> None:
+        """Store ``value`` under ``name`` at ``scope``, mirroring Robot Framework's own mapping.
+
+        Same table as the `VAR` syntax uses (`Var._get_scope`): ``TASK`` is ``TEST``, and
+        ``SUITES`` is the suite scope with ``children=True``.
+        """
+        if scope == 'GLOBAL':
+            variables.set_global(name, value)
+        elif scope == 'SUITES':
+            variables.set_suite(name, value, children=True)
+        elif scope == 'SUITE':
+            variables.set_suite(name, value)
+        elif scope in ('TEST', 'TASK'):
+            variables.set_test(name, value)
+        else:  # 'LOCAL'
+            variables.set_local(name, value)
+
+    @staticmethod
+    def _pinned_element(descriptor: UiNodeDescriptor) -> UiNode | None:
+        """The first pinned element in this root chain, or ``None`` if it is pure selector data.
+
+        The whole chain matters: a selector root may drill into a captured element, which binds the
+        chain to that element's runtime just as the capture itself is.
+        """
+        current: UiNodeDescriptor | None = descriptor
+        while current is not None:
+            if isinstance(current.node, UiNode):
+                return current.node
+            current = current.parent
+        return None
 
     def require_own_node(self, node: UiNode) -> None:
         """Reject an element produced by another import's runtime.
@@ -1065,8 +1161,9 @@ class BareMetal(OurDynamicCore):
 
         `Set Query Settings` stores a full `QuerySettings` instance in ``${PLATYNUI_QUERY_SETTINGS}``
         at the chosen scope, so Robot Framework's own nearest-scope-wins resolution provides the
-        precedence (LOCAL over TEST over SUITE) and clears each scope when it ends. This is the base
-        the wait loop uses; a descriptor's per-call ``overrides`` are applied on top.
+        precedence (LOCAL over TEST over SUITE/SUITES over GLOBAL) and clears each scope when it
+        ends. This is the base the wait loop uses; a descriptor's per-call ``overrides`` are applied
+        on top.
         """
         ctx = EXECUTION_CONTEXTS.current
         if ctx is not None:
@@ -1077,7 +1174,7 @@ class BareMetal(OurDynamicCore):
 
     @keyword
     def set_root(
-        self, descriptor: UiNodeDescriptor | None, scope: Literal['LOCAL', 'TEST', 'SUITE'] = 'LOCAL'
+        self, descriptor: UiNodeDescriptor | None, scope: Scope = 'LOCAL'
     ) -> UiNodeDescriptor | None:
         """Set the default root that subsequent *relative* selectors resolve against.
 
@@ -1091,10 +1188,15 @@ class BareMetal(OurDynamicCore):
                 query), or a root previously returned by this keyword (restored unchanged). Pass
                 ``${None}`` to reset to the desktop. A selector re-resolves against the live tree,
                 so it survives the window closing and reopening; an element pins that one element
-                and must come from this same library import.
-            scope: Lifetime of the root: ``LOCAL`` (default, current test/keyword only), ``TEST``
-                (whole test, including called keywords) or ``SUITE`` (every test in the suite and
-                in the suites below it).
+                and must come from this same library import — as must a restored root that pins
+                one, which is rejected here rather than on the next lookup.
+            scope: Lifetime of the root — the same names Robot Framework's `VAR` syntax uses:
+                ``LOCAL`` (default, current test/keyword only), ``TEST`` (or ``TASK``: the whole
+                test, including called keywords), ``SUITE`` (every test in the suite, not the
+                suites below), ``SUITES`` (the suite *and* the suites below it) or ``GLOBAL``
+                (everywhere). ``SUITES`` and ``GLOBAL`` reach suites that build their own runtime,
+                so only a selector may be set there — an element cannot be re-found in another
+                runtime and is rejected.
 
         Returns:
             UiNodeDescriptor | None: The root set at the same ``scope`` before this call (``None`` if
@@ -1102,40 +1204,29 @@ class BareMetal(OurDynamicCore):
 
         Examples:
             | `Set Root`        /app:Application[@Name="Editor"]    scope=SUITE    # whole suite runs in the Editor
+            | `Set Root`        /app:Application[@Name="Editor"]    scope=SUITES    # …and every suite below
             | `Set Root`        .//Dialog[@Name="Save"]    # drill into the Save dialog
             | `Pointer Click`   .//Button[@Name="OK"]    # acts relative to the dialog
             | `Set Root`        ${None}    # reset to the desktop
         """
         variables = EXECUTION_CONTEXTS.current.variables  # pyright: ignore[reportOptionalMemberAccess]
         name = self._root_variable_name()
-
-        # Set the scope variables directly rather than via BuiltIn(), which would log in the wrong
-        # step context and run the selector through Robot's variable-syntax resolution.
-        suite_vars = getattr(variables, '_suite', None)  # pyright: ignore[reportUnknownArgumentType]
-        test_vars = getattr(variables, '_test', None)  # pyright: ignore[reportUnknownArgumentType]
-        if scope == 'LOCAL':
-            scope_store = variables.current
-        elif scope == 'TEST':
-            scope_store = test_vars if test_vars is not None else suite_vars
-        else:  # 'SUITE'
-            scope_store = suite_vars
-        if scope_store is None:  # only if Robot has no suite scope yet (not during keyword execution)
-            scope_store = variables.current
+        scope_store = self._scope_store(variables, scope)
 
         # old_root is read from the requested scope (so a same-scope restore is exact); effective_root
         # is the currently visible root that relative drilling resolves against.
-        old_root: UiNodeDescriptor | None = _ScopedValue.unwrap(scope_store.get(name))
-        effective_root = self._scoped_value(variables.current, name)
+        old = scope_store.get(name, default=None)
+        old_root: UiNodeDescriptor | None = old if isinstance(old, UiNodeDescriptor) else None
+        current_root = self._scoped_value(variables.current, name)
+        effective_root: UiNodeDescriptor | None = (
+            current_root if isinstance(current_root, UiNodeDescriptor) else None
+        )
 
         if descriptor is None:
             new_root: UiNodeDescriptor | None = None
         elif descriptor.is_root_binding:
             new_root = descriptor
         else:
-            # A capture pins one element of one runtime; making it this import's root is only
-            # meaningful if that runtime is ours.
-            if isinstance(descriptor.node, UiNode):
-                self.require_own_node(descriptor.node)
             # A context-dependent selector drills into the effective root (captured as parent); an
             # independent one starts fresh.
             query = descriptor.query
@@ -1143,21 +1234,30 @@ class BareMetal(OurDynamicCore):
                 context_dependent = query is not None and self.runtime.is_context_dependent(query)
             except EvaluationError as e:
                 raise InvalidSelectorError(f'Invalid selector for Set Root: {query!r} ({e})') from e
-            parent = effective_root if context_dependent and isinstance(effective_root, UiNodeDescriptor) else None
+            parent = effective_root if context_dependent else None
             # A selector root re-resolves against its captured parent; only a capture carries a node.
             node = descriptor.node if descriptor.query is None else None
             new_root = UiNodeDescriptor(node, descriptor.query, parent=parent, is_root_binding=True)
 
-        stored = None if new_root is None else _ScopedValue(self._import_fingerprint, new_root)
-        if scope == 'LOCAL':
-            variables.set_local(name, stored)
-        elif scope == 'TEST':
-            variables.set_test(name, stored)
-        else:  # 'SUITE'
-            # children=True: a suite-scoped value reaches the suites below, so a directory's
-            # __init__.robot can pin the context once for every suite it contains. The fingerprint
-            # stored alongside is what keeps a differently configured import from inheriting it.
-            variables.set_suite(name, stored, children=True)
+        # Both checks below concern a root that pins an element — a handle into one runtime — and
+        # both run on the chain, for every form the argument can take: a fresh capture, a restored
+        # root binding, or a selector root drilling into either.
+        pinned = self._pinned_element(new_root) if new_root is not None else None
+        if pinned is not None:
+            # Ours to begin with? Storing another import's element would fail on every read.
+            self.require_own_node(pinned)
+            # And the scopes below hand the root to suites that build their own instance — and with
+            # it their own runtime. Refuse where the choice is made, rather than leaving a root that
+            # fails on read in suites that never set it.
+            if scope in _CROSS_SUITE_SCOPES:
+                raise UnsharableRootError(
+                    f'Cannot set a root that pins an element at scope={scope}: the element belongs '
+                    f'to runtime {pinned.owner_id}, while every suite below builds its own runtime '
+                    f'and cannot find it again. Pass a selector instead, which each suite '
+                    f're-resolves for itself.'
+                )
+
+        self._write_scoped(variables, scope, name, new_root)
 
         return old_root
 
@@ -1165,7 +1265,7 @@ class BareMetal(OurDynamicCore):
     def set_query_settings(
         self,
         overrides: QuerySettingsDict | QuerySettings | None = None,
-        scope: Literal['LOCAL', 'TEST', 'SUITE'] = 'LOCAL',
+        scope: Scope = 'LOCAL',
     ) -> QuerySettings | None:
         """Set the query wait/retry settings for the given Robot Framework scope.
 
@@ -1174,21 +1274,22 @@ class BareMetal(OurDynamicCore):
         pause between attempts) and ``ignore_exceptions`` (swallow evaluation errors instead of
         failing). Name only the fields you want to change — they are applied over the settings already
         in effect at that scope, so the rest are inherited. The result lives as long as its variable
-        ``scope`` and clears itself when that scope ends, exactly like `Set Root` — no teardown to
-        remember.
+        ``scope``, exactly like `Set Root`: every scope but ``GLOBAL`` clears itself when it ends, so
+        there is no teardown to remember.
 
         Like a root, scopes nest: a value set at ``LOCAL`` shadows one at ``TEST`` shadows one at
-        ``SUITE`` shadows the library-import defaults. Settings set this way apply to *every* lookup,
-        including the re-resolution of a `Set Root` root; a per-keyword ``query_overrides`` only tunes
-        that one keyword's own target.
+        ``SUITE``/``SUITES`` shadows one at ``GLOBAL`` shadows the library-import defaults. Settings
+        set this way apply to *every* lookup, including the re-resolution of a `Set Root` root; a
+        per-keyword ``query_overrides`` only tunes that one keyword's own target.
 
         Args:
             overrides: The fields to change, as a dict (e.g. ``{'timeout': 60}``), or a value returned
                 by this keyword to restore it exactly. Pass ``${None}`` to drop this scope's settings
                 and fall back to the enclosing scope (the analog of ``Set Root    ${None}``).
-            scope: Lifetime of the settings: ``LOCAL`` (default, current test/keyword only), ``TEST``
-                (whole test, including called keywords) or ``SUITE`` (every test in the suite and
-                in the suites below it).
+            scope: Lifetime of the settings — the same names as `Set Root` and Robot Framework's
+                `VAR` syntax: ``LOCAL`` (default), ``TEST``/``TASK``, ``SUITE``, ``SUITES`` (the
+                suite and the suites below it) or ``GLOBAL``. Settings are plain data, so every
+                scope is available here.
 
         Returns:
             QuerySettings | None: The settings set at the same ``scope`` before this call (``None`` if
@@ -1202,22 +1303,9 @@ class BareMetal(OurDynamicCore):
         """
         variables = EXECUTION_CONTEXTS.current.variables  # pyright: ignore[reportOptionalMemberAccess]
         name = self._query_settings_variable_name()
+        scope_store = self._scope_store(variables, scope)
 
-        # Read the previous value from the requested scope (so a same-scope restore is exact), mirroring
-        # the scope selection in set_root. Setting the scope variables directly avoids BuiltIn() logging
-        # in the wrong step context.
-        suite_vars = getattr(variables, '_suite', None)  # pyright: ignore[reportUnknownArgumentType]
-        test_vars = getattr(variables, '_test', None)  # pyright: ignore[reportUnknownArgumentType]
-        if scope == 'LOCAL':
-            scope_store = variables.current
-        elif scope == 'TEST':
-            scope_store = test_vars if test_vars is not None else suite_vars
-        else:  # 'SUITE'
-            scope_store = suite_vars
-        if scope_store is None:  # only if Robot has no suite scope yet (not during keyword execution)
-            scope_store = variables.current
-
-        old = _ScopedValue.unwrap(scope_store.get(name))
+        old = scope_store.get(name, default=None)
         old = old if isinstance(old, QuerySettings) else None
 
         new: QuerySettings | None
@@ -1237,16 +1325,8 @@ class BareMetal(OurDynamicCore):
                 base = old if old is not None else self._default_query_settings
             new = replace(base, **overrides)  # partial dict -> full instance
 
-        stored = None if new is None else _ScopedValue(self._import_fingerprint, new)
-        if scope == 'LOCAL':
-            variables.set_local(name, stored)
-        elif scope == 'TEST':
-            variables.set_test(name, stored)
-        else:  # 'SUITE'
-            # children=True: a suite-scoped value reaches the suites below, so a directory's
-            # __init__.robot can pin the context once for every suite it contains. The fingerprint
-            # stored alongside is what keeps a differently configured import from inheriting it.
-            variables.set_suite(name, stored, children=True)
+        # Settings are pure data — every instance can apply them, so no scope is off limits here.
+        self._write_scoped(variables, scope, name, new)
 
         return old
 

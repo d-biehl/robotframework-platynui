@@ -90,3 +90,24 @@ A Node From Another Import Is Never Reported As Gone
 A Root From Another Import Is Rejected
     ${node}=    A.Query    ${OPS}    only_first=${True}
     Run Keyword And Expect Error    *different library instance*    B.Set Root    ${node}
+
+A Restored Root Drilling Into Another Import's Element Is Rejected
+    [Documentation]    The case that is easy to miss: the handed-over root carries a *selector*, so
+    ...    it looks like shareable data — but it was drilled into a captured element, which sits in
+    ...    its parent chain and binds the whole chain to A's runtime. Built through the keywords, not
+    ...    hand-assembled, to prove the shape is reachable.
+    ${node}=    A.Query    ${OPS}    only_first=${True}
+    A.Set Root    ${node}
+    A.Set Root    .//item:ListItem
+    ${drilled}=    A.Set Root    ${None}
+    Run Keyword And Expect Error    *different library instance*    B.Set Root    ${drilled}
+
+A Restored Root Pinning Another Import's Element Is Rejected
+    [Documentation]    The pinned counterpart to "A Selector Handed To Another Import Resolves
+    ...    There": handing over the *value this keyword returns* skips the element argument, so the
+    ...    chain is checked too — otherwise the foreign handle would be stored here and fail on the
+    ...    next lookup, in a suite that cannot tell where its root came from.
+    ${node}=    A.Query    ${OPS}    only_first=${True}
+    A.Set Root    ${node}
+    ${pinned}=    A.Set Root    ${None}
+    Run Keyword And Expect Error    *different library instance*    B.Set Root    ${pinned}

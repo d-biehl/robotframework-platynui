@@ -13,14 +13,20 @@ so these tests pin the exact contract it relies on, including that it must not t
 ``TestLibrary.instance`` (a property that instantiates on access).
 """
 
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
+from platynui_native import UiNode
 
 from PlatynUI.BareMetal import (
     PLATYNUI_QUERY_SETTINGS,
     PLATYNUI_ROOT_DESCRIPTOR,
     BareMetal,
+    ForeignNodeError,
+    UiNodeDescriptor,
+    UnsharableRootError,
 )
 
 
@@ -158,11 +164,149 @@ def test_a_failed_lookup_is_not_cached(monkeypatch: pytest.MonkeyPatch, library:
     assert library._query_settings_variable_name() == f'${{{PLATYNUI_QUERY_SETTINGS}_BM}}'
 
 
-def test_differently_configured_instances_have_different_fingerprints() -> None:
-    """Same registered name, different import arguments — the mismatch a name cannot catch."""
-    mock_lib = BareMetal(use_mock=True)
-    same = BareMetal(use_mock=True)
-    other = BareMetal(use_mock=True, auto_activate=False)
+class FakeStore:
+    """Stand-in for RF's ``VariableStore`` — its ``get`` takes a keyword default."""
 
-    assert mock_lib._import_fingerprint == same._import_fingerprint
-    assert mock_lib._import_fingerprint != other._import_fingerprint
+    def get(self, name: str, default: Any = None) -> Any:
+        return default
+
+
+class RecordingVariables:
+    """Records which ``VariableScopes`` setter a scope name is routed to."""
+
+    def __init__(self) -> None:
+        self.current = FakeStore()
+        self._suite = FakeStore()
+        self._test = FakeStore()
+        self._global = FakeStore()
+        self.calls: list[tuple[str, str, dict[str, Any]]] = []
+
+    def set_local(self, name: str, value: Any) -> None:
+        self.calls.append(('set_local', name, {}))
+
+    def set_test(self, name: str, value: Any) -> None:
+        self.calls.append(('set_test', name, {}))
+
+    def set_suite(self, name: str, value: Any, **kwargs: Any) -> None:
+        self.calls.append(('set_suite', name, kwargs))
+
+    def set_global(self, name: str, value: Any) -> None:
+        self.calls.append(('set_global', name, {}))
+
+
+@pytest.fixture
+def recorded(monkeypatch: pytest.MonkeyPatch) -> RecordingVariables:
+    variables = RecordingVariables()
+    context = SimpleNamespace(variables=variables, namespace=FakeNamespace({}))
+    monkeypatch.setattr('PlatynUI.BareMetal.EXECUTION_CONTEXTS', type('Contexts', (), {'current': context})())
+    return variables
+
+
+# The mapping Robot Framework's own `VAR` syntax uses (`Var._get_scope`): TASK is an alias of
+# TEST, SUITES is the suite scope extended to child suites, and nothing else widens a scope.
+@pytest.mark.parametrize(
+    ('scope', 'setter', 'kwargs'),
+    [
+        ('LOCAL', 'set_local', {}),
+        ('TEST', 'set_test', {}),
+        ('TASK', 'set_test', {}),
+        ('SUITE', 'set_suite', {}),
+        ('SUITES', 'set_suite', {'children': True}),
+        ('GLOBAL', 'set_global', {}),
+    ],
+)
+def test_each_scope_routes_to_robots_own_setter(
+    library: BareMetal, recorded: RecordingVariables, scope: Any, setter: str, kwargs: dict[str, Any]
+) -> None:
+    library.set_root(UiNodeDescriptor(None, '//control:Window', is_root_binding=True), scope=scope)
+    library.set_query_settings({'timeout': 1.0}, scope=scope)
+
+    assert [call[0] for call in recorded.calls] == [setter, setter]
+    assert [call[2] for call in recorded.calls] == [kwargs, kwargs], f'unexpected setter kwargs: {recorded.calls}'
+
+
+def test_a_suite_scoped_value_is_not_pushed_to_child_suites(library: BareMetal, recorded: RecordingVariables) -> None:
+    """``SUITE`` must stop at this suite; widening it is what ``SUITES`` is for.
+
+    Pinned separately from the mapping table above because this is the boundary a "convenience"
+    change would silently move.
+    """
+    library.set_root(UiNodeDescriptor(None, '//control:Window', is_root_binding=True), scope='SUITE')
+
+    assert recorded.calls == [('set_suite', f'${{{PLATYNUI_ROOT_DESCRIPTOR}}}', {})]
+
+
+@pytest.mark.parametrize('scope', ['SUITES', 'GLOBAL'])
+def test_a_pinned_root_is_rejected_at_cross_suite_scopes(
+    library: BareMetal, recorded: RecordingVariables, scope: Any
+) -> None:
+    """A capture cannot be re-found in another suite's runtime, so it must not be stored there.
+
+    Rejected where the choice is made, not on read in a suite that never set a root.
+    """
+    library.__dict__['runtime'] = SimpleNamespace(instance_id=7, is_context_dependent=lambda _q: False)
+    node = MagicMock(spec=UiNode)
+    node.owner_id = 7
+
+    with pytest.raises(UnsharableRootError, match='pins an element'):
+        library.set_root(UiNodeDescriptor(node, None), scope=scope)
+
+    assert recorded.calls == [], 'nothing may be stored when the root is rejected'
+
+
+@pytest.mark.parametrize('scope', ['SUITES', 'GLOBAL'])
+def test_a_pinned_root_is_rejected_deeper_in_the_chain(
+    library: BareMetal, recorded: RecordingVariables, scope: Any
+) -> None:
+    """A selector root may drill into a capture — then the chain is as unsharable as the capture."""
+    library.__dict__['runtime'] = SimpleNamespace(instance_id=7, is_context_dependent=lambda _q: False)
+    node = MagicMock(spec=UiNode)
+    node.owner_id = 7
+    drilled = UiNodeDescriptor(None, './/Dialog', parent=UiNodeDescriptor(node, None), is_root_binding=True)
+
+    with pytest.raises(UnsharableRootError):
+        library.set_root(drilled, scope=scope)
+
+
+@pytest.mark.parametrize('scope', ['SUITES', 'GLOBAL'])
+def test_a_selector_root_is_allowed_at_cross_suite_scopes(
+    library: BareMetal, recorded: RecordingVariables, scope: Any
+) -> None:
+    library.set_root(UiNodeDescriptor(None, '//control:Window', is_root_binding=True), scope=scope)
+
+    assert len(recorded.calls) == 1
+
+
+@pytest.mark.parametrize('scope', ['LOCAL', 'TEST', 'SUITE', 'SUITES', 'GLOBAL'])
+def test_a_restored_root_pinning_a_foreign_element_is_rejected(
+    library: BareMetal, recorded: RecordingVariables, scope: Any
+) -> None:
+    """A root binding handed over from another import must not be stored, at any scope.
+
+    Restoring a value this keyword returned skips the argument conversion that guards a raw
+    element, so without this check the foreign handle would be stored and only fail on the next
+    lookup — in a suite that has no idea where the root came from.
+    """
+    library.__dict__['runtime'] = SimpleNamespace(instance_id=7)
+    foreign = MagicMock(spec=UiNode)
+    foreign.owner_id = 8
+    foreign.runtime_id = 'mock://desktop/1'
+
+    with pytest.raises(ForeignNodeError, match='different library instance'):
+        library.set_root(UiNodeDescriptor(foreign, None, is_root_binding=True), scope=scope)
+
+    assert recorded.calls == [], 'nothing may be stored when the root is rejected'
+
+
+def test_a_restored_selector_root_drilling_into_a_foreign_element_is_rejected(
+    library: BareMetal, recorded: RecordingVariables
+) -> None:
+    """The chain again: the foreign element can sit in the parent of a selector root."""
+    library.__dict__['runtime'] = SimpleNamespace(instance_id=7)
+    foreign = MagicMock(spec=UiNode)
+    foreign.owner_id = 8
+    foreign.runtime_id = 'mock://desktop/1'
+    drilled = UiNodeDescriptor(None, './/Dialog', parent=UiNodeDescriptor(foreign, None), is_root_binding=True)
+
+    with pytest.raises(ForeignNodeError):
+        library.set_root(drilled, scope='LOCAL')
