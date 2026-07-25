@@ -35,7 +35,7 @@ Verified current state:
 
 **D5 — Live-fixture replacement asserts the policy.** The `setTextContents` round trip (`live_fixture.rs:320-339`) becomes: the editable stage-1 field advertises `TEXT_EDITABLE` and exposes `IsReadOnly=false`, and `pattern_by_name(TEXT_EDITABLE)` returns `None`. End-to-end keyboard text entry is covered where it belongs: the Swing acceptance suite drives real input devices.
 
-**D6 — In-flight Java-agent changes are aligned by reference, not edited here.** The `provider-java-agent-swing`/`-swt`/`-javafx` proposals mention TextEditable; this change's spec (`text-input-policy`) becomes the constraint they must conform to. Their artifacts are living documents in the same repo — a coordination task points there rather than this change quietly rewriting another change's design.
+**D6 — In-flight Java-agent changes are aligned by reference, not edited here.** The `provider-java-swing`/`-swt`/`-javafx` proposals mention TextEditable; this change's spec (`text-input-policy`) becomes the constraint they must conform to. Their artifacts are living documents in the same repo — a coordination task points there rather than this change quietly rewriting another change's design.
 
 ## Risks / Trade-offs
 

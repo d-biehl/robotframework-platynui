@@ -10,7 +10,7 @@ PlatynUI's interaction philosophy is simulating genuine user input: text is ente
 - JAB provider: remove the `TextEditableAction` wiring from `pattern_by_name` and the now-dead write path (`client.set_text_contents`, the `setTextContents` DLL binding, the `TextTooLong` error variant). The `TEXT_EDITABLE` advertisement (text interface ∧ `editable` state) and the `IsReadOnly` attribute stay unchanged.
 - JAB live fixture: replace the `setTextContents` round-trip test with a marker assertion (`TextEditable` advertised on the editable field, `pattern_by_name` returns no action).
 - Docs: reword the `TextEditable` description in dev-docs/architecture.md's pattern catalog to capability-marker semantics; clarify the Python `TextEditable` ABC docstring (`core/patterns/text.py`) that implementations synthesize keyboard input.
-- Coordination: the in-flight `provider-java-agent-swing`/`-swt`/`-javafx` changes reference `TextEditable`/set-text — align their designs with the marker-only stance (no agent-side programmatic writes).
+- Coordination: the in-flight `provider-java-swing`/`-swt`/`-javafx` changes reference `TextEditable`/set-text — align their designs with the marker-only stance (no agent-side programmatic writes).
 
 ## Capabilities
 
