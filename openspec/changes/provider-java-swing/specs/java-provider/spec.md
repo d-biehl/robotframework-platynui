@@ -7,6 +7,17 @@ The Java provider SHALL surface the UI tree of a Java application through an **a
 - **WHEN** a `JTable` data cell is inspected via the agent backend
 - **THEN** the cell node has its correct name, bounds, and selection state, and a stable identity-based `RuntimeId` (unlike the JAB renderer-alias)
 
+### Requirement: Node validity is answered, not assumed
+Nodes served by the agent backend SHALL report their validity: a node SHALL be valid only while its element is still live in the target JVM and still attached to a showing window, and SHALL report invalid once the element is gone, detached, its window closed, or the JVM ended. When the agent is unreachable or degraded, validity SHALL be reported as invalid rather than assumed — consumers that hold a node (notably a scoped root in the Robot Framework library, which reuses a resolved element while it reports valid) then re-resolve instead of pinning a dead element.
+
+#### Scenario: A pinned root survives its window closing and reopening
+- **WHEN** a scoped root is pinned to an agent-served element and that element's window is closed and reopened
+- **THEN** the node reports invalid while gone, and the root is resolved again against the new window instead of staying bound to the dead element
+
+#### Scenario: A vanished JVM does not leave valid nodes
+- **WHEN** the target JVM ends while a consumer still holds one of its nodes
+- **THEN** the node reports invalid (never valid-by-default), and no call blocks beyond the deadline margin
+
 ### Requirement: Automatic, keyword-free backend selection
 Backend selection SHALL be automatic and internal to the Java provider: a JVM window is served via the agent backend exactly when an agent is present in that window's JVM (detected via `java-app-classification`), with no explicit attach/connect keyword and **no change to the boolean `window_claims` semantics** — the Java provider remains the single Java claimant. A Java JVM with no agent SHALL continue to be served by the JAB backend (Windows) or the platform's native provider (elsewhere). When an agent appears in an already-running JVM, the serving backend SHALL switch on the next enumeration pass without re-claiming.
 

@@ -20,7 +20,7 @@
 ## 3. Agent (Swing/AWT, v1)
 
 - [ ] 3.1 Tree read: instance-tree spine + per-node accessibility enrichment + virtual `AccessibleJTableCell` subtrees (design 2); **full** attribute/model surface incl. `Component.getName()` and `TableModel` bulk reads
-- [ ] 3.2 Agent-assigned weak-ref registry for identity-stable element ids (design 2a); **physical-pixel** coordinate conversion in-JVM (design 2b)
+- [ ] 3.2 Agent-assigned weak-ref registry for identity-stable element ids (design 2a); cheap per-element **liveness endpoint** (id resolves to a live object still attached to a showing window) backing `UiNode::is_valid`; **physical-pixel** coordinate conversion in-JVM (design 2b)
 - [ ] 3.3 Actions/patterns: focus (`requestFocus`), point hit-test + highlight for the picker; **no** text write — TextEditable stays a capability marker (`text-input-policy`), text is typed
 - [ ] 3.4 Native window handle: in-JVM internals first, expose it for the provider's WindowManager delegation; provider-side PID+geometry fallback wiring (design 8)
 - [ ] 3.5 Multi-client RPC server, EDT-serialized, per-call deadline with abandon-on-timeout; UI-generation counter over the notification frame (design 7)
@@ -28,7 +28,7 @@
 ## 4. Provider + routing (depends on `java-app-classifier`)
 
 - [ ] 4.1 New crate `crates/provider-java` (name `platynui-provider-java`, matching the Python package): NDJSON-RPC client (platform-neutral), connects via the handshake file (port + token)
-- [ ] 4.2 Map agent elements → `UiNode` (normalized role/namespace, `native:*` attributes, patterns, identity-stable `RuntimeId`s); degraded-agent handling mirroring JAB's `DegradedTracker`
+- [ ] 4.2 Map agent elements → `UiNode` (normalized role/namespace, `native:*` attributes, patterns, identity-stable `RuntimeId`s); implement `UiNode::is_valid` over the liveness endpoint, answering `false` when the agent is degraded/unreachable (design 2a); degraded-agent handling mirroring JAB's `DegradedTracker`
 - [ ] 4.3 Backend routing (design 3): the router prefers the agent backend when the agent-present signal holds, else JAB; mid-session agent appearance switches the serving backend on the next enumeration pass; `window_claims` untouched
 - [ ] 4.4 `java-app-classification` gains the "agent present?" signal (handshake file); routing is automatic, no attach/connect keyword
 
@@ -44,5 +44,6 @@
 - [ ] 6.1 Swing fixture: a `JTable` cell resolves with correct name/bounds/selection and a stable RuntimeId through the agent (the JAB gap closed)
 - [ ] 6.2 Routing: a JVM with the agent is served via the agent backend (single representation — one Java claim, one tree); a no-agent JVM is still served by the JAB backend
 - [ ] 6.3 Concurrency: Inspector + test-run connections against one agent do not lock each other out
-- [ ] 6.4 Robustness: an unresponsive agent stays bounded and does not block other providers; `just check`/`test`/`build-native` + the relevant acceptance lanes green
-- [ ] 6.5 Delivery: without `platynui-provider-java` the provider reports the actionable install diagnostic and claims nothing (JAB fallback intact); with it installed, discovery works over both transports (test run in-process, Inspector via co-located-interpreter one-shot); a version-mismatched agent is aborted with both versions named
+- [ ] 6.4 Node lifetime: a scoped root pinned to an agent-served element is re-resolved after its window closes and reopens (the property `is_valid` carries for the Robot library — the agent-backend counterpart of the JAB proof in the Swing window lane), and a killed JVM does not leave a root reported valid
+- [ ] 6.5 Robustness: an unresponsive agent stays bounded and does not block other providers; `just check`/`test`/`build-native` + the relevant acceptance lanes green
+- [ ] 6.6 Delivery: without `platynui-provider-java` the provider reports the actionable install diagnostic and claims nothing (JAB fallback intact); with it installed, discovery works over both transports (test run in-process, Inspector via co-located-interpreter one-shot); a version-mismatched agent is aborted with both versions named
