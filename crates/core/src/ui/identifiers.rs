@@ -144,6 +144,12 @@ pub mod pattern_names {
     /// stay in the same module.
     pub const ELEMENT: &str = "org.platynui.patterns.Element";
     pub const TEXT_CONTENT: &str = "org.platynui.patterns.TextContent";
+    /// Capability marker: advertised in `SupportedPatterns` for elements that
+    /// genuinely accept text input (paired with `IsReadOnly`, optionally
+    /// `MaxLength`), deliberately **without** a pattern instance — there is no
+    /// programmatic set-text action in the core vocabulary. Text entry is
+    /// keyboard-driven at the client layer (focus, select-all, type), so no
+    /// provider may expose an accessibility-API write here.
     pub const TEXT_EDITABLE: &str = "org.platynui.patterns.TextEditable";
     pub const CLEARABLE: &str = "org.platynui.patterns.Clearable";
     pub const TOGGLEABLE: &str = "org.platynui.patterns.Toggleable";

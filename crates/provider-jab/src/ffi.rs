@@ -362,7 +362,6 @@ pub(crate) type RequestFocusFn = unsafe extern "C" fn(VmId, JObject64) -> BOOL;
 pub(crate) type GetAccessibleTextInfoFn =
     unsafe extern "C" fn(VmId, JObject64, *mut AccessibleTextInfo, i32, i32) -> BOOL;
 pub(crate) type GetAccessibleTextRangeFn = unsafe extern "C" fn(VmId, JObject64, i32, i32, *mut u16, i16) -> BOOL;
-pub(crate) type SetTextContentsFn = unsafe extern "C" fn(VmId, JObject64, *const u16) -> BOOL;
 /// Shared by `getCurrentAccessibleValueFromContext`, `getMaximumAccessibleValueFromContext`,
 /// and `getMinimumAccessibleValueFromContext` (value returned as a string).
 pub(crate) type GetAccessibleValueFn = unsafe extern "C" fn(VmId, JObject64, *mut u16, i16) -> BOOL;

@@ -63,7 +63,8 @@ pub mod pattern {
         pub const TEXT: &str = "Text";
     }
 
-    /// Writable text elements (TextEditable-Pattern; extends TextContent).
+    /// Editability metadata of text-bearing elements, paired with the
+    /// `TextEditable` capability marker (see `pattern_names::TEXT_EDITABLE`).
     pub mod text_editable {
         pub const IS_READ_ONLY: &str = "IsReadOnly";
         pub const MAX_LENGTH: &str = "MaxLength";

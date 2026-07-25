@@ -409,12 +409,14 @@ Each capability is defined once, in platform-neutral terms, but it has to be sat
 
 `Text` is sourced only from a genuine text interface — never the accessible name — so a plain label or button (no text interface) exposes no `control:Text`; its label stays in `control:Name`. `TextContent` has no provider attribute of its own beyond `Text`: it is surfaced on the client side by attribute-only synthesis (the presence of `control:Text`), not advertised in a provider's supported-patterns list. Read-only is **not** a `TextContent` attribute — it is a client-side derivation (`TextContent ∧ ¬TextEditable`) that belongs with `TextEditable`.
 
-**TextEditable** — extends TextContent with write access:
+**TextEditable** — capability marker for elements that genuinely accept text input. It is advertised in `SupportedPatterns` **without** a pattern instance: there is no programmatic set-text action anywhere in the vocabulary, because text is entered through synthesized keyboard input at the client layer (focus → select-all → type). Providers therefore never wire an accessibility-API write (`ValuePattern.SetValue`, `EditableText.SetTextContents`, JAB `setTextContents`, in-process agent writes); they only decide *whether* the element is editable and expose the metadata below.
 
-| Attribute | UIA | AT-SPI2 | macOS AX |
-|-----------|-----|---------|----------|
-| Text (write) | ValuePattern.SetValue / TextPattern ranges | EditableText.SetTextContents / InsertText | AXValue (settable) |
-| MaxLength | — | — | — |
+| Attribute | UIA | AT-SPI2 | JAB | macOS AX |
+|-----------|-----|---------|-----|----------|
+| IsReadOnly | ValuePattern.IsReadOnly | ¬EditableText / read-only state | ¬`editable` state | ¬AXEditable |
+| MaxLength | — | — | — | — |
+
+The paired reader is `TextContent` (`Text`); `Clearable` follows the same principle (`<Ctrl+A><Delete>` at the client layer).
 
 **TextSelection**
 
@@ -549,7 +551,7 @@ All providers must:
 - Emit `Id` only when non-empty.
 - Emit `Description` only when non-empty, sourced strictly from the platform's accessible-description property (no HelpText/tooltip fallback; see §5.6).
 - Set `parent` references correctly in children iterators.
-- Keep `SupportedPatterns` consistent with available pattern instances.
+- Keep `SupportedPatterns` consistent with available pattern instances — except for deliberate capability markers (`TextEditable`), which are advertised without an instance.
 - Normalize roles to PascalCase; preserve originals under `native:*`.
 - Filter out own-process windows/overlays from the UI tree.
 - Implement `shutdown()` for resource cleanup.

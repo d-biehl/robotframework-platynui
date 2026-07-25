@@ -360,24 +360,6 @@ impl JabClient {
         })
     }
 
-    /// Replace the whole text content. The bridge transports at most
-    /// `MAX_STRING_SIZE - 1` UTF-16 units per write — longer texts fail
-    /// instead of being silently truncated.
-    #[allow(unsafe_code)]
-    pub(crate) fn set_text_contents(&self, obj: &JabObject, text: &str) -> Result<(), JabError> {
-        let mut encoded: Vec<u16> = text.encode_utf16().collect();
-        if encoded.len() > ffi::MAX_STRING_SIZE - 1 {
-            return Err(JabError::TextTooLong { limit: ffi::MAX_STRING_SIZE - 1 });
-        }
-        encoded.push(0);
-        let (vm, handle) = (obj.vm(), obj.handle());
-        let ok = self.call(Some(vm), "setTextContents", move |bridge| {
-            // SAFETY: NUL-terminated UTF-16 buffer outlives the call; pump thread.
-            unsafe { (bridge.set_text_contents)(vm, handle, encoded.as_ptr()).as_bool() }
-        })?;
-        if ok { Ok(()) } else { Err(JabError::CallFailed { op: "setTextContents" }) }
-    }
-
     pub(crate) fn current_value(&self, obj: &JabObject) -> Result<Option<String>, JabError> {
         self.value_string(obj, "getCurrentAccessibleValueFromContext", |bridge| bridge.get_current_accessible_value)
     }

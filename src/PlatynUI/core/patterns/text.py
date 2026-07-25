@@ -23,13 +23,23 @@ class TextContent(PatternBase):
 
 
 class TextEditable(PatternBase):
-    """An element that accepts a new text value and exposes editing constraints."""
+    """An element that accepts text input and exposes editing constraints.
+
+    On the provider side this pattern is a pure capability marker: it is
+    advertised (together with `is_readonly`) for elements that genuinely accept
+    input, but it never carries a programmatic write action. Implementations of
+    `set_text` synthesize real keyboard input instead.
+    """
 
     pattern_name = 'org.platynui.patterns.TextEditable'
 
     @abstractmethod
     def set_text(self, value: str) -> None:
-        """Replace the current content with ``value``."""
+        """Replace the current content with ``value``.
+
+        Implementations synthesize keyboard input (focus, select-all, type) —
+        they never write through the accessibility API.
+        """
 
     @property
     @abstractmethod
@@ -59,4 +69,8 @@ class Clearable(PatternBase):
 
     @abstractmethod
     def clear(self) -> None:
-        """Remove the current content."""
+        """Remove the current content.
+
+        Like `TextEditable.set_text`, implementations synthesize keyboard input
+        (select-all, delete) rather than writing through the accessibility API.
+        """

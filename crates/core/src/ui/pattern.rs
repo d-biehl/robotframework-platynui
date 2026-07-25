@@ -407,62 +407,6 @@ impl ResizablePattern for ResizableAction {
     }
 }
 
-/// Pattern for programmatic text replacement — writes the full text content
-/// of an editable text element through the backing accessibility API (as
-/// opposed to synthesizing keystrokes).
-pub trait TextEditablePattern: UiPattern {
-    fn set_text(&self, text: &str) -> Result<(), PatternError>;
-}
-
-type TextHandler = Arc<dyn Fn(&str) -> Result<(), PatternError> + Send + Sync>;
-
-#[must_use]
-pub struct TextEditableAction {
-    handler: TextHandler,
-}
-
-impl TextEditableAction {
-    pub fn new<F>(handler: F) -> Self
-    where
-        F: Fn(&str) -> Result<(), PatternError> + Send + Sync + 'static,
-    {
-        Self { handler: Arc::new(handler) }
-    }
-
-    pub fn noop() -> Self {
-        Self::new(|_| Ok(()))
-    }
-}
-
-impl Default for TextEditableAction {
-    fn default() -> Self {
-        Self::noop()
-    }
-}
-
-impl UiPattern for TextEditableAction {
-    fn pattern_name(&self) -> PatternName {
-        Self::static_pattern_name()
-    }
-
-    fn static_pattern_name() -> PatternName
-    where
-        Self: Sized,
-    {
-        PatternName::from(pattern_names::TEXT_EDITABLE)
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-impl TextEditablePattern for TextEditableAction {
-    fn set_text(&self, text: &str) -> Result<(), PatternError> {
-        (self.handler)(text)
-    }
-}
-
 /// Pattern that polls whether a surface currently accepts user input.
 pub trait ResponsivePattern: UiPattern {
     fn accepts_user_input(&self) -> Result<Option<bool>, PatternError>;
@@ -722,29 +666,6 @@ mod tests {
     fn responsive_action_reports_value() {
         let action = ResponsiveAction::new(|| Ok(Some(true)));
         assert_eq!(action.accepts_user_input().unwrap(), Some(true));
-    }
-
-    #[rstest]
-    fn text_editable_action_invokes_handler_with_text() {
-        let written: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-        let action = TextEditableAction::new({
-            let written = Arc::clone(&written);
-            move |text| {
-                written.lock().unwrap().push(text.to_string());
-                Ok(())
-            }
-        });
-
-        action.set_text("hello").expect("set_text should succeed");
-        assert_eq!(written.lock().unwrap().as_slice(), &["hello".to_string()]);
-        assert_eq!(action.pattern_name(), TextEditableAction::static_pattern_name());
-    }
-
-    #[rstest]
-    fn text_editable_action_propagates_error() {
-        let action = TextEditableAction::new(|_| Err(PatternError::new("read-only")));
-        let err = action.set_text("x").expect_err("should bubble up");
-        assert_eq!(err.message(), "read-only");
     }
 
     #[rstest]

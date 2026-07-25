@@ -25,11 +25,6 @@ pub(crate) enum JabError {
     #[error("JAB call failed: {op}")]
     CallFailed { op: &'static str },
 
-    /// `setTextContents` transports at most `MAX_STRING_SIZE - 1` UTF-16
-    /// units; longer writes fail instead of being silently truncated.
-    #[error("text exceeds the JAB write limit of {limit} UTF-16 units")]
-    TextTooLong { limit: usize },
-
     /// The pump thread is gone (provider shut down or thread died).
     #[error("JAB pump thread is not available")]
     PumpUnavailable,
@@ -55,7 +50,6 @@ impl From<JabError> for ProviderError {
             JabError::Timeout { .. }
             | JabError::VmDegraded { .. }
             | JabError::CallFailed { .. }
-            | JabError::TextTooLong { .. }
             | JabError::PumpUnavailable
             | JabError::Shutdown => ProviderError::CommunicationFailure { channel: "jab", details: message },
             JabError::NoWindowManager | JabError::NodeDropped => {

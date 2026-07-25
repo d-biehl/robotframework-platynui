@@ -12,7 +12,7 @@
 //!
 //! `live_fixture_contract_and_interaction` covers `OpenSpec` `add-jab-provider`
 //! task 4.5 (core contract testkit against a live node set) plus the
-//! `setTextContents` write path and the Closeable delegation;
+//! `TextEditable` marker semantics and the Closeable delegation;
 //! `live_frozen_jvm_stays_contained` covers task 8.3 (robustness against an
 //! unresponsive JVM — may be run manually if it proves flaky in CI).
 
@@ -31,8 +31,8 @@ use platynui_core::platform::platform_factories;
 use platynui_core::provider::{UiTreeProvider, UiTreeProviderFactory};
 use platynui_core::ui::contract::testkit::{AttributeExpectation, NodeExpectation, PatternExpectation, verify_node};
 use platynui_core::ui::{
-    Namespace, PatternName, RuntimeId, TextEditableAction, UiAttribute, UiNode, UiValue, attribute_names,
-    pattern_names, validate_control_or_item,
+    Namespace, PatternName, RuntimeId, UiAttribute, UiNode, UiValue, attribute_names, pattern_names,
+    validate_control_or_item,
 };
 use platynui_provider_jab::JabFactory;
 // Force-link the Windows platform crate so its inventory-registered platform
@@ -258,13 +258,24 @@ fn live_fixture_contract_and_interaction() {
     }
 
     // Node contract + pattern honesty over the whole tree: every advertised
-    // pattern resolves to a concrete instance, control/item nodes validate,
-    // and the identifying attributes are present.
+    // pattern resolves to a concrete instance — except deliberate capability
+    // markers, which are advertised without one (the node contract allows this;
+    // see `pattern_names::TEXT_EDITABLE`) — control/item nodes validate, and the
+    // identifying attributes are present.
+    const CAPABILITY_MARKERS: &[&str] = &[pattern_names::TEXT_EDITABLE];
     for node in &nodes {
         if matches!(node.namespace(), Namespace::Control | Namespace::Item) {
             validate_control_or_item(node.as_ref()).expect("core node contract");
         }
         for pattern in node.supported_patterns() {
+            if CAPABILITY_MARKERS.contains(&pattern.as_str()) {
+                assert!(
+                    node.pattern_by_name(&pattern).is_none(),
+                    "capability marker {pattern} must not carry an instance on {}",
+                    node.runtime_id()
+                );
+                continue;
+            }
             assert!(
                 node.pattern_by_name(&pattern).is_some(),
                 "advertised pattern {pattern} has no instance on {}",
@@ -317,8 +328,9 @@ fn live_fixture_contract_and_interaction() {
     };
     assert!(bounds.contains(point), "activation point must sit inside the bounds");
 
-    // TextEditable write path (`setTextContents`) — the genuine JAB write, as
-    // opposed to the acceptance lane's keyboard synthesis.
+    // TextEditable is a capability marker: advertised with editability
+    // metadata, deliberately without a pattern instance. Text entry itself is
+    // keyboard-driven and covered by the Swing acceptance lane.
     let textfield = find_by_name(&nodes, "stage1-textfield");
     assert_eq!(textfield.role(), "Text");
     let issues = verify_node(
@@ -329,14 +341,14 @@ fn live_fixture_contract_and_interaction() {
         )),
     );
     assert!(issues.is_empty(), "textfield contract issues: {issues:?}");
-    let editable = textfield.pattern::<TextEditableAction>().expect("TextEditable pattern instance");
-    use platynui_core::ui::TextEditablePattern as _;
-    editable.set_text("hello-jab").expect("setTextContents");
-    textfield.invalidate();
     assert_eq!(
-        attribute_value(textfield, attribute_names::text_content::TEXT),
-        Some(UiValue::from("hello-jab")),
-        "text round-trip through setTextContents"
+        attribute_value(textfield, attribute_names::text_editable::IS_READ_ONLY),
+        Some(UiValue::from(false)),
+        "the editable fixture field must report IsReadOnly = false"
+    );
+    assert!(
+        textfield.pattern_by_name(&PatternName::from(pattern_names::TEXT_EDITABLE)).is_none(),
+        "TextEditable must stay a marker — no programmatic set-text action"
     );
 
     // Toggle/value surfaces on the stage-2 controls.

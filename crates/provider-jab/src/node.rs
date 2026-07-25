@@ -25,8 +25,8 @@ use platynui_core::ui::attribute_names::{
 };
 use platynui_core::ui::{
     ActivatableAction, CloseableAction, FocusableAction, MaximizableAction, MinimizableAction, MovableAction,
-    Namespace, PatternError, PatternName, ResizableAction, ResponsiveAction, RestorableAction, RuntimeId,
-    TextEditableAction, UiAttribute, UiNode, UiPattern, UiValue, pattern_names, supported_patterns_value,
+    Namespace, PatternError, PatternName, ResizableAction, ResponsiveAction, RestorableAction, RuntimeId, UiAttribute,
+    UiNode, UiPattern, UiValue, pattern_names, supported_patterns_value,
 };
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use tracing::{debug, trace};
@@ -315,25 +315,35 @@ impl JabNode {
     }
 
     fn supported_patterns_for(&self, info: &ContextInfo) -> Vec<PatternName> {
-        let mut patterns = Vec::new();
-        if info.states.focusable || info.states.focused {
-            patterns.push(PatternName::from(pattern_names::FOCUSABLE));
-        }
-        if info.has_interface(ffi::INTERFACE_TEXT) && info.states.editable {
-            patterns.push(PatternName::from(pattern_names::TEXT_EDITABLE));
-        }
-        if self.is_top_level() {
-            patterns.push(PatternName::from(pattern_names::ACTIVATABLE));
-            patterns.push(PatternName::from(pattern_names::MINIMIZABLE));
-            patterns.push(PatternName::from(pattern_names::MAXIMIZABLE));
-            patterns.push(PatternName::from(pattern_names::RESTORABLE));
-            patterns.push(PatternName::from(pattern_names::CLOSEABLE));
-            patterns.push(PatternName::from(pattern_names::MOVABLE));
-            patterns.push(PatternName::from(pattern_names::RESIZABLE));
-            patterns.push(PatternName::from(pattern_names::RESPONSIVE));
-        }
-        patterns
+        advertised_patterns(info, self.is_top_level())
     }
+}
+
+/// Patterns a node advertises, derived purely from its context info and
+/// top-level status.
+///
+/// `TEXT_EDITABLE` is advertised as a capability marker (see
+/// `pattern_names::TEXT_EDITABLE`) — `pattern_by_name` deliberately returns no
+/// instance for it, because text is entered via synthesized keyboard input.
+fn advertised_patterns(info: &ContextInfo, is_top_level: bool) -> Vec<PatternName> {
+    let mut patterns = Vec::new();
+    if info.states.focusable || info.states.focused {
+        patterns.push(PatternName::from(pattern_names::FOCUSABLE));
+    }
+    if info.has_interface(ffi::INTERFACE_TEXT) && info.states.editable {
+        patterns.push(PatternName::from(pattern_names::TEXT_EDITABLE));
+    }
+    if is_top_level {
+        patterns.push(PatternName::from(pattern_names::ACTIVATABLE));
+        patterns.push(PatternName::from(pattern_names::MINIMIZABLE));
+        patterns.push(PatternName::from(pattern_names::MAXIMIZABLE));
+        patterns.push(PatternName::from(pattern_names::RESTORABLE));
+        patterns.push(PatternName::from(pattern_names::CLOSEABLE));
+        patterns.push(PatternName::from(pattern_names::MOVABLE));
+        patterns.push(PatternName::from(pattern_names::RESIZABLE));
+        patterns.push(PatternName::from(pattern_names::RESPONSIVE));
+    }
+    patterns
 }
 
 impl UiNode for JabNode {
@@ -562,16 +572,10 @@ impl UiNode for JabNode {
             })));
         }
 
-        if id == pattern_names::TEXT_EDITABLE {
-            if !(info.has_interface(ffi::INTERFACE_TEXT) && info.states.editable) {
-                return None;
-            }
-            let client = Arc::clone(&self.client);
-            let ctx = Arc::clone(&self.ctx);
-            return Some(Arc::new(TextEditableAction::new(move |text| {
-                client.set_text_contents(&ctx, text).map_err(PatternError::from)
-            })));
-        }
+        // `TEXT_EDITABLE` is deliberately absent here: it is a capability
+        // marker only (see `pattern_names::TEXT_EDITABLE`). It stays advertised
+        // in `supported_patterns_for`, but text is entered via synthesized
+        // keyboard input — never through a JAB write.
 
         let is_window_pattern = matches!(
             id,
@@ -1423,6 +1427,43 @@ mod tests {
             "jab://app/4711/123/0x2A0B3C/2"
         );
         assert_eq!(format_app_runtime_id(4711), "jab://app/4711");
+    }
+
+    /// Minimal `ContextInfo` for the pure advertisement logic.
+    fn context_info(states: crate::map::StateFlags, interfaces: i32) -> ContextInfo {
+        ContextInfo {
+            name: String::new(),
+            description: String::new(),
+            role_localized: String::new(),
+            role_en_us: "text".to_string(),
+            states_en_us: String::new(),
+            states,
+            index_in_parent: 0,
+            children_count: 0,
+            bounds: Some((0, 0, 100, 20)),
+            interfaces,
+        }
+    }
+
+    #[test]
+    fn editable_text_field_advertises_text_editable_marker() {
+        let states = crate::map::StateFlags { enabled: true, focusable: true, editable: true, ..Default::default() };
+        let patterns = advertised_patterns(&context_info(states, ffi::INTERFACE_TEXT), false);
+
+        // The marker stays advertised even though no set-text action exists.
+        assert!(patterns.iter().any(|p| p.as_str() == pattern_names::TEXT_EDITABLE));
+        assert!(patterns.iter().any(|p| p.as_str() == pattern_names::FOCUSABLE));
+    }
+
+    #[test]
+    fn read_only_or_interface_less_text_is_not_marked_editable() {
+        let read_only = crate::map::StateFlags { enabled: true, focusable: true, ..Default::default() };
+        let patterns = advertised_patterns(&context_info(read_only, ffi::INTERFACE_TEXT), false);
+        assert!(patterns.iter().all(|p| p.as_str() != pattern_names::TEXT_EDITABLE));
+
+        let editable_without_text = crate::map::StateFlags { editable: true, ..Default::default() };
+        let patterns = advertised_patterns(&context_info(editable_without_text, 0), false);
+        assert!(patterns.iter().all(|p| p.as_str() != pattern_names::TEXT_EDITABLE));
     }
 
     #[test]
