@@ -33,3 +33,10 @@ Kill Switch Restores The UIA Shell Alongside The JAB Node
     ...    msg=expected the JAB node plus the UIA shell with claims ignored    query_overrides={'timeout': 10}
     BMOFF.Wait Until Query    count(/Window[@Name="${SWING_TITLE}" and @Technology="JAB"])    ==    ${1}
     ...    msg=exactly one of the two must be the JAB representation
+
+Each Import Keeps Its Own Query Root
+    [Documentation]    The suite setup pins BM's root to the launched instance; BMOFF is a separate
+    ...    import with its own runtime and window-claims setting, so it must not inherit that root —
+    ...    which is why every locator above spells itself out absolutely.
+    Variable Should Exist    \${PLATYNUI_ROOT_DESCRIPTOR_BM}
+    Variable Should Not Exist    \${PLATYNUI_ROOT_DESCRIPTOR_BMOFF}

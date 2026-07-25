@@ -45,3 +45,21 @@ One Runtime Keeps Working While The Other Acts
     A.Pointer Click    ${WINDOW}//*[@Id="btn-click-me"]
     B.Wait Until Query    ${WINDOW}//*[@Id="status-clicks"]/@Name    !=    ${before}
     ...    msg=B did not observe the click A performed on the shared session
+
+Each Import Keeps Its Own Query Root
+    [Documentation]    The suite setup pins BM's root to the launched instance. A and B are separate
+    ...    imports driving their own runtimes, so that root is none of their business — each import
+    ...    stores its root under a variable named after the import.
+    Variable Should Exist    \${PLATYNUI_ROOT_DESCRIPTOR_BM}
+    Variable Should Not Exist    \${PLATYNUI_ROOT_DESCRIPTOR_A}
+    Variable Should Not Exist    \${PLATYNUI_ROOT_DESCRIPTOR_B}
+
+An Element From One Runtime Is Rejected By The Other
+    [Documentation]    The case only a live session can prove: both runtimes drive the same session,
+    ...    so the same element carries the same provider-stable runtime_id through either — yet the
+    ...    handles are not interchangeable, and using A's with B must fail loudly.
+    ${wa}=    A.Query    ${WINDOW}    only_first=${True}
+    ${wb}=    B.Query    ${WINDOW}    only_first=${True}
+    Should Be Equal    ${{ $wa.runtime_id }}    ${{ $wb.runtime_id }}
+    ...    msg=precondition: both runtimes resolve the same element
+    Run Keyword And Expect Error    *different library instance*    B.Get Attribute    ${wa}    Name

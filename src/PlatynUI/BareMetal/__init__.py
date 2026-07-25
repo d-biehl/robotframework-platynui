@@ -1,4 +1,6 @@
 import base64
+import hashlib
+import re
 import time
 from dataclasses import dataclass, replace
 from functools import cached_property
@@ -65,6 +67,15 @@ class ElementStillPresentError(BareMetalError):
     """Raised when an element is still present/valid after a `Wait Until Gone` timeout elapses."""
 
 
+class ForeignNodeError(BareMetalError):
+    """Raised when an element from one library import is used with another.
+
+    Element handles are not interchangeable: each belongs to the runtime whose provider
+    connection produced it (``UiNode.owner_id``). Using one with a different import would
+    evaluate against a connection that never created it.
+    """
+
+
 PLATYNUI_QUERY_SETTINGS = (
     'PLATYNUI_QUERY_SETTINGS'  # Variable name for storing the current query settings in Robot Framework variables
 )
@@ -97,57 +108,97 @@ class QuerySettingsDict(TypedDict, total=False):
 
 
 class UiNodeDescriptor:
-    """Descriptor wrapper allowing lazy resolution of a UiNode from a query string.
+    """An element reference: either a selector or a captured element.
 
-    The descriptor either holds a concrete UiNode or an expression string that will be
-    evaluated using the associated BareMetal library instance when called.
+    The two forms are deliberately distinct, because they answer different questions:
+
+    - A *selector* (``query`` set) says "whatever matches this path right now". It is pure
+      data — the path plus, for a stored root, the root chain it was set under — and is
+      re-evaluated on every use. It holds no resolved element between calls, so it always
+      follows the current root and the current state of the tree.
+    - A *capture* (``node`` set) names one concrete element. It is pinned to that element
+      and to the runtime whose provider connection produced it, and is never re-resolved.
+
+    Everything about the *call* — which library resolves it, with which query settings and
+    per-call overrides — is supplied by the caller, never stored here. That is what makes a
+    reference safe to hand between library imports: it is resolved by whoever is running,
+    against that instance's root and runtime.
     """
 
     def __init__(
         self,
         node: UiNode | None,
         query: str | None,
-        library: 'BareMetal',
         parent: 'UiNodeDescriptor | None' = None,
         is_root_binding: bool = False,
     ) -> None:
         self.node = node
         self.query = query
-        self.library = library
         # When this descriptor is used as a stored root, ``parent`` is the root that was effective
         # when it was set; a relative query then drills into it. ``is_root_binding`` marks a
         # descriptor created by ``set_root`` so that restoring a saved root keeps its chain as-is
         # instead of being re-parented.
         self.parent = parent
         self.is_root_binding = is_root_binding
-        # Per-call query-settings override (partial), set from each wait keyword's query_overrides
-        # argument before it resolves this descriptor — unconditionally, so a stale value never leaks
-        # via the shared descriptor cache. Resolved against the scoped/default settings in __call__.
-        self.overrides: QuerySettingsDict | None = None
+        # Whether the query needs a context node at all. A function of the query string alone, so
+        # it is safe to remember on a shared selector; ``None`` until first asked.
+        self._context_dependent: bool | None = None
 
-    def __call__(self, no_root: bool = False) -> UiNode:
+    def needs_root(self, library: 'BareMetal') -> bool:
+        """Whether resolving this selector has to resolve the library's root first.
+
+        An absolute selector (``/`` or ``//``) starts at the document root and ignores the context
+        node, so resolving the root for it is not just wasted work — it makes the lookup fail when
+        the root itself has vanished, for a query that never needed it.
+        """
+        if self.query is None:
+            return False
+        if self._context_dependent is None:
+            try:
+                self._context_dependent = library.runtime.is_context_dependent(self.query)
+            except EvaluationError:
+                # Undecidable here; resolve the root and let the real evaluation report the error.
+                self._context_dependent = True
+        return self._context_dependent
+
+    @property
+    def owner_id(self) -> int | None:
+        """The runtime that produced this reference's element, or ``None`` for a selector."""
+        return self.node.owner_id if isinstance(self.node, UiNode) else None
+
+    def resolve(
+        self,
+        library: 'BareMetal',
+        overrides: 'QuerySettingsDict | None' = None,
+        as_root: bool = False,
+    ) -> UiNode:
+        """Resolve to an element for ``library``, waiting per its effective query settings."""
         if isinstance(self.node, UiNode):
+            library.require_own_node(self.node)
             if self.node.is_valid():
                 return self.node
 
         if self.query is None:
             raise NoQueryError('UiNodeDescriptor has no query to resolve the node')
 
-        # Resolving a stored root (no_root=True) evaluates the query against the captured parent
+        # Resolving a stored root (as_root=True) evaluates the query against the captured parent
         # chain, so a relative root drills into the enclosing root while an absolute query ignores
-        # it. As a query target (no_root=False) it evaluates against the library's current root.
-        context = (self.parent(True) if self.parent is not None else None) if no_root else self.library.root
+        # it. As a query target (as_root=False) it evaluates against the library's current root.
+        if as_root:
+            context = self.parent.resolve(library, as_root=True) if self.parent is not None else None
+        else:
+            context = library.root if self.needs_root(library) else None
 
         # Effective settings for this resolution: the scoped/default base, with this call's partial
         # override applied on top. Computed once — neither layer changes during a synchronous resolve.
-        base = self.library.query_settings
-        settings = replace(base, **self.overrides) if self.overrides else base
+        base = library.query_settings
+        settings = replace(base, **overrides) if overrides else base
 
         start_time = time.monotonic()
         result: UiNode | UiValue | EvaluatedAttribute | None = None
         while True:
             try:
-                result = self.library.runtime.evaluate_single(self.query, context)
+                result = library.runtime.evaluate_single(self.query, context)
             except (SystemExit, KeyboardInterrupt):
                 raise  # Don't interfere with user-initiated interrupts
             except Exception as e:
@@ -167,25 +218,58 @@ class UiNodeDescriptor:
                 )
 
             time.sleep(settings.retry_interval)
-            self.library.runtime.clear_cache()  # Clear runtime cache to attempt to resolve transient UI states
+            library.runtime.clear_cache()  # Clear runtime cache to attempt to resolve transient UI states
 
         if not isinstance(result, UiNode):
             raise ResultTypeError(f'Query for UiNodeDescriptor {self.query!r} did not return a UiNode, got: {result!r}')
-
-        self.node = result  # Cache resolved node
 
         return result
 
     @staticmethod
     def convert(value: str | UiNode, library: 'BareMetal') -> 'UiNodeDescriptor':
         if isinstance(value, UiNode):
-            return UiNodeDescriptor(value, None, library)
+            return UiNodeDescriptor(value, None)
         return library.descriptor_from_query(value)
 
 
 PLATYNUI_ROOT_DESCRIPTOR = (
     'PLATYNUI_ROOT_DESCRIPTOR'  # Variable name for storing the current root descriptor in Robot Framework variables
 )
+
+# Robot Framework's own library identity — the name an unaliased import is registered under.
+# It maps to the unsuffixed variable names, so the documented spelling keeps working.
+_DEFAULT_LIBRARY_NAME = 'PlatynUI.BareMetal'
+
+
+def _variable_suffix(library_name: str | None) -> str:
+    """Suffix identifying which import a scoped variable belongs to.
+
+    The registered library name is the identity Robot Framework itself uses, and it is stable
+    across the per-suite instances a suite-scoped library goes through — unlike the instance,
+    which changes for every suite and would lose an inherited suite-scoped value.
+    """
+    if library_name is None or library_name == _DEFAULT_LIBRARY_NAME:
+        return ''
+    # Anything outside [A-Z0-9_] would collide with Robot's extended variable syntax (``${a.b}``
+    # means attribute access), so a dotted or spaced alias has to be folded down.
+    return '_' + re.sub(r'[^A-Z0-9_]', '_', library_name.upper())
+
+
+@dataclass(frozen=True)
+class _ScopedValue:
+    """A scoped value plus the import fingerprint of the instance that stored it.
+
+    The variable name separates imports by registered name; the fingerprint closes the one gap
+    that leaves — the same name with different import arguments across a suite boundary, where
+    a child suite would otherwise inherit a root belonging to a differently configured session.
+    """
+
+    fingerprint: str
+    value: Any
+
+    @staticmethod
+    def unwrap(stored: Any) -> Any:
+        return stored.value if isinstance(stored, _ScopedValue) else stored
 
 
 def _assertion_value(result: Any) -> Any:
@@ -519,13 +603,37 @@ class BareMetal(OurDynamicCore):
     | = scope = | = The root applies to = |
     | ``LOCAL`` (default) | the current test or keyword, not the keywords it calls |
     | ``TEST`` | the whole test, including called keywords |
-    | ``SUITE`` | every test in the suite |
+    | ``SUITE`` | every test in the suite, and every suite below it |
 
     | `Set Root`    /app:Application[@Name="Editor"]    scope=SUITE
 
-    The root stores the *query*, not a fixed node, so it re-resolves against the live tree and keeps
-    working even after its window closes and reopens. (It lives in ``${PLATYNUI_ROOT_DESCRIPTOR}``,
-    but set it through `Set Root` — the raw variable holds an internal descriptor.)
+    ``SUITE`` reaching the suites below means a directory's ``__init__.robot`` can launch the
+    application once and pin it as the root for every suite it contains, instead of each suite
+    repeating that itself.
+
+    The root stores the *selector*, not a fixed element, so it re-resolves against the live tree and
+    keeps working even after its window closes and reopens. (It lives in
+    ``${PLATYNUI_ROOT_DESCRIPTOR}``, but set it through `Set Root` — the raw variable holds an
+    internal value.)
+
+    == One root per import ==
+
+    The root belongs to the library import that set it. If you import the library more than once —
+    to drive two sessions, or with different settings — each import keeps its own root and its own
+    query settings, and neither sees the other's:
+
+    | Library    PlatynUI.BareMetal    AS    APP
+    | Library    PlatynUI.BareMetal    config={'platform': {'x11': {'display': ':1'}}}    AS    REMOTE
+    | `APP.Set Root`       /app:Application[@Name="Editor"]    # REMOTE still starts at its desktop
+
+    Each import stores its root under its own variable, named after the import: the plain import
+    uses ``${PLATYNUI_ROOT_DESCRIPTOR}``, an import named ``APP`` uses
+    ``${PLATYNUI_ROOT_DESCRIPTOR_APP}`` (and likewise for ``${PLATYNUI_QUERY_SETTINGS}``).
+
+    Elements follow the same rule, and more strictly: an element you got from one import cannot be
+    used with another — it is a live handle into *that* import's session, and passing it elsewhere
+    fails rather than silently acting on the wrong session. Pass the *selector* instead, which any
+    import can resolve for itself.
 
     = Targeting a specific application =
 
@@ -796,15 +904,95 @@ class BareMetal(OurDynamicCore):
         self._pointer_settings = pointer_settings
         self._pointer_profile = pointer_profile
         self._descriptor_cache: dict[str, UiNodeDescriptor] = {}
+        # Identifies this import's configuration. Two imports of the same library with equal
+        # arguments drive equivalent sessions and may share scoped state; differing ones may not.
+        self._import_fingerprint = hashlib.sha256(
+            repr((use_mock, config, auto_activate, query_settings, keyboard_profile, pointer_settings, pointer_profile))
+            .encode('utf-8')
+        ).hexdigest()[:12]
+        self._variable_suffix_cache: str | None = None
 
     def descriptor_from_query(self, query: str) -> UiNodeDescriptor:
         descriptor = self._descriptor_cache.get(query)
         if descriptor is not None:
             return descriptor
 
-        descriptor = UiNodeDescriptor(None, query, self)
+        descriptor = UiNodeDescriptor(None, query)
         self._descriptor_cache[query] = descriptor
         return descriptor
+
+    # ---- Per-import identity ------------------------------------------------------------
+
+    def _registered_name(self) -> str | None:
+        """The name this instance is registered under in the current Robot Framework namespace.
+
+        Reads ``_instance`` rather than the public ``instance`` property: that property *creates*
+        the library instance when the slot is empty, so walking the namespace through it would
+        instantiate every library the suite imported.
+        """
+        ctx = EXECUTION_CONTEXTS.current
+        if ctx is None:
+            return None
+        libraries = getattr(getattr(ctx.namespace, '_kw_store', None), 'libraries', None)
+        if not libraries:
+            return None
+        for name, lib in libraries.items():  # pyright: ignore[reportUnknownVariableType]
+            if getattr(lib, 'code', None) is type(self) and getattr(lib, '_instance', None) is self:
+                return cast(str, name)
+        return None
+
+    def _variable_suffix(self) -> str:
+        """This import's variable-name suffix; resolved once, it cannot change for an instance."""
+        if self._variable_suffix_cache is None:
+            self._variable_suffix_cache = _variable_suffix(self._registered_name())
+        return self._variable_suffix_cache
+
+    def _root_variable_name(self) -> str:
+        return f'${{{PLATYNUI_ROOT_DESCRIPTOR}{self._variable_suffix()}}}'
+
+    def _query_settings_variable_name(self) -> str:
+        return f'${{{PLATYNUI_QUERY_SETTINGS}{self._variable_suffix()}}}'
+
+    def _scoped_value(self, store: Any, name: str) -> Any:
+        """Read a scoped value from a variable store, ignoring one stored by a differently
+        configured import.
+
+        ``store`` is a Robot Framework ``VariableStore`` — ``variables.current`` for a
+        nearest-scope-wins read, or one specific scope's store. (The enclosing ``VariableScopes``
+        object has no ``get``.)
+
+        Same registered name, different import arguments — a child suite inheriting a parent's
+        suite-scoped value. Resolving it would run against a session this import never bound to,
+        so it is dropped with a warning instead.
+        """
+        stored = store.get(name, default=None)
+        if stored is None:
+            return None
+        if isinstance(stored, _ScopedValue):
+            if stored.fingerprint == self._import_fingerprint:
+                return stored.value
+            logger.warn(
+                f'Ignoring {name} set by a differently configured import of this library '
+                f'(stored by {stored.fingerprint}, this import is {self._import_fingerprint}). '
+                f'Set it again through this import if it should apply here.'
+            )
+            return None
+        return stored
+
+    def require_own_node(self, node: UiNode) -> None:
+        """Reject an element produced by another import's runtime.
+
+        Element handles are not interchangeable — each is bound to the provider connection that
+        created it — and nothing about the element says so: ``runtime_id`` is provider-stable, so
+        two imports driving the same session report the same value for the same element.
+        """
+        owner = node.owner_id
+        if owner != self.runtime.instance_id:
+            raise ForeignNodeError(
+                f'Element {node.runtime_id!r} belongs to a different library instance '
+                f'(runtime {owner}, this import drives runtime {self.runtime.instance_id}). '
+                f'Resolve it through the import that produced it, or use a selector instead.'
+            )
 
     def _create_runtime(self) -> Runtime:
         """Create and return the PlatynUI runtime instance.
@@ -852,10 +1040,12 @@ class BareMetal(OurDynamicCore):
 
         This is the default context for queries when no root is specified.
         """
-        if PLATYNUI_ROOT_DESCRIPTOR in EXECUTION_CONTEXTS.current.variables:  # pyright: ignore[reportOptionalMemberAccess]
-            r = EXECUTION_CONTEXTS.current.variables[f'${{{PLATYNUI_ROOT_DESCRIPTOR}}}']  # pyright: ignore[reportOptionalMemberAccess]
-            if isinstance(r, UiNodeDescriptor):
-                return r(True)
+        ctx = EXECUTION_CONTEXTS.current
+        if ctx is None:
+            return None
+        r = self._scoped_value(ctx.variables.current, self._root_variable_name())
+        if isinstance(r, UiNodeDescriptor):
+            return r.resolve(self, as_root=True)
 
         return None
 
@@ -870,8 +1060,8 @@ class BareMetal(OurDynamicCore):
         the wait loop uses; a descriptor's per-call ``overrides`` are applied on top.
         """
         ctx = EXECUTION_CONTEXTS.current
-        if ctx is not None and PLATYNUI_QUERY_SETTINGS in ctx.variables:
-            settings = ctx.variables[f'${{{PLATYNUI_QUERY_SETTINGS}}}']
+        if ctx is not None:
+            settings = self._scoped_value(ctx.variables.current, self._query_settings_variable_name())
             if isinstance(settings, QuerySettings):
                 return settings
         return self._default_query_settings
@@ -888,11 +1078,14 @@ class BareMetal(OurDynamicCore):
         desktop. See `Scoping queries to a container` for the full picture, including scope.
 
         Args:
-            descriptor: The new root — a selector string, a ``UiNode`` or descriptor (e.g. one
-                returned by another query), or a root previously returned by this keyword (restored
-                unchanged). Pass ``${None}`` to reset to the desktop.
+            descriptor: The new root — a selector string, an element (e.g. one returned by a
+                query), or a root previously returned by this keyword (restored unchanged). Pass
+                ``${None}`` to reset to the desktop. A selector re-resolves against the live tree,
+                so it survives the window closing and reopening; an element pins that one element
+                and must come from this same library import.
             scope: Lifetime of the root: ``LOCAL`` (default, current test/keyword only), ``TEST``
-                (whole test, including called keywords) or ``SUITE`` (every test in the suite).
+                (whole test, including called keywords) or ``SUITE`` (every test in the suite and
+                in the suites below it).
 
         Returns:
             UiNodeDescriptor | None: The root set at the same ``scope`` before this call (``None`` if
@@ -905,7 +1098,7 @@ class BareMetal(OurDynamicCore):
             | `Set Root`        ${None}    # reset to the desktop
         """
         variables = EXECUTION_CONTEXTS.current.variables  # pyright: ignore[reportOptionalMemberAccess]
-        name = f'${{{PLATYNUI_ROOT_DESCRIPTOR}}}'
+        name = self._root_variable_name()
 
         # Set the scope variables directly rather than via BuiltIn(), which would log in the wrong
         # step context and run the selector through Robot's variable-syntax resolution.
@@ -922,14 +1115,18 @@ class BareMetal(OurDynamicCore):
 
         # old_root is read from the requested scope (so a same-scope restore is exact); effective_root
         # is the currently visible root that relative drilling resolves against.
-        old_root: UiNodeDescriptor | None = scope_store.get(name)
-        effective_root = variables.current.get(name)
+        old_root: UiNodeDescriptor | None = _ScopedValue.unwrap(scope_store.get(name))
+        effective_root = self._scoped_value(variables.current, name)
 
         if descriptor is None:
             new_root: UiNodeDescriptor | None = None
         elif descriptor.is_root_binding:
             new_root = descriptor
         else:
+            # A capture pins one element of one runtime; making it this import's root is only
+            # meaningful if that runtime is ours.
+            if isinstance(descriptor.node, UiNode):
+                self.require_own_node(descriptor.node)
             # A context-dependent selector drills into the effective root (captured as parent); an
             # independent one starts fresh.
             query = descriptor.query
@@ -938,17 +1135,20 @@ class BareMetal(OurDynamicCore):
             except EvaluationError as e:
                 raise InvalidSelectorError(f'Invalid selector for Set Root: {query!r} ({e})') from e
             parent = effective_root if context_dependent and isinstance(effective_root, UiNodeDescriptor) else None
-            # A query binding must re-resolve against its captured parent, so never copy the shared
-            # descriptor's cached node into it; keep a concrete node only when there is no query.
+            # A selector root re-resolves against its captured parent; only a capture carries a node.
             node = descriptor.node if descriptor.query is None else None
-            new_root = UiNodeDescriptor(node, descriptor.query, self, parent=parent, is_root_binding=True)
+            new_root = UiNodeDescriptor(node, descriptor.query, parent=parent, is_root_binding=True)
 
+        stored = None if new_root is None else _ScopedValue(self._import_fingerprint, new_root)
         if scope == 'LOCAL':
-            variables.set_local(name, new_root)
+            variables.set_local(name, stored)
         elif scope == 'TEST':
-            variables.set_test(name, new_root)
+            variables.set_test(name, stored)
         else:  # 'SUITE'
-            variables.set_suite(name, new_root)
+            # children=True: a suite-scoped value reaches the suites below, so a directory's
+            # __init__.robot can pin the context once for every suite it contains. The fingerprint
+            # stored alongside is what keeps a differently configured import from inheriting it.
+            variables.set_suite(name, stored, children=True)
 
         return old_root
 
@@ -978,7 +1178,8 @@ class BareMetal(OurDynamicCore):
                 by this keyword to restore it exactly. Pass ``${None}`` to drop this scope's settings
                 and fall back to the enclosing scope (the analog of ``Set Root    ${None}``).
             scope: Lifetime of the settings: ``LOCAL`` (default, current test/keyword only), ``TEST``
-                (whole test, including called keywords) or ``SUITE`` (every test in the suite).
+                (whole test, including called keywords) or ``SUITE`` (every test in the suite and
+                in the suites below it).
 
         Returns:
             QuerySettings | None: The settings set at the same ``scope`` before this call (``None`` if
@@ -991,7 +1192,7 @@ class BareMetal(OurDynamicCore):
             | `Set Query Settings`    ${None}    # drop this scope's settings
         """
         variables = EXECUTION_CONTEXTS.current.variables  # pyright: ignore[reportOptionalMemberAccess]
-        name = f'${{{PLATYNUI_QUERY_SETTINGS}}}'
+        name = self._query_settings_variable_name()
 
         # Read the previous value from the requested scope (so a same-scope restore is exact), mirroring
         # the scope selection in set_root. Setting the scope variables directly avoids BuiltIn() logging
@@ -1007,7 +1208,7 @@ class BareMetal(OurDynamicCore):
         if scope_store is None:  # only if Robot has no suite scope yet (not during keyword execution)
             scope_store = variables.current
 
-        old: QuerySettings | None = scope_store.get(name)
+        old = _ScopedValue.unwrap(scope_store.get(name))
         old = old if isinstance(old, QuerySettings) else None
 
         new: QuerySettings | None
@@ -1027,12 +1228,16 @@ class BareMetal(OurDynamicCore):
                 base = old if old is not None else self._default_query_settings
             new = replace(base, **overrides)  # partial dict -> full instance
 
+        stored = None if new is None else _ScopedValue(self._import_fingerprint, new)
         if scope == 'LOCAL':
-            variables.set_local(name, new)
+            variables.set_local(name, stored)
         elif scope == 'TEST':
-            variables.set_test(name, new)
+            variables.set_test(name, stored)
         else:  # 'SUITE'
-            variables.set_suite(name, new)
+            # children=True: a suite-scoped value reaches the suites below, so a directory's
+            # __init__.robot can pin the context once for every suite it contains. The fingerprint
+            # stored alongside is what keeps a differently configured import from inheriting it.
+            variables.set_suite(name, stored, children=True)
 
         return old
 
@@ -1061,6 +1266,8 @@ class BareMetal(OurDynamicCore):
 
         if root is None:
             root = self.root
+        else:
+            self.require_own_node(root)
 
         self.runtime.clear_cache()
         return self.runtime.evaluate_single(expression, root) if only_first else self.runtime.evaluate(expression, root)
@@ -1094,10 +1301,9 @@ class BareMetal(OurDynamicCore):
             | ${dialog}=    `Wait Until Exists`    Window[@Name="Save As"]
             | `Wait Until Exists`    //control:ProgressBar[@Name="Importing"]    query_overrides={'timeout': 60}
         """
-        descriptor.overrides = query_overrides
         settings = replace(self.query_settings, **query_overrides) if query_overrides else self.query_settings
         try:
-            return descriptor()
+            return descriptor.resolve(self, query_overrides)
         except ElementNotFoundError:
             raise ElementNotFoundError(
                 f'No element matched {descriptor.query!r} within timeout of {settings.timeout} seconds.'
@@ -1115,6 +1321,11 @@ class BareMetal(OurDynamicCore):
         re-evaluated on every attempt — or a *captured element* from `Query` to wait until it
         becomes invalid.
 
+        The difference matters when something equivalent takes the target's place: a selector then
+        matches the replacement and keeps waiting, while a captured element reports itself gone
+        because the element *it* named is no longer there. Pick the one that expresses what you
+        mean.
+
         Whether a captured element ever reports itself gone depends on the accessibility
         provider's liveness check. For a *value* condition — a count dropping to zero, say — use
         `Wait Until Query`; a value-producing selector (``count(...)``) is rejected here rather
@@ -1123,7 +1334,8 @@ class BareMetal(OurDynamicCore):
 
         Args:
             descriptor: The target whose disappearance to wait for — a selector or an element
-                from `Query`.
+                from `Query`. An element must come from this same library import; one from
+                another import is rejected rather than reported gone.
             query_overrides: Per-call query settings, e.g. ``{'timeout': 10}``.
 
         Examples:
@@ -1134,15 +1346,20 @@ class BareMetal(OurDynamicCore):
         """
         settings = replace(self.query_settings, **query_overrides) if query_overrides else self.query_settings
         query = descriptor.query
+        if query is None and isinstance(descriptor.node, UiNode):
+            # A capture belongs to the runtime that produced it; one from another import can
+            # neither be polled here nor be honestly called gone.
+            self.require_own_node(descriptor.node)
         start = time.monotonic()
         while True:
             gone = False
             try:
                 if query is not None:
-                    # Selector: re-evaluate fresh every attempt; never trust descriptor.node
-                    # (it may be a node cached on the shared descriptor by a prior keyword).
+                    # A selector is re-evaluated every attempt — it never carries a resolved
+                    # element between calls, so there is nothing stale to distrust.
                     self.runtime.clear_cache()
-                    result = self.runtime.evaluate_single(query, self.root)
+                    root = self.root if descriptor.needs_root(self) else None
+                    result = self.runtime.evaluate_single(query, root)
                     if result is not None and not isinstance(result, UiNode):
                         raise ResultTypeError(
                             f'Wait Until Gone expects an element selector or a captured element; query '
@@ -1294,22 +1511,22 @@ class BareMetal(OurDynamicCore):
     # Internal helpers
     def _maybe_bring_to_front(
         self,
-        descriptor: 'UiNodeDescriptor | None',
+        node: UiNode | None,
         activate: bool | None,
     ) -> None:
         """Bring the target element's window to the foreground if activation is enabled.
 
         Args:
-            descriptor: Optional element descriptor. If None, no action is taken.
+            node: Optional resolved element. If None, no action is taken.
             activate: Override for auto_activate. If None, the library-level
                 ``auto_activate`` setting is used.
         """
-        if descriptor is None:
+        if node is None:
             return
         should_activate = activate if activate is not None else self.auto_activate
         if should_activate:
             try:
-                self.runtime.bring_to_front(descriptor())
+                self.runtime.bring_to_front(node)
             except BareMetalError:
                 raise  # Critical error from the library/runtime; propagate it
             except (KeyboardInterrupt, SystemExit):
@@ -1319,21 +1536,21 @@ class BareMetal(OurDynamicCore):
 
     def _resolve_screen_point(
         self,
-        descriptor: 'UiNodeDescriptor | None',
+        target_node: UiNode | None,
         x: float | None,
         y: float | None,
     ) -> Point | None:
-        """Resolve absolute screen coordinates from optional descriptor and x/y values.
+        """Resolve absolute screen coordinates from an optional element and x/y values.
 
         Behavior:
         - If only one of x or y is provided, raises ValueError.
-        - If a descriptor is provided and x/y are None: uses ActivationPoint when available,
+        - If an element is provided and x/y are None: uses ActivationPoint when available,
           otherwise the center of Bounds.
-        - If a descriptor is provided and x/y are given: treats (x, y) as offsets relative
+        - If an element is provided and x/y are given: treats (x, y) as offsets relative
           to the element's top-left Bounds origin.
-        - If no descriptor is provided and x/y are given: treats (x, y) as absolute screen
+        - If no element is provided and x/y are given: treats (x, y) as absolute screen
           coordinates.
-        - If neither descriptor nor x/y are provided: returns None. Callers decide whether a
+        - If neither element nor x/y are provided: returns None. Callers decide whether a
           missing point is an error (pointer_move_to raises) or means "current pointer
           position" (pointer_click/press/release pass None through to the runtime).
 
@@ -1343,8 +1560,7 @@ class BareMetal(OurDynamicCore):
         if (x is not None) != (y is not None):
             raise ValueError('Both x and y coordinates must be provided together')
 
-        if descriptor is not None:
-            target_node = descriptor()
+        if target_node is not None:
 
             # No coordinates provided: auto-resolve from node
             if x is None and y is None:
@@ -1422,10 +1638,9 @@ class BareMetal(OurDynamicCore):
             | `Pointer Click`    x=${100}    y=${200}
             | `Pointer Click`    Window[@Name="Settings"]//Button[@Name="OK"]    activate=${False}
         """
-        if descriptor is not None:
-            descriptor.overrides = query_overrides
-        self._maybe_bring_to_front(descriptor, activate)
-        point = self._resolve_screen_point(descriptor, x, y)
+        node = descriptor.resolve(self, query_overrides) if descriptor is not None else None
+        self._maybe_bring_to_front(node, activate)
+        point = self._resolve_screen_point(node, x, y)
         self.runtime.pointer_click(point, button, overrides)
 
     @keyword
@@ -1458,10 +1673,9 @@ class BareMetal(OurDynamicCore):
             | `Pointer Multi Click`    x=${100}    y=${200}
             | `Pointer Multi Click`    Window[@Name="Files"]//Text[@Name="File"]    clicks=${3}
         """
-        if descriptor is not None:
-            descriptor.overrides = query_overrides
-        self._maybe_bring_to_front(descriptor, activate)
-        point = self._resolve_screen_point(descriptor, x, y)
+        node = descriptor.resolve(self, query_overrides) if descriptor is not None else None
+        self._maybe_bring_to_front(node, activate)
+        point = self._resolve_screen_point(node, x, y)
         self.runtime.pointer_multi_click(point, clicks, button, overrides)
 
     @keyword
@@ -1490,10 +1704,9 @@ class BareMetal(OurDynamicCore):
         Examples:
             | `Pointer Press`    Window[@Name="Mixer"]//Slider    x=${10}    y=${5}
         """
-        if descriptor is not None:
-            descriptor.overrides = query_overrides
-        self._maybe_bring_to_front(descriptor, activate)
-        point = self._resolve_screen_point(descriptor, x, y)
+        node = descriptor.resolve(self, query_overrides) if descriptor is not None else None
+        self._maybe_bring_to_front(node, activate)
+        point = self._resolve_screen_point(node, x, y)
         self.runtime.pointer_press(point, button, overrides)
 
     @keyword
@@ -1526,10 +1739,9 @@ class BareMetal(OurDynamicCore):
             | `Pointer Release`
             | `Pointer Release`    Window[@Name="Editor"]//Canvas    x=${50}    y=${50}
         """
-        if descriptor is not None:
-            descriptor.overrides = query_overrides
-        self._maybe_bring_to_front(descriptor, activate)
-        point = self._resolve_screen_point(descriptor, x, y)
+        node = descriptor.resolve(self, query_overrides) if descriptor is not None else None
+        self._maybe_bring_to_front(node, activate)
+        point = self._resolve_screen_point(node, x, y)
         self.runtime.pointer_release(point, button, overrides)
 
     @keyword
@@ -1557,10 +1769,9 @@ class BareMetal(OurDynamicCore):
             | `Pointer Move To`    x=${400}    y=${300}
             | `Pointer Move To`    Window[@Name="Settings"]//Button[@Name="OK"]
         """
-        if descriptor is not None:
-            descriptor.overrides = query_overrides
-        self._maybe_bring_to_front(descriptor, activate)
-        point = self._resolve_screen_point(descriptor, x, y)
+        node = descriptor.resolve(self, query_overrides) if descriptor is not None else None
+        self._maybe_bring_to_front(node, activate)
+        point = self._resolve_screen_point(node, x, y)
         if point is None:
             raise ValueError('Coordinates x and y must be specified either directly or via node')
 
@@ -1607,10 +1818,9 @@ class BareMetal(OurDynamicCore):
             | `Pointer Scroll`    ${None}    direction=RIGHT    ticks=${2}    # at the current position
             | `Pointer Scroll`    x=${400}    y=${300}    direction=UP
         """
-        if descriptor is not None:
-            descriptor.overrides = query_overrides
-        self._maybe_bring_to_front(descriptor, activate)
-        point = self._resolve_screen_point(descriptor, x, y)
+        node = descriptor.resolve(self, query_overrides) if descriptor is not None else None
+        self._maybe_bring_to_front(node, activate)
+        point = self._resolve_screen_point(node, x, y)
         if point is not None:
             self.runtime.pointer_move_to(point, overrides)
         self.runtime.pointer_scroll(_scroll_delta(direction, ticks), overrides)
@@ -1673,9 +1883,9 @@ class BareMetal(OurDynamicCore):
         Examples:
             | `Focus`    Window[@Name="Browser"]//Edit[@Name="Search"]
         """
-        descriptor.overrides = query_overrides
-        self._maybe_bring_to_front(descriptor, activate)
-        self.runtime.focus(descriptor())
+        node = descriptor.resolve(self, query_overrides)
+        self._maybe_bring_to_front(node, activate)
+        self.runtime.focus(node)
 
     @keyword
     def restore_window(self, descriptor: UiNodeDescriptor, *, query_overrides: QuerySettingsDict | None = None) -> None:
@@ -1691,8 +1901,7 @@ class BareMetal(OurDynamicCore):
         Examples:
             | `Restore Window`    Window[@Name="Settings"]
         """
-        descriptor.overrides = query_overrides
-        node = descriptor()
+        node = descriptor.resolve(self, query_overrides)
         node.get_pattern(Restorable).restore()
 
     @keyword
@@ -1710,8 +1919,7 @@ class BareMetal(OurDynamicCore):
         Examples:
             | `Maximize Window`    Window[@Name="Editor"]
         """
-        descriptor.overrides = query_overrides
-        node = descriptor()
+        node = descriptor.resolve(self, query_overrides)
         node.get_pattern(Maximizable).maximize()
 
     @keyword
@@ -1729,8 +1937,7 @@ class BareMetal(OurDynamicCore):
         Examples:
             | `Minimize Window`    Window[@Name="Editor"]
         """
-        descriptor.overrides = query_overrides
-        node = descriptor()
+        node = descriptor.resolve(self, query_overrides)
         node.get_pattern(Minimizable).minimize()
 
     @keyword
@@ -1746,8 +1953,7 @@ class BareMetal(OurDynamicCore):
         Examples:
             | `Close Window`    Window[@Name="Editor"]
         """
-        descriptor.overrides = query_overrides
-        node = descriptor()
+        node = descriptor.resolve(self, query_overrides)
         node.get_pattern(Closeable).close()
 
     @keyword
@@ -1765,8 +1971,7 @@ class BareMetal(OurDynamicCore):
         Examples:
             | `Activate Window`    Window[@Name="Editor"]
         """
-        descriptor.overrides = query_overrides
-        node = descriptor()
+        node = descriptor.resolve(self, query_overrides)
         node.get_pattern(Activatable).activate()
 
     @keyword
@@ -1786,8 +1991,7 @@ class BareMetal(OurDynamicCore):
         Examples:
             | `Move Window`    Window[@Name="Editor"]    100    200
         """
-        descriptor.overrides = query_overrides
-        node = descriptor()
+        node = descriptor.resolve(self, query_overrides)
         node.get_pattern(Movable).move_to(x, y)
 
     @keyword
@@ -1812,8 +2016,7 @@ class BareMetal(OurDynamicCore):
         Examples:
             | `Resize Window`    Window[@Name="Editor"]    800    600
         """
-        descriptor.overrides = query_overrides
-        node = descriptor()
+        node = descriptor.resolve(self, query_overrides)
         node.get_pattern(Resizable).resize(width, height)
 
     @keyword
@@ -1842,8 +2045,7 @@ class BareMetal(OurDynamicCore):
         Examples:
             | `Move And Resize Window`    Window[@Name="Editor"]    100    200    800    600
         """
-        descriptor.overrides = query_overrides
-        node = descriptor()
+        node = descriptor.resolve(self, query_overrides)
         node.get_pattern(Movable).move_to(x, y)
         node.get_pattern(Resizable).resize(width, height)
 
@@ -1862,8 +2064,7 @@ class BareMetal(OurDynamicCore):
         Examples:
             | `Bring To Front`    Window[@Name="Editor"]
         """
-        descriptor.overrides = query_overrides
-        node = descriptor()
+        node = descriptor.resolve(self, query_overrides)
         self.runtime.bring_to_front(node)
 
     @keyword
@@ -1891,8 +2092,7 @@ class BareMetal(OurDynamicCore):
         namespace: str | None = None
         if ':' in attribute_name:
             namespace, attribute_name = attribute_name.split(':', 1)
-        descriptor.overrides = query_overrides
-        node = descriptor()
+        node = descriptor.resolve(self, query_overrides)
         return node.attribute(attribute_name, namespace)
 
     @keyword
@@ -1932,9 +2132,8 @@ class BareMetal(OurDynamicCore):
             - To omit the descriptor (no focus change), pass ``${None}`` as the first argument in Robot Framework.
         """
         if descriptor is not None:
-            descriptor.overrides = query_overrides
-            self._maybe_bring_to_front(descriptor, activate)
-            target_node = descriptor()
+            target_node = descriptor.resolve(self, query_overrides)
+            self._maybe_bring_to_front(target_node, activate)
             self.runtime.focus(target_node)
         self.runtime.keyboard_type(text, overrides=overrides)
 
@@ -1966,9 +2165,8 @@ class BareMetal(OurDynamicCore):
             | `Keyboard Release`   ${None}    <Ctrl>
         """
         if descriptor is not None:
-            descriptor.overrides = query_overrides
-            self._maybe_bring_to_front(descriptor, activate)
-            target_node = descriptor()
+            target_node = descriptor.resolve(self, query_overrides)
+            self._maybe_bring_to_front(target_node, activate)
             self.runtime.focus(target_node)
         self.runtime.keyboard_press(text, overrides=overrides)
 
@@ -2000,9 +2198,8 @@ class BareMetal(OurDynamicCore):
             | `Keyboard Release`   ${None}    <Ctrl+Alt>
         """
         if descriptor is not None:
-            descriptor.overrides = query_overrides
-            self._maybe_bring_to_front(descriptor, activate)
-            target_node = descriptor()
+            target_node = descriptor.resolve(self, query_overrides)
+            self._maybe_bring_to_front(target_node, activate)
             self.runtime.focus(target_node)
         self.runtime.keyboard_release(text, overrides=overrides)
 
@@ -2039,9 +2236,8 @@ class BareMetal(OurDynamicCore):
             | `Take Screenshot`    Window[@Name="Settings"]    filename=settings_window.png
         """
         if descriptor is not None:
-            descriptor.overrides = query_overrides
-            self._maybe_bring_to_front(descriptor, activate)
-            node = descriptor()
+            node = descriptor.resolve(self, query_overrides)
+            self._maybe_bring_to_front(node, activate)
             node_rect = cast(Rect, node.attribute('Bounds'))
             if rect is not None:
                 rect = Rect.from_like(rect)
@@ -2118,10 +2314,10 @@ class BareMetal(OurDynamicCore):
         rects: list[Rect] = []
         if descriptor_list:
             for d in descriptor_list:
-                d.overrides = query_overrides
                 try:
-                    self._maybe_bring_to_front(d, activate)
-                    r = cast(Rect, d().attribute('Bounds'))
+                    node = d.resolve(self, query_overrides)
+                    self._maybe_bring_to_front(node, activate)
+                    r = cast(Rect, node.attribute('Bounds'))
                     rects.append(r)
                 except Exception:
                     logger.trace(

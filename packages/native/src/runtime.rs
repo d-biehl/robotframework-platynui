@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use pyo3::IntoPyObject;
@@ -32,14 +33,40 @@ use pyo3::prelude::PyRef;
 #[pyclass(name = "UiNode", module = "platynui_native")]
 pub struct PyNode {
     pub(crate) inner: Arc<dyn core_rs::ui::UiNode>,
+    /// Instance id of the runtime whose provider connection produced this node.
+    ///
+    /// A node handle is only meaningful to that runtime. Nothing else identifies it:
+    /// `runtime_id` is provider-stable, so two runtimes driving the same session hand
+    /// out equal ids for the same element.
+    pub(crate) owner: u64,
+}
+
+/// Hands out the process-unique instance ids carried by [`PyRuntime`] and stamped on
+/// every node it produces. Starts at 1 so `0` never collides with a real runtime.
+static NEXT_RUNTIME_INSTANCE_ID: AtomicU64 = AtomicU64::new(1);
+
+fn next_runtime_instance_id() -> u64 {
+    NEXT_RUNTIME_INSTANCE_ID.fetch_add(1, Ordering::Relaxed)
 }
 
 #[pymethods]
 impl PyNode {
     /// Returns the provider-stable identifier for this node.
+    ///
+    /// Stable across runtimes: two runtimes driving the same session report the same
+    /// value for the same element. Use :py:attr:`owner_id` to tell them apart.
     #[getter]
     fn runtime_id(&self) -> String {
         self.inner.runtime_id().as_str().to_string()
+    }
+
+    /// Returns the ``instance_id`` of the runtime that produced this node.
+    ///
+    /// A node may only be used with the runtime it came from — passing it to another
+    /// runtime's API is a programming error that this id makes detectable.
+    #[getter]
+    fn owner_id(&self) -> u64 {
+        self.owner
     }
     /// Returns the optional, human-readable identifier if the platform exposes one.
     #[getter]
@@ -89,7 +116,10 @@ impl PyNode {
 
     /// Returns the immediate parent node, or ``None`` for the desktop root.
     fn parent(&self, py: Python<'_>) -> Option<Py<PyNode>> {
-        self.inner.parent().and_then(|w| w.upgrade()).and_then(|arc| Py::new(py, PyNode { inner: arc }).ok())
+        self.inner
+            .parent()
+            .and_then(|w| w.upgrade())
+            .and_then(|arc| Py::new(py, PyNode { inner: arc, owner: self.owner }).ok())
     }
 
     /// Returns a list of ancestors beginning with the closest parent.
@@ -98,7 +128,7 @@ impl PyNode {
     fn ancestors(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
         let list = PyList::empty(py);
         for node in self.inner.ancestors() {
-            list.append(Py::new(py, PyNode { inner: node })?)?;
+            list.append(Py::new(py, PyNode { inner: node, owner: self.owner })?)?;
         }
         Ok(list.unbind())
     }
@@ -109,7 +139,7 @@ impl PyNode {
     fn ancestors_including_self(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
         let list = PyList::empty(py);
         for node in self.inner.ancestors_including_self() {
-            list.append(Py::new(py, PyNode { inner: node })?)?;
+            list.append(Py::new(py, PyNode { inner: node, owner: self.owner })?)?;
         }
         Ok(list.unbind())
     }
@@ -120,7 +150,7 @@ impl PyNode {
     /// returned.
     fn top_level_or_self(&self, py: Python<'_>) -> PyResult<Py<PyNode>> {
         let node = self.inner.top_level_or_self();
-        Py::new(py, PyNode { inner: node })
+        Py::new(py, PyNode { inner: node, owner: self.owner })
     }
 
     /// Returns the first ancestor (including ``self``) that supports the given pattern.
@@ -157,7 +187,7 @@ impl PyNode {
     /// Returns an iterator that yields the direct children as ``UiNode`` objects.
     fn children(&self, py: Python<'_>) -> PyResult<Py<PyNodeChildrenIterator>> {
         let iter = self.inner.children();
-        Py::new(py, PyNodeChildrenIterator { iter: Some(iter) })
+        Py::new(py, PyNodeChildrenIterator { iter: Some(iter), owner: self.owner })
     }
 
     /// Returns an iterator that yields attribute handles for the node.
@@ -233,6 +263,8 @@ impl PyNode {
 #[pyclass(name = "NodeChildrenIterator", module = "platynui_native", unsendable)]
 pub struct PyNodeChildrenIterator {
     iter: Option<Box<dyn Iterator<Item = Arc<dyn core_rs::ui::UiNode>> + Send + 'static>>,
+    /// Carried over from the node being iterated; its children share its runtime.
+    owner: u64,
 }
 
 #[pymethods]
@@ -247,7 +279,8 @@ impl PyNodeChildrenIterator {
         if let Some(ref mut iter) = slf.iter
             && let Some(child) = iter.next()
         {
-            return Ok(Some(Py::new(py, PyNode { inner: child })?));
+            let owner = slf.owner;
+            return Ok(Some(Py::new(py, PyNode { inner: child, owner })?));
         }
         slf.iter = None;
         Ok(None)
@@ -295,6 +328,8 @@ impl PyNodeAttributesIterator {
 #[pyclass(name = "EvaluationIterator", module = "platynui_native", unsendable)]
 pub struct PyEvaluationIterator {
     iter: Option<Box<dyn Iterator<Item = Result<runtime_rs::EvaluationItem, runtime_rs::EvaluateError>>>>,
+    /// Carried over from the runtime that created the stream; it produced every item.
+    owner: u64,
 }
 
 #[pymethods]
@@ -310,7 +345,7 @@ impl PyEvaluationIterator {
             && let Some(result) = iter.next()
         {
             let item = result.map_err(|e| EvaluationError::new_err(e.to_string()))?;
-            let result = evaluation_item_to_py(py, &item)?;
+            let result = evaluation_item_to_py(py, &item, slf.owner)?;
             return Ok(Some(result));
         }
         slf.iter = None;
@@ -665,11 +700,17 @@ impl PyEvaluatedAttribute {
 #[pyclass(name = "Runtime", module = "platynui_native")]
 pub struct PyRuntime {
     inner: Mutex<runtime_rs::Runtime>,
+    /// Process-unique id stamped on every node this runtime produces.
+    instance_id: u64,
 }
 
 impl PyRuntime {
     fn runtime(&self) -> PyResult<MutexGuard<'_, runtime_rs::Runtime>> {
         self.inner.lock().map_err(|_| PyException::new_err("runtime mutex poisoned"))
+    }
+
+    fn new_from(inner: runtime_rs::Runtime) -> Self {
+        Self { inner: Mutex::new(inner), instance_id: next_runtime_instance_id() }
     }
 }
 
@@ -691,9 +732,17 @@ impl PyRuntime {
             Some(dict) => parse_runtime_config(dict),
             None => core_rs::config::RuntimeConfig::default(),
         };
-        runtime_rs::Runtime::new_with_config(cfg)
-            .map(|inner| Self { inner: Mutex::new(inner) })
-            .map_err(map_provider_err)
+        runtime_rs::Runtime::new_with_config(cfg).map(Self::new_from).map_err(map_provider_err)
+    }
+
+    /// Returns this runtime's process-unique instance id.
+    ///
+    /// Every node this runtime produces reports the same value as its
+    /// :py:attr:`UiNode.owner_id`, which is what makes a node from another runtime
+    /// recognizable — node handles are not interchangeable between runtimes.
+    #[getter]
+    fn instance_id(&self) -> u64 {
+        self.instance_id
     }
 
     // ---------------- Static builder (mock only) ----------------
@@ -718,7 +767,7 @@ impl PyRuntime {
             );
             #[allow(clippy::needless_return)]
             return runtime_rs::Runtime::new_with_factories_and_config(&factories, config)
-                .map(|inner| Self { inner: Mutex::new(inner) })
+                .map(Self::new_from)
                 .map_err(map_provider_err);
         }
         #[cfg(not(feature = "mock-provider"))]
@@ -748,7 +797,7 @@ impl PyRuntime {
         let items = runtime.evaluate_runtime_cached(node_arc, xpath).map_err(map_eval_err)?;
         let out = PyList::empty(py);
         for item in items {
-            out.append(evaluation_item_to_py(py, &item)?)?;
+            out.append(evaluation_item_to_py(py, &item, self.instance_id)?)?;
         }
         Ok(out.into())
     }
@@ -773,7 +822,7 @@ impl PyRuntime {
         let item = runtime.evaluate_single_runtime_cached(node_arc, xpath).map_err(map_eval_err)?;
 
         match item {
-            Some(it) => evaluation_item_to_py(py, &it),
+            Some(it) => evaluation_item_to_py(py, &it, self.instance_id),
             None => Ok(py.None()),
         }
     }
@@ -827,7 +876,7 @@ impl PyRuntime {
 
         let runtime = self.runtime()?;
         let stream = runtime.evaluate_iter_owned_runtime_cached(node_arc, xpath).map_err(map_eval_err)?;
-        Py::new(py, PyEvaluationIterator { iter: Some(Box::new(stream)) })
+        Py::new(py, PyEvaluationIterator { iter: Some(Box::new(stream)), owner: self.instance_id })
     }
 
     /// Returns a list of dictionaries describing the active providers.
@@ -930,7 +979,7 @@ impl PyRuntime {
     fn top_level_window_for(&self, py: Python<'_>, node: PyRef<'_, PyNode>) -> PyResult<Option<Py<PyNode>>> {
         let runtime = self.runtime()?;
         match runtime.top_level_window_for(&node.inner) {
-            Some(window) => Ok(Some(Py::new(py, PyNode { inner: window })?)),
+            Some(window) => Ok(Some(Py::new(py, PyNode { inner: window, owner: self.instance_id })?)),
             None => Ok(None),
         }
     }
@@ -951,7 +1000,7 @@ impl PyRuntime {
     fn element_at_point(&self, py: Python<'_>, x: f64, y: f64) -> PyResult<Option<Py<PyNode>>> {
         let runtime = self.runtime()?;
         match runtime.element_at_point(platynui_core::types::Point::new(x, y)) {
-            Ok(Some(node)) => Ok(Some(Py::new(py, PyNode { inner: node })?)),
+            Ok(Some(node)) => Ok(Some(Py::new(py, PyNode { inner: node, owner: self.instance_id })?)),
             Ok(None) => Ok(None),
             Err(err) => Err(pyo3::exceptions::PyRuntimeError::new_err(err.to_string())),
         }
@@ -1114,7 +1163,7 @@ impl PyRuntime {
     fn desktop_node(&self, py: Python<'_>) -> PyResult<Py<PyNode>> {
         let runtime = self.runtime()?;
         let node = runtime.desktop_node();
-        Py::new(py, PyNode { inner: node })
+        Py::new(py, PyNode { inner: node, owner: self.instance_id })
     }
 
     /// Returns a dictionary describing the desktop (bounds, monitors, platform names).
@@ -1244,18 +1293,18 @@ fn ui_value_to_py(py: Python<'_>, value: &core_rs::ui::value::UiValue) -> PyResu
 /// - Node      -> platynui_native.UiNode
 /// - Attribute -> platynui_native.EvaluatedAttribute
 /// - Value     -> native Python value via ui_value_to_py
-fn evaluation_item_to_py(py: Python<'_>, item: &runtime_rs::EvaluationItem) -> PyResult<Py<PyAny>> {
+fn evaluation_item_to_py(py: Python<'_>, item: &runtime_rs::EvaluationItem, owner_id: u64) -> PyResult<Py<PyAny>> {
     Ok(match item {
         runtime_rs::EvaluationItem::Node(n) => {
             // Clone Arc to create a Python-visible node wrapper
-            let py_node = PyNode { inner: n.clone() };
+            let py_node = PyNode { inner: n.clone(), owner: owner_id };
             Py::new(py, py_node)?.into_any()
         }
         runtime_rs::EvaluationItem::Attribute(a) => {
             let ns = a.namespace.as_str().to_string();
             let name = a.name.clone();
             let value = ui_value_to_py(py, &a.value)?;
-            let owner = Py::new(py, PyNode { inner: a.owner.clone() })?;
+            let owner = Py::new(py, PyNode { inner: a.owner.clone(), owner: owner_id })?;
             Py::new(py, PyEvaluatedAttribute::new(ns, name, value, Some(owner)))?.into_any()
         }
         runtime_rs::EvaluationItem::Value(v) => ui_value_to_py(py, v)?,

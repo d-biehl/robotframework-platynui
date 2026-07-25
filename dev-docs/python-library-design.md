@@ -6481,12 +6481,17 @@ derselben Robot-Suite zusammen.
 
 ### 13.2 `UiNodeDescriptor`-Umzug — Übergangsplan
 
-Aktueller Stand: `BareMetal/__init__.py:57` definiert einen eigenen
-`UiNodeDescriptor`, der `UiNode` direkt wrappt, eine `BareMetal`-
-Library-Referenz hält und gegen `library.runtime.evaluate_single`
-auflöst. Er nutzt eine eigene Robot-Variable
-`${PLATYNUI_ROOT_DESCRIPTOR}`. Das ist **Übergangscode**, entstanden
-um die Runtime-Bindings früh testen zu können.
+Aktueller Stand: `BareMetal/__init__.py` definiert einen eigenen
+`UiNodeDescriptor`, der entweder einen Selektor oder ein konkretes
+Element trägt und gegen `library.runtime.evaluate_single` aufgelöst
+wird. Die auflösende Library ist **Parameter** von `resolve()`, kein
+Feld des Descriptors — ein Descriptor ist reine Selektordaten und wird
+von derjenigen Library aufgelöst, deren Keyword gerade läuft. Er nutzt
+eigene Robot-Variablen, deren Namen pro Library-Import abgeleitet
+werden: der Default-Import benutzt `${PLATYNUI_ROOT_DESCRIPTOR}` bzw.
+`${PLATYNUI_QUERY_SETTINGS}`, ein Import `AS BM` die Varianten mit
+Suffix `_BM`. Das ist **Übergangscode**, entstanden um die
+Runtime-Bindings früh testen zu können.
 
 **Zielzustand:** beide Libraries nutzen denselben Descriptor-Mechanismus
 aus `core/descriptor.py`. Da `BareMetal` aber zu `UiNode` auflösen

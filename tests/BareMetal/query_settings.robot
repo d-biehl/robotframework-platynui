@@ -13,6 +13,9 @@ Library           PlatynUI.BareMetal    use_mock=${True}    query_settings={'tim
 ${OPS}            //control:Window[@Name="Operations Console"]
 ${MISSING}        //control:Button[@Name="NoSuchButton"]
 ${MISSING_ROOT}   //control:Window[@Name="NoSuchWindow"]
+# Relative, so resolving it needs the root — an absolute selector ignores the root and never
+# triggers its resolution at all.
+${MISSING_INSIDE_ROOT}    .//control:Button[@Name="NoSuchButton"]
 
 
 *** Test Cases ***
@@ -116,18 +119,29 @@ Wider Scope Partial Does Not Inherit A Narrower Active Scope
 
 Per Call Override Does Not Reach The Root Resolution
     [Documentation]    A Set Root root re-resolves on every lookup. A per-call query_overrides tunes
-    ...    only the keyword's own target, so when the (absolute, missing) root is what fails, the error
-    ...    must report the default 0.2 s, not the 0.7 s passed to the target.
+    ...    only the keyword's own target, so when the (missing) root is what fails, the error must
+    ...    report the default 0.2 s, not the 0.7 s passed to the target. The target is relative on
+    ...    purpose: an absolute one ignores the root and would never resolve it.
     Set Root    ${MISSING_ROOT}    scope=TEST
-    Run Keyword And Expect Error    *within timeout of 0.2 seconds*
-    ...    Get Attribute    ${MISSING}    Name    query_overrides={'timeout': 0.7}
+    Run Keyword And Expect Error    *NoSuchWindow*within timeout of 0.2 seconds*
+    ...    Get Attribute    ${MISSING_INSIDE_ROOT}    Name    query_overrides={'timeout': 0.7}
 
 Scope Settings Reach The Root Resolution
     [Documentation]    Scope-level settings apply to every lookup, including the root re-resolution.
-    ...    With a missing root, the failure must report the scope's 0.5 s.
+    ...    With a missing root, the failure must report the scope's 0.5 s. Relative target, so the
+    ...    root is actually resolved.
     Set Root    ${MISSING_ROOT}    scope=TEST
     Set Query Settings    {'timeout': 0.5}    scope=TEST
-    Run Keyword And Expect Error    *within timeout of 0.5 seconds*    Get Attribute    ${MISSING}    Name
+    Run Keyword And Expect Error    *NoSuchWindow*within timeout of 0.5 seconds*
+    ...    Get Attribute    ${MISSING_INSIDE_ROOT}    Name
+
+An Absolute Selector Does Not Resolve The Root At All
+    [Documentation]    An absolute selector starts at the desktop and ignores the context node, so a
+    ...    missing root must not make it fail — the failure must name the target, with the target's
+    ...    own per-call timeout.
+    Set Root    ${MISSING_ROOT}    scope=TEST
+    Run Keyword And Expect Error    *NoSuchButton*within timeout of 0.7 seconds*
+    ...    Get Attribute    ${MISSING}    Name    query_overrides={'timeout': 0.7}
 
 Per Call Override Reaches Each Keyword Shape
     [Documentation]    The mechanism is mostly exercised through Get Attribute; verify the per-call
