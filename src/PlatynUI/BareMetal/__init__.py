@@ -942,9 +942,18 @@ class BareMetal(OurDynamicCore):
         return None
 
     def _variable_suffix(self) -> str:
-        """This import's variable-name suffix; resolved once, it cannot change for an instance."""
+        """This import's variable-name suffix; resolved once, it cannot change for an instance.
+
+        Only a *successful* lookup is remembered. Falling back to the unsuffixed name when there is
+        no namespace to resolve against is fine for that one call, but caching the miss would pin an
+        aliased import to the default variable for the rest of its life — reintroducing the very
+        leak this naming prevents, and silently.
+        """
         if self._variable_suffix_cache is None:
-            self._variable_suffix_cache = _variable_suffix(self._registered_name())
+            name = self._registered_name()
+            if name is None:
+                return ''
+            self._variable_suffix_cache = _variable_suffix(name)
         return self._variable_suffix_cache
 
     def _root_variable_name(self) -> str:

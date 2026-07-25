@@ -127,7 +127,9 @@ def test_without_an_execution_context_falls_back_to_the_bare_name(
     assert library._root_variable_name() == f'${{{PLATYNUI_ROOT_DESCRIPTOR}}}'
 
 
-def test_the_name_is_resolved_once_per_instance(monkeypatch: pytest.MonkeyPatch, library: BareMetal) -> None:
+def test_a_resolved_name_is_looked_up_once_per_instance(
+    monkeypatch: pytest.MonkeyPatch, library: BareMetal
+) -> None:
     """The lookup walks the namespace; a keyword-rate walk would be wasteful."""
     libraries = {'BM': FakeTestLibrary(BareMetal, library)}
     _with_context(monkeypatch, libraries)
@@ -135,6 +137,25 @@ def test_the_name_is_resolved_once_per_instance(monkeypatch: pytest.MonkeyPatch,
     first = library._root_variable_name()
     libraries.clear()
     assert library._root_variable_name() == first
+
+
+@pytest.mark.parametrize('miss', ['no_context', 'not_registered'])
+def test_a_failed_lookup_is_not_cached(monkeypatch: pytest.MonkeyPatch, library: BareMetal, miss: str) -> None:
+    """A miss must not pin an aliased import to the default variable for the rest of its life.
+
+    That would be the leak this naming exists to prevent, and a silent one: the import would then
+    consistently read and write the variable another import owns.
+    """
+    if miss == 'no_context':
+        contexts: Any = type('Contexts', (), {'current': None})()
+        monkeypatch.setattr('PlatynUI.BareMetal.EXECUTION_CONTEXTS', contexts)
+    else:
+        _with_context(monkeypatch, {'Other': FakeTestLibrary(BareMetal, None)})
+    assert library._root_variable_name() == f'${{{PLATYNUI_ROOT_DESCRIPTOR}}}'
+
+    _with_context(monkeypatch, {'BM': FakeTestLibrary(BareMetal, library)})
+    assert library._root_variable_name() == f'${{{PLATYNUI_ROOT_DESCRIPTOR}_BM}}'
+    assert library._query_settings_variable_name() == f'${{{PLATYNUI_QUERY_SETTINGS}_BM}}'
 
 
 def test_differently_configured_instances_have_different_fingerprints() -> None:
