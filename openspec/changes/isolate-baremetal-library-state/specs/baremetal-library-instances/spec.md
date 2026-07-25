@@ -26,35 +26,40 @@ State that `Set Root` and `Set Query Settings` store in Robot Framework variable
 - **WHEN** the library is imported `AS BM` and `Set Root` is called
 - **THEN** the root SHALL be stored in `${PLATYNUI_ROOT_DESCRIPTOR_BM}`
 
-### Requirement: A suite-scoped value applies to the whole suite tree
+### Requirement: The scope names are Robot Framework's own
 
-`Set Root` and `Set Query Settings` with `scope=SUITE` SHALL apply to the suite that set them *and to the suites below it*, so that a directory's `__init__.robot` can pin the context once for every suite it contains. Because the library is suite-scoped, Robot Framework creates a new instance per suite; the variable name SHALL therefore depend only on the registered library name, never on the instance, and the inheriting suite SHALL resolve the value on its own runtime.
+`Set Root` and `Set Query Settings` SHALL accept the scope names Robot Framework's `VAR` syntax accepts, with the same meanings, and SHALL store the value through the corresponding `VariableScopes` setter: `LOCAL`, `TEST` (with `TASK` as its alias), `SUITE` (this suite only), `SUITES` (the suite and the suites below it) and `GLOBAL`. `SUITE` SHALL NOT reach the suites below it, matching Robot Framework's own suite variables; `SUITES` is the explicit opt-in that does, so that a directory's `__init__.robot` can pin the context once for every suite it contains.
 
-#### Scenario: A suite-scoped root is inherited by a child suite
+#### Scenario: A suite-scoped root stops at its suite
 
-- **WHEN** a parent suite's setup runs `Set Root … scope=SUITE` and a child suite that imports the library under the same name runs a relative selector
-- **THEN** the selector SHALL resolve against the inherited root
+- **WHEN** a directory's `__init__.robot` runs `Set Root … scope=SUITE` and a child suite that imports the library under the same name runs a relative selector
+- **THEN** the selector SHALL resolve against the desktop, not against the parent suite's root
 
-#### Scenario: The inherited root resolves on the inheriting instance's runtime
+#### Scenario: A SUITES-scoped root reaches the suites below
 
-- **WHEN** a child suite resolves a root inherited from its parent suite
-- **THEN** the evaluation SHALL run on the child suite's own runtime, and the resulting node SHALL belong to that runtime
+- **WHEN** a directory's `__init__.robot` runs `Set Root … scope=SUITES` and a child suite that imports the library under the same name runs a relative selector
+- **THEN** the selector SHALL resolve against that root, evaluated on the child suite's own runtime
 
-#### Scenario: Suite-scoped query settings are inherited by a child suite
+#### Scenario: TASK is accepted wherever TEST is
 
-- **WHEN** a parent suite sets `Set Query Settings` at `SUITE` scope and a child suite that imports the library under the same name performs a lookup
-- **THEN** the lookup SHALL use the inherited settings rather than the library-import defaults
+- **WHEN** a root is set with `scope=TASK`
+- **THEN** it SHALL apply exactly as `scope=TEST` does
 
-### Requirement: State from a differently configured import is rejected
+#### Scenario: A global root applies beyond its suite
 
-A stored value SHALL carry a fingerprint of the import arguments of the instance that wrote it. When an instance reads a value whose fingerprint differs from its own, it SHALL NOT resolve that value; it SHALL behave as if no value were set at that scope and SHALL emit a warning naming the variable.
+- **WHEN** a selector root is set with `scope=GLOBAL`
+- **THEN** it SHALL apply to subsequent suites of the same run until it is reset
 
-#### Scenario: Differently configured child suite ignores the inherited root
+### Requirement: A root that pins an element cannot cross a suite boundary
 
-- **WHEN** a parent suite imports the library with `use_mock=${True}`, sets a suite-scoped root, and a child suite imports the library under the same name without `use_mock`
-- **THEN** the child suite SHALL resolve relative selectors against the desktop and SHALL log a warning about the ignored inherited root
+Setting a root that pins an element at `SUITES` or `GLOBAL` SHALL fail with an error explaining that the element belongs to one runtime, and SHALL leave the previously stored root untouched. The check SHALL cover the root's whole parent chain, since a selector root may drill into a captured element. At `LOCAL`, `TEST` and `SUITE` a pinned root SHALL remain allowed, because those scopes never leave the instance that set it.
 
-#### Scenario: Identical configuration is not a mismatch
+#### Scenario: A capture is refused at the cross-suite scopes
 
-- **WHEN** parent and child suite import the library under the same name with identical arguments
-- **THEN** the inherited root SHALL be used without a warning
+- **WHEN** an element captured from a query is passed to `Set Root` with `scope=SUITES` or `scope=GLOBAL`
+- **THEN** the keyword SHALL fail, naming the element's runtime and pointing to using a selector, and no root SHALL have been stored
+
+#### Scenario: A capture stays usable within its suite
+
+- **WHEN** the same captured element is passed to `Set Root` with `scope=SUITE`
+- **THEN** relative selectors in that suite SHALL resolve against it
