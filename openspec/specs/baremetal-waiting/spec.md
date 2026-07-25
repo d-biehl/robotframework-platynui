@@ -34,7 +34,7 @@ The library SHALL provide a `Wait Until Exists` keyword that repeatedly evaluate
 
 ### Requirement: Wait Until Gone waits for an element to disappear
 
-The library SHALL provide a `Wait Until Gone` keyword that waits until a target is no longer present and then returns nothing. For a selector target, "gone" SHALL mean the selector resolves to an empty node-set; the keyword SHALL re-evaluate the selector fresh on every attempt and SHALL NOT trust any node cached on the shared descriptor. For a captured-element target (a `UiNode` passed in), "gone" SHALL mean the element is no longer valid. The wait SHALL be governed by the effective query settings, configurable per call only via `query_overrides`, and the root SHALL be re-resolved per attempt, consistent with every other keyword.
+The library SHALL provide a `Wait Until Gone` keyword that waits until a target is no longer present and then returns nothing. For a selector target, "gone" SHALL mean the selector resolves to an empty node-set; re-evaluation on every attempt follows from the general selector rule (a selector reference never carries a resolved node between calls), so this keyword needs no special-casing. For a captured-element target (a `UiNode` passed in), "gone" SHALL mean the element is no longer valid; a capture from another library instance SHALL raise the mismatch error rather than be reported as gone. The wait SHALL be governed by the effective query settings, configurable per call only via `query_overrides`, and the root SHALL be re-resolved per attempt, consistent with every other keyword.
 
 #### Scenario: Selector already matches nothing
 
@@ -56,10 +56,10 @@ The library SHALL provide a `Wait Until Gone` keyword that waits until a target 
 - **WHEN** `Wait Until Gone` is called with a captured element that is destroyed before the timeout (verified against a real accessibility provider, since the mock never invalidates nodes)
 - **THEN** the keyword SHALL return once the element is no longer valid
 
-#### Scenario: A stale cached descriptor node is ignored
+#### Scenario: A selector target is re-evaluated even after an earlier keyword resolved it
 
-- **WHEN** a prior keyword has cached a resolved node for the same selector, and `Wait Until Gone` is then called for that selector while the element is still present
-- **THEN** the keyword SHALL re-evaluate fresh and still time out, rather than reporting "gone" from the stale cache
+- **WHEN** a prior keyword has resolved the same selector, and `Wait Until Gone` is then called for that selector while the element is still present
+- **THEN** the keyword SHALL evaluate the selector against the live tree and still time out, rather than reporting "gone" or "present" from anything the earlier call resolved
 
 #### Scenario: Value-producing expression is rejected
 
