@@ -2,10 +2,14 @@
 Documentation       Real-lane proof that two BareMetal runtimes coexist in one process against the same
 ...                 X11 session and share no platform state (spec ``per-runtime-platform-lifecycle`` —
 ...                 "Runtimes share no platform state"). ``A`` and ``B`` are both bound by ``config`` to
-...                 the same display and AT-SPI bus; they differ only in ``auto_activate`` so Robot
-...                 Framework instantiates two distinct library instances — hence two native runtimes,
-...                 each owning its own ``Arc<X11Connection>`` and highlight controller. Both must
-...                 resolve and drive the same live session independently.
+...                 the same display and AT-SPI bus; the two aliases alone are what give two library
+...                 instances — the library is suite-scoped, so every import gets its own instance per
+...                 suite, identical import arguments or not (``library_instance_isolation.robot``
+...                 imports A and B with equal arguments and rests on exactly that). Two instances mean
+...                 two native runtimes, each owning its own ``Arc<X11Connection>`` and highlight
+...                 controller. ``auto_activate`` differs only because A drives the pointer and wants
+...                 its window raised, while B never acts — it is not what separates the instances.
+...                 Both must resolve and drive the same live session independently.
 ...
 ...                 X11-only: forcing ``platform.backend=x11`` cannot serve the Wayland compositor lane,
 ...                 so the suite is tagged ``platform:x11`` and only the X11 lane profile selects it.
