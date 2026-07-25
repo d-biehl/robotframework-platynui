@@ -52,11 +52,11 @@ Nodes SHALL provide `Name`, `Role`, `Bounds` in desktop coordinates, `IsEnabled`
 - **THEN** both results carry the identical RuntimeId
 
 ### Requirement: Core interaction patterns
-The provider SHALL support: Focusable (`requestFocus`), ActivationTarget (bounds center), TextContent (chunked `getAccessibleTextRange`), TextEditable (`setTextContents`, `editable` state), Toggleable (`checked` state), StatefulValue (numeric value/min/max), Selectable/SelectionProvider (`AccessibleSelection`), and Expandable — each advertised only when the underlying JAB interfaces/states genuinely back it.
+The provider SHALL support: Focusable (`requestFocus`), ActivationTarget (bounds center), TextContent (chunked `getAccessibleTextRange`), TextEditable (capability marker from the text interface and `editable` state — no write action, per the text-input-policy capability), Toggleable (`checked` state), StatefulValue (numeric value/min/max), Selectable/SelectionProvider (`AccessibleSelection`), and Expandable — each advertised only when the underlying JAB interfaces/states genuinely back it.
 
-#### Scenario: Text round-trip
-- **WHEN** TextEditable writes "hello" into the fixture's stage-1 text field
-- **THEN** `control:Text` of that field reads "hello"
+#### Scenario: TextEditable is a marker without an action
+- **WHEN** the fixture's editable stage-1 text field is inspected
+- **THEN** it advertises `TextEditable` with `IsReadOnly` = false, and `pattern_by_name(TextEditable)` returns no action instance
 
 #### Scenario: Toggle state reflects reality
 - **WHEN** the fixture checkbox is activated once (e.g. a pointer click)
