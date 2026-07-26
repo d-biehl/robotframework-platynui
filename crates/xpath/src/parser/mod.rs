@@ -1279,13 +1279,10 @@ fn build_relative_steps(pair: Pair<Rule>) -> AstResult<Vec<ast::Step>> {
     };
     match first_variant.as_rule() {
         Rule::axis_step => steps.push(build_axis_step(first_variant)?),
-        Rule::filter_expr => {
-            // This means path starts from an arbitrary base expression
-            return Err(ParseAstError::new(
-                "relative path starting with expression must be handled via build_path_expr_from_relative",
-            ));
-        }
-        _ => return Err(ParseAstError::new("unexpected relative step")),
+        // The caller already established the root node as context (`/` or `//`), so a
+        // leading primary expression such as `/.` or `/(a|b)` is just an ordinary step.
+        Rule::filter_expr => steps.push(ast::Step::FilterExpr(Box::new(build_filter_expr(first_variant)?))),
+        _ => return Err(ParseAstError::new("unexpected step in path expression")),
     }
     while let Some(op) = it.next() {
         let token = if op.as_rule() == Rule::path_operator {
@@ -1312,16 +1309,10 @@ fn build_relative_steps(pair: Pair<Rule>) -> AstResult<Vec<ast::Step>> {
         match step_variant.as_rule() {
             Rule::axis_step => steps.push(build_axis_step(step_variant)?),
             Rule::filter_expr => {
-                let f = build_filter_expr(step_variant)?;
-                if steps.is_empty() {
-                    return Err(ParseAstError::new(
-                        "relative path starting with expression must be handled via build_path_expr_from_relative",
-                    ));
-                }
-                steps.push(ast::Step::FilterExpr(Box::new(f)));
+                steps.push(ast::Step::FilterExpr(Box::new(build_filter_expr(step_variant)?)));
             }
             _ => {
-                return Err(ParseAstError::new("unexpected step in relative steps"));
+                return Err(ParseAstError::new("unexpected step in path expression"));
             }
         }
     }

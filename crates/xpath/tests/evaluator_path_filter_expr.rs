@@ -1,6 +1,7 @@
 use platynui_xpath::compiler::compile_with_context;
 use platynui_xpath::engine::runtime::{DynamicContextBuilder, StaticContextBuilder};
 use platynui_xpath::evaluate;
+use platynui_xpath::model::XdmNode;
 use platynui_xpath::model::simple::{SimpleNode, doc, elem, text};
 use platynui_xpath::xdm::{ExpandedName, XdmAtomicValue, XdmItem};
 
@@ -50,6 +51,22 @@ fn filter_step_with_descendant_insertion() {
         })
         .collect();
     assert_eq!(ints, vec![5, 9, 1, 7]);
+}
+
+#[test]
+fn root_path_with_context_item_step_returns_root() {
+    let doc = build_document();
+    let root_elem = doc.children().next().expect("root element");
+    let dynamic_ctx = DynamicContextBuilder::default().with_context_item(XdmItem::Node(root_elem)).build();
+    let static_ctx = StaticContextBuilder::new().build();
+
+    let root_only = compile_with_context("/", &static_ctx).expect("compile ok");
+    let with_context_step = compile_with_context("/.", &static_ctx).expect("compile ok");
+
+    let expected = evaluate::<SimpleNode>(&root_only, &dynamic_ctx).expect("eval ok");
+    let actual = evaluate::<SimpleNode>(&with_context_step, &dynamic_ctx).expect("eval ok");
+    assert_eq!(actual, expected);
+    assert_eq!(actual, vec![XdmItem::Node(doc)]);
 }
 
 #[test]

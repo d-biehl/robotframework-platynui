@@ -49,6 +49,22 @@ fn double_slash_inserts_desc_or_self(#[case] input: &str, #[case] steps: usize) 
 }
 
 #[rstest]
+#[case("/.", 1)] // context item as the only step below the root
+#[case("/(a|b)", 1)] // parenthesized expression as first step
+#[case("/./root", 2)]
+#[case("//.", 2)] // implicit descendant-or-self + context item
+fn absolute_path_may_start_with_primary_expr(#[case] input: &str, #[case] steps: usize) {
+    match parse(input) {
+        ast::Expr::Path(p) => {
+            assert!(matches!(p.start, ast::PathStart::Root));
+            assert_eq!(p.steps.len(), steps);
+            assert!(p.steps.iter().any(|s| matches!(s, ast::Step::FilterExpr(_))));
+        }
+        x => panic!("unexpected: {:?}", x),
+    }
+}
+
+#[rstest]
 #[case("processing-instruction()")]
 #[case("processing-instruction('xml-stylesheet')")]
 fn pi_tests_parse(#[case] input: &str) {
