@@ -1,7 +1,10 @@
 <!-- Builds on java-agent-core (agent in the JVM, transport, delivery) and
      unify-java-provider (the single Java provider with a backend trait).
      Scope: the Swing/AWT tree reader in the agent + the mapping layer and
-     backend integration on the Rust side. -->
+     backend integration on the Rust side. Verified on WINDOWS: that is where the
+     fixture, the JAB backend to compare against and the JTable gap all are. The
+     agent-side work is platform-neutral by construction; making the provider run
+     on Linux is java-provider-linux, which depends on this change. -->
 
 ## 1. Agent: Swing/AWT adapter
 
@@ -16,7 +19,7 @@
 - [ ] 2.1 Agent backend in `crates/provider-java` on top of the wire client from `crates/java-agent` (`java-agent-core`)
 - [ ] 2.2 Map agent elements → `UiNode`: normalized role/namespace, `native:*` attributes, patterns, identity-stable `RuntimeId`s from the agent registry (design 2)
 - [ ] 2.3 Implement `UiNode::is_valid` over the registry's liveness endpoint, answering `false` when the agent is degraded or unreachable (design 2); degraded-agent handling mirroring JAB's `DegradedTracker`
-- [ ] 2.4 Provider-side PID+geometry fallback for the native window handle when the in-JVM internals do not yield one (design 5)
+- [ ] 2.4 Provider-side PID+geometry fallback for the native window handle when the in-JVM internals do not yield one (design 5), matching against `EnumWindows`. Windows-shaped on purpose — the X11 counterpart is `java-provider-linux`, where there is no native window list to match against
 
 ## 3. Routing
 
@@ -31,6 +34,5 @@
 - [ ] 4.2 A Swing application started by its own script, with no PlatynUI arguments, is served through the agent backend without being restarted
 - [ ] 4.3 Routing: a JVM with the agent is served via the agent backend (single representation — one Java claim, one tree); a no-agent JVM is still served by the JAB backend
 - [ ] 4.4 Node lifetime: a scoped root pinned to an agent-served element is re-resolved after its window closes and reopens (the agent-backend counterpart of the JAB proof in the Swing window lane), and a killed JVM does not leave a root reported valid
-- [ ] 4.5 **Linux lane** — the second half of the Why, unverified today: the existing Swing suites are tagged `platform:windows` because JAB is Windows-only, so an agent-served run of the same fixture on X11 is the first proof that Swing on Linux is reachable *without* `java-atk-wrapper`. Needs its own suite/tagging (`platform:x11`) and the fixture launched there
-- [ ] 4.6 Mapping-layer unit tests against recorded agent payloads (role normalization, attribute mapping, RuntimeId shape) so CI covers the mapping without a live JVM; the tree behavior itself stays real-provider-only
-- [ ] 4.7 Robustness: an unresponsive agent stays bounded and does not block other providers; `just check`/`test`/`build-native` + the relevant acceptance lanes green
+- [ ] 4.5 Mapping-layer unit tests against recorded agent payloads (role normalization, attribute mapping, RuntimeId shape) so CI covers the mapping without a live JVM; the tree behavior itself stays real-provider-only
+- [ ] 4.6 Robustness: an unresponsive agent stays bounded and does not block other providers; `just check`/`test`/`build-native` + the relevant acceptance lanes green

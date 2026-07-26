@@ -3,7 +3,7 @@
 Native accessibility leaves hard gaps for Java UI toolkits (see [`dev-docs/java-toolkits.md`](../../../dev-docs/java-toolkits.md)). For **Swing/AWT** — the toolkit this change targets — the gap is proven twice over:
 
 - **On Windows**, JAB has low fidelity — the JDK bridge aliases every JTable cell to one shared renderer, so cells carry volatile names, no bounds, no stable identity, and the picker cannot reveal them (`fix-jab-hit-test-virtual-children`).
-- **On Linux**, Swing/AWT is only reachable via the fragile, launch-modifying `java-atk-wrapper`, which PlatynUI has decided not to rely on.
+- **On Linux**, Swing/AWT is only reachable via the fragile, launch-modifying `java-atk-wrapper`, which PlatynUI has decided not to rely on. The agent closes that too — but making the provider run on Linux at all is `java-provider-linux`, because nothing there turns a JVM into a top-level node and that gap is not Swing-specific.
 
 An **in-JVM agent** reads the toolkit's own in-process model directly and bypasses all of the above — full fidelity, real object identity. Commercial Java UI-test tools (QF-Test, Squish, Jubula) work exactly this way.
 
@@ -28,4 +28,5 @@ An **in-JVM agent** reads the toolkit's own in-process model directly and bypass
 - **Modified**: the Java provider's backend router consults the agent-presence signal (added by `java-agent-core`). `window_claims` is untouched (boolean, single Java claimant — per `unify-java-provider`).
 - **Scope**: Swing/AWT only. The JavaFX and SWT adapters are separate follow-up changes; mixed-toolkit trees get a proposal of their own once two adapters exist. The wire keeps them cheap: the handshake file's `toolkits` field is a list from day one.
 - **Config**: `providers.java.agent.auto_attach` (default **on**) — the routing policy lives here because deciding "this window's JVM has no agent, attach to it" needs window detection; the mechanism and its availability gate (`enabled`, `jar`) come with `java-agent-core`.
-- **Depends on**: `java-agent-core` (the agent, its transport, delivery and the agent-presence signal) and `unify-java-provider` (the single Java provider + backend trait this backend slots into). **Platform scope**: cross-platform. No BREAKING changes; JAB and native providers stay.
+- **Depends on**: `java-agent-core` (the agent, its transport, delivery and the agent-presence signal) and `unify-java-provider` (the single Java provider + backend trait this backend slots into). **Unblocks**: `java-provider-linux` (which makes this backend available there), and the JavaFX/SWT adapters that reuse this client and mapping layer.
+- **Platform scope**: verified on **Windows** — the fixture, the JAB backend to compare against, and the JTable gap that motivates the change are all there. The agent-side work is platform-neutral by construction (it is Java code in the JVM); only the native window handle is per-platform. No BREAKING changes; JAB and native providers stay.
