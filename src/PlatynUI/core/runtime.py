@@ -47,7 +47,7 @@ def _shutdown_quietly(instance: '_NativeRuntime | None') -> None:
         return
     try:
         instance.shutdown()
-    except Exception:  # best-effort teardown; never propagate
+    except Exception:  # noqa: BLE001, S110 (best-effort teardown; never propagate)
         pass
 
 
@@ -56,10 +56,10 @@ class _RuntimeAccessor:
 
     def __init__(self) -> None:
         self._builder: _Builder = _default_builder
-        self._instance: '_NativeRuntime | None' = None
+        self._instance: _NativeRuntime | None = None
         # LIFO stack of (builder, instance) snapshots, populated by
         # ``override(...)`` and consumed on exit.
-        self._stack: list[tuple[_Builder, '_NativeRuntime | None']] = []
+        self._stack: list[tuple[_Builder, _NativeRuntime | None]] = []
         self._lock = RLock()
 
     # ------------------------------------------------------------------

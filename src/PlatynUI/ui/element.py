@@ -71,7 +71,7 @@ class Element(ContextBase, register=False):
     # Per-instance lazy slots
     _mouse_proxy: _ElementMouseProxy | None
     _keyboard_proxy: _ElementKeyboardProxy | None
-    _application_cache: 'Application | None | object'
+    _application_cache: 'Application | object | None'
 
     def __init__(
         self,

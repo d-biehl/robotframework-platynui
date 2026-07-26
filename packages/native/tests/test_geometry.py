@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Quick test of the newly exposed geometry methods."""
 
 from platynui_native import Point, Rect, Size

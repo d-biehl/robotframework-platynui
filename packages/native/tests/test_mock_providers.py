@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Test Mock Providers for unit testing."""
 
 import platynui_native as pn
@@ -45,7 +44,7 @@ def test_runtime_with_mock_platforms(rt_mock_platform: Runtime) -> None:
     try:
         rt_mock_platform.highlight([pn.Rect(10.0, 10.0, 100.0, 100.0)])
         rt_mock_platform.clear_highlight()
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 (highlighting is optional for the mock platform)
         pass
 
 

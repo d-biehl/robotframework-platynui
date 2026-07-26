@@ -302,5 +302,5 @@ class Adapter(ABC):
     def __repr__(self) -> str:  # pragma: no cover - debug aid
         try:
             return f'<{type(self).__name__} runtime_id={self.runtime_id!r} role={self.role!r} name={self.name!r}>'
-        except Exception:  # repr must never raise
+        except Exception:  # noqa: BLE001 (repr must never raise)
             return f'<{type(self).__name__} (invalid)>'

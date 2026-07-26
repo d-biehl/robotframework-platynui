@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Test new Runtime methods: evaluate_single() and providers()."""
 
 import threading
@@ -74,7 +73,7 @@ def test_runtime_can_clear_cache_across_threads(rt_mock_platform: Runtime) -> No
             rt_mock_platform.clear_cache()
             worker_result = rt_mock_platform.evaluate_single('/')
             assert isinstance(worker_result, UiNode)
-        except BaseException as exc:
+        except BaseException as exc:  # noqa: BLE001 (forwarded to the main thread and re-raised there)
             errors.append(exc)
 
     thread = threading.Thread(target=worker)

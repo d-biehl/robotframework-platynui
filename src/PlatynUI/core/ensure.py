@@ -33,7 +33,7 @@ def full_repr(obj: Any) -> str:
     try:
         if isinstance(obj, _HasFullRepr):
             return obj.full_repr()
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 (a repr helper must never raise)
         pass
     return repr(obj)
 
@@ -142,7 +142,7 @@ def ensure_that(
                         ok = predicate()
                     except (PlatynUIFatalError, KeyboardInterrupt, SystemExit):
                         raise
-                    except BaseException as exc:
+                    except BaseException as exc:  # noqa: BLE001 (retried until the timeout; re-raised by the caller)
                         last_exception = exc
                         result = False
                         break

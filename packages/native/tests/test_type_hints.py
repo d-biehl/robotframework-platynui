@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Quick type check for iterator imports."""
 
 from platynui_native import (

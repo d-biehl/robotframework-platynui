@@ -14,7 +14,6 @@ boolean result is enough.
 import time
 from collections.abc import Callable
 
-from .exceptions import PlatynUIFatalError
 from .settings import Settings
 
 __all__ = ['wait_for']
@@ -34,9 +33,11 @@ def wait_for(
     ``invalidate`` is invoked between iterations and is typically used
     to drop cached adapter handles.
 
-    `PlatynUIFatalError`,
-    `KeyboardInterrupt` and `SystemExit` raised from a
-    predicate propagate immediately without retry.
+    Exceptions raised by a predicate are never caught: they propagate
+    to the caller immediately and end the polling loop. Unlike
+    `ensure_that`, this helper has no
+    ``ignore_exceptions`` behaviour — a predicate that may fail
+    transiently has to handle that itself.
     """
     settings = Settings.current()
     effective_timeout = settings.wait_for_timeout if timeout is None else timeout
@@ -48,10 +49,7 @@ def wait_for(
         for predicate in predicates:
             if time.monotonic() - start > effective_timeout:
                 return False
-            try:
-                ok = predicate()
-            except (PlatynUIFatalError, KeyboardInterrupt, SystemExit):
-                raise
+            ok = predicate()
             if not ok:
                 all_ok = False
                 break

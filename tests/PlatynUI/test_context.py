@@ -506,9 +506,8 @@ def test_get_one_raises_on_zero_matches() -> None:
 
     parent = ContextBase(adapter=_make_adapter())
     stub = _StubFactory(results=[])
-    with adapter_factory.override(lambda: stub):
-        with pytest.raises(AdapterNotFoundError):
-            parent.get_one(Btn)
+    with adapter_factory.override(lambda: stub), pytest.raises(AdapterNotFoundError):
+        parent.get_one(Btn)
 
 
 def test_get_one_raises_on_multiple_matches() -> None:
@@ -520,9 +519,8 @@ def test_get_one_raises_on_multiple_matches() -> None:
     stub = _StubFactory(
         results=[_make_adapter(role='__test_button__'), _make_adapter(role='__test_button__')],
     )
-    with adapter_factory.override(lambda: stub):
-        with pytest.raises(MultipleElementsFoundError):
-            parent.get_one(Btn)
+    with adapter_factory.override(lambda: stub), pytest.raises(MultipleElementsFoundError):
+        parent.get_one(Btn)
 
 
 # ----------------------------------------------------------------------

@@ -26,7 +26,7 @@ def test_evaluated_attribute_truthy_value(rt_mock_platform: Runtime) -> None:
     # Truthiness and comparisons delegate to the captured value.
     assert bool(attr) is True
     assert attr == 'Operations Console'
-    assert not (attr != 'Operations Console')
+    assert not (attr != 'Operations Console')  # noqa: SIM202 (exercises __ne__, not __eq__)
     assert attr != 'Something Else'
     assert str(attr) == 'Operations Console'
     assert hash(attr) == hash('Operations Console')

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Test that UiNode.children() and UiNode.attributes() return iterators."""
 
 from platynui_native import (

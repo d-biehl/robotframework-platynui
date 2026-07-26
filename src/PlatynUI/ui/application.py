@@ -58,7 +58,7 @@ class Application(ContextBase):
             timeout = Settings.current().application_exit_timeout
         try:
             self._request_exit()
-        except Exception as exc:  # graceful path may legitimately fail
+        except Exception as exc:  # noqa: BLE001 (graceful path may legitimately fail)
             _LOGGER.debug('graceful exit failed for %r: %s', self, exc)
         self._force_exit(timeout)
         self.invalidate()
@@ -72,15 +72,14 @@ class Application(ContextBase):
         for window in self._top_level_windows():
             try:
                 window.close()
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 (one window failing must not stop the others)
                 _LOGGER.debug('failed to close %r: %s', window, exc)
 
     def _force_exit(self, timeout: float) -> None:
         """Poll the process, kill after ``timeout`` seconds."""
         try:
             pid = self.process_id
-        except Exception:
-            # Adapter is gone — application has already exited.
+        except Exception:  # noqa: BLE001 (adapter is gone — application has already exited)
             return
         if pid <= 0:
             return

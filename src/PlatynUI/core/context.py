@@ -19,7 +19,8 @@ import re
 import warnings
 import weakref
 from collections.abc import Callable, Iterator
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Self, overload
+from types import TracebackType
+from typing import Any, ClassVar, Literal, Self, overload
 
 from ._criteria import criteria_equal
 from .adapter import Adapter
@@ -31,9 +32,6 @@ from .locator import Locator, LocatorScope
 from .predicate import predicate
 from .settings import Settings
 from .weight_calculator import WeightCalculator
-
-if TYPE_CHECKING:
-    from types import TracebackType
 
 __all__ = [
     'ContextBase',
@@ -360,9 +358,9 @@ class ContextBase:
 
     def __exit__(
         self,
-        exc_type: 'type[BaseException] | None',
+        exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
-        exc_tb: 'TracebackType | None',
+        exc_tb: TracebackType | None,
     ) -> Literal[False]:
         return False
 
@@ -621,7 +619,7 @@ class ContextFactory:
 
         calculator = WeightCalculator(AdapterCriteriaView(adapter))
         best_weight = 0
-        best_class: 'type[ContextBase]' = UnknownContext
+        best_class: type[ContextBase] = UnknownContext
         for entry in cls.registered_contexts:
             weight = calculator.calculate(entry.criteria)
             if weight > best_weight:

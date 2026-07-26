@@ -264,9 +264,9 @@ class UiNodeDescriptor:
                 result = library.runtime.evaluate_single(self.query, context)
             except (SystemExit, KeyboardInterrupt):
                 raise  # Don't interfere with user-initiated interrupts
-            except Exception as e:
+            except Exception:
                 if not settings.ignore_exceptions:
-                    raise e
+                    raise
                 result = None  # Swallow the error, but keep honouring the timeout below
             else:
                 if result is not None:
@@ -1468,9 +1468,9 @@ class BareMetal(OurDynamicCore):
                 raise  # usage error — surface immediately, regardless of ignore_exceptions
             except (SystemExit, KeyboardInterrupt):
                 raise
-            except Exception as e:
+            except Exception:
                 if not settings.ignore_exceptions:
-                    raise e
+                    raise
                 gone = False  # swallowed error => cannot confirm gone => keep waiting
 
             if gone:
@@ -1569,9 +1569,9 @@ class BareMetal(OurDynamicCore):
                 raise  # unknown operator — a programming error, surface immediately
             except (AssertionError, TypeError):
                 satisfied = False  # mismatch, or not-yet-comparable early value — keep polling
-            except Exception as e:
+            except Exception:
                 if not settings.ignore_exceptions:
-                    raise e
+                    raise
                 satisfied = False
 
             if satisfied:
@@ -1620,8 +1620,8 @@ class BareMetal(OurDynamicCore):
                 raise  # Critical error from the library/runtime; propagate it
             except (KeyboardInterrupt, SystemExit):
                 raise  # Don't interfere with user-initiated interrupts
-            except Exception:
-                pass  # Best-effort; don't block the pointer action
+            except Exception:  # noqa: BLE001, S110 (best-effort; don't block the pointer action)
+                pass
 
     def _resolve_screen_point(
         self,
@@ -1669,7 +1669,7 @@ class BareMetal(OurDynamicCore):
                     except AttributeNotFoundError:
                         bounds = None
                     if not isinstance(bounds, Rect):
-                        raise ValueError('Node has neither an ActivationPoint nor Bounds to target')
+                        raise TypeError('Node has neither an ActivationPoint nor Bounds to target')
 
                     center = bounds.center()
                     x = center.x
@@ -2408,7 +2408,7 @@ class BareMetal(OurDynamicCore):
                     self._maybe_bring_to_front(node, activate)
                     r = cast(Rect, node.attribute('Bounds'))
                     rects.append(r)
-                except Exception:
+                except Exception:  # noqa: BLE001 (one unresolvable node must not drop the whole highlight)
                     logger.trace(
                         f'Could not retrieve bounds for descriptor {d.node!r}, skipping highlight for this node'
                     )

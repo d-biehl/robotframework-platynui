@@ -61,7 +61,7 @@ class ElementStub(patterns.Element):
     def __init__(
         self,
         *,
-        bounds: Rect = Rect(0.0, 0.0, 100.0, 50.0),
+        bounds: Rect = Rect(0.0, 0.0, 100.0, 50.0),  # noqa: B008 (Rect is an immutable value type)
         is_visible: bool = True,
         is_in_view: bool = True,
         is_enabled: bool = True,

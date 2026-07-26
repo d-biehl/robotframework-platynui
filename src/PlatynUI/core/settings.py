@@ -19,7 +19,7 @@ process.
 """
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Self
 
 __all__ = ['Settings']
 
@@ -90,7 +90,7 @@ class Settings:
         global _current
         _current = settings
 
-    def __enter__(self) -> 'Settings':
+    def __enter__(self) -> Self:
         global _current
         _stack.append(_current if _current is not None else Settings())
         _current = self
