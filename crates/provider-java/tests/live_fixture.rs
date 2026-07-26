@@ -1,4 +1,5 @@
-//! Live real-provider checks against the Swing fixture app.
+//! Live real-provider checks against the Swing fixture app, through the Java
+//! provider and its JAB backend.
 //!
 //! These tests need a desktop session, a Java runtime (the explicit selection
 //! in `PLATYNUI_TEST_APP_SWING_JAVA`, or `java` on `PATH`), and the built
@@ -7,7 +8,7 @@
 //! runs them explicitly:
 //!
 //! ```text
-//! cargo nextest run -p platynui-provider-jab --run-ignored ignored-only
+//! cargo nextest run -p platynui-provider-java --run-ignored ignored-only
 //! ```
 //!
 //! `live_fixture_contract_and_interaction` covers `OpenSpec` `add-jab-provider`
@@ -34,7 +35,7 @@ use platynui_core::ui::{
     Namespace, PatternName, RuntimeId, UiAttribute, UiNode, UiValue, attribute_names, pattern_names,
     validate_control_or_item,
 };
-use platynui_provider_jab::JabFactory;
+use platynui_provider_java::JavaFactory;
 // Force-link the Windows platform crate so its inventory-registered platform
 // factory (id "windows") is available to `build_provider`.
 use platynui_platform_windows as _;
@@ -42,16 +43,11 @@ use std::path::PathBuf;
 
 // Crate dependencies of the library that this integration-test target does
 // not use directly (`unused_crate_dependencies` is target-scoped).
-use chrono as _;
 use inventory as _;
-use libloading as _;
-use platynui_java_agent as _;
+use platynui_provider_java_jab as _;
 use std::process::{Child, Command};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
-use sysinfo as _;
-use tempfile as _;
-use thiserror as _;
 use tracing as _;
 
 const DISCOVERY_DEADLINE: Duration = Duration::from_secs(20);
@@ -205,7 +201,7 @@ fn desktop_stub() -> Arc<dyn UiNode> {
 }
 
 fn build_provider(config: &RuntimeConfig) -> Arc<dyn UiTreeProvider> {
-    let provider = JabFactory.create(config).expect("provider construction is infallible");
+    let provider = JavaFactory.create(config).expect("provider construction is infallible");
     // Inject the real Win32 window manager so window-capability patterns work.
     let windows_platform = platform_factories().find(|factory| factory.id() == "windows");
     if let Some(factory) = windows_platform {
@@ -500,8 +496,13 @@ fn live_frozen_jvm_stays_contained() {
     const CALL_TIMEOUT: Duration = Duration::from_millis(750);
 
     let app = FixtureApp::launch("frozen");
-    let providers = ConfigMap::new()
-        .with("jab", ConfigMap::new().with("call_timeout_ms", i64::try_from(CALL_TIMEOUT.as_millis()).expect("fits")));
+    let providers = ConfigMap::new().with(
+        platynui_provider_java::PROVIDER_ID,
+        ConfigMap::new().with(
+            "jab",
+            ConfigMap::new().with("call_timeout_ms", i64::try_from(CALL_TIMEOUT.as_millis()).expect("fits")),
+        ),
+    );
     let config = RuntimeConfig::new(ConfigMap::new(), providers);
     let provider = build_provider(&config);
     let parent = desktop_stub();

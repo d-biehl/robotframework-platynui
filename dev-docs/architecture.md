@@ -30,7 +30,8 @@ crates/
 ├─ link                      # Linking helper macros — platynui-link
 ├─ platform-windows          # Windows devices — platynui-platform-windows
 ├─ provider-windows-uia      # UIA provider — platynui-provider-windows-uia
-├─ provider-jab              # Java Access Bridge provider (Swing/AWT, Windows) — platynui-provider-jab
+├─ provider-java             # The single Java provider, routing to toolkit backends — platynui-provider-java
+├─ provider-java-jab         # Java Access Bridge backend (Swing/AWT, Windows) — platynui-provider-java-jab
 ├─ platform-linux-x11        # Linux/X11 devices — platynui-platform-linux-x11
 ├─ platform-linux-wayland    # Linux/Wayland devices — platynui-platform-linux-wayland
 ├─ platform-linux            # Linux session mediator — platynui-platform-linux

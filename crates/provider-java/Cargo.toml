@@ -1,0 +1,33 @@
+[package]
+name = "platynui-provider-java"
+description = "The single Java UiTree provider for PlatynUI, routing to toolkit backends"
+version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+repository.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+# Everything is Windows-gated (including the workspace crates) so that
+# non-Windows builds see an empty crate without unused-dependency warnings —
+# the only backend today, JAB, exists on Windows only.
+[target.'cfg(windows)'.dependencies]
+platynui-core = { path = "../core" }
+platynui-provider-java-jab = { path = "../provider-java-jab" }
+inventory = "0.3"
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+# Live fixture tests (tests/live_fixture.rs, #[ignore]-gated): real window
+# manager for the window-capability patterns, real UIA provider for the
+# frozen-JVM isolation check, and debug-API access to freeze the fixture JVM.
+platynui-platform-windows = { path = "../platform-windows" }
+platynui-provider-windows-uia = { path = "../provider-windows-uia" }
+windows = { version = "0.62", features = ["Win32_System_Diagnostics_Debug", "Win32_UI_WindowsAndMessaging"] }

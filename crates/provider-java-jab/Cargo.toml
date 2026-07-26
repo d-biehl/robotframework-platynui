@@ -1,6 +1,6 @@
 [package]
-name = "platynui-provider-jab"
-description = "Java Access Bridge provider for PlatynUI on Windows"
+name = "platynui-provider-java-jab"
+description = "Java Access Bridge backend of the PlatynUI Java provider, on Windows"
 version.workspace = true
 keywords.workspace = true
 categories.workspace = true
@@ -22,7 +22,6 @@ platynui-core = { path = "../core" }
 # Only for the agent-presence classification fact on a top-level window; a leaf
 # crate that owns the handshake-path rule, with no PlatynUI dependencies of its own.
 platynui-java-agent = { path = "../java-agent" }
-inventory = "0.3"
 thiserror = "2.0"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 libloading = "0.9"
@@ -37,9 +36,3 @@ windows = { version = "0.62", features = [
 
 [target.'cfg(windows)'.dev-dependencies]
 tempfile = "3.27"
-# Live fixture tests (tests/live_fixture.rs, #[ignore]-gated): real window
-# manager for the window-capability patterns, real UIA provider for the
-# frozen-JVM isolation check, and debug-API access to freeze the fixture JVM.
-platynui-platform-windows = { path = "../platform-windows" }
-platynui-provider-windows-uia = { path = "../provider-windows-uia" }
-windows = { version = "0.62", features = ["Win32_System_Diagnostics_Debug"] }

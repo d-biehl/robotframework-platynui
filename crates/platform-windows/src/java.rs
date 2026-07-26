@@ -253,10 +253,10 @@ mod tests {
         assert_eq!(c.toolkit, Some(JavaToolkit::SwingAwt));
         assert_eq!(c.native_a11y_visible, Some(false), "unclaimed Swing window is not reachable");
 
-        window_claims::claim_window(window.id().raw(), "jab");
+        window_claims::claim_window(window.id().raw(), "java");
         let c = classifier.classify(window.id(), self_pid()).expect("classify");
-        assert_eq!(c.native_a11y_visible, Some(true), "a JAB claim is the free reachability signal");
-        window_claims::release_window(window.id().raw(), "jab");
+        assert_eq!(c.native_a11y_visible, Some(true), "the Java provider's claim is the free reachability signal");
+        window_claims::release_window(window.id().raw(), "java");
     }
 
     #[test]

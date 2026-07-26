@@ -1,4 +1,4 @@
-//! Typed error definitions for the JAB provider.
+//! Typed error definitions for the JAB backend.
 
 use crate::ffi::VmId;
 use platynui_core::provider::ProviderError;
@@ -11,7 +11,7 @@ pub(crate) enum JabError {
     #[error("JAB client unavailable: {0}")]
     ClientUnavailable(String),
 
-    /// A JAB call did not complete within `providers.jab.call_timeout_ms`.
+    /// A JAB call did not complete within `providers.java.jab.call_timeout_ms`.
     #[error("JAB call timed out: {op}")]
     Timeout { op: &'static str },
 
@@ -38,7 +38,7 @@ pub(crate) enum JabError {
     NodeDropped,
 
     /// The provider has been shut down and can no longer service requests.
-    #[error("JAB provider has been shut down")]
+    #[error("JAB backend has been shut down")]
     Shutdown,
 }
 

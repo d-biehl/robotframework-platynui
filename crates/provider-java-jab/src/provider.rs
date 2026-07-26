@@ -1,4 +1,9 @@
-//! Provider factory, configuration, top-level discovery, and diagnostics.
+//! Backend configuration, top-level discovery, and hit-testing.
+//!
+//! The JAB code is consumed as a backend of the single Java provider
+//! (`platynui-provider-java`). That crate owns registration, the window claims
+//! and the enablement diagnostic; what lives here is the per-window surface it
+//! routes to.
 
 use crate::client::JabClient;
 use crate::dll::{DiscoveryInputs, discover_dll};
@@ -7,12 +12,11 @@ use crate::ffi::VmId;
 use crate::handle::JabObject;
 use crate::node::{IdScope, JabAppNode, JabNode};
 use crate::pump::DegradedTracker;
-use platynui_core::config::RuntimeConfig;
-use platynui_core::platform::{WindowManager, window_claims};
-use platynui_core::provider::{ProviderDescriptor, ProviderError, ProviderKind, UiTreeProvider, UiTreeProviderFactory};
-use platynui_core::register_provider;
+use platynui_core::config::ConfigMap;
+use platynui_core::platform::WindowManager;
+use platynui_core::provider::ProviderError;
 use platynui_core::types::Point;
-use platynui_core::ui::{TechnologyId, UiNode};
+use platynui_core::ui::UiNode;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,10 +24,12 @@ use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
 
-pub const PROVIDER_ID: &str = "jab";
-pub const PROVIDER_NAME: &str = "Java Access Bridge";
+/// The backend's id: its settings live in `providers.java.<BACKEND_ID>.*`, the
+/// Java provider resolves the namespace and hands the sub-map to
+/// [`JabProvider::from_config`].
+pub const BACKEND_ID: &str = "jab";
 
-/// Default per-call deadline (`providers.jab.call_timeout_ms`).
+/// Default per-call deadline (`providers.java.jab.call_timeout_ms`).
 const DEFAULT_CALL_TIMEOUT_MS: u64 = 2000;
 /// How long the first enumeration after connect waits for the asynchronous
 /// bridge rendezvous before reporting "no Java windows". The spike measured
@@ -34,41 +40,30 @@ const FIRST_DISCOVERY_POLL: Duration = Duration::from_millis(50);
 
 static SELF_PID: LazyLock<u32> = LazyLock::new(std::process::id);
 
-static DESCRIPTOR: LazyLock<ProviderDescriptor> = LazyLock::new(|| {
-    ProviderDescriptor::new(
-        PROVIDER_ID,
-        PROVIDER_NAME,
-        TechnologyId::from(crate::node::TECHNOLOGY),
-        ProviderKind::Native,
-    )
-});
-
-pub struct JabFactory;
-
-impl UiTreeProviderFactory for JabFactory {
-    fn descriptor(&self) -> &ProviderDescriptor {
-        &DESCRIPTOR
-    }
-
-    fn create(&self, config: &RuntimeConfig) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
-        Ok(Arc::new(Self::build(config)))
-    }
+/// One enumeration pass of the backend.
+#[derive(Default)]
+pub struct JabEnumeration {
+    /// Native handles of the Java top-level windows this backend serves — what
+    /// the Java provider turns into window claims.
+    pub served_windows: Vec<u64>,
+    /// Window and `app:Application` nodes to attach under the enumerated parent.
+    pub nodes: Vec<Arc<dyn UiNode>>,
+    /// Java-looking windows the bridge does not answer for; the Java provider
+    /// owns what to say about them.
+    pub unserved: Vec<UnservedWindow>,
 }
 
-impl JabFactory {
-    /// Build a concrete provider from `config` — split out from `create` so
-    /// the config wiring is unit-testable without a live bridge.
-    fn build(config: &RuntimeConfig) -> JabProvider {
-        let jab_config = config.provider(PROVIDER_ID);
-        let enabled = jab_config.and_then(|jab| jab.get_bool("enabled")).unwrap_or(true);
-        let dll_path = jab_config.and_then(|jab| jab.get_str("dll_path")).map(PathBuf::from);
-        let call_timeout_ms = jab_config
-            .and_then(|jab| jab.get_i64("call_timeout_ms"))
-            .and_then(|ms| u64::try_from(ms).ok())
-            .filter(|ms| *ms > 0)
-            .unwrap_or(DEFAULT_CALL_TIMEOUT_MS);
-        JabProvider::new(enabled, dll_path, Duration::from_millis(call_timeout_ms))
-    }
+/// A visible top-level window whose class says AWT (`SunAwt*`) but which the
+/// bridge does not recognise — the signature of a JVM without the bridge
+/// enabled. Reported outward rather than diagnosed here: only the Java provider
+/// knows whether another backend serves the window.
+pub struct UnservedWindow {
+    /// Native window handle, in the raw form the claims and diagnostic
+    /// registries key on.
+    pub window: u64,
+    pub pid: u32,
+    /// Platform window class — the toolkit discriminator.
+    pub class_name: String,
 }
 
 /// Lazily established bridge connection; `Unavailable` remembers that the one
@@ -80,7 +75,6 @@ enum ClientState {
 }
 
 pub struct JabProvider {
-    descriptor: &'static ProviderDescriptor,
     enabled: bool,
     dll_path: Option<PathBuf>,
     call_timeout: Duration,
@@ -92,14 +86,25 @@ pub struct JabProvider {
     degraded: Arc<DegradedTracker>,
     /// JVMs whose bridge version has been info-logged.
     version_logged: Mutex<HashSet<VmId>>,
-    /// Window claims currently held by this provider instance.
-    claimed: Mutex<HashSet<u64>>,
 }
 
 impl JabProvider {
+    /// Build the backend from its own settings sub-map (`providers.java.jab.*`)
+    /// — split out so the config wiring is unit-testable without a live bridge.
+    #[must_use]
+    pub fn from_config(settings: Option<&ConfigMap>) -> Self {
+        let enabled = settings.and_then(|jab| jab.get_bool("enabled")).unwrap_or(true);
+        let dll_path = settings.and_then(|jab| jab.get_str("dll_path")).map(PathBuf::from);
+        let call_timeout_ms = settings
+            .and_then(|jab| jab.get_i64("call_timeout_ms"))
+            .and_then(|ms| u64::try_from(ms).ok())
+            .filter(|ms| *ms > 0)
+            .unwrap_or(DEFAULT_CALL_TIMEOUT_MS);
+        Self::new(enabled, dll_path, Duration::from_millis(call_timeout_ms))
+    }
+
     fn new(enabled: bool, dll_path: Option<PathBuf>, call_timeout: Duration) -> Self {
         Self {
-            descriptor: &DESCRIPTOR,
             enabled,
             dll_path,
             call_timeout,
@@ -110,7 +115,6 @@ impl JabProvider {
             is_shutdown: AtomicBool::new(false),
             degraded: Arc::new(DegradedTracker::default()),
             version_logged: Mutex::new(HashSet::new()),
-            claimed: Mutex::new(HashSet::new()),
         }
     }
 
@@ -130,7 +134,7 @@ impl JabProvider {
                 let dll = match discover_dll(&inputs) {
                     Ok(dll) => dll,
                     Err(failure) => {
-                        warn!("JAB provider inactive: {failure}");
+                        warn!("JAB backend inactive: {failure}");
                         *state = ClientState::Unavailable;
                         return Err(JabError::ClientUnavailable(failure.to_string()));
                     }
@@ -145,7 +149,7 @@ impl JabProvider {
                         Ok(client)
                     }
                     Err(message) => {
-                        warn!(dll = %dll.display(), "JAB provider inactive: {message}");
+                        warn!(dll = %dll.display(), "JAB backend inactive: {message}");
                         *state = ClientState::Unavailable;
                         Err(JabError::ClientUnavailable(message))
                     }
@@ -192,74 +196,53 @@ impl JabProvider {
         }
     }
 
-    /// Bring the process-wide claims registry in line with the current set of
-    /// attached Java windows: claim newcomers, release windows that are gone
-    /// (closed, JVM died, or the HWND got recycled).
-    fn sync_window_claims(&self, windows: &[JavaWindow]) {
-        let current: HashSet<u64> = windows.iter().map(|w| hwnd_as_claim(w.hwnd)).collect();
-        let mut claimed = self.claimed.lock().expect("claims mutex poisoned");
-        for stale in claimed.difference(&current) {
-            window_claims::release_window(*stale, PROVIDER_ID);
-        }
-        for new in current.difference(&claimed) {
-            window_claims::claim_window(*new, PROVIDER_ID);
-        }
-        *claimed = current;
-    }
-
-    fn release_all_claims(&self) {
-        let mut claimed = self.claimed.lock().expect("claims mutex poisoned");
-        for raw in claimed.drain() {
-            window_claims::release_window(raw, PROVIDER_ID);
-        }
-    }
-}
-
-impl UiTreeProvider for JabProvider {
-    fn descriptor(&self) -> &ProviderDescriptor {
-        self.descriptor
-    }
-
-    fn set_window_manager(&self, window_manager: Arc<dyn WindowManager>) {
+    /// Inject the runtime's window manager, once.
+    ///
+    /// # Panics
+    ///
+    /// If another thread panicked while holding the window-manager slot.
+    pub fn set_window_manager(&self, window_manager: Arc<dyn WindowManager>) {
         let mut slot = self.window_manager.lock().expect("window manager mutex poisoned");
         if slot.is_none() {
             *slot = Some(window_manager);
         }
     }
 
-    fn shutdown(&self) {
+    /// Release the bridge connection. Idempotent.
+    ///
+    /// # Panics
+    ///
+    /// If another thread panicked while holding the client state.
+    pub fn shutdown(&self) {
         if self.is_shutdown.swap(true, Ordering::AcqRel) {
             return;
         }
-        info!("JAB provider shutting down");
-        self.release_all_claims();
+        info!("JAB backend shutting down");
         // Dropping our client reference lets the pump wind down once the last
         // outstanding node releases its clone.
         *self.client.lock().expect("client state mutex poisoned") = ClientState::Unavailable;
     }
 
-    fn get_nodes(
-        &self,
-        parent: Arc<dyn UiNode>,
-    ) -> Result<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>, ProviderError> {
-        if self.is_shutdown.load(Ordering::Acquire) {
-            return Err(JabError::Shutdown.into());
+    /// One enumeration pass under `parent`: the Java windows this backend can
+    /// serve, the nodes for them, and the Java-looking windows it cannot serve.
+    ///
+    /// Inert — an empty pass, no failure — when the backend is disabled, shut
+    /// down, or the bridge is unavailable; in the last case `client()` has
+    /// logged the one actionable diagnostic already.
+    #[must_use]
+    pub fn enumerate(&self, parent: &Arc<dyn UiNode>) -> JabEnumeration {
+        if self.is_shutdown.load(Ordering::Acquire) || !self.enabled {
+            return JabEnumeration::default();
         }
-        if !self.enabled {
-            return Ok(Box::new(std::iter::empty()));
-        }
-        // Inert when the DLL is absent: the runtime keeps working, the
-        // diagnostic has been logged once by `client()`.
         let Ok(client) = self.client() else {
-            return Ok(Box::new(std::iter::empty()));
+            return JabEnumeration::default();
         };
 
         let discovery = self.discover_with_rendezvous_grace(&client);
-        emit_enablement_diagnostics(&discovery.sunawt_suspects);
         self.log_bridge_versions(&client, &discovery.windows);
-        self.sync_window_claims(&discovery.windows);
 
         let window_manager = self.window_manager();
+        let mut served_windows: Vec<u64> = Vec::with_capacity(discovery.windows.len());
         let mut nodes: Vec<Arc<dyn UiNode>> = Vec::with_capacity(discovery.windows.len() * 2);
         let mut seen_pids: Vec<u32> = Vec::new();
         let mut app_pids: Vec<u32> = Vec::new();
@@ -268,6 +251,7 @@ impl UiTreeProvider for JabProvider {
                 seen_pids.push(window.pid);
                 app_pids.push(window.pid);
             }
+            served_windows.push(hwnd_as_claim(window.hwnd));
             nodes.push(JabNode::new_window(
                 Arc::clone(&client),
                 window_manager.clone(),
@@ -275,13 +259,13 @@ impl UiTreeProvider for JabProvider {
                 window.ctx,
                 window.hwnd,
                 IdScope::Desktop,
-                Some(&parent),
+                Some(parent),
             ) as Arc<dyn UiNode>);
         }
         for pid in app_pids {
-            nodes.push(JabAppNode::new(pid, Arc::clone(&client), window_manager.clone(), &parent) as Arc<dyn UiNode>);
+            nodes.push(JabAppNode::new(pid, Arc::clone(&client), window_manager.clone(), parent) as Arc<dyn UiNode>);
         }
-        Ok(Box::new(nodes.into_iter()))
+        JabEnumeration { served_windows, nodes, unserved: discovery.sunawt_suspects }
     }
 
     /// Point-based hit-test of Java windows (design decisions 1–3 and 5 of
@@ -294,9 +278,15 @@ impl UiTreeProvider for JabProvider {
     /// it. All bridge calls run on the pump thread under the per-call
     /// deadline, so an unresponsive JVM surfaces as a prompt provider error
     /// for that point, never a hang.
-    fn element_at_point(&self, point: Point) -> Result<Option<Arc<dyn UiNode>>, ProviderError> {
+    ///
+    /// # Errors
+    ///
+    /// `UnsupportedOperation` when the point is not this backend's to answer
+    /// (no window, own process, not a Java window, bridge unavailable, backend
+    /// off), and the bridge's own error when a call against the JVM fails.
+    pub fn element_at_point(&self, point: Point) -> Result<Option<Arc<dyn UiNode>>, ProviderError> {
         if self.is_shutdown.load(Ordering::Acquire) || !self.enabled {
-            return Err(unsupported_at_point("provider disabled or shut down"));
+            return Err(unsupported_at_point("backend disabled or shut down"));
         }
         let Some((hwnd, pid)) = top_level_window_at(point) else {
             return Err(unsupported_at_point("no window at point"));
@@ -370,27 +360,6 @@ fn top_level_window_at(point: Point) -> Option<(isize, u32)> {
     }
 }
 
-/// Emit the shared "JVM window absent from native accessibility" diagnostic
-/// (see `platynui_core::platform::java`) for Java-looking windows the bridge
-/// does not answer for — the "bridge not enabled" case. The shared registry
-/// de-duplicates per window, process-wide. Never mutates any target-side
-/// configuration; it only tells the user how to.
-fn emit_enablement_diagnostics(suspects: &[SunAwtSuspect]) {
-    use platynui_core::platform::java::{JavaToolkit, jvm_unreachable_diagnostic_once};
-    for suspect in suspects {
-        let toolkit = JavaToolkit::from_window_class(&suspect.class_name).unwrap_or(JavaToolkit::Unknown);
-        if let Some(hint) = jvm_unreachable_diagnostic_once(hwnd_as_claim(suspect.hwnd), toolkit) {
-            warn!(
-                hwnd = format!("0x{:X}", suspect.hwnd),
-                class = %suspect.class_name,
-                pid = suspect.pid,
-                toolkit = toolkit.label(),
-                "JVM window is absent from native accessibility. {hint}"
-            );
-        }
-    }
-}
-
 /// One attached Java top-level window.
 pub(crate) struct JavaWindow {
     pub hwnd: isize,
@@ -399,17 +368,9 @@ pub(crate) struct JavaWindow {
     pub ctx: JabObject,
 }
 
-/// A top-level window whose class says AWT (`SunAwt*`) but which the bridge
-/// does not recognise — the signature of a JVM without the bridge enabled.
-pub(crate) struct SunAwtSuspect {
-    pub hwnd: isize,
-    pub pid: u32,
-    pub class_name: String,
-}
-
 pub(crate) struct Discovery {
     pub windows: Vec<JavaWindow>,
-    pub sunawt_suspects: Vec<SunAwtSuspect>,
+    pub sunawt_suspects: Vec<UnservedWindow>,
 }
 
 /// Enumerate visible Java top-level windows via `EnumWindows` +
@@ -441,8 +402,8 @@ fn discover_java_windows(client: &Arc<JabClient>, pid_filter: Option<u32>) -> Di
         };
         if !is_java {
             if candidate.class_name.starts_with("SunAwt") {
-                sunawt_suspects.push(SunAwtSuspect {
-                    hwnd: candidate.hwnd,
+                sunawt_suspects.push(UnservedWindow {
+                    window: hwnd_as_claim(candidate.hwnd),
                     pid: candidate.pid,
                     class_name: candidate.class_name,
                 });
@@ -505,36 +466,25 @@ fn hwnd_as_claim(hwnd: isize) -> u64 {
     }
 }
 
-pub static JAB_FACTORY: JabFactory = JabFactory;
-
-// Auto-register the JAB provider when linked (Windows builds only — the whole
-// module is `cfg(windows)`).
-register_provider!(&JAB_FACTORY);
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use platynui_core::config::ConfigMap;
 
     #[test]
     fn defaults_without_config() {
-        let provider = JabFactory::build(&RuntimeConfig::default());
+        let provider = JabProvider::from_config(None);
         assert!(provider.enabled);
         assert!(provider.dll_path.is_none());
         assert_eq!(provider.call_timeout, Duration::from_millis(DEFAULT_CALL_TIMEOUT_MS));
     }
 
     #[test]
-    fn factory_reads_provider_config() {
-        let providers = ConfigMap::new().with(
-            "jab",
-            ConfigMap::new()
-                .with("enabled", false)
-                .with("dll_path", "C:\\bridge\\WindowsAccessBridge-64.dll")
-                .with("call_timeout_ms", 500_i64),
-        );
-        let config = RuntimeConfig::new(ConfigMap::new(), providers);
-        let provider = JabFactory::build(&config);
+    fn backend_reads_its_settings() {
+        let settings = ConfigMap::new()
+            .with("enabled", false)
+            .with("dll_path", "C:\\bridge\\WindowsAccessBridge-64.dll")
+            .with("call_timeout_ms", 500_i64);
+        let provider = JabProvider::from_config(Some(&settings));
         assert!(!provider.enabled);
         assert_eq!(provider.dll_path.as_deref(), Some(std::path::Path::new("C:\\bridge\\WindowsAccessBridge-64.dll")));
         assert_eq!(provider.call_timeout, Duration::from_millis(500));
@@ -542,9 +492,8 @@ mod tests {
 
     #[test]
     fn invalid_timeout_falls_back_to_default() {
-        let providers = ConfigMap::new().with("jab", ConfigMap::new().with("call_timeout_ms", -1_i64));
-        let config = RuntimeConfig::new(ConfigMap::new(), providers);
-        let provider = JabFactory::build(&config);
+        let settings = ConfigMap::new().with("call_timeout_ms", -1_i64);
+        let provider = JabProvider::from_config(Some(&settings));
         assert_eq!(provider.call_timeout, Duration::from_millis(DEFAULT_CALL_TIMEOUT_MS));
     }
 
@@ -583,20 +532,20 @@ mod tests {
             fn invalidate(&self) {}
         }
 
-        let providers = ConfigMap::new().with("jab", ConfigMap::new().with("enabled", false));
-        let config = RuntimeConfig::new(ConfigMap::new(), providers);
-        let provider = JabFactory::build(&config);
+        let settings = ConfigMap::new().with("enabled", false);
+        let provider = JabProvider::from_config(Some(&settings));
         let parent: Arc<dyn UiNode> = Arc::new(DesktopStub(RuntimeId::from("desktop")));
-        let nodes: Vec<_> = provider.get_nodes(parent).expect("inert ok").collect();
-        assert!(nodes.is_empty());
+        let pass = provider.enumerate(&parent);
+        assert!(pass.nodes.is_empty());
+        assert!(pass.served_windows.is_empty());
         assert!(
             matches!(&*provider.client.lock().expect("state"), ClientState::Untried),
             "kill switch must not load the DLL"
         );
     }
 
-    /// Pins the security constraint: the provider diagnoses a disabled bridge
-    /// but never mutates target-side configuration. No source file may call
+    /// Pins the security constraint: the backend reports a disabled bridge but
+    /// never mutates target-side configuration. No source file may call
     /// registry-write APIs, spawn helper processes (`jabswitch`), or touch the
     /// user's accessibility properties file.
     #[test]
@@ -623,25 +572,5 @@ mod tests {
                 );
             }
         }
-    }
-
-    #[test]
-    fn claims_sync_registers_and_releases() {
-        let provider = JabFactory::build(&RuntimeConfig::default());
-        let (tx, _rx) = std::sync::mpsc::channel();
-        let windows = vec![JavaWindow { hwnd: 0xB100, pid: 1, vm: 1, ctx: JabObject::new(1, 1, tx.clone()) }];
-        provider.sync_window_claims(&windows);
-        assert!(window_claims::is_claimed_by_other(0xB100, "windows-uia"));
-
-        // Window disappears on the next pass → claim released.
-        provider.sync_window_claims(&[]);
-        assert!(!window_claims::is_claimed(0xB100));
-
-        // Shutdown releases whatever is still held.
-        let windows = vec![JavaWindow { hwnd: 0xB101, pid: 1, vm: 1, ctx: JabObject::new(1, 2, tx) }];
-        provider.sync_window_claims(&windows);
-        assert!(window_claims::is_claimed(0xB101));
-        provider.shutdown();
-        assert!(!window_claims::is_claimed(0xB101));
     }
 }

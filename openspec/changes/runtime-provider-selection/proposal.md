@@ -1,6 +1,6 @@
 ## Why
 
-Which providers a session uses is currently not selectable in any general way. Individual providers grew ad-hoc kill switches (`providers.jab.enabled`; `providers.java.enabled` arrives with `unify-java-provider`), but there is no convention, no way to say "this session is Java only", and no surface for it in the Robot library or the Inspector. That hurts concretely:
+Which providers a session uses is currently not selectable in any general way. Individual providers grew ad-hoc kill switches (`providers.java.enabled`, `providers.windows-uia.honor_window_claims`), but there is no convention, no way to say "this session is Java only", and no surface for it in the Robot library or the Inspector. That hurts concretely:
 
 - Testing a Java app, the native provider (UIA/AT-SPI) still enumerates the whole desktop — slower queries and, for toolkits that render natively, competing representations to reason about.
 - A suite cannot hold two views of the same desktop — e.g. one library instance restricted to Java and one to AT-SPI — which is the natural way to write tests that assert *which* technology serves what.
@@ -31,7 +31,7 @@ The session-config foundation already exists (`runtime-session-config`: per-runt
 ## Impact
 
 - **Modified**: provider registry/inventory resolution (gating before construction), session-config parsing (`providers.include`/`exclude`), Inspector (provider toggle UI + runtime rebuild), docs. The library import signature changes **only** if the optional shorthand is taken — the mechanism rides on the existing `config=` parameter.
-- **No provider-internal changes**: gating happens above the providers; existing per-provider switches become instances of the convention (`providers.jab.enabled` is superseded by `providers.java.*` in `unify-java-provider` — no conflict, different level: umbrella/provider here, backend there).
+- **No provider-internal changes**: gating happens above the providers; existing per-provider switches become instances of the convention (`providers.java.enabled` is the umbrella switch `unify-java-provider` landed; its `providers.java.jab.*` backend keys are a level below and unaffected).
 - **Depends on `isolate-baremetal-library-state`**: without its per-instance scoped state (root, query settings keyed by registered library name) two imports with different selections would still share one root cell, so the multi-instance half of this feature would be broken in practice. Its write-time guard also already covers the risk this change creates — a scoped root that pins an *element* is refused at `SUITES`/`GLOBAL` (a suite below builds its own runtime and could not find that element again), so across a boundary a differently-selected session only ever sees selectors. Nothing to add here.
 - **Composes with, and is independent of, the Java chain** — no ordering constraint; whichever lands second aligns naming. Also the natural home for later "WPF instead of UIA" selection, and unrelated to dynamic provider loading (that is the future provider-plugin proposal; selection needs no dynamic loading, only gating).
 - No BREAKING changes: absent selection keys reproduce today's behavior exactly (all registered providers active).

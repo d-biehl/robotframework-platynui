@@ -2,7 +2,7 @@
 
 How PlatynUI recognizes JVM-backed GUI applications and which accessibility path
 reaches each Java UI toolkit, per platform. This is the cross-platform map; the
-Windows JAB provider's internals live in [`platform-windows.md`](platform-windows.md)
+Windows Java provider and its JAB backend live in [`platform-windows.md`](platform-windows.md)
 §2a and the AT-SPI provider in [`platform-linux.md`](platform-linux.md).
 
 Scope: facts as of 2026-07. This document records what is true today and the
@@ -86,7 +86,7 @@ Which toolkit is reachable through the platform's *native* accessibility stack
 
 | Toolkit | Windows | Linux | macOS |
 |---|---|---|---|
-| Swing/AWT | JAB (`provider-jab`) — zero-config, limited fidelity | `java-atk-wrapper`/AT-SPI **only if enabled** — see decision below | NSAccessibility (`provider-macos-ax`) |
+| Swing/AWT | JAB backend of `provider-java` (`provider-java-jab`) — zero-config, limited fidelity | `java-atk-wrapper`/AT-SPI **only if enabled** — see decision below | NSAccessibility (`provider-macos-ax`) |
 | SWT | native Win32 → UIA (`provider-windows-uia`) | GTK-native → AT-SPI (`provider-atspi`) | native Cocoa → NSAccessibility |
 | JavaFX | UIA (`provider-windows-uia`) | **none — not accessible at all** | NSAccessibility |
 

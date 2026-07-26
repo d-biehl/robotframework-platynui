@@ -31,7 +31,7 @@ Window Is Grouped Under Its Application
 Stage 1 Controls Are Enumerable With Normalized Roles
     [Documentation]    Menu bar, menus, button, text field, and status label resolve via their
     ...    accessible names and report the normalized PlatynUI role (JAB ``push button`` → Button,
-    ...    ``text`` → Text, …; see ``crates/provider-jab/src/map.rs``).
+    ...    ``text`` → Text, …; see ``crates/provider-java-jab/src/map.rs``).
     FOR    ${name}    ${role}    IN
     ...    main-menubar    MenuBar
     ...    menu-file    Menu

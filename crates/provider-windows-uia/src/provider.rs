@@ -574,10 +574,10 @@ mod tests {
 
         // Process-global registry: use an hwnd value no other test claims.
         const HWND: u64 = 0xA7_0001;
-        window_claims::claim_window(HWND, "jab");
+        window_claims::claim_window(HWND, "java");
         assert!(abstains_from_claimed_window(true, HWND), "claimed window must abstain while claims are honored");
         assert!(!abstains_from_claimed_window(false, HWND), "kill switch off must resolve the shell again");
-        window_claims::release_window(HWND, "jab");
+        window_claims::release_window(HWND, "java");
         assert!(!abstains_from_claimed_window(true, HWND), "released window must resolve normally");
     }
 

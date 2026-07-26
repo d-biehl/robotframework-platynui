@@ -1,7 +1,8 @@
 *** Settings ***
 Documentation       Java Swing acceptance suites — they drive the REAL Windows runtime
 ...                 against apps/test-app-swing through the Java Access Bridge (JAB)
-...                 provider (`crates/provider-jab`, OpenSpec capability `jab-provider`).
+...                 backend of the Java provider (`crates/provider-java-jab`, OpenSpec
+...                 capability `jab-provider`).
 ...
 ...                 BUILD REQUIREMENT: the native module must be built WITHOUT the
 ...                 mock-provider feature (``just build-native``). A mock-provider

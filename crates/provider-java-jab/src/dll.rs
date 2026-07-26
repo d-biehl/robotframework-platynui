@@ -1,7 +1,7 @@
 //! Discovery and binding of the JAB client DLL (`WindowsAccessBridge-64.dll`).
 //!
 //! Discovery order (first hit wins):
-//! 1. `providers.jab.dll_path` from the runtime config,
+//! 1. `providers.java.jab.dll_path` from the runtime config,
 //! 2. the `PLATYNUI_JAB_DLL` environment variable,
 //! 3. `%JAVA_HOME%\jre\bin` then `%JAVA_HOME%\bin` (JDK 8 keeps the client DLL
 //!    in `jre\bin`, JDK 9+ in `bin`),
@@ -19,7 +19,7 @@ pub(crate) const DLL_NAME: &str = "WindowsAccessBridge-64.dll";
 /// Inputs to DLL discovery, separated from the live environment so the order
 /// is unit-testable with fake directory layouts.
 pub(crate) struct DiscoveryInputs {
-    /// `providers.jab.dll_path` from the runtime config.
+    /// `providers.java.jab.dll_path` from the runtime config.
     pub config_dll_path: Option<PathBuf>,
     /// `PLATYNUI_JAB_DLL` environment override.
     pub env_dll_path: Option<PathBuf>,
@@ -51,7 +51,7 @@ impl std::fmt::Display for DiscoveryFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{DLL_NAME} not found. Set providers.jab.dll_path (or PLATYNUI_JAB_DLL), set JAVA_HOME, or put a JDK on PATH. Tried: {}",
+            "{DLL_NAME} not found. Set providers.java.jab.dll_path (or PLATYNUI_JAB_DLL), set JAVA_HOME, or put a JDK on PATH. Tried: {}",
             if self.tried.is_empty() { "<nothing>".to_string() } else { self.tried.join(", ") }
         )
     }
@@ -286,7 +286,7 @@ mod tests {
         let err = discover_dll(&inputs).expect_err("must fail");
         assert_eq!(err.tried.len(), 3, "config + jre\\bin + bin: {:?}", err.tried);
         let message = err.to_string();
-        assert!(message.contains("providers.jab.dll_path"), "{message}");
+        assert!(message.contains("providers.java.jab.dll_path"), "{message}");
         assert!(message.contains("JAVA_HOME"), "{message}");
     }
 }

@@ -16,7 +16,7 @@ The project is organized around:
 - A Robot Framework-first library surface, with the current low-level `PlatynUI.BareMetal` library and a higher-level `PlatynUI` library still in migration.
 - A shared Rust UI model with `control`, `item`, `app`, and `native` namespaces.
 - An XPath 2.0-inspired query engine tailored to native desktop UI trees.
-- Native providers for Windows UIA and Linux AT-SPI2, an experimental Java Access Bridge provider for Windows Swing/AWT apps, planned macOS AX support, and mock providers for deterministic tests.
+- Native providers for Windows UIA and Linux AT-SPI2, a Java provider that routes to toolkit backends (experimental Java Access Bridge for Windows Swing/AWT today), planned macOS AX support, and mock providers for deterministic tests.
 - Platform devices for user-like interaction, screenshots, highlights, desktop metadata, and window management.
 - A CLI (`platynui-cli`) and GUI inspector (`platynui-inspector`) for diagnostics, exploration, and query development.
 - Python bindings (`platynui-native`) that connect the Rust runtime to Robot Framework and Python tests.
@@ -83,7 +83,7 @@ By default the Inspector follows the system light/dark theme; `--theme <system|l
 | Component | Windows | Linux X11 | Linux Wayland | PlatynUI compositor | macOS | Mock |
 |-----------|---------|-----------|---------------|---------------------|-------|------|
 | UI tree provider | ✅ UIA | ✅ AT-SPI2 | ✅ AT-SPI2, window-relative coordinates | ✅ AT-SPI2 + compositor window geometry | ❌ AX stub | ✅ |
-| Java Swing/AWT provider | ⚠️ experimental JAB (Java Access Bridge) | ❌ planned in-JVM agent | ❌ planned in-JVM agent | ❌ planned in-JVM agent | — (JDK implements AX natively) | — |
+| Java provider backends | ⚠️ experimental JAB (Java Access Bridge), Swing/AWT only | ❌ planned in-JVM agent | ❌ planned in-JVM agent | ❌ planned in-JVM agent | — (JDK implements AX natively) | — |
 | Pointer | ✅ SendInput | ✅ XTest | ⚠️ portal (Mutter/KWin) / virtual-input (wlroots) / EIS | ✅ EIS | ❌ stub | ✅ |
 | Keyboard | ✅ SendInput | ✅ XTest | ⚠️ portal (Mutter/KWin) / virtual-input (wlroots) / EIS | ✅ EIS | ❌ stub | ✅ |
 | Desktop info | ✅ Win32 | ✅ XRandR/root geometry | ⚠️ `wl_output` + Mutter/KWin D-Bus enrichment | ✅ `wl_output` | ❌ stub | ✅ |

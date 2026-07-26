@@ -30,7 +30,7 @@
 //! drop the coupling.)
 
 // Backtick-pedantry on prose that is full of product and API names adds noise
-// without catching bugs (same call as `provider-jab`):
+// without catching bugs (same call as `provider-java-jab`):
 #![allow(clippy::doc_markdown)]
 
 pub mod attach;

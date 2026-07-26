@@ -2,7 +2,7 @@
 //!
 //! More than one provider can surface the same native window: a Java Swing
 //! window is enumerated by the generic Windows UIA provider (as an empty
-//! shell, since Swing implements no UIA provider) *and* by the JAB provider
+//! shell, since Swing implements no UIA provider) *and* by the Java provider
 //! (with a full subtree). To show each window exactly once in the merged
 //! desktop tree, the provider that genuinely represents the window registers a
 //! claim on its native handle here, and generic providers consult the registry
@@ -75,34 +75,34 @@ mod tests {
 
     #[test]
     fn claim_is_visible_to_other_providers_only() {
-        claim_window(0xA200, "jab");
+        claim_window(0xA200, "java");
         assert!(is_claimed(0xA200));
         assert!(is_claimed_by_other(0xA200, "uia"), "another provider must see the claim");
-        assert!(!is_claimed_by_other(0xA200, "jab"), "the owner itself is not 'other'");
-        release_window(0xA200, "jab");
+        assert!(!is_claimed_by_other(0xA200, "java"), "the owner itself is not 'other'");
+        release_window(0xA200, "java");
         assert!(!is_claimed(0xA200));
     }
 
     #[test]
     fn claims_are_reference_counted_per_provider() {
-        claim_window(0xA300, "jab");
-        claim_window(0xA300, "jab"); // second runtime instance
-        release_window(0xA300, "jab");
+        claim_window(0xA300, "java");
+        claim_window(0xA300, "java"); // second runtime instance
+        release_window(0xA300, "java");
         assert!(is_claimed_by_other(0xA300, "uia"), "one instance still holds a claim");
-        release_window(0xA300, "jab");
+        release_window(0xA300, "java");
         assert!(!is_claimed(0xA300));
     }
 
     #[test]
     fn releasing_never_claimed_windows_is_a_noop() {
-        release_window(0xA400, "jab");
+        release_window(0xA400, "java");
         assert!(!is_claimed(0xA400));
     }
 
     #[test]
     fn distinct_windows_do_not_interfere() {
-        claim_window(0xA500, "jab");
+        claim_window(0xA500, "java");
         assert!(!is_claimed(0xA501));
-        release_window(0xA500, "jab");
+        release_window(0xA500, "java");
     }
 }
