@@ -51,7 +51,19 @@ Completed Pick Announces The Picked Element
     ${bounds}=    BM.Get Attribute    ${WINDOW}//*[@Id="btn-click-me"]    Bounds
     VAR    ${cx}    ${{ $bounds.x + $bounds.width / 2 }}
     VAR    ${cy}    ${{ $bounds.y + $bounds.height / 2 }}
-    BM.Pointer Click    ${INSP_WIN}//*[@Id="picker-toggle"]
+
+    # Arming needs a retry here: the first click on the Inspector after a window
+    # move is swallowed, and the pointer must leave and come back before egui
+    # accepts the next one — clicking again at the same spot does not help
+    # (measured). Two attempts is the observed worst case, so three is the limit.
+    VAR    ${armed}    ${0}
+    WHILE    not $armed    limit=3
+    ...    on_limit_message=Picker never armed — the first click after a window move was swallowed
+        BM.Pointer Click    ${INSP_WIN}//*[@Id="picker-toggle"]
+        Sleep    1s
+        ${armed}=    BM.Query    count(${INSP_WIN}//*[contains(@Name,"Picker: armed")])    only_first=${True}
+        IF    not $armed    BM.Pointer Move To    /.    activate=${False}
+    END
     TRY
         BM.Keyboard Press    ${None}    <Ctrl+Alt+Shift>
         BM.Pointer Move To    x=${cx}    y=${cy}    activate=${False}
