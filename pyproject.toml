@@ -126,6 +126,11 @@ include = [
 ]
 
 [tool.ruff.lint]
+# We deliberately run on Ruff's default rule set rather than pinning `select`.
+# Since 0.16 that default spans ~410 rules; `extend-select` below adds the
+# families it does not cover (pep8-naming in particular is absent from it).
+# The trade-off: a Ruff upgrade can widen the default set again and surface
+# new findings. That is intended — triage them and extend `ignore` here.
 ignore = [
     "E741",
     "N805",
@@ -138,44 +143,31 @@ ignore = [
     "D104",   # ignore missing docstring in public package
     "D105",   # ignore missing docstring in magic methods
     "D107",   # ignore missing docstring in __init__ methods
+    # Robot Framework resolves annotations at runtime to convert keyword
+    # arguments. A PEP 695 `type X = ...` alias is a lazy TypeAliasType that
+    # its converter does not resolve, so explicit `TypeAlias` stays.
+    "UP040",
 ]
+# Families the default set does not fully cover. The formerly commented-out
+# entries here (UP, B, SIM, TRY, ...) were dropped: Ruff's defaults enable
+# them now, so opting out would mean listing them in `ignore` instead.
 extend-select = [
     "E",
     "F",
     "W",
     "I",
     "N",
-    #"UP",
     "YTT",
-    #"ANN",
-    #"BLE",
-    #"B",
-    #"A"
-    #"COM"
-    # "C4", # TODO enable this
     "DTZ",
     "T10",
-    # "EM",
     "ISC",
     "G",
-    #"INP",
     "PIE",
-    # "T20",
     "PT",
     "Q",
     "RET",
-    # "SIM", # TODO enable this
-    # "TID",
-    # "TCH",
-    # "ARG",
-    # "PTH", # TODO enable this
-    # "SLF", #  TODO enable this
-    # "ERA", # TODO enable this
     "RSE",
-    # "PL",
-    #"TRY",
     "RUF",
-    # "TID"
 ]
 
 flake8-quotes = { inline-quotes = "single", multiline-quotes = "double" }
@@ -201,6 +193,13 @@ quote-style = "single"
 "examples/**/*.py" = ["D101", "D103"]
 "**/tests/**/*.py" = ["D"]
 "dev-docs/**/*.py" = ["D"]
+# `__locator__` is installed by the `locator(...)` decorator, so it is not
+# declared on the target classes. getattr/setattr keep mypy --strict happy;
+# the direct attribute access B009/B010 suggest would fail type checking.
+"src/PlatynUI/core/locator.py" = ["B010"]
+"src/PlatynUI/ui/application.py" = ["B009"]
+"src/PlatynUI/BareMetal/__init__.py" = ["B009"]
+"tests/PlatynUI/test_locator.py" = ["B009"]
 
 [tool.pyright]
 pythonVersion = "3.12"
