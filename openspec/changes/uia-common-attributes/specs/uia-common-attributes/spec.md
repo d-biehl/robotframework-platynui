@@ -32,7 +32,7 @@ The synthetic `ApplicationNode` of the windows-uia provider SHALL expose `contro
 - **THEN** they include `control:Technology` = `UIAutomation` and a `control:SupportedPatterns` attribute
 
 ### Requirement: Focusable is gated on keyboard focusability
-The windows-uia provider SHALL advertise the `Focusable` pattern and return its action only for elements whose UIA `IsKeyboardFocusable` property is true. When the property cannot be read, the element SHALL be treated as not focusable.
+The windows-uia provider SHALL advertise the `Focusable` pattern and return its action according to the UIA `IsKeyboardFocusable` property, taking an explicit value at face value. Because that property's documented default value is `FALSE`, an unimplemented property is indistinguishable from a denial through the plain accessor; the provider SHALL therefore read it in a way that separates the two (`ignoreDefaultValue`) and SHALL NOT treat a missing value as a denial. When no value is supplied, a top-level window SHALL keep advertising `Focusable`, while an element deeper in the tree SHALL not.
 
 #### Scenario: Non-focusable element
 - **WHEN** an element reports `IsKeyboardFocusable` = false (e.g. a static text label)
@@ -41,6 +41,14 @@ The windows-uia provider SHALL advertise the `Focusable` pattern and return its 
 #### Scenario: Focusable element
 - **WHEN** an element reports `IsKeyboardFocusable` = true
 - **THEN** `Focusable` appears in its `SupportedPatterns` and `pattern_by_name(Focusable)` returns the focus action
+
+#### Scenario: Provider supplies no value for a top-level window
+- **WHEN** a top-level window's provider does not implement `IsKeyboardFocusable` at all (the read yields the NotSupported sentinel rather than a boolean)
+- **THEN** `Focusable` remains advertised and `pattern_by_name(Focusable)` still returns the focus action, rather than being withdrawn on the strength of the property's `FALSE` default
+
+#### Scenario: Provider supplies no value for an inner element
+- **WHEN** an element that is not a top-level window yields the NotSupported sentinel for `IsKeyboardFocusable`
+- **THEN** `Focusable` is absent from its `SupportedPatterns`
 
 ### Requirement: TextEditable capability marker
 The windows-uia provider SHALL advertise the `TextEditable` pattern as a capability marker for elements that support text content (`TextPattern` or `ValuePattern` available) and are not read-only. The provider SHALL NOT return a programmatic set-text action for this pattern; text entry remains keyboard-driven.

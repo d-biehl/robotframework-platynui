@@ -53,14 +53,20 @@ This document covers the Windows-specific implementation details for PlatynUI: p
 - `Name`: from `CurrentName()`
 - `RuntimeId`: from `GetRuntimeId()` → scoped URI (`uia://desktop/<hex>` or `uia://app/<pid>/<hex>`)
 - `Id`: from `AutomationId` (only emitted if non-empty)
+- `Technology`: constant `UIAutomation`, the provider's registered `TechnologyId`
+- `SupportedPatterns`: read back through the node's own `supported_patterns()` at value time, so the attribute and the advertisement cannot drift
 - `Bounds`: from `BoundingRectangle`
 - `ActivationPoint`: from `GetClickablePoint()`, fallback to midpoint of bounds
+- `IsReadOnly`: on text-bearing elements only (same gate as `Text`); from `ValuePattern.CurrentIsReadOnly`, and `true` for an element that exposes only a `TextPattern`
 - Native UIA properties: exposed in `native:` namespace via `GetPropertyProgrammaticName()` scan + `GetCurrentPropertyValueEx()`. Sentinels filtered.
+
+Both paths matter: `attributes()` enumerates and `attribute()` matches by name independently, so every attribute must be added to both (guarded by unit tests in `node.rs`).
 
 **Type Conversion**: `VT_BOOL` → Bool, `VT_I*/VT_UI*` → Integer, `VT_R*/VT_DECIMAL/VT_DATE` → Number, `BSTR` → String, `SAFEARRAY(1D)` → Array.
 
 **Patterns**:
-- `Focusable`: `SetFocus()`
+- `Focusable`: `SetFocus()`, withheld when `IsKeyboardFocusable` is explicitly false (static labels, title-bar buttons). That property defaults to `FALSE`, so it is read with `ignoreDefaultValue` to tell "the provider denies it" from "the provider does not implement it". A provider that supplies nothing (an Electron window with accessibility off, some Win32 panes) is resolved by the window surface: a top-level window keeps the pattern, an inner element does not.
+- `TextEditable`: capability marker on text-bearing elements that are not read-only; no write action — text is typed (see `remove-programmatic-set-text`)
 - `WindowSurface`: via `WindowPattern` + `TransformPattern` (activate, minimize, maximize, restore, move, resize, close)
 - `accepts_user_input()`: heuristic `IsEnabled && IsInView` + `WaitForInputIdle` (100ms timeout)
 - Virtualized elements: best-effort `VirtualizedItemPattern::Realize()` before child traversal

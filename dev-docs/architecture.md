@@ -323,7 +323,7 @@ Every `control:`/`item:` node carries a small common attribute set independent o
 | **Id** | when non-empty | Developer-set stable identifier (§5.5). Absent when unset. |
 | **Description** | when non-empty | Accessible description (§5.6), strict per-platform source. Absent when unset. |
 | **RuntimeId** | always | Provider-stable runtime identifier (§5.4). |
-| **Technology** | always | Backing UI technology (e.g. `UIA`, `AT-SPI2`). |
+| **Technology** | always | Backing UI technology — the provider's registered `TechnologyId`, e.g. `UIAutomation`, `AT-SPI2`, `JAB`. |
 | **SupportedPatterns** | always | The patterns the node advertises. |
 
 #### ClientPatterns (Attribute Contracts)
