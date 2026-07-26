@@ -237,8 +237,10 @@ namespace_packages = true
 # never as constructors. mypy correctly notes that the abstract classes
 # could in theory be instantiated, but in our design they are markers:
 # pattern instances are produced exclusively by adapters/proxies and
-# returned to the caller. Pyright (also part of CI) does not raise this
-# diagnostic, so no real coverage is lost.
+# returned to the caller. Pyright does not raise this diagnostic at all,
+# so nothing is lost in the editor either — but note that pyright is a
+# development-environment tool here and is not run by CI, so mypy is the
+# only automated type gate.
 disable_error_code = ["type-abstract"]
 # The Python fixture apps (apps/test-app-*/main.py) are NOT listed here: they are
 # standalone PEP 723 scripts that all share the module name "main" (their directories
