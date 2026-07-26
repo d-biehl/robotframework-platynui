@@ -19,5 +19,5 @@ SWT renders through native platform widgets, so it is the one Java toolkit the n
 
 - **Modified**: the agent JAR (SWT adapter classes — reflection against the app's SWT, SWT is not a dependency of the agent artifact); `crates/provider-java` (SWT role normalization); `platynui_core::platform::window_claims` (subtree-scoped abstention) and its native-provider consumers.
 - **No new crates, no wire/protocol change** — the `toolkits` list absorbs the addition by design. No BREAKING changes; agent-less SWT apps stay with UIA/AT-SPI exactly as today.
-- **Depends on**: `provider-java-swing` (all infrastructure) and `add-swt-test-app` (the fixture + catalog suite).
+- **Depends on**: `java-agent-core` (agent artifact, transport, attach, delivery), `provider-java-swing` (the client, mapping layer and backend routing) and `add-swt-test-app` (the fixture + catalog suite).
 - **Non-goals**: the `SWT_AWT` bridge (mixed-toolkit trees — deferred proposal); Eclipse-workbench-specific semantics (views/editors/perspectives) beyond plain SWT widgets; a native window-handle fallback question does not arise (SWT exposes `Control.handle` directly on win32; per-platform equivalents are design work).

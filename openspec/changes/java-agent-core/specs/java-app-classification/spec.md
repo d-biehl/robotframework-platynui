@@ -5,7 +5,7 @@ The classification SHALL report whether a PlatynUI agent is present in a JVM win
 
 #### Scenario: Agent-backed JVM is flagged
 - **WHEN** a Swing JVM launched with `-javaagent` is classified
-- **THEN** the classification reports agent-present for that window's process, and the Java provider serves that window via the agent backend on the next enumeration pass
+- **THEN** the classification reports agent-present for that window's process, observable like the other classification facts
 
 #### Scenario: Stale handshake file is not reported as present
 - **WHEN** a handshake file exists for a PID that is no longer running

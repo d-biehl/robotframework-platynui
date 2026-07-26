@@ -1,6 +1,6 @@
 <!-- Forward design: §1 is the FX spike on top of the infrastructure delivered by
-     provider-java-swing; §§2–4 build the adapter. Depends on
-     provider-java-swing and add-javafx-test-app. -->
+     java-agent-core + provider-java-swing; §§2–4 build the adapter.
+     Depends on java-agent-core, provider-java-swing and add-javafx-test-app. -->
 
 ## 1. Spike (FX-specific unknowns against the FX fixture)
 

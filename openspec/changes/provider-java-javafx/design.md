@@ -1,6 +1,6 @@
 ## Context
 
-Second toolkit adapter on the agent infrastructure decided in [`provider-java-swing`](../provider-java-swing/design.md) — wire, handshake, injection, threading discipline, registry ids, coordinate policy, and backend routing all carry over unchanged. This document only records what is *FX-specific*; like the swing change it is **forward design** with a spike up front. Mixed-toolkit trees remain out of scope (swing design, Non-Goals) — a JVM where both Swing and FX are active is detected (both entries in `toolkits`) but only its FX windows are served by this adapter; grafting across toolkits is the deferred proposal.
+Second toolkit adapter on the foundation from [`java-agent-core`](../java-agent-core/design.md) (wire, handshake, injection, threading, registry ids, coordinate contract) and the mapping layer from [`provider-java-swing`](../provider-java-swing/design.md) (element mapping, `is_valid`, backend routing) — all carry over unchanged. This document only records what is *FX-specific*; like the swing change it is **forward design** with a spike up front. Mixed-toolkit trees remain out of scope (swing design, Non-Goals) — a JVM where both Swing and FX are active is detected (both entries in `toolkits`) but only its FX windows are served by this adapter; grafting across toolkits is the deferred proposal.
 
 ## Goals / Non-Goals
 

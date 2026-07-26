@@ -13,8 +13,8 @@ Preparation refactor for the Java agent lane: `provider-java-swing` (and the `-j
 
 **Non-Goals:**
 
-- The agent backend — that is `provider-java-swing`, unchanged in substance.
-- Dynamic plugin loading of providers — future provider-plugin proposal (the `platynui.providers` entry-point group from the swing change is its seed).
+- The agent itself and its injection/transport/delivery — that is `java-agent-core`; the backend that consumes it is `provider-java-swing`. Both are unchanged in substance by this refactor.
+- Dynamic plugin loading of providers — future provider-plugin proposal (see [`dev-docs/provider-plugins.md`](../../../dev-docs/provider-plugins.md); the `platynui.providers` entry-point group from `java-agent-core` is its seed).
 - Moving JVM **detection** out of the platform layer — see decision 4.
 - Any change to JAB tree shape, roles, patterns, RuntimeIds, diagnostics, or timing.
 
@@ -22,7 +22,15 @@ Preparation refactor for the Java agent lane: `provider-java-swing` (and the `-j
 
 1. **Umbrella = router over a backend trait.** `provider-java` implements the UiTree-provider surface and delegates per top-level window to a backend. The trait mirrors what a provider already does per window (discover/claim candidates, serve subtree, patterns, degraded tracking) so the JAB code wraps without restructuring — `provider-jab` keeps its internals (pump thread, handle hygiene, role mapping) and loses only its independent registration. `@Technology` stays backend-specific (`"JAB"`), so locators and the Inspector see no difference.
 
-2. **Single claimant, boolean claims (the point of the whole change).** `provider-java` claims Java windows exactly as the JAB provider does today (`GetAccessibleContextFromHWND` success); UIA's `honor_window_claims` behavior is untouched. When a future backend with higher fidelity is available for a claimed window, the router switches the *serving* backend on the next enumeration pass — the claim itself never moves, so no registry protocol, no consumer updates, no re-routing races.
+2. **Single claimant, boolean claims (the point of the whole change).** The claim rule is **"claim a window when one of the backends can serve it"**. Today the only backend is JAB, so the claimed set is exactly what the JAB provider claims now (`GetAccessibleContextFromHWND` success) and behavior is unchanged; UIA's `honor_window_claims` behavior is untouched. Stating the rule in its general form matters, because the backends do **not** all cover the same windows: JAB speaks `javax.accessibility`, which only Swing/AWT implements, so an SWT or JavaFX window has no JAB fallback at all — without an agent those windows are simply **not claimed** and stay with the native provider (UIA on Windows, AT-SPI on Linux). "What JAB can see" is therefore today's *extent* of the rule, not the rule itself.
+
+    | Window | with an agent backend | without |
+    |---|---|---|
+    | Swing/AWT | agent backend | JAB backend (Windows) |
+    | SWT | agent backend | **not claimed** → native provider |
+    | JavaFX | agent backend | **not claimed** → native provider |
+
+    When a backend with higher fidelity becomes available for an already-claimed window, the router switches the *serving* backend on the next enumeration pass — the claim itself never moves, so no registry protocol, no consumer updates, no re-routing races. When a backend becomes available for a window nobody claimed before (an agent appearing in an SWT JVM), the provider starts claiming it on that same pass, and the native provider yields as it already does for JAB.
 
 3. **Config: `providers.java.enabled` (umbrella) + `providers.java.jab.enabled` / `providers.java.jab.call_timeout_ms` (backend).** Umbrella off ⇒ no Java provider at all (UIA shell serves Java windows, as with today's JAB kill switch). Backend off ⇒ that backend inert, others unaffected. The old `providers.jab.*` keys are renamed, not aliased (pre-1.0). `providers.windows-uia.honor_window_claims` is unaffected. The agent backend's keys (`providers.java.agent.*`) are reserved and land with the swing change.
 
@@ -32,7 +40,7 @@ Preparation refactor for the Java agent lane: `provider-java-swing` (and the `-j
 
 - [Refactor regression in JAB behavior] → the backend trait wraps rather than restructures; the Windows acceptance lane against the Swing fixture is the gate and must pass unchanged.
 - [Config rename breaks existing setups] → accepted (alpha); the rename is loud in the changelog and the old keys fail with a clear unknown-key diagnostic rather than being silently ignored.
-- [Trait shaped too narrowly for the agent backend] → the swing change's design (multi-client RPC, degraded tracking mirroring JAB's) was written against the same provider surface; the spike there validates the fit before the agent backend lands.
+- [Trait shaped too narrowly for the agent backend] → the agent lane's design (multi-client RPC, degraded tracking mirroring JAB's, node validity) was written against the same provider surface; `java-agent-core`'s walking skeleton exercises it before the backend lands.
 
 ## Migration Plan
 

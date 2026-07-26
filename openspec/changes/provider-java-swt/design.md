@@ -1,6 +1,6 @@
 ## Context
 
-Third toolkit adapter on the agent infrastructure decided in [`provider-java-swing`](../provider-java-swing/design.md); wire, handshake, injection, threading discipline, registry ids, and coordinate policy carry over. **Forward design** with a spike up front. The SWT-specific substance is twofold: the widget model is the only in-process level (no `javax.accessibility`), and — unlike Swing/FX — every `Control` is a native window of its own, which forces a claims-semantics extension. The `SWT_AWT` bridge (Swing embedded in SWT, common in Eclipse RCP) is a mixed-toolkit case and stays deferred (swing design, Non-Goals).
+Third toolkit adapter on the foundation from [`java-agent-core`](../java-agent-core/design.md) (wire, handshake, injection, threading, registry ids, coordinate contract) and the mapping layer from [`provider-java-swing`](../provider-java-swing/design.md); both carry over unchanged. **Forward design** with a spike up front. The SWT-specific substance is twofold: the widget model is the only in-process level (no `javax.accessibility`), and — unlike Swing/FX — every `Control` is a native window of its own, which forces a claims-semantics extension. The `SWT_AWT` bridge (Swing embedded in SWT, common in Eclipse RCP) is a mixed-toolkit case and stays deferred (swing design, Non-Goals).
 
 ## Goals / Non-Goals
 

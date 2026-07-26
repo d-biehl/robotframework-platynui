@@ -19,5 +19,5 @@ JavaFX is the one Java toolkit with a *total* platform gap: on Linux it has **no
 
 - **Modified**: the agent JAR (FX adapter classes — reflection against the app's FX runtime, FX is not a dependency of the agent artifact); `crates/provider-java` (FX role normalization in the mapping layer; the router's FX window claim).
 - **No new crates, no wire/protocol change** — the handshake `toolkits` list and the reserved notification frame absorb the addition by design. No BREAKING changes; the UIA provider keeps serving agent-less FX apps on Windows.
-- **Depends on**: `provider-java-swing` (all agent infrastructure: agent artifact, transport, attach, backend routing, config; transitively `unify-java-provider`) and `add-javafx-test-app` (the fixture + catalog suite).
+- **Depends on**: `java-agent-core` (agent artifact, transport, attach, delivery), `provider-java-swing` (the client, mapping layer and backend routing; transitively `unify-java-provider`) and `add-javafx-test-app` (the fixture + catalog suite).
 - **Non-goals**: mixed-toolkit trees (`JFXPanel` hosting FX inside Swing, `SwingNode` hosting Swing inside FX) stay deferred to a proposal of their own, per the swing change's design; FX 8's bundled runtime vs. FX 11+ modules is a compatibility matter inside the adapter, not a packaging change.
