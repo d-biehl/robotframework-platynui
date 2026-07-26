@@ -8,6 +8,7 @@
 //! same MTA thread when used from iterator code.
 
 use std::cell::{Cell, RefCell};
+use std::sync::Mutex;
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx};
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationCacheRequest, IUIAutomationTreeWalker, UIA_AutomationIdPropertyId,
@@ -42,22 +43,60 @@ pub fn ensure_com_mta() {
     });
 }
 
+/// Gates the UIA client library's one-time, process-wide initialization.
+///
+/// The library is safe to use from many threads *once it is up*, but bringing it
+/// up concurrently is not: measured on Windows 11, eight threads whose first ever
+/// UIA use overlaps see `CoCreateInstance` succeed everywhere and then
+/// `GetRootElement` fail with `E_FAIL` on seven of the eight. Priming it once on
+/// a single thread first makes all eight succeed, and it stays warm for the life
+/// of the process.
+///
+/// So the first arrival performs the initialization while holding this lock and
+/// the others wait for it. Every thread still keeps its own `IUIAutomation` in
+/// [`UIA_SINGLETON`], so the lock is taken once per thread, not per call.
+static FIRST_INIT: Mutex<bool> = Mutex::new(false);
+
 pub fn uia() -> Result<IUIAutomation, crate::error::UiaError> {
     ensure_com_mta();
     UIA_SINGLETON.with(|cell| {
         if let Some(existing) = cell.borrow().as_ref() {
             return Ok(existing.clone());
         }
-        let created: IUIAutomation = unsafe {
-            crate::error::uia_api(
-                "CoCreateInstance(CUIAutomation)",
-                CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER),
-            )?
-        };
-
+        let created = create_uia_serialized()?;
         *cell.borrow_mut() = Some(created.clone());
         Ok(created)
     })
+}
+
+/// Creates this thread's `IUIAutomation`, serialized against a cold start.
+fn create_uia_serialized() -> Result<IUIAutomation, crate::error::UiaError> {
+    // Poisoning carries no broken invariant here: the flag only records whether
+    // the library has been warmed up, so a panicking initializer just means the
+    // next arrival retries.
+    let mut warmed_up = FIRST_INIT.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    let created: IUIAutomation = unsafe {
+        crate::error::uia_api(
+            "CoCreateInstance(CUIAutomation)",
+            CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER),
+        )?
+    };
+
+    if !*warmed_up {
+        // One real call, not just the creation, is what finishes the library's
+        // initialization — measured: serializing `CoCreateInstance` alone only
+        // takes the cold-start failures from 7/8 down to 1-2/8, while adding
+        // this read removes them.
+        //
+        // A failure here is ignored on purpose: the caller's own first call will
+        // report an unreadable desktop root with proper context, and a transient
+        // failure must not leave the library permanently marked as cold.
+        let _ = unsafe { created.GetRootElement() };
+        *warmed_up = true;
+    }
+
+    Ok(created)
 }
 
 pub fn raw_walker() -> Result<IUIAutomationTreeWalker, crate::error::UiaError> {
@@ -114,4 +153,44 @@ pub fn traversal_cache_request() -> Result<IUIAutomationCacheRequest, crate::err
         *cell.borrow_mut() = Some(req.clone());
         Ok(req)
     })
+}
+
+#[cfg(test)]
+mod cold_start_tests {
+    /// A cold concurrent start must not fail.
+    ///
+    /// Without the serialized first initialization in [`create_uia_serialized`],
+    /// eight threads whose first ever UIA use overlaps leave seven of them with
+    /// `GetRootElement` returning `E_FAIL`. That is not merely a test-harness
+    /// artefact: the provider is reached from several threads (tree streaming,
+    /// the Inspector, hit-testing), so a cold parallel start is reachable in
+    /// production too.
+    ///
+    /// This test only means something on the process's *first* UIA use, so it
+    /// must be the only test in this module — once the library is warm, any
+    /// fan-out succeeds and the assertion proves nothing.
+    #[test]
+    fn concurrent_first_use_succeeds() {
+        const THREADS: usize = 8;
+        let handles: Vec<_> = (0..THREADS)
+            .map(|i| {
+                std::thread::spawn(move || match super::uia() {
+                    Err(e) => format!("thread {i}: CoCreateInstance failed: {e:?}"),
+                    Ok(uia) => match unsafe { uia.GetRootElement() } {
+                        Ok(_) => String::new(),
+                        Err(e) => format!("thread {i}: GetRootElement failed: {e:?}"),
+                    },
+                })
+            })
+            .collect();
+
+        let failures: Vec<String> =
+            handles.into_iter().map(|h| h.join().expect("worker thread")).filter(|r| !r.is_empty()).collect();
+
+        assert!(
+            failures.is_empty(),
+            "cold concurrent start failed on {} of {THREADS} threads: {failures:?}",
+            failures.len()
+        );
+    }
 }
