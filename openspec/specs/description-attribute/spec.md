@@ -1,7 +1,14 @@
 # description-attribute Specification
 
 ## Purpose
-TBD - created by syncing change control-description-attribute. Update Purpose after archive.
+The accessible description as a provider-independent `control:Description` attribute.
+Accessibility APIs expose a description beside the name and id (AT-SPI
+`Accessible.Description`, UIA `FullDescription`), but PlatynUI surfaced it only as a
+provider-specific `native:` attribute, so no suite could locate or assert on it portably.
+This capability fixes the source per platform strictly — no falling back to help text or
+legacy fields — emits the attribute only when the platform reports a non-empty value, and
+adds a first-class accessor alongside name and id.
+
 ## Requirements
 ### Requirement: Description is a common control-namespace attribute
 The system SHALL define `Description` as a common attribute in the `control:` namespace (canonical constant `attribute_names::common::DESCRIPTION`), available on every `control:`/`item:` node whose underlying platform element exposes a non-empty accessible description. The attribute value SHALL be the platform's accessible-description string, unmodified.

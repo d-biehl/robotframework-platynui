@@ -1,7 +1,15 @@
 # textcontent-pattern Specification
 
 ## Purpose
-TBD - created by syncing change add-textcontent-pattern. Update Purpose after archive.
+The read-only text capability: an element's textual content as a canonical
+`control:Text` attribute, wired end to end from the providers to the Python `Text`
+context. Deliberately carries no writability information — `TextContent` answers only
+"what does this element read", and editability is a separate concern (see
+[`text-input-policy`](../text-input-policy/spec.md)). As the first *content*
+ClientPattern taken end to end, and the simplest one, it establishes the shape later
+text patterns follow: attribute-only synthesis on the Python side, a canonical
+`control:` attribute on the Rust side, available exactly where the attribute is.
+
 ## Requirements
 ### Requirement: TextContent exposes an element's text as a read-only Text attribute
 

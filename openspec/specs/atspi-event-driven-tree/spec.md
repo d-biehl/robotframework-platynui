@@ -1,7 +1,24 @@
 # atspi-event-driven-tree Specification
 
 ## Purpose
-TBD - created by syncing change atspi-event-driven-tree. Update Purpose after archive.
+Transient popups — context menus, combo-box dropdowns, tooltips — in the AT-SPI tree, which
+a purely top-down traversal cannot reach.
+
+At least one real toolkit exposes them asymmetrically: verified on Qt/PySide6 over X11, an
+open `PopupMenu` is on the bus and reachable both upward through the hovered item's parent
+chain and downward from the popup itself, yet is **absent from the application's own
+`getChildren`** — so `get_nodes(parent)` never sees it. Worse, the toolkit only creates and
+attaches the popup accessible while an assistive-technology client is registered for events
+(the observer effect, which is also why a screen reader announces such a menu while our own
+tools did not). The provider therefore registers for AT-SPI events and grafts what it
+learns into the tree, so popups become visible to XPath queries, the Inspector and the live
+mouse picker alike. Event consumption must never block synchronous tree access — a query
+arriving while events are being processed has to be answered, not deadlocked.
+
+Scenarios here were later refined by two changes: menu items moved to the `control`
+namespace so the same locator works on Linux and Windows, and compositor popup geometry
+made the Wayland hit-test and submenu cases hold.
+
 ## Requirements
 ### Requirement: The AT-SPI provider surfaces transient popups in its tree
 

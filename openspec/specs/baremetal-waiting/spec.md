@@ -1,7 +1,21 @@
 # baremetal-waiting Specification
 
 ## Purpose
-TBD - created by archiving change add-baremetal-wait-keywords. Update Purpose after archive.
+The explicit waiting keywords. Every BareMetal action and read keyword already waits for
+its own target, and `Query` is the deliberate non-waiting snapshot for *asking about* the
+UI — but nothing waited for an element and handed it back without acting, waited for one to
+disappear, or waited until an arbitrary XPath result satisfied a condition. Users
+approximated all three with `Sleep` or `Query` polling wrapped in `Wait Until Keyword
+Succeeded`: verbose, flaky, and against the library's "state what you expect, the keyword
+waits for exactly that" model.
+
+`Wait Until Exists`, `Wait Until Gone` and `Wait Until Query` close that gap, governed by
+the effective query settings and tunable per call. Two supporting rules keep the waits
+honest: a dedicated `ElementStillPresentError` so a target that never disappeared cannot be
+confused with one that was never found, and Python value semantics on evaluated results —
+`bool(UiNode)` reflecting node validity, an attribute result behaving like its own value —
+so the truthy default and ordinary Robot comparisons mean what they read like.
+
 ## Requirements
 ### Requirement: Wait Until Exists waits for an element and returns it
 

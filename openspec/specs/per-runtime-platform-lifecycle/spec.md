@@ -1,7 +1,19 @@
 # per-runtime-platform-lifecycle Specification
 
 ## Purpose
-TBD - created by archiving change per-runtime-platform-sessions. Update Purpose after archive.
+Ownership of the platform layer: each runtime owns its platform instances (pointer,
+keyboard, screenshot, highlight, window manager, desktop info) and releases them on drop,
+knowing nothing about any other runtime — exactly as UI tree providers already did.
+
+Before this, platform connections lived in process-global statics behind a
+reference-counted lease, and a `OnceLock` connect closure fired once per process. Tearing
+a runtime down emptied the connection but left the cell initialized, so every later
+runtime failed outright — measured as 16 of 26 tests failing in the multi-suite X11 lane,
+with the same defect in the X11 and Windows highlight controllers. Per-runtime ownership
+removes that class of bug by construction instead of patching each site, and is what lets
+two library instances in one process drive independent sessions (see
+[`runtime-session-config`](../runtime-session-config/spec.md)).
+
 ## Requirements
 ### Requirement: A runtime owns and releases its platform instances
 

@@ -1,7 +1,13 @@
 # baremetal-pointer-scroll Specification
 
 ## Purpose
-TBD - created by syncing change add-baremetal-pointer-scroll. Update Purpose after archive.
+Mouse-wheel scrolling on the Robot Framework surface. The BareMetal library exposed
+pointer move, click, multi-click, press, release and position but not scrolling, even
+though the native runtime and the CLI already supported it — leaving suites no way to
+reach content below the fold. `Pointer Scroll` turns the wheel by direction and tick
+count, accepts the same targets and activation rules as the other pointer keywords, and
+is specified to produce a real, reversible effect rather than merely dispatching an event.
+
 ## Requirements
 ### Requirement: Pointer Scroll turns the mouse wheel by direction and ticks
 

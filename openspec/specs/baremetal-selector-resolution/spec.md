@@ -1,7 +1,21 @@
 # baremetal-selector-resolution Specification
 
 ## Purpose
-TBD - created by syncing change isolate-baremetal-library-state. Update Purpose after archive.
+When and against what a locator is resolved. A descriptor welds together things with
+different lifetimes — a selector (pure data), a resolved node (bound to one runtime), and
+the evaluation context. Capturing that context at creation time meant a descriptor read
+from a variable, or handed to another import's keyword, resolved through the runtime and
+root of whoever created it; and a node cached per selector string alone went stale the
+moment `Set Root` pointed somewhere else, silently returning the previous root's element.
+
+The rules that follow: a selector resolves against the library actually running the
+keyword, selectors are re-evaluated on every use while captured elements stay pinned, and
+a captured element belongs to exactly one runtime and is rejected elsewhere rather than
+failing obscurely later. The element a *scoped root* resolves to is reused while it stays
+valid — otherwise every keyword would re-search the root before searching its target, and
+`Set Root` would buy nothing. Companion to
+[`baremetal-library-instances`](../baremetal-library-instances/spec.md).
+
 ## Requirements
 ### Requirement: A selector resolves against the library that is running
 

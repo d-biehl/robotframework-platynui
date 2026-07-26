@@ -1,7 +1,18 @@
 # baremetal-library-instances Specification
 
 ## Purpose
-TBD - created by syncing change isolate-baremetal-library-state. Update Purpose after archive.
+What a `BareMetal` library import owns privately. `Set Root` and `Set Query Settings`
+stored their state in single, globally named Robot Framework variables, so a suite that
+imports the library more than once — which the repo's own acceptance suites do — had one
+import silently governing every other import's root and timeouts.
+
+Scoped state is now private per instance. The scope names are Robot Framework's own
+(`LOCAL`/`TEST`/`TASK`/`SUITE`/`SUITES`/`GLOBAL`), so the ladder a user already knows from
+`Set Suite Variable` and `VAR` carries over rather than inventing a parallel vocabulary.
+A root that pins a captured element is refused at the cross-suite scopes: the element
+belongs to one runtime, and a suite receiving it could not tell where it came from when
+the lookup later failed.
+
 ## Requirements
 ### Requirement: Scoped library state is private to each library instance
 

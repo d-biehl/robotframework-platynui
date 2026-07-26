@@ -1,7 +1,14 @@
 # text-input-policy Specification
 
 ## Purpose
-TBD - created by syncing change remove-programmatic-set-text. Update Purpose after archive.
+Where text entry comes from, stated once so no provider re-decides it: text is entered by
+synthesizing genuine keyboard input (focus, select-all, type), never by writing a value
+programmatically. `TextEditable` is therefore a pure capability marker — it tells clients
+that typing into an element is meaningful and carries no write action. Programmatic
+replacement bypasses the application's real input handling, and every accessibility API
+offers a tempting shortcut (UIA `ValuePattern.SetValue`, AT-SPI `set_text_contents`, JAB
+`setTextContents`), so the policy is spec'd rather than left to each provider.
+
 ## Requirements
 ### Requirement: Text entry is keyboard-driven
 Setting the text of an editable element SHALL happen through synthesized keyboard input (focus, select-all, type) at the client layer. Providers SHALL NOT expose programmatic text-write actions through the backing accessibility APIs (e.g. JAB `setTextContents`, UIA `ValuePattern.SetValue`, AT-SPI text mutation, in-process agent writes).

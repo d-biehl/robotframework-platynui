@@ -1,7 +1,18 @@
 # runtime-session-config Specification
 
 ## Purpose
-TBD - created by archiving change per-runtime-platform-sessions. Update Purpose after archive.
+How a runtime is told which session to drive: a grouped configuration, keyed by component
+id, fixed at construction time. It lets a runtime bind to a *specific* display server and
+accessibility bus — and thus two runtimes in one process to drive two independent sessions
+— rather than inheriting whatever the environment happens to say.
+
+The rules exist to keep configuration from becoming a second, competing source of truth:
+an empty configuration reproduces environment-derived behavior exactly, explicit values
+override the environment, unclaimed keys are tolerated rather than rejected (a component
+that does not exist yet must not break a config), and nothing can be changed after
+construction. Rests on per-runtime platform ownership
+([`per-runtime-platform-lifecycle`](../per-runtime-platform-lifecycle/spec.md)).
+
 ## Requirements
 ### Requirement: Empty configuration reproduces environment-derived behavior
 
