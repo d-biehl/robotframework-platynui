@@ -505,6 +505,70 @@ fn is_pattern_available(elem: &IUIAutomationElement, id: UIA_PROPERTY_ID) -> boo
     matches!(read_uia_property(elem, id), Some(UiValue::Bool(true)))
 }
 
+/// What UIA reports for `IsKeyboardFocusable`, keeping "the provider says no"
+/// apart from "the provider says nothing".
+///
+/// This distinction is invisible through `IUIAutomationElement::CurrentIsKeyboardFocusable`,
+/// whose documented default value is `FALSE` — an unimplemented property and an
+/// explicit denial come back identically. Reading with `ignoreDefaultValue` set
+/// yields the NotSupported sentinel instead, which [`read_uia_property`] maps to
+/// `None`. Measured: static `Text` labels report an explicit `false`, buttons and
+/// edits an explicit `true`, while an Electron window (VS Code, accessibility not
+/// switched on) and several plain Win32 panes supply nothing at all.
+pub fn keyboard_focusable(elem: &IUIAutomationElement) -> Option<bool> {
+    match read_uia_property(elem, UIA_IsKeyboardFocusablePropertyId) {
+        Some(UiValue::Bool(value)) => Some(value),
+        _ => None,
+    }
+}
+
+/// Whether the text content of this element is read-only, for `control:IsReadOnly`
+/// and the `TextEditable` capability marker.
+///
+/// `ValuePattern.CurrentIsReadOnly` is the authoritative signal; an element that
+/// exposes only a `TextPattern` (document viewers, read-only rich text) has no
+/// write surface at all and therefore counts as read-only. Callers must gate on
+/// [`supports_text_content`] first — for an element with neither pattern the
+/// answer is meaningless, and this returns `true` rather than claiming the
+/// element is editable.
+pub fn is_text_read_only(elem: &IUIAutomationElement) -> bool {
+    resolve_read_only(value_pattern_read_only(elem))
+}
+
+/// What the element's `ValuePattern` reports for `IsReadOnly`, or `None` when
+/// there is no `ValuePattern` to ask — a `TextPattern`-only element such as a
+/// document viewer — or when the read fails.
+fn value_pattern_read_only(elem: &IUIAutomationElement) -> Option<bool> {
+    let pattern = unsafe {
+        elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_ValuePatternId.0))
+            .ok()
+            .and_then(|unk| unk.cast::<IUIAutomationValuePattern>().ok())
+    }?;
+    unsafe { pattern.CurrentIsReadOnly() }.map(|v| v.as_bool()).ok()
+}
+
+/// Resolves the read-only state from what the `ValuePattern` reported.
+///
+/// No answer means read-only. This is the opposite default from the focusability
+/// gate ([`crate::node`]), and deliberately so: there the question is whether to
+/// *withdraw* a capability the element may well have, here it is whether to
+/// *claim* one. An element with no write surface to ask about has none, and a
+/// pattern that fails to report its state has not confirmed one — the provider
+/// must not advertise editability it could not establish.
+fn resolve_read_only(reported: Option<bool>) -> bool {
+    reported.unwrap_or(true)
+}
+
+/// Whether this element's text content can be edited — the predicate behind the
+/// `TextEditable` capability marker. Editing itself stays keyboard-driven; the
+/// marker only tells clients that typing into this element is meaningful.
+pub fn supports_text_editing(elem: &IUIAutomationElement) -> bool {
+    // Short-circuits deliberately: `is_text_read_only` costs two cross-process
+    // reads, and for an element with no text surface at all the answer cannot
+    // change the outcome.
+    supports_text_content(elem) && !is_text_read_only(elem)
+}
+
 /// Reads the element's textual content for the canonical `control:Text`
 /// attribute: the UIA `TextPattern` document text first (the actually
 /// displayed text via `DocumentRange().GetText(-1)`), falling back to the
@@ -994,5 +1058,28 @@ unsafe fn variant_to_ui_value(variant: &VARIANT) -> Option<UiValue> {
             }
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod text_editability_tests {
+    use super::resolve_read_only;
+
+    #[test]
+    fn a_writable_value_pattern_is_not_read_only() {
+        assert!(!resolve_read_only(Some(false)));
+    }
+
+    #[test]
+    fn an_explicitly_read_only_value_pattern_is_read_only() {
+        assert!(resolve_read_only(Some(true)));
+    }
+
+    /// A `TextPattern`-only element (document viewer) has no write surface to
+    /// ask about, and a `ValuePattern` that fails to report has confirmed
+    /// nothing — both count as read-only rather than as editable.
+    #[test]
+    fn no_answer_counts_as_read_only() {
+        assert!(resolve_read_only(None));
     }
 }

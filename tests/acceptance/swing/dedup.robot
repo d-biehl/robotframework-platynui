@@ -25,14 +25,15 @@ Claims Suppress The UIA Shell In The Default Runtime
     Length Should Be    ${uia}    0    msg=the UIA shell must be suppressed while the JAB provider claims the window
 
 Kill Switch Restores The UIA Shell Alongside The JAB Node
-    [Documentation]    With claims ignored, both representations appear. The JAB node is identified via
-    ...    ``@Technology = "JAB"``; the UIA shell is the second node without that marker (the UIA
-    ...    provider does not emit a Technology attribute today). The first query may race the second
-    ...    runtime's JAB rendezvous, hence the waiting count queries.
+    [Documentation]    With claims ignored, both representations appear, and each names itself through
+    ...    ``@Technology``. The first query may race the second runtime's JAB rendezvous, hence the
+    ...    waiting count queries.
     BMOFF.Wait Until Query    count(/Window[@Name="${SWING_TITLE}"])    ==    ${2}
     ...    msg=expected the JAB node plus the UIA shell with claims ignored    query_overrides={'timeout': 10}
     BMOFF.Wait Until Query    count(/Window[@Name="${SWING_TITLE}" and @Technology="JAB"])    ==    ${1}
     ...    msg=exactly one of the two must be the JAB representation
+    BMOFF.Wait Until Query    count(/Window[@Name="${SWING_TITLE}" and @Technology="UIAutomation"])    ==    ${1}
+    ...    msg=the other must be the UIA shell, naming its own technology
 
 Each Import Keeps Its Own Query Root
     [Documentation]    The suite setup pins BM's root to the launched instance; BMOFF is a separate

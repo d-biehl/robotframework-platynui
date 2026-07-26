@@ -7,7 +7,7 @@ use platynui_core::ui::attribute_names::{
     activation_target, common, element, focusable, maximizable, minimizable, movable, resizable,
 };
 use platynui_core::ui::contract::testkit::{
-    AttributeExpectation, NodeExpectation, PatternExpectation, require_node, verify_node,
+    AttributeExpectation, NodeExpectation, PatternExpectation, require_node, verify_common_attributes, verify_node,
 };
 use platynui_core::ui::{
     ActivatableAction, ActivatablePattern, CloseableAction, CloseablePattern, FocusableAction, FocusablePattern,
@@ -186,6 +186,11 @@ fn contract_expectations_for_button_hold() {
     require_node(button.as_ref(), &expectations).expect("button contract satisfied");
     let issues = verify_node(button.as_ref(), &expectations);
     assert!(issues.is_empty(), "contract issues: {issues:?}");
+
+    // The pattern-independent half of the contract, checked against a provider
+    // that is known to conform — this is what pins the shared expectation.
+    let issues = verify_common_attributes(button.as_ref());
+    assert!(issues.is_empty(), "common attribute issues: {issues:?}");
 }
 
 #[rstest]

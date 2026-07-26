@@ -4,6 +4,7 @@
 //! expected attributes per pattern. The actual verification logic lives in a
 //! separate step; here we only define the data models those checks consume.
 
+use crate::ui::attribute_names::common;
 use crate::ui::{Namespace, PatternName, UiAttribute, UiNode, UiValue};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -68,6 +69,17 @@ pub enum ContractIssue {
         namespace: Namespace,
         name: String,
     },
+    /// A pattern-independent common attribute is absent — see
+    /// [`verify_common_attributes`].
+    MissingCommonAttribute {
+        namespace: Namespace,
+        name: String,
+    },
+    /// A pattern-independent common attribute is present but carries no value.
+    NullCommonAttribute {
+        namespace: Namespace,
+        name: String,
+    },
     MissingGeometryAlias {
         pattern: PatternName,
         namespace: Namespace,
@@ -80,6 +92,67 @@ pub enum ContractIssue {
         expected: UiValue,
         actual: UiValue,
     },
+}
+
+/// The attributes every `control:`/`item:` node carries regardless of the
+/// patterns it advertises (`dev-docs/architecture.md` §6.3).
+///
+/// `Id` and `Description` are conditional by contract — present only when the
+/// platform reports a value — so they are declared optional here; a provider
+/// that omits them for an element without an automation id or description is
+/// conforming.
+pub const COMMON_ATTRIBUTES: &[AttributeExpectation] = &[
+    AttributeExpectation::required(Namespace::Control, common::ROLE),
+    AttributeExpectation::required(Namespace::Control, common::NAME),
+    AttributeExpectation::required(Namespace::Control, common::RUNTIME_ID),
+    AttributeExpectation::required(Namespace::Control, common::TECHNOLOGY),
+    AttributeExpectation::required(Namespace::Control, common::SUPPORTED_PATTERNS),
+    AttributeExpectation::optional(Namespace::Control, common::ID),
+    AttributeExpectation::optional(Namespace::Control, common::DESCRIPTION),
+];
+
+/// The common-attribute expectations, for provider suites that want to inspect
+/// or extend the set rather than call [`verify_common_attributes`] directly.
+pub fn common_attributes() -> &'static [AttributeExpectation] {
+    COMMON_ATTRIBUTES
+}
+
+/// Verifies the pattern-independent common attributes of a `control:`/`item:`
+/// node and returns all detected deviations.
+///
+/// Separate from [`verify_node`] because these attributes are not tied to any
+/// pattern: they must be present even on a node that advertises nothing, so
+/// gating them behind a [`PatternExpectation`] would report a missing pattern
+/// instead of the missing attribute.
+pub fn verify_common_attributes(node: &dyn UiNode) -> Vec<ContractIssue> {
+    let attributes = collect_attributes(node);
+    let mut issues = Vec::new();
+
+    for expectation in COMMON_ATTRIBUTES {
+        // Providers disagree on where standard attributes live: JAB and UIA put
+        // them in `Control` unconditionally, AT-SPI and the mock use the node's
+        // own namespace (`item:` nodes included). Both spellings satisfy the
+        // contract until that inconsistency is settled, so accept either.
+        let value = attributes
+            .get(&(expectation.namespace, expectation.name.to_owned()))
+            .or_else(|| attributes.get(&(node.namespace(), expectation.name.to_owned())));
+
+        match value {
+            None if !expectation.optional => issues.push(ContractIssue::MissingCommonAttribute {
+                namespace: expectation.namespace,
+                name: expectation.name.to_owned(),
+            }),
+            Some(value) if value.is_null() && !expectation.optional => {
+                issues.push(ContractIssue::NullCommonAttribute {
+                    namespace: expectation.namespace,
+                    name: expectation.name.to_owned(),
+                })
+            }
+            _ => {}
+        }
+    }
+
+    issues
 }
 
 /// Verifies a node against expectations and returns all detected deviations.
@@ -559,6 +632,81 @@ mod expectation_tests {
             ContractIssue::NullAttribute { pattern, name, .. }
                 if pattern.as_str() == pattern_names::TEXT_CONTENT && name == "Text"
         )));
+    }
+
+    fn build_common_attribute_node() -> Arc<MockNode> {
+        let node = MockNode::new(Namespace::Control);
+        let attrs: Vec<Arc<dyn UiAttribute>> = vec![
+            Arc::new(StaticAttribute {
+                namespace: Namespace::Control,
+                name: common::ROLE,
+                value: UiValue::from("Button"),
+            }),
+            Arc::new(StaticAttribute { namespace: Namespace::Control, name: common::NAME, value: UiValue::from("OK") }),
+            Arc::new(StaticAttribute {
+                namespace: Namespace::Control,
+                name: common::RUNTIME_ID,
+                value: UiValue::from("node-1"),
+            }),
+            Arc::new(StaticAttribute {
+                namespace: Namespace::Control,
+                name: common::TECHNOLOGY,
+                value: UiValue::from("Mock"),
+            }),
+            Arc::new(StaticAttribute {
+                namespace: Namespace::Control,
+                name: common::SUPPORTED_PATTERNS,
+                value: UiValue::Array(Vec::new()),
+            }),
+        ];
+        {
+            let mut lock = node.attributes.lock().unwrap();
+            *lock = attrs;
+        }
+        Arc::new(node)
+    }
+
+    #[rstest]
+    fn common_attributes_accepts_a_conforming_node() {
+        let node = build_common_attribute_node();
+        let issues = verify_common_attributes(node.as_ref());
+        assert!(issues.is_empty(), "expected no issues, got {issues:?}");
+    }
+
+    #[rstest]
+    fn common_attributes_reports_missing_technology() {
+        let node = build_common_attribute_node();
+        node.attributes.lock().unwrap().retain(|attr| attr.name() != common::TECHNOLOGY);
+
+        let issues = verify_common_attributes(node.as_ref());
+        assert!(
+            issues.iter().any(|issue| matches!(issue,
+                ContractIssue::MissingCommonAttribute { name, .. } if name == common::TECHNOLOGY
+            )),
+            "expected a missing-Technology issue, got {issues:?}"
+        );
+    }
+
+    #[rstest]
+    fn common_attributes_tolerate_the_nodes_own_namespace() {
+        // AT-SPI and the mock attach standard attributes to the node's own
+        // namespace; an `item:` node spelling them that way still conforms.
+        let node = MockNode::new(Namespace::Item);
+        for name in [common::ROLE, common::NAME, common::RUNTIME_ID, common::TECHNOLOGY] {
+            node.attributes.lock().unwrap().push(Arc::new(StaticAttribute {
+                namespace: Namespace::Item,
+                name,
+                value: UiValue::from("x"),
+            }));
+        }
+        node.attributes.lock().unwrap().push(Arc::new(StaticAttribute {
+            namespace: Namespace::Item,
+            name: common::SUPPORTED_PATTERNS,
+            value: UiValue::Array(Vec::new()),
+        }));
+
+        let issues = verify_common_attributes(&node);
+        assert!(issues.is_empty(), "expected no issues, got {issues:?}");
     }
 
     #[rstest]

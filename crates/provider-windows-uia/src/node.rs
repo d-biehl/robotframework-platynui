@@ -8,12 +8,14 @@ use std::sync::{Arc, Mutex, Weak};
 
 use platynui_core::platform::{JavaClassifier, WindowId, java};
 use platynui_core::types::{Point as UiPoint, Rect};
-use platynui_core::ui::attribute_names::text_content;
+use platynui_core::ui::attribute_names::{common, text_content, text_editable};
 use platynui_core::ui::pattern::{
     ActivatableAction, CloseableAction, FocusableAction, MaximizableAction, MinimizableAction, MovableAction,
     PatternError, ResizableAction, ResponsiveAction, RestorableAction, UiPattern,
 };
-use platynui_core::ui::{Namespace, PatternName, RuntimeId, UiAttribute, UiNode, UiValue, pattern_names};
+use platynui_core::ui::{
+    Namespace, PatternName, RuntimeId, UiAttribute, UiNode, UiValue, pattern_names, supported_patterns_value,
+};
 use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, WaitForInputIdle};
 use windows::Win32::UI::Accessibility::{
@@ -60,6 +62,33 @@ impl WaitForInputIdleChecker {
 unsafe impl Send for WaitForInputIdleChecker {}
 unsafe impl Sync for WaitForInputIdleChecker {}
 
+/// Turns what UIA reports for `IsKeyboardFocusable`
+/// ([`crate::map::keyboard_focusable`]) into the decision to advertise the
+/// `Focusable` pattern.
+///
+/// An explicit answer is taken at face value. When the provider supplies
+/// nothing the question is open — and it is settled by whether this is a
+/// window: a top-level window can be focused, so it keeps the pattern, while a
+/// silent element deeper in the tree does not get the benefit of the doubt and
+/// stays out of `SupportedPatterns`.
+///
+/// The open case is real rather than theoretical: an Electron window with
+/// accessibility switched off (measured on VS Code) supplies nothing, and
+/// resolving it to "not focusable" — which is what the property's documented
+/// `FALSE` default would silently produce — would withdraw a working capability
+/// from the whole window.
+///
+/// `has_window_surface` stands in for "top-level window" here. Measured, it
+/// separates the observed cases exactly: the silent window has it, the silent
+/// child panes (`DesktopWindowXamlSource`, a Program Manager pane) do not,
+/// even though both carry a native window handle — so an `HWND` test would not
+/// tell them apart. Being slightly loose is the safe direction: advertising the
+/// pattern on an element that turns out not to be focusable costs a failed
+/// action, withdrawing it from one that is costs the capability outright.
+fn advertise_focusable(reported: Option<bool>, has_window_surface: bool) -> bool {
+    reported.unwrap_or(has_window_surface)
+}
+
 pub struct UiaNode {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
     parent: Mutex<Option<Weak<dyn UiNode>>>,
@@ -74,6 +103,13 @@ pub struct UiaNode {
     id_scope: crate::map::UiaIdScope,
     // Cached: does window/transform pattern exist? Avoids repeated COM calls.
     has_window_surface: std::sync::OnceLock<bool>,
+    // Cached: can this element take keyboard focus? Gates the Focusable pattern.
+    is_keyboard_focusable: std::sync::OnceLock<bool>,
+    // Cached: does the element bear text (Text/Value pattern)? Gates control:Text
+    // and control:IsReadOnly, both of which are asked for on every enumeration.
+    has_text_surface: std::sync::OnceLock<bool>,
+    // Cached: is that text editable? Gates the TextEditable capability marker.
+    is_text_editable: std::sync::OnceLock<bool>,
     // Cached namespace, control type, and automation id — avoid repeated cross-process COM calls.
     ns_cell: std::sync::OnceLock<Namespace>,
     ct_cell: std::sync::OnceLock<i32>,
@@ -100,6 +136,9 @@ impl UiaNode {
             rid_cell: std::sync::OnceLock::new(),
             id_scope: scope,
             has_window_surface: std::sync::OnceLock::new(),
+            is_keyboard_focusable: std::sync::OnceLock::new(),
+            has_text_surface: std::sync::OnceLock::new(),
+            is_text_editable: std::sync::OnceLock::new(),
             ns_cell: std::sync::OnceLock::new(),
             ct_cell: std::sync::OnceLock::new(),
             id_cell: std::sync::OnceLock::new(),
@@ -216,6 +255,33 @@ impl UiaNode {
                 has_window || has_transform
             }
         })
+    }
+
+    /// Cached check: may this element be advertised as `Focusable`?
+    ///
+    /// Gates the pattern so a static label no longer claims to be focusable,
+    /// matching how AT-SPI and JAB gate on their focusable state.
+    fn is_keyboard_focusable(&self) -> bool {
+        *self
+            .is_keyboard_focusable
+            .get_or_init(|| advertise_focusable(crate::map::keyboard_focusable(&self.elem), self.has_window_surface()))
+    }
+
+    /// Cached check: does this element expose readable text content?
+    ///
+    /// Cached because it gates two attributes on both the enumeration and the
+    /// single-lookup path, so an uncached read costs the same two cross-process
+    /// property reads several times over for one node.
+    fn has_text_surface(&self) -> bool {
+        *self.has_text_surface.get_or_init(|| crate::map::supports_text_content(&self.elem))
+    }
+
+    /// Cached check: may this element be advertised as `TextEditable`?
+    ///
+    /// A capability statement rather than live state — `control:IsReadOnly`
+    /// stays a per-read attribute for callers who need the current value.
+    fn is_text_editable(&self) -> bool {
+        *self.is_text_editable.get_or_init(|| crate::map::supports_text_editing(&self.elem))
     }
 
     /// JVM classification facts (java-app-classification) for this top-level
@@ -337,7 +403,10 @@ impl UiNode for UiaNode {
         let rid_str = self.runtime_id().as_str().to_string();
         let owner = self.as_ui_node();
         let has_ws = self.has_window_surface();
-        Box::new(AttrsIter::with_window_surface(self.elem.clone(), owner, rid_str, has_ws).chain(self.jvm_attributes()))
+        let has_text = self.has_text_surface();
+        Box::new(
+            AttrsIter::with_surfaces(self.elem.clone(), owner, rid_str, has_ws, has_text).chain(self.jvm_attributes()),
+        )
     }
 
     fn attribute(&self, namespace: Namespace, name: &str) -> Option<Arc<dyn UiAttribute>> {
@@ -369,8 +438,16 @@ impl UiNode for UiaNode {
                 "IsInView" => Some(Arc::new(IsInViewAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 "IsVisible" => Some(Arc::new(IsVisibleAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 "IsFocused" => Some(Arc::new(IsFocusedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
-                "Text" if crate::map::supports_text_content(elem) => {
+                "Text" if self.has_text_surface() => {
                     Some(Arc::new(TextAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                }
+                common::TECHNOLOGY => Some(Arc::new(TechnologyAttr) as Arc<dyn UiAttribute>),
+                common::SUPPORTED_PATTERNS => {
+                    Some(Arc::new(SupportedPatternsAttr { owner: self.self_weak.get().cloned() })
+                        as Arc<dyn UiAttribute>)
+                }
+                text_editable::IS_READ_ONLY if self.has_text_surface() => {
+                    Some(Arc::new(IsReadOnlyAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                 }
                 "IsMinimized" if self.has_window_surface() => {
                     Some(Arc::new(IsMinimizedAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
@@ -412,7 +489,15 @@ impl UiNode for UiaNode {
     }
 
     fn supported_patterns(&self) -> Vec<PatternName> {
-        let mut out = vec![FocusableAction::static_pattern_name()];
+        let mut out = Vec::new();
+        if self.is_keyboard_focusable() {
+            out.push(FocusableAction::static_pattern_name());
+        }
+        // Capability marker only: text entry stays keyboard-driven, so this
+        // pattern deliberately has no action instance (see `pattern_by_name`).
+        if self.is_text_editable() {
+            out.push(PatternName::from(pattern_names::TEXT_EDITABLE));
+        }
         if self.has_window_surface() {
             out.push(PatternName::from(pattern_names::ACTIVATABLE));
             out.push(PatternName::from(pattern_names::MINIMIZABLE));
@@ -429,7 +514,7 @@ impl UiNode for UiaNode {
         use windows::Win32::UI::Accessibility::*;
         use windows::core::Interface;
         let pid = pattern.as_str();
-        if pid == FocusableAction::static_pattern_name().as_str() {
+        if pid == FocusableAction::static_pattern_name().as_str() && self.is_keyboard_focusable() {
             #[derive(Clone)]
             struct ElemSend {
                 elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
@@ -829,24 +914,43 @@ impl UiAttribute for IsVisibleAttr {
 unsafe impl Send for IsVisibleAttr {}
 unsafe impl Sync for IsVisibleAttr {}
 
+/// Iterator index at which the fixed standard attributes end and the dynamic
+/// `native:` property stream begins. Adding a standard attribute means bumping
+/// this — the streaming logic below keys the exhaustion checks on it.
+const NATIVE_ATTR_IDX: u8 = 22;
+
 struct AttrsIter {
     idx: u8,
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
     has_window_surface: bool,
+    has_text_surface: bool,
     native_cache: Option<Vec<Arc<dyn UiAttribute>>>,
     native_pos: usize,
     rid_str: String,
     owner: Option<Weak<dyn UiNode>>,
 }
 impl AttrsIter {
-    fn with_window_surface(
+    /// Both surface flags are resolved by the owning node, which caches them —
+    /// they gate several entries each, so re-probing them here would repeat
+    /// cross-process reads the node has already paid for.
+    fn with_surfaces(
         elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
         owner: Option<Arc<dyn UiNode>>,
         rid_str: String,
         has_window_surface: bool,
+        has_text_surface: bool,
     ) -> Self {
         let owner_weak = owner.as_ref().map(Arc::downgrade);
-        Self { idx: 0, elem, has_window_surface, native_cache: None, native_pos: 0, rid_str, owner: owner_weak }
+        Self {
+            idx: 0,
+            elem,
+            has_window_surface,
+            has_text_surface,
+            native_cache: None,
+            native_pos: 0,
+            rid_str,
+            owner: owner_weak,
+        }
     }
 }
 impl Iterator for AttrsIter {
@@ -936,14 +1040,26 @@ impl Iterator for AttrsIter {
                     // Canonical read-only `control:Text` (TextContent), gated on
                     // the element supporting a UIA Text/Value pattern. Absent
                     // otherwise — never sourced from the accessible name.
-                    if crate::map::supports_text_content(&elem) {
+                    if self.has_text_surface {
                         Some(Arc::new(TextAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
                     } else {
                         None
                     }
                 }
+                19 => Some(Arc::new(TechnologyAttr) as Arc<dyn UiAttribute>),
+                20 => Some(Arc::new(SupportedPatternsAttr { owner: self.owner.clone() }) as Arc<dyn UiAttribute>),
+                21 => {
+                    // Editability metadata, gated on the same text surface as
+                    // `control:Text` — absent (not `true`) on elements that bear
+                    // no text at all.
+                    if self.has_text_surface {
+                        Some(Arc::new(IsReadOnlyAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>)
+                    } else {
+                        None
+                    }
+                }
                 // Native property attributes (dynamic): build once, then stream
-                19 => {
+                NATIVE_ATTR_IDX => {
                     if self.native_cache.is_none() {
                         let pairs = crate::map::collect_native_properties(&elem);
                         let attrs: Vec<Arc<dyn UiAttribute>> = pairs
@@ -967,7 +1083,7 @@ impl Iterator for AttrsIter {
             match item {
                 Some(attr) => return Some(attr),
                 None => {
-                    if self.idx > 19 && self.native_cache.is_some() {
+                    if self.idx > NATIVE_ATTR_IDX && self.native_cache.is_some() {
                         // Continue streaming native cache until exhausted
                         if let Some(list) = self.native_cache.as_ref()
                             && self.native_pos < list.len()
@@ -979,11 +1095,12 @@ impl Iterator for AttrsIter {
                             return Some(attr);
                         }
                     }
-                    if self.idx > 19 && self.native_cache.is_none() {
+                    if self.idx > NATIVE_ATTR_IDX && self.native_cache.is_none() {
                         // No native props at all
                         return None;
                     }
-                    if self.idx > 19 && self.native_cache.as_ref().map(|v| self.native_pos >= v.len()).unwrap_or(false)
+                    if self.idx > NATIVE_ATTR_IDX
+                        && self.native_cache.as_ref().map(|v| self.native_pos >= v.len()).unwrap_or(false)
                     {
                         return None;
                     }
@@ -1038,6 +1155,70 @@ impl UiAttribute for TextAttr {
 }
 unsafe impl Send for TextAttr {}
 unsafe impl Sync for TextAttr {}
+
+/// `control:IsReadOnly` for text-bearing elements, paired with the
+/// `TextEditable` capability marker. Read per access like the other UIA
+/// attributes, since a control can flip between read-only and editable.
+struct IsReadOnlyAttr {
+    elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
+}
+impl UiAttribute for IsReadOnlyAttr {
+    fn namespace(&self) -> Namespace {
+        Namespace::Control
+    }
+    fn name(&self) -> &str {
+        text_editable::IS_READ_ONLY
+    }
+    fn value(&self) -> UiValue {
+        UiValue::from(crate::map::is_text_read_only(&self.elem))
+    }
+}
+unsafe impl Send for IsReadOnlyAttr {}
+unsafe impl Sync for IsReadOnlyAttr {}
+
+/// `control:Technology` — the technology that surfaced this node, matching the
+/// provider's registered [`crate::provider::TECHNOLOGY`] id.
+struct TechnologyAttr;
+impl UiAttribute for TechnologyAttr {
+    fn namespace(&self) -> Namespace {
+        Namespace::Control
+    }
+    fn name(&self) -> &str {
+        common::TECHNOLOGY
+    }
+    fn value(&self) -> UiValue {
+        UiValue::from(crate::provider::TECHNOLOGY.as_str())
+    }
+}
+
+/// `control:SupportedPatterns`, read back through the owner's
+/// `supported_patterns()` at value time rather than snapshotted.
+///
+/// This is what keeps the attribute and the pattern advertisement from
+/// drifting: the gating (keyboard focusability, window surface, editability)
+/// lives in exactly one place. Yields an empty list once the owner is gone.
+struct SupportedPatternsAttr {
+    owner: Option<Weak<dyn UiNode>>,
+}
+impl UiAttribute for SupportedPatternsAttr {
+    fn namespace(&self) -> Namespace {
+        Namespace::Control
+    }
+    fn name(&self) -> &str {
+        common::SUPPORTED_PATTERNS
+    }
+    fn value(&self) -> UiValue {
+        let patterns = self
+            .owner
+            .as_ref()
+            .and_then(|weak| weak.upgrade())
+            .map(|node| node.supported_patterns())
+            .unwrap_or_default();
+        supported_patterns_value(&patterns)
+    }
+}
+unsafe impl Send for SupportedPatternsAttr {}
+unsafe impl Sync for SupportedPatternsAttr {}
 
 struct NativePropAttr {
     name: String,
@@ -1308,6 +1489,10 @@ impl Iterator for AppAttrsIter {
             8 => Some(Arc::new(AppUserNameAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
             9 => Some(Arc::new(AppStartTimeAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
             10 => Some(Arc::new(AppArchitectureAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+            // Common attributes, in `Control` like the element nodes: an
+            // application node is addressable by the same filters.
+            11 => Some(Arc::new(TechnologyAttr) as Arc<dyn UiAttribute>),
+            12 => Some(Arc::new(SupportedPatternsAttr { owner: self.owner.clone() }) as Arc<dyn UiAttribute>),
             _ => None,
         };
         self.idx = self.idx.saturating_add(1);
@@ -1736,3 +1921,166 @@ impl UiAttribute for DescriptionAttr {
 }
 unsafe impl Send for DescriptionAttr {}
 unsafe impl Sync for DescriptionAttr {}
+
+#[cfg(test)]
+mod focusable_gate_tests {
+    use super::advertise_focusable;
+
+    /// The bug being fixed: UIA states the element cannot take focus (measured
+    /// on static `Text` labels and on title-bar min/max/close buttons). An
+    /// explicit answer holds regardless of the window surface.
+    #[test]
+    fn explicit_denial_withdraws_the_pattern() {
+        assert!(!advertise_focusable(Some(false), false));
+        assert!(!advertise_focusable(Some(false), true));
+    }
+
+    #[test]
+    fn explicit_confirmation_keeps_the_pattern() {
+        assert!(advertise_focusable(Some(true), false));
+        assert!(advertise_focusable(Some(true), true));
+    }
+
+    /// The case that makes the `Current*` accessor unusable here: its documented
+    /// default is `FALSE`, so a provider that never implements the property is
+    /// indistinguishable from one that denies it. A silent *window* keeps the
+    /// pattern — measured on an Electron window with accessibility off.
+    #[test]
+    fn silent_window_keeps_the_pattern() {
+        assert!(advertise_focusable(None, true));
+    }
+
+    /// A silent element deeper in the tree gets no benefit of the doubt.
+    #[test]
+    fn silent_inner_element_stays_out() {
+        assert!(!advertise_focusable(None, false));
+    }
+}
+
+#[cfg(test)]
+mod attribute_surface_tests {
+    use super::*;
+
+    /// A real UIA element to test against — the desktop root, the only element
+    /// reachable without a fixture application.
+    ///
+    /// Panics rather than skipping when UIA is unreachable: a skip would let
+    /// every test in this module pass while checking nothing. The crate is
+    /// `cfg`-gated to Windows, where UIAutomationCore is part of the OS, so an
+    /// unreachable desktop root is a genuine problem rather than an environment
+    /// to tiptoe around.
+    fn desktop_root_node() -> Arc<UiaNode> {
+        let uia = crate::com::uia().expect("UIAutomation is part of Windows and must be reachable");
+        let root = unsafe { uia.GetRootElement() }.expect("UIA desktop root element");
+        let node = UiaNode::from_elem_with_scope(root, crate::map::UiaIdScope::Desktop);
+        UiaNode::init_self(&node);
+        node
+    }
+
+    fn control_attribute_names(node: &UiaNode) -> Vec<String> {
+        node.attributes()
+            .filter(|attr| attr.namespace() == Namespace::Control)
+            .map(|attr| attr.name().to_owned())
+            .collect()
+    }
+
+    /// The guard for the dual attribute path: `attributes()` enumerates and
+    /// `attribute()` matches by name, independently. Anything the enumeration
+    /// yields must be reachable through the single lookup too, or an XPath
+    /// predicate silently matches nothing while the Inspector shows the value.
+    #[test]
+    fn enumerated_control_attributes_are_resolvable_by_name() {
+        let node = desktop_root_node();
+
+        let names = control_attribute_names(&node);
+        assert!(names.iter().any(|name| name == common::TECHNOLOGY), "Technology must be enumerated: {names:?}");
+        assert!(
+            names.iter().any(|name| name == common::SUPPORTED_PATTERNS),
+            "SupportedPatterns must be enumerated: {names:?}"
+        );
+
+        for name in &names {
+            assert!(
+                node.attribute(Namespace::Control, name).is_some(),
+                "`{name}` is enumerated but not resolvable via attribute()"
+            );
+        }
+    }
+
+    /// The other direction for the conditionally exposed attributes: a name the
+    /// single lookup answers must also show up in the enumeration, so the two
+    /// gates cannot drift apart.
+    #[test]
+    fn gated_attributes_agree_in_both_directions() {
+        let node = desktop_root_node();
+
+        let names = control_attribute_names(&node);
+        for gated in [text_content::TEXT, text_editable::IS_READ_ONLY, common::ID, common::DESCRIPTION] {
+            let enumerated = names.iter().any(|name| name == gated);
+            let resolvable = node.attribute(Namespace::Control, gated).is_some();
+            assert_eq!(enumerated, resolvable, "`{gated}`: enumerated={enumerated}, resolvable={resolvable}");
+        }
+    }
+
+    #[test]
+    fn technology_reports_the_registered_id() {
+        let node = desktop_root_node();
+
+        let value = node.attribute(Namespace::Control, common::TECHNOLOGY).expect("Technology attribute").value();
+        assert_eq!(value, UiValue::from("UIAutomation"));
+    }
+
+    /// `SupportedPatterns` reads back through `supported_patterns()`, so the two
+    /// cannot disagree — including the focusability gate that decides whether
+    /// `Focusable` is in the list at all.
+    #[test]
+    fn supported_patterns_attribute_mirrors_the_pattern_list() {
+        let node = desktop_root_node();
+
+        let value = node.attribute(Namespace::Control, common::SUPPORTED_PATTERNS).expect("attribute").value();
+        assert_eq!(value, supported_patterns_value(&node.supported_patterns()));
+
+        let focusable = node.supported_patterns().contains(&FocusableAction::static_pattern_name());
+        assert_eq!(
+            focusable,
+            node.pattern_by_name(&FocusableAction::static_pattern_name()).is_some(),
+            "advertisement and action instance must share the focusability gate"
+        );
+    }
+
+    /// The synthetic application node, which is built from a pid alone and so
+    /// needs no live element at all — pointed at this test process.
+    ///
+    /// Deliberately does not run the full common-attribute contract: that is
+    /// specified for `control:`/`item:` nodes, and whether it should cover
+    /// `app:` nodes is an open question in this change's design. What is pinned
+    /// here is that the two new attributes arrived without displacing the
+    /// existing ones.
+    #[test]
+    fn application_node_carries_the_common_attributes() {
+        let app = ApplicationNode::orphan(std::process::id() as i32);
+        let attributes: Vec<Arc<dyn UiAttribute>> = app.attributes().collect();
+        let value = |name: &str| {
+            attributes
+                .iter()
+                .find(|attr| attr.namespace() == Namespace::Control && attr.name() == name)
+                .map(|attr| attr.value())
+        };
+
+        assert_eq!(value(common::TECHNOLOGY), Some(UiValue::from("UIAutomation")));
+        assert_eq!(value(common::SUPPORTED_PATTERNS), Some(supported_patterns_value(&app.supported_patterns())));
+        assert!(value(common::ROLE).is_some(), "Role must survive alongside the new attributes");
+        assert!(value(common::NAME).is_some(), "Name must survive alongside the new attributes");
+        assert!(value(common::RUNTIME_ID).is_some(), "RuntimeId must survive alongside the new attributes");
+    }
+
+    /// The common-attribute contract from the core testkit, against a live UIA
+    /// node — the check that this change exists to make pass.
+    #[test]
+    fn desktop_root_satisfies_the_common_attribute_contract() {
+        let node = desktop_root_node();
+
+        let issues = platynui_core::ui::contract::testkit::verify_common_attributes(node.as_ref());
+        assert!(issues.is_empty(), "common attribute issues: {issues:?}");
+    }
+}

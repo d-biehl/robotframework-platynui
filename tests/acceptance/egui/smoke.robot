@@ -29,6 +29,14 @@ Egui Window Is Exposed By Title
     BM.Get Attribute    .    Name    ==    PlatynUI Test App
     BM.Highlight    ${win}    duration=1.0
 
+Window Carries The Common Attributes
+    [Documentation]    The always-present common attributes (architecture §6.3): every ``control:``
+    ...    node names the technology that surfaced it and the patterns it advertises. Both values are
+    ...    platform-specific (``AT-SPI2`` here, ``UIAutomation`` on Windows), so this asserts presence
+    ...    rather than a literal — the point is that no provider leaves them off.
+    BM.Get Attribute    .    Technology    validate    len(value) > 0
+    BM.Get Attribute    .    SupportedPatterns    validate    len(value) > 0
+
 # Interaction coverage (click/radio/keyboard/focus, delta-verified) lives in
 # interaction.robot; query/attribute/set-root coverage in query.robot. This
 # suite stays a pure reachability smoke.
