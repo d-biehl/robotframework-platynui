@@ -509,6 +509,7 @@ pub enum ErrorCode {
     FORX0004, // invalid replacement string
     XPTY0004, // type error (e.g. cast of multi-item sequence)
     XPDY0002, // context item undefined
+    XPDY0050, // `treat as` operand has the wrong dynamic type
     XPST0008, // undeclared variable / function
     XPST0003, // static type error (empty not allowed etc.)
     XPST0017, // unknown function
@@ -550,6 +551,7 @@ impl ErrorCode {
                 ErrorCode::FORX0004 => "FORX0004".to_string(),
                 ErrorCode::XPTY0004 => "XPTY0004".to_string(),
                 ErrorCode::XPDY0002 => "XPDY0002".to_string(),
+                ErrorCode::XPDY0050 => "XPDY0050".to_string(),
                 ErrorCode::XPST0008 => "XPST0008".to_string(),
                 ErrorCode::XPST0003 => "XPST0003".to_string(),
                 ErrorCode::XPST0017 => "XPST0017".to_string(),
@@ -582,6 +584,7 @@ impl ErrorCode {
             "err:FORX0004" => FORX0004,
             "err:XPTY0004" => XPTY0004,
             "err:XPDY0002" => XPDY0002,
+            "err:XPDY0050" => XPDY0050,
             "err:XPST0008" => XPST0008,
             "err:XPST0003" => XPST0003,
             "err:XPST0017" => XPST0017,

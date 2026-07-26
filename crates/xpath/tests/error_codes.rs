@@ -22,6 +22,7 @@ fn enum_roundtrip_known() {
         ErrorCode::FOCH0002,
         ErrorCode::FORX0002,
         ErrorCode::XPTY0004,
+        ErrorCode::XPDY0050,
         ErrorCode::XPST0003,
         ErrorCode::XPST0017,
         ErrorCode::NYI0000,

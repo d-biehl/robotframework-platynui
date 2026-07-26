@@ -3,7 +3,7 @@ use crate::engine::ebv::{ebv_of_atomic, ebv_of_stream};
 use crate::engine::runtime::{
     CallCtx, DynamicContext, Error, ErrorCode, FunctionImplementations, ItemTypeSpec, Occurrence, ParamTypeSpec,
 };
-use crate::model::XdmNode;
+use crate::model::{NodeKind, XdmNode};
 use crate::xdm::{ExpandedName, XdmAtomicValue, XdmItem, XdmSequence, XdmSequenceStream};
 use chrono::Duration as ChronoDuration;
 use chrono::{FixedOffset as ChronoFixedOffset, Offset, TimeZone};
@@ -609,7 +609,11 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     ip += 1;
                 }
                 OpCode::ToRoot => {
-                    // Navigate from current context item to root via parent() chain
+                    // Implements the leading-"/" abbreviation of XPath 2.0 §3.2:
+                    // `(fn:root(self::node()) treat as document-node())`. The `treat as`
+                    // is not decoration — it makes an absolute path a dynamic error when
+                    // the context node lives in a tree that is not rooted in a document
+                    // node (e.g. a free-standing constructed element).
                     let root = match &self.current_context_item {
                         Some(XdmItem::Node(n)) => {
                             let mut cur = n.clone();
@@ -617,6 +621,13 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                             while let Some(p) = parent_opt {
                                 cur = p.clone();
                                 parent_opt = cur.parent();
+                            }
+                            if cur.kind() != NodeKind::Document {
+                                return Err(Error::from_code(
+                                    ErrorCode::XPDY0050,
+                                    "an absolute path requires the context node to be in a tree rooted at a \
+                                     document node",
+                                ));
                             }
                             vec![XdmItem::Node(cur)]
                         }
