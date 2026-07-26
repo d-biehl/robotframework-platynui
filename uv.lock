@@ -11,6 +11,7 @@ members = [
     "platynui-cli",
     "platynui-inspector",
     "platynui-native",
+    "platynui-provider-java",
     "robotframework-platynui",
 ]
 
@@ -601,12 +602,19 @@ name = "platynui-inspector"
 version = "0.13.0.dev2"
 source = { editable = "packages/inspector" }
 
+[package.optional-dependencies]
+java = [
+    { name = "platynui-provider-java" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "maturin" },
 ]
 
 [package.metadata]
+requires-dist = [{ name = "platynui-provider-java", marker = "extra == 'java'", editable = "packages/provider-java" }]
+provides-extras = ["java"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "maturin", specifier = ">=1.9.6" }]
@@ -632,6 +640,11 @@ provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "maturin", specifier = ">=1.9.6" }]
+
+[[package]]
+name = "platynui-provider-java"
+version = "0.13.0.dev2"
+source = { editable = "packages/provider-java" }
 
 [[package]]
 name = "pluggy"
@@ -1015,12 +1028,16 @@ dependencies = [
 all = [
     { name = "platynui-cli" },
     { name = "platynui-inspector" },
+    { name = "platynui-provider-java" },
 ]
 cli = [
     { name = "platynui-cli" },
 ]
 inspector = [
     { name = "platynui-inspector" },
+]
+java = [
+    { name = "platynui-provider-java" },
 ]
 
 [package.dev-dependencies]
@@ -1044,12 +1061,14 @@ requires-dist = [
     { name = "platynui-inspector", marker = "extra == 'all'", editable = "packages/inspector" },
     { name = "platynui-inspector", marker = "extra == 'inspector'", editable = "packages/inspector" },
     { name = "platynui-native", editable = "packages/native" },
+    { name = "platynui-provider-java", marker = "extra == 'all'", editable = "packages/provider-java" },
+    { name = "platynui-provider-java", marker = "extra == 'java'", editable = "packages/provider-java" },
     { name = "robotframework", specifier = ">=7.0.0" },
     { name = "robotframework-assertion-engine", specifier = ">=3.0.0" },
     { name = "robotframework-pythonlibcore", specifier = ">=4.4.0" },
     { name = "typing-extensions" },
 ]
-provides-extras = ["cli", "inspector", "all"]
+provides-extras = ["cli", "inspector", "java", "all"]
 
 [package.metadata.requires-dev]
 dev = [

@@ -901,6 +901,12 @@ fn static_attr(namespace: Namespace, name: &'static str, value: UiValue) -> Arc<
 /// a window the bridge serves is by definition JVM-backed and reachable
 /// through native accessibility; the toolkit comes from the window class (a
 /// JavaFX window served through the bridge reports JavaFX).
+///
+/// The agent-presence fact is reported here too, so the same facts are
+/// observable no matter which provider serves a JVM window — a user comparing
+/// a JAB-served and a UIA-served Java window should not find the answer
+/// missing on one of them. It is a single `stat` on one path and never a
+/// connection: reporting that an agent exists must not be what puts one there.
 fn push_jvm_classification_attrs(attrs: &mut Vec<Arc<dyn UiAttribute>>, hwnd: isize) {
     let toolkit = window_class_of(hwnd)
         .as_deref()
@@ -909,6 +915,26 @@ fn push_jvm_classification_attrs(attrs: &mut Vec<Arc<dyn UiAttribute>>, hwnd: is
     attrs.push(static_attr(Namespace::Native, java::IS_JVM_ATTRIBUTE, UiValue::from(true)));
     attrs.push(static_attr(Namespace::Native, java::JVM_TOOLKIT_ATTRIBUTE, UiValue::from(toolkit.label())));
     attrs.push(static_attr(Namespace::Native, java::JVM_ACCESSIBILITY_REACHABLE_ATTRIBUTE, UiValue::from(true)));
+    if let Some(pid) = process_id_of(hwnd) {
+        attrs.push(static_attr(
+            Namespace::Native,
+            java::JVM_AGENT_PRESENT_ATTRIBUTE,
+            UiValue::from(platynui_java_agent::handshake::agent_present(pid)),
+        ));
+    }
+}
+
+/// The owning process of a top-level window; `None` when the window is gone.
+#[allow(unsafe_code)]
+fn process_id_of(hwnd: isize) -> Option<u32> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
+
+    let handle = HWND(hwnd as *mut core::ffi::c_void);
+    let mut pid = 0u32;
+    // SAFETY: read-only query; `pid` is a valid out-pointer.
+    let thread = unsafe { GetWindowThreadProcessId(handle, Some(&raw mut pid)) };
+    (thread != 0 && pid != 0).then_some(pid)
 }
 
 /// The top-level window's class name (`GetClassNameW`), the toolkit

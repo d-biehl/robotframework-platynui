@@ -45,6 +45,7 @@ use std::path::PathBuf;
 use chrono as _;
 use inventory as _;
 use libloading as _;
+use platynui_java_agent as _;
 use std::process::{Child, Command};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
@@ -76,6 +77,30 @@ impl FixtureApp {
     /// for the fixture regardless of any `jabswitch -enable` state on the
     /// machine.
     fn launch_with_bridge(title_suffix: &str, bridge: bool) -> Self {
+        Self::launch_with(title_suffix, bridge, &[])
+    }
+
+    /// Launch the fixture JVM carrying the `PlatynUI` agent — the state the
+    /// agent-presence classification fact exists to report.
+    fn launch_with_agent(title_suffix: &str) -> Self {
+        let jar = std::env::var_os("PLATYNUI_JAVA_AGENT_JAR").map_or_else(
+            || {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("..")
+                    .join("..")
+                    .join("java")
+                    .join("agent")
+                    .join("build")
+                    .join("libs")
+                    .join("platynui-agent.jar")
+            },
+            PathBuf::from,
+        );
+        assert!(jar.is_file(), "agent JAR not found at {} — run `just build-java-agent` first", jar.display());
+        Self::launch_with(title_suffix, true, &[format!("-javaagent:{}", jar.display())])
+    }
+
+    fn launch_with(title_suffix: &str, bridge: bool, extra_jvm_args: &[String]) -> Self {
         let classes = swing_classes_dir();
         assert!(
             classes.is_dir(),
@@ -90,6 +115,7 @@ impl FixtureApp {
         let title = format!("PlatynUI JAB Live {} {}", std::process::id(), title_suffix);
         let child = Command::new(swing_java_launcher())
             .arg(assistive_technologies)
+            .args(extra_jvm_args)
             .arg("-cp")
             .arg(&classes)
             .arg("platynui.testapp.Main")
@@ -630,11 +656,48 @@ fn native_value(node: &Arc<dyn UiNode>, name: &str) -> Option<UiValue> {
     node.attribute(Namespace::Native, name).map(|attr| attr.value())
 }
 
+/// The other half of the agent-presence fact: a JVM that *does* carry an agent
+/// must say so. Checked against the platform classifier directly — the fact is
+/// the classifier's, not any one provider's.
+#[test]
+#[ignore = "needs a desktop, a Java runtime, the built Swing fixture and the built agent JAR"]
+fn live_agent_presence_is_reported_for_an_instrumented_jvm() {
+    use platynui_core::platform::WindowId;
+
+    let app = FixtureApp::launch_with_agent("agent-present");
+    let hwnd = wait_for_native_window(&app.title);
+    let classifier = platform_factories()
+        .find(|factory| factory.id() == "windows")
+        .expect("windows platform factory")
+        .create(&RuntimeConfig::default())
+        .expect("windows platform bundle")
+        .java_classifier
+        .expect("the Windows bundle carries a Java classifier");
+
+    // The agent publishes its handshake file a moment after the window exists,
+    // so this is "eventually", not "immediately".
+    let deadline = Instant::now() + DISCOVERY_DEADLINE;
+    loop {
+        let classification = classifier.classify(WindowId::new(hwnd), app.pid()).expect("classify");
+        assert!(classification.is_jvm);
+        if classification.agent_present == Some(true) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "an agent-carrying JVM never reported agent-present within {DISCOVERY_DEADLINE:?} \
+             (last: {:?})",
+            classification.agent_present
+        );
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
 #[test]
 #[ignore = "needs a desktop, a Java runtime, and the built Swing fixture (run via just test-acceptance-windows)"]
 fn live_jvm_classification_facts_and_diagnostic() {
     use platynui_core::platform::java::{
-        IS_JVM_ATTRIBUTE, JVM_ACCESSIBILITY_REACHABLE_ATTRIBUTE, JVM_TOOLKIT_ATTRIBUTE,
+        IS_JVM_ATTRIBUTE, JVM_ACCESSIBILITY_REACHABLE_ATTRIBUTE, JVM_AGENT_PRESENT_ATTRIBUTE, JVM_TOOLKIT_ATTRIBUTE,
         jvm_unreachable_diagnostic_emitted,
     };
 
@@ -648,6 +711,10 @@ fn live_jvm_classification_facts_and_diagnostic() {
         assert_eq!(native_value(&window, IS_JVM_ATTRIBUTE), Some(UiValue::from(true)));
         assert_eq!(native_value(&window, JVM_TOOLKIT_ATTRIBUTE), Some(UiValue::from("Swing/AWT")));
         assert_eq!(native_value(&window, JVM_ACCESSIBILITY_REACHABLE_ATTRIBUTE), Some(UiValue::from(true)));
+        // The fixture is launched without `-javaagent`, so "no agent here" is
+        // the correct fact — and it must be *reported*, not left out: that is
+        // what turns an empty window into an actionable diagnostic.
+        assert_eq!(native_value(&window, JVM_AGENT_PRESENT_ATTRIBUTE), Some(UiValue::from(false)));
         assert!(
             !jvm_unreachable_diagnostic_emitted(hwnd),
             "a bridge-served window must not trigger the enablement diagnostic"
@@ -698,6 +765,11 @@ fn live_jvm_classification_facts_and_diagnostic() {
         native_value(&uia_window, JVM_ACCESSIBILITY_REACHABLE_ATTRIBUTE),
         Some(UiValue::from(false)),
         "an unclaimed Swing window is not reachable through native accessibility"
+    );
+    assert_eq!(
+        native_value(&uia_window, JVM_AGENT_PRESENT_ATTRIBUTE),
+        Some(UiValue::from(false)),
+        "the same fact must be observable no matter which provider serves the window"
     );
 
     uia.shutdown();

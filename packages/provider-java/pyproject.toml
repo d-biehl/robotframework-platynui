@@ -1,0 +1,56 @@
+[project]
+name = "platynui-provider-java"
+description = "In-JVM agent artifact enabling PlatynUI's Java UI toolkit support"
+version = "0.13.0-dev.2"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Java",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Quality Assurance",
+    "Framework :: Robot Framework",
+    "Framework :: Robot Framework :: Library",
+]
+readme = "README.md"
+authors = [{ name = "Daniel Biehl", email = "daniel.biehl@imbus.de" }]
+requires-python = ">=3.12"
+
+# Installing this package IS the consent for in-JVM instrumentation, so it
+# deliberately depends on nothing: it can be added to (and removed from) an
+# environment without dragging PlatynUI itself along.
+dependencies = []
+
+# One discovery concept for both transports: the in-process lookup and the
+# standalone binaries' co-located-interpreter one-shot both read this group.
+[project.entry-points."platynui.providers"]
+java = "platynui_provider_java:provider_info"
+
+[project.scripts]
+platynui-provider-java = "platynui_provider_java.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/imbus/robotframework-PlatynUI"
+Documentation = "https://github.com/imbus/robotframework-PlatynUI#readme"
+Changelog = "https://github.com/imbus/robotframework-PlatynUI/blob/main/CHANGELOG.md"
+Issues = "https://github.com/imbus/robotframework-PlatynUI/issues"
+Source = "https://github.com/imbus/robotframework-PlatynUI"
+
+[build-system]
+requires = ["uv_build>=0.11.0,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "platynui_provider_java"
+
+[tool.uv]
+# The JAR is copied in by `just build-provider-java` before the wheel is built,
+# so a rebuilt agent must invalidate the cached wheel.
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "src/platynui_provider_java/**/*.py" },
+    { file = "src/platynui_provider_java/agent/*.jar" },
+]

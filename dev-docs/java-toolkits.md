@@ -122,24 +122,56 @@ toolkit from inside.
 
 ## Agent injection paths and JEP 451 (facts)
 
-If/when an in-JVM agent is adopted, there are two ways to get it into the target
-JVM — they load the *same* agent, differing only in how:
+The agent exists ([`java/agent`](../java/agent), transport in
+[`crates/java-agent`](../crates/java-agent)). Two ways get it into the target
+JVM; they load the *same* agent and differ only in how:
 
-- **`-javaagent:...` at launch** — the durable, JDK-blessed path ("explicit grant
-  of privileges" since JDK 5). Requires controlling the launch.
-- **Attach API + `loadAgent()`** — no launch change (good for Java Web Start),
-  attaches a running JVM; native attach without a JDK via `jattach`.
+- **Attach + `loadAgent()`** — **the primary path**. No launch change, and it
+  works on an application that is already running, which is the only way the
+  Inspector can look into one. Java applications are started by scripts,
+  installers or Web Start, so the launch line is typically not PlatynUI's to
+  change. PlatynUI speaks the attach protocol **natively** (Unix: trigger file +
+  `SIGQUIT` + the JVM's socket; Windows: a remote thread invoking
+  `JVM_EnqueueOperation`), so the test host needs no JDK — and, unlike bundling
+  `jattach`, ships no unsigned foreign binary performing `OpenProcess` /
+  `CreateRemoteThread`.
+- **`-javaagent:...` at launch** — the **durable fallback**: the JDK-blessed
+  path ("explicit grant of privileges" since JDK 5), for hosts where attach is
+  blocked and for the day JEP 451 lands. Requires controlling the launch.
 
 [JEP 451](https://openjdk.org/jeps/451) ("Prepare to Disallow the Dynamic Loading
 of Agents") puts the Attach path on a sunset trajectory: JDK 21 warns when an
 agent is loaded dynamically, and a future release will disallow it by default.
-The opt-in is `-XX:+EnableDynamicAgentLoading`, set **at launch of the target**
-(or via the `JAVA_TOOL_OPTIONS` environment variable, which the launcher honors
-without editing the command line — scoped per environment, not per app). JEP 451
-targets *agent loading only*; JVM discovery/listing (`jcmd -l`, `jps`,
+The opt-in is `-XX:+EnableDynamicAgentLoading`.
+
+**Measured on Temurin JDK 21.0.11** (`java-agent-core` task 1.3), because the
+"remedy without editing the command line" claim is load-bearing:
+
+| `EnableDynamicAgentLoading` | Set via | Attach | JEP 451 warning |
+|---|---|---|---|
+| unset | — | works | printed |
+| `+` | command line | works | **silent** |
+| `+` | `JAVA_TOOL_OPTIONS` | works | still printed |
+| `-` | `JAVA_TOOL_OPTIONS` | **refused** | — |
+
+So `JAVA_TOOL_OPTIONS` genuinely **controls the flag** — proven by the refusal in
+the last row — which is what makes the future sunset remediable per environment
+without touching how an application is started. Only the cosmetic *warning
+suppression* needs the flag on the real command line. The warning is no loss
+either way: it makes a dynamic load visible in the target's own log, which is the
+transparency an instrumenting tool should want.
+
+A refused load is reported as **agent-refused**, distinct from a failed attach,
+and carries the target's own remedy text (`"Dynamic agent loading is not
+enabled. Use -XX:+EnableDynamicAgentLoading to launch target VM."`) — the two
+failures need different things from the operator, so they must not collapse into
+one message.
+
+JEP 451 targets *agent loading only*; JVM discovery/listing (`jcmd -l`, `jps`,
 `VirtualMachine.list()`, via `hsperfdata`) and non-agent attach operations are
-unaffected. Net: `-javaagent` is the durable path; Attach-load is a best-effort
-convenience with a documented expiry.
+unaffected. PlatynUI does not use any of them: it reaches a JVM through the
+window that owns it, so machine-wide enumeration answers a question it never
+asks.
 
 ## Routing summary
 
@@ -152,3 +184,21 @@ convenience with a documented expiry.
   (`platynui_core::platform::window_claims`): whichever provider handles a Java
   window claims its HWND and the others abstain. A preferred-provider priority
   (agent > JAB > native-for-FX/SWT) is part of the forward design.
+
+## Getting the agent
+
+The agent artifact ships in its own package, `platynui-provider-java`, pulled in
+by the `[java]` extras — **installing it is the consent** for in-JVM
+instrumentation, and uninstalling removes the capability:
+
+```sh
+pip install "robotframework-PlatynUI[java]"     # a test run
+pip install "platynui-inspector[java]"          # the Inspector
+```
+
+Without it, nothing is injected and the diagnostic names the install. Provider
+and agent versions must match **exactly** (an agent cannot be unloaded from a
+JVM, so a mismatch's only remedy is restarting the application); the extras pin
+them together, and the connection handshake refuses a mismatch rather than
+degrading. `platynui-provider-java agent-path` prints the JAR path for the
+hand-written `-javaagent:` case.

@@ -59,16 +59,20 @@ def main() -> None:
     pyproject_files = list(Path('packages').rglob('pyproject.toml'))
     cargo_files = list(Path('packages').rglob('Cargo.toml'))
 
+    # java/agent/gradle.properties carries the agent's version, which the
+    # provider compares for EXACT equality at connection time — an agent cannot
+    # be unloaded, so drift here is not a warning, it is a refused connection.
     for f in [
         Path('Cargo.toml'),
         Path('pyproject.toml'),
+        Path('java/agent/gradle.properties'),
         *pyproject_files,
         *cargo_files,
     ]:
         print(f'updating {f}')
         replace_in_file(
             f,
-            re.compile(r"""(^version\s*=\s*['"])([^'"]*)(['"])""", re.MULTILINE),
+            re.compile(r"""(^version\s*=\s*['"]?)([^'"\n]*)(['"]?)$""", re.MULTILINE),
             rf'\g<1>{version or ""}\g<3>',
         )
         replace_in_file(

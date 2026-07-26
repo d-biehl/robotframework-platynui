@@ -10,19 +10,27 @@ PlatynUI is a cross-platform UI automation toolkit for Robot Framework, built on
 	- `crates/core`, `crates/xpath`, `crates/runtime`, `crates/link`
 	- `crates/platform-{windows,linux-x11,linux,macos,mock}`
 	- `crates/provider-{windows-uia,jab,atspi,macos-ax,mock}` (`provider-jab` = Java Access Bridge, Swing/AWT on Windows)
+	- `crates/java-agent` — JVM attach transport, handshake discovery and RPC client for the in-JVM Java agent; provider-neutral, depends on no other PlatynUI crate
 	- `crates/cli`, `crates/xkb-util`, `crates/playground`
 	- `apps/inspector`, `apps/wayland-compositor`, `apps/wayland-compositor-ctl`, `apps/test-app-egui`, `apps/eis-test-client`
+- Java workspace (Gradle, self-contained per project):
+	- `java/agent` — the agent PlatynUI loads **into** a target JVM (a *product*; the Java *fixtures* live under `apps/`)
 - Python/Robot workspace (`uv`):
 	- `src/PlatynUI` — Robot Framework library entry
 	- `packages/native` — Maturin bindings (`platynui_native._native`)
 	- `packages/cli`, `packages/inspector` — Python wrappers around the Rust binaries
+	- `packages/provider-java` — pure-data wheel carrying the Java agent JAR (no Rust; excluded from the Cargo workspace)
 
-The Python native package (`packages/native`) is a Cargo workspace member (the root `Cargo.toml` has `members = ["crates/*", "apps/*", "packages/*"]`), so the workspace-wide gates — `just check` (`clippy --workspace`) and `just test` (`nextest --workspace`) — cover it; it is only *named* `platynui_native` (underscore) to follow Python conventions rather than the crates' `platynui-` prefix. Platform/provider status (which OS is real, stub, or experimental) is in the README's platform-support table — consult it before promising behavior.
+The Python native package (`packages/native`) is a Cargo workspace member (the root `Cargo.toml` has `members = ["crates/*", "apps/*", "packages/*"]`), so the workspace-wide gates — `just check` (`clippy --workspace`) and `just test` (`nextest --workspace`) — cover it; it is only *named* `platynui_native` (underscore) to follow Python conventions rather than the crates' `platynui-` prefix. `packages/provider-java` is the exception: it holds no Rust and is `exclude`d from the Cargo workspace. Platform/provider status (which OS is real, stub, or experimental) is in the README's platform-support table — consult it before promising behavior.
 
 ## Task Routing
 
 - Rust crates and apps:
 	- Owning paths: `crates/`, `apps/`.
+- Java agent (the artifact loaded into a target JVM):
+	- Owning paths: `java/agent` (product), `crates/java-agent` (attach transport + RPC client), `packages/provider-java` (delivery wheel).
+	- The three carry **one version** and must move together; `scripts/update-git-versions.py` syncs `java/agent/gradle.properties` with the rest. Provider↔agent versions are compared for exact equality at connect time, because an agent cannot be unloaded from a JVM.
+	- Injection paths, JEP 451 facts and the delivery story: [`dev-docs/java-toolkits.md`](dev-docs/java-toolkits.md), [`java/agent/README.md`](java/agent/README.md).
 - Python / Robot Framework:
 	- Owning paths: `src/PlatynUI`, `packages/`.
 	- The Rust/Python boundary lives in `packages/native`; see [`dev-docs/python-bindings.md`](dev-docs/python-bindings.md).
@@ -43,8 +51,10 @@ The Python native package (`packages/native`) is a Cargo workspace member (the r
 	- Builds native with `mock-provider`, then pytest.
 - `just pre-commit`
 	- Full local gate before pushing non-trivial changes.
+- `just build-java-agent` / `just test-java-agent` / `just test-java-agent-live`
+	- Java agent: build the JAR, its JUnit tests, and the live attach checks against a real JVM. `just build-native` stays JDK-free on purpose — a missing JAR is a runtime diagnostic, not a build failure.
 
-Heavy recipes (`just pre-commit-cross`, the `build-*-wheel` recipes, `just build-all-wheels`) take minutes and are not part of the normal verification loop. Do **not** run them unless the user asks or the change clearly warrants it.
+Heavy recipes (`just pre-commit-cross`, the `build-*-wheel` recipes, `just build-all-wheels`, `just test-provider-java-delivery`) take minutes and are not part of the normal verification loop. Do **not** run them unless the user asks or the change clearly warrants it.
 
 ## Design Docs
 

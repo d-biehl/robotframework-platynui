@@ -23,7 +23,8 @@ This creates `.venv` and installs dev tools (ruff, mypy, maturin, robotframework
 ## 2) Project layout (quick orientation)
 
 - Rust workspace in `crates/*` and `apps/*` (core, xpath, runtime, providers/platforms, cli, inspector).
-- Python packages in `packages/*` (native bindings, CLI, inspector) and RF library entry in `src/PlatynUI`.
+- Python packages in `packages/*` (native bindings, CLI, inspector, and `provider-java`, a pure-data wheel with no Rust in it) and RF library entry in `src/PlatynUI`.
+- Java products in `java/*` — currently `java/agent`, the agent PlatynUI loads **into** a target JVM. Self-contained Gradle project; not a Cargo crate. (Java *fixtures* live under `apps/`, not here.)
 - Developer, design, and planning docs live under `dev-docs/`; `docs/` is reserved for user-facing documentation; some crates keep component-local `docs/` directories.
 - Generated artifacts such as `target/`, `.venv/`, `dist/`, `results/`, wheel files, and build caches should not be committed.
 
@@ -97,6 +98,7 @@ Additional build and packaging recipes:
 | Robot Framework wheel | `just build-platynui-wheel` | Builds the pure Python Robot Framework package wheel. |
 | All local Python packages | `just build-all-python` | Builds native, CLI, and Inspector packages for local development. |
 | All release wheels | `just build-all-wheels` | Builds every wheel into `dist/`. |
+| Provider-Java wheel | `just build-provider-java-wheel` | Builds the `platynui-provider-java` wheel carrying the Java agent JAR. |
 | Rust API docs | `just doc` | Builds Rust API documentation without dependencies. |
 
 The debug-default build recipes — `build`, `build-native`, `build-cli`, `build-inspector`, and `build-native-mock` — honor a `release` variable: pass `release=true` to compile in release mode instead of debug, e.g. `just release=true build-all-python` (which inherits the flag through its dependencies). Because the acceptance lane also depends on `build-native`, `just release=true test-acceptance` runs those suites against an optimized native module. The `*-wheel` recipes are always release builds and ignore the flag.
@@ -135,6 +137,18 @@ Linux cross-target recipes:
 | Clippy macOS ARM crates | `just clippy-macos-arm` | Runs clippy for macOS ARM-relevant crates from Linux. |
 
 The default cross targets can be overridden with `PLATYNUI_WINDOWS_TARGET` and `PLATYNUI_MACOS_ARM_TARGET`.
+
+Java agent recipes (see [`java/agent/README.md`](java/agent/README.md)):
+
+| Goal | Recipe | Notes |
+|---|---|---|
+| Build the agent JAR | `just build-java-agent` | Gradle wrapper; only a `java` 8+ on `PATH` is needed, the rest self-provisions. |
+| Agent unit tests | `just test-java-agent` | JUnit: element registry, toolkit-thread deadline, JSON layer. |
+| Agent live checks | `just test-java-agent-live` | Native attach and handshake discovery against a real JVM; builds the JAR and the Swing fixture first. |
+| Delivery checks | `just test-provider-java-delivery` | Builds the real wheel, installs it into a throwaway venv, and resolves it through that environment's interpreter. |
+| Stage the JAR into its wheel | `just build-provider-java` | Copies the built JAR into `packages/provider-java`. |
+
+`just build-native` deliberately does **not** build the agent and stays JDK-free: a missing JAR is a runtime diagnostic ("install `robotframework-platynui[java]`"), never a build failure. Only the release/wheel recipes and the lanes that exercise the agent treat it as a hard prerequisite. The agent's version in `java/agent/gradle.properties` is kept in lockstep by `scripts/update-git-versions.py` — provider and agent must match exactly, because an agent cannot be unloaded from a JVM.
 
 ### Git hooks with `pre-commit`
 

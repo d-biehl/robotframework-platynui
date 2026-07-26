@@ -48,6 +48,11 @@ playground/
 packages/**/*.so
 packages/**/*.pyd
 packages/**/*.dylib
+
+# The agent JAR is staged into its delivery package by `just build-provider-java`.
+# Never committed: it must always match the sources it was built from, and a stale
+# copy is the one drift the exact-version handshake cannot catch.
+packages/provider-java/src/platynui_provider_java/agent/*.jar
 packages/**/*.pdb
 packages/**/*.dSYM/
 

@@ -27,6 +27,13 @@ qt_app_main := justfile_directory() / "apps" / "test-app-qt" / "main.py"
 # QML (Qt Quick) test app — same launch mechanics as the Qt Widgets app (base
 # interpreter + __PYVENV_LAUNCHER__ redirect, handed over via PLATYNUI_TEST_APP_QML_*).
 qml_app_main := justfile_directory() / "apps" / "test-app-qml" / "main.py"
+# PlatynUI Java agent (self-contained Gradle product project — see java/agent/README.md).
+# Built only by `just build-java-agent` and the recipes that need it; `build-native`
+# stays JDK-free on purpose (a missing JAR is a runtime diagnostic, not a build failure).
+java_agent_dir := justfile_directory() / "java" / "agent"
+java_agent_jar := java_agent_dir / "build" / "libs" / "platynui-agent.jar"
+# Where the JAR is staged so the platynui-provider-java wheel carries it.
+provider_java_agent_dir := justfile_directory() / "packages" / "provider-java" / "src" / "platynui_provider_java" / "agent"
 # Swing test app (self-contained Gradle project — see apps/test-app-swing/README.md).
 # The build writes the provisioned JVM paths (java8 = default launch runtime,
 # java21 = compile toolchain) to java-launchers.properties; the run/acceptance
@@ -97,11 +104,34 @@ build-inspector-wheel *ARGS:
 build-platynui-wheel:
     uv build --wheel -o dist
 
+# Stages java/agent/build/libs/platynui-agent.jar into the package so the wheel
+# carries it. The JAR is a build artifact and is never committed — a stale
+# committed copy is the one drift the exact-version handshake cannot catch.
+# Build the Java agent JAR and stage it into its delivery package
+[unix]
+build-provider-java: build-java-agent
+    mkdir -p "{{ provider_java_agent_dir }}"
+    cp "{{ java_agent_jar }}" "{{ provider_java_agent_dir }}/platynui-agent.jar"
+
+# Stages java/agent/build/libs/platynui-agent.jar into the package so the wheel
+# carries it. The JAR is a build artifact and is never committed — a stale
+# committed copy is the one drift the exact-version handshake cannot catch.
+# Build the Java agent JAR and stage it into its delivery package
+[windows]
+build-provider-java: build-java-agent
+    New-Item -ItemType Directory -Force -Path "{{ provider_java_agent_dir }}" | Out-Null; Copy-Item -Force "{{ java_agent_jar }}" "{{ provider_java_agent_dir }}\platynui-agent.jar"
+
+# The JAR is MANDATORY here: a release wheel without it would install as a
+# working package that silently provides no Java support.
+# Build release wheel for the platynui-provider-java package (carries the agent JAR)
+build-provider-java-wheel: build-provider-java
+    uv build --wheel packages/provider-java -o dist
+
 # Build all Python packages (native + CLI + Inspector)
 build-all-python: build-native build-cli build-inspector
 
 # Build all release wheels
-build-all-wheels: build-platynui-wheel build-native-wheel build-cli-wheel build-inspector-wheel
+build-all-wheels: build-platynui-wheel build-native-wheel build-cli-wheel build-inspector-wheel build-provider-java-wheel
 
 # Build native Python package with mock-provider feature
 build-native-mock:
@@ -293,13 +323,76 @@ test-acceptance-x11 *ARGS: build-native
 test-acceptance-windows *ARGS: build-native
     cargo build -p platynui-test-app-egui -p platynui-inspector
     just build-test-app-swing
-    $env:PLATYNUI_TEST_APP_SWING_CLASSES = "{{ swing_app_classes }}"; if (Test-Path "{{ swing_app_launchers }}") { $env:PLATYNUI_TEST_APP_SWING_JAVA = ((Get-Content -Raw "{{ swing_app_launchers }}") | ConvertFrom-StringData).java8 }; cargo nextest run -p platynui-provider-jab --run-ignored ignored-only
+    just build-java-agent
+    just test-java-agent
+    $env:PLATYNUI_TEST_APP_SWING_CLASSES = "{{ swing_app_classes }}"; if (Test-Path "{{ swing_app_launchers }}") { $env:PLATYNUI_TEST_APP_SWING_JAVA = ((Get-Content -Raw "{{ swing_app_launchers }}") | ConvertFrom-StringData).java8 }; $env:PLATYNUI_JAVA_AGENT_JAR = "{{ java_agent_jar }}"; cargo nextest run -p platynui-provider-jab -p platynui-java-agent --run-ignored ignored-only
     $qtBasePy = & "{{ qt_venv_python }}" -c "import sys; print(sys._base_executable)"; $env:PLATYNUI_TEST_APP_BIN = "{{ egui_test_app }}"; $env:PLATYNUI_INSPECTOR_BIN = "{{ inspector_bin }}"; $env:PLATYNUI_TEST_APP_QT_PYTHON = $qtBasePy; $env:PLATYNUI_TEST_APP_QT_PYVENV_LAUNCHER = "{{ qt_venv_python }}"; $env:PLATYNUI_TEST_APP_QT_MAIN = "{{ qt_app_main }}"; $env:PLATYNUI_TEST_APP_QML_PYTHON = $qtBasePy; $env:PLATYNUI_TEST_APP_QML_PYVENV_LAUNCHER = "{{ qt_venv_python }}"; $env:PLATYNUI_TEST_APP_QML_MAIN = "{{ qml_app_main }}"; $env:PLATYNUI_TEST_APP_SWING_CLASSES = "{{ swing_app_classes }}"; if (Test-Path "{{ swing_app_launchers }}") { $env:PLATYNUI_TEST_APP_SWING_JAVA = ((Get-Content -Raw "{{ swing_app_launchers }}") | ConvertFrom-StringData).java8 }; uv run --no-sync robotcode {{ if ARGS != "" { ARGS } else { "--profile real-windows run" } }}
 
 # Run the QML (Qt Quick) test app on the project venv (PySide6 is a dev
 # dependency, installed by `uv sync`). Extra args are forwarded to the app.
 run-test-app-qml *ARGS:
     uv run python apps/test-app-qml/main.py {{ ARGS }}
+
+# ─── Java Agent (the artifact loaded INTO a target JVM) ────────────────────────
+
+# Needs only a `java` 8+ on PATH: the Gradle daemon JVM and the JDK 21 compile
+# toolchain are auto-provisioned — network access required on the first build.
+# Output: java/agent/build/libs/platynui-agent.jar.
+# Build the PlatynUI Java agent JAR (the artifact loaded into a target JVM)
+[unix]
+build-java-agent:
+    cd "{{ java_agent_dir }}" && ./gradlew --console=plain agentJar
+
+# Covers the agent-side logic that has no Rust counterpart: the weak-reference
+# element registry, the toolkit-thread deadline (a wedged thread must be
+# abandoned, not interrupted), and the hand-rolled JSON layer. JUnit is a
+# test-scope dependency and never reaches the JAR.
+# Run the Java agent's own unit tests
+[unix]
+test-java-agent:
+    cd "{{ java_agent_dir }}" && ./gradlew --console=plain test
+
+# Covers the agent-side logic that has no Rust counterpart: the weak-reference
+# element registry, the toolkit-thread deadline (a wedged thread must be
+# abandoned, not interrupted), and the hand-rolled JSON layer. JUnit is a
+# test-scope dependency and never reaches the JAR.
+# Run the Java agent's own unit tests
+[windows]
+test-java-agent:
+    Set-Location "{{ java_agent_dir }}"; & .\gradlew.bat --console=plain test; exit $LASTEXITCODE
+
+# Needs only a `java` 8+ on PATH: the Gradle daemon JVM and the JDK 21 compile
+# toolchain are auto-provisioned — network access required on the first build.
+# Output: java/agent/build/libs/platynui-agent.jar.
+# Build the PlatynUI Java agent JAR (the artifact loaded into a target JVM)
+[windows]
+build-java-agent:
+    Set-Location "{{ java_agent_dir }}"; & .\gradlew.bat --console=plain agentJar; exit $LASTEXITCODE
+
+# Builds the real wheel and installs it into a throwaway virtual environment: an
+# entry point that resolves in the source tree but not from an installed wheel
+# would pass every cheaper test and fail every user.
+# Verify the agent's delivery package end to end (wheel → venv → discovery)
+test-provider-java-delivery: build-java-agent
+    cargo nextest run -p platynui-java-agent --run-ignored ignored-only -E 'binary(delivery)'
+
+# Both the agent JAR and the Swing fixture are HARD prerequisites — a missing
+# artifact fails the run rather than silently skipping the coverage. Also part
+# of the Windows acceptance lane.
+# Run the agent transport's live checks against a real JVM
+[windows]
+test-java-agent-live: build-java-agent test-java-agent build-test-app-swing
+    $env:PLATYNUI_JAVA_AGENT_JAR = "{{ java_agent_jar }}"; $env:PLATYNUI_TEST_APP_SWING_CLASSES = "{{ swing_app_classes }}"; if (Test-Path "{{ swing_app_launchers }}") { $env:PLATYNUI_TEST_APP_SWING_JAVA = ((Get-Content -Raw "{{ swing_app_launchers }}") | ConvertFrom-StringData).java8 }; cargo nextest run -p platynui-java-agent --run-ignored ignored-only
+
+# Both the agent JAR and the Swing fixture are HARD prerequisites — a missing
+# artifact fails the run rather than silently skipping the coverage.
+# Run the agent transport's live checks against a real JVM
+[unix]
+test-java-agent-live: build-java-agent test-java-agent build-test-app-swing
+    PLATYNUI_JAVA_AGENT_JAR="{{ java_agent_jar }}" \
+    PLATYNUI_TEST_APP_SWING_CLASSES="{{ swing_app_classes }}" \
+    PLATYNUI_TEST_APP_SWING_JAVA="$(sed -n 's/^java8=//p' "{{ swing_app_launchers }}" 2>/dev/null || echo java)" \
+    cargo nextest run -p platynui-java-agent --run-ignored ignored-only
 
 # ─── Swing Test App (Java fixture for the JAB provider work) ───────────────────
 

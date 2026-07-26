@@ -19,6 +19,9 @@ workspace = true
 # non-Windows builds see an empty crate without unused-dependency warnings.
 [target.'cfg(windows)'.dependencies]
 platynui-core = { path = "../core" }
+# Only for the agent-presence classification fact on a top-level window; a leaf
+# crate that owns the handshake-path rule, with no PlatynUI dependencies of its own.
+platynui-java-agent = { path = "../java-agent" }
 inventory = "0.3"
 thiserror = "2.0"
 tracing = { version = "0.1", default-features = false, features = ["std"] }

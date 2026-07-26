@@ -14,6 +14,10 @@ rust-version.workspace = true
 
 [dependencies]
 platynui-core = { path = "../core" }
+# Only for the classifier's agent-presence signal: it owns the handshake-path
+# rule, and duplicating that rule is how the two halves would drift apart. A
+# leaf crate with no PlatynUI dependencies of its own, so no cycle.
+platynui-java-agent = { path = "../java-agent" }
 inventory = "0.3"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 

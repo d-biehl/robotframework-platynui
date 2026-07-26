@@ -24,6 +24,8 @@ pub const IS_JVM_ATTRIBUTE: &str = "IsJvm";
 pub const JVM_TOOLKIT_ATTRIBUTE: &str = "JvmToolkit";
 /// Name of the `native:` attribute carrying [`JavaClassification::native_a11y_visible`].
 pub const JVM_ACCESSIBILITY_REACHABLE_ATTRIBUTE: &str = "JvmAccessibilityReachable";
+/// Name of the `native:` attribute carrying [`JavaClassification::agent_present`].
+pub const JVM_AGENT_PRESENT_ATTRIBUTE: &str = "JvmAgentPresent";
 
 /// The Java UI toolkit hosting a top-level window.
 ///
@@ -78,9 +80,9 @@ impl fmt::Display for JavaToolkit {
 
 /// The classification of one native top-level window.
 ///
-/// The three fields are deliberately independent signals — their reliability
-/// differs per platform, and the actionable states are combinations ("JVM yes,
-/// toolkit Swing, accessibility no"). A field that cannot be answered is
+/// The fields are deliberately independent signals — their reliability differs
+/// per platform, and the actionable states are combinations ("JVM yes, toolkit
+/// Swing, accessibility no, no agent"). A field that cannot be answered is
 /// reported as unknown (`None`), never guessed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct JavaClassification {
@@ -95,6 +97,15 @@ pub struct JavaClassification {
     /// [`classify_from_signals`]); `None` where answering would require an
     /// eager probe.
     pub native_a11y_visible: Option<bool>,
+    /// Whether a PlatynUI agent is present in the window's process, from the
+    /// agent's per-user handshake file. `None` for non-JVM windows and where
+    /// the probe was not possible.
+    ///
+    /// Reporting it is deliberately separate from *using* it: this is the
+    /// breadcrumb that turns "this window is empty" into "this is a JVM, it has
+    /// no agent, and here is how to get one". Reading the signal never triggers
+    /// an attach.
+    pub agent_present: Option<bool>,
 }
 
 /// Platform capability that classifies a native top-level window as
@@ -121,6 +132,8 @@ pub trait JavaClassifier: Send + Sync {
 /// - `claimed_by_provider`: whether a provider claims the window in
 ///   [`window_claims`](crate::platform::window_claims) — the materialized
 ///   "a native accessibility provider genuinely serves this window" fact.
+/// - `agent_present`: whether a PlatynUI agent published a live handshake file
+///   for the window's process; `None` when the probe was not possible.
 ///
 /// Rules:
 /// - is-JVM when the runtime is loaded **or** the window class names a Java
@@ -133,10 +146,13 @@ pub trait JavaClassifier: Send + Sync {
 ///   provider claims exactly the windows `isJavaWindow` acknowledged). SWT and
 ///   JavaFX windows are served by the generic native provider, so answering
 ///   would need an eager probe — left `None` by design.
+/// - `agent_present` is reported only for JVM windows: "no agent" about a
+///   process that is not a JVM would be a fact about nothing.
 pub fn classify_from_signals(
     jvm_runtime_loaded: Option<bool>,
     window_class: Option<&str>,
     claimed_by_provider: bool,
+    agent_present: Option<bool>,
 ) -> JavaClassification {
     let class_toolkit = window_class.and_then(JavaToolkit::from_window_class);
     let is_jvm = jvm_runtime_loaded == Some(true) || class_toolkit.is_some();
@@ -145,7 +161,12 @@ pub fn classify_from_signals(
         Some(JavaToolkit::SwingAwt) => Some(claimed_by_provider),
         _ => None,
     };
-    JavaClassification { is_jvm, toolkit, native_a11y_visible }
+    JavaClassification {
+        is_jvm,
+        toolkit,
+        native_a11y_visible,
+        agent_present: is_jvm.then_some(agent_present).flatten(),
+    }
 }
 
 /// Windows already warned about, process-wide (all runtimes see the same
@@ -224,7 +245,7 @@ mod tests {
 
     #[test]
     fn swing_window_class_and_jvm_module_classify_as_swing() {
-        let c = classify_from_signals(Some(true), Some("SunAwtFrame"), true);
+        let c = classify_from_signals(Some(true), Some("SunAwtFrame"), true, None);
         assert!(c.is_jvm);
         assert_eq!(c.toolkit, Some(JavaToolkit::SwingAwt));
         assert_eq!(c.native_a11y_visible, Some(true));
@@ -232,7 +253,7 @@ mod tests {
 
     #[test]
     fn unclaimed_swing_window_reports_native_a11y_not_visible() {
-        let c = classify_from_signals(Some(true), Some("SunAwtDialog"), false);
+        let c = classify_from_signals(Some(true), Some("SunAwtDialog"), false, None);
         assert!(c.is_jvm);
         assert_eq!(c.toolkit, Some(JavaToolkit::SwingAwt));
         assert_eq!(c.native_a11y_visible, Some(false));
@@ -241,28 +262,45 @@ mod tests {
     #[test]
     fn swt_and_javafx_leave_native_a11y_unknown() {
         for (class, toolkit) in [("SWT_Window0", JavaToolkit::Swt), ("GlassWndClass", JavaToolkit::JavaFx)] {
-            let c = classify_from_signals(Some(true), Some(class), false);
+            let c = classify_from_signals(Some(true), Some(class), false, None);
             assert!(c.is_jvm);
             assert_eq!(c.toolkit, Some(toolkit), "class {class}");
             assert_eq!(c.native_a11y_visible, None, "no eager probe for {class}");
         }
     }
 
+    // The agent-presence signal: reported for JVM windows, and never invented
+    // for a window that is not one.
+    #[test]
+    fn agent_presence_is_reported_only_for_jvm_windows() {
+        let with_agent = classify_from_signals(Some(true), Some("SunAwtFrame"), false, Some(true));
+        assert_eq!(with_agent.agent_present, Some(true));
+
+        let without_agent = classify_from_signals(Some(true), Some("SunAwtFrame"), false, Some(false));
+        assert_eq!(without_agent.agent_present, Some(false), "\"no agent here\" is a fact worth reporting");
+
+        let not_probed = classify_from_signals(Some(true), Some("SunAwtFrame"), false, None);
+        assert_eq!(not_probed.agent_present, None, "an unavailable probe must not read as \"no agent\"");
+
+        let not_a_jvm = classify_from_signals(Some(false), Some("Notepad"), false, Some(false));
+        assert_eq!(not_a_jvm.agent_present, None, "a fact about nothing is not a fact");
+    }
+
     #[test]
     fn no_toolkit_discriminator_yields_unknown_with_jvm_still_set() {
-        let c = classify_from_signals(Some(true), Some("Chrome_WidgetWin_1"), false);
+        let c = classify_from_signals(Some(true), Some("Chrome_WidgetWin_1"), false, None);
         assert!(c.is_jvm, "the JVM signal must survive an unmatched window class");
         assert_eq!(c.toolkit, Some(JavaToolkit::Unknown), "the toolkit must not be guessed");
         assert_eq!(c.native_a11y_visible, None);
 
-        let c = classify_from_signals(Some(true), None, false);
+        let c = classify_from_signals(Some(true), None, false, None);
         assert!(c.is_jvm);
         assert_eq!(c.toolkit, Some(JavaToolkit::Unknown));
     }
 
     #[test]
     fn non_jvm_window_is_not_misclassified() {
-        let c = classify_from_signals(Some(false), Some("Notepad"), false);
+        let c = classify_from_signals(Some(false), Some("Notepad"), false, None);
         assert!(!c.is_jvm);
         assert_eq!(c.toolkit, None);
         assert_eq!(c.native_a11y_visible, None);
@@ -271,14 +309,14 @@ mod tests {
     #[test]
     fn java_window_class_implies_jvm_when_module_scan_is_unavailable() {
         // Elevated targets deny the module scan; the class keeps working.
-        let c = classify_from_signals(None, Some("SunAwtFrame"), false);
+        let c = classify_from_signals(None, Some("SunAwtFrame"), false, None);
         assert!(c.is_jvm);
         assert_eq!(c.toolkit, Some(JavaToolkit::SwingAwt));
     }
 
     #[test]
     fn unknown_signals_classify_as_not_jvm() {
-        let c = classify_from_signals(None, None, false);
+        let c = classify_from_signals(None, None, false, None);
         assert!(!c.is_jvm);
         assert_eq!(c.toolkit, None);
         assert_eq!(c.native_a11y_visible, None);

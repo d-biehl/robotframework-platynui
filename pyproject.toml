@@ -38,7 +38,15 @@ dependencies = [
 [project.optional-dependencies]
 cli = ["platynui-cli==0.13.0-dev.2"]
 inspector = ["platynui-inspector==0.13.0-dev.2"]
-all = ["platynui-cli==0.13.0-dev.2", "platynui-inspector==0.13.0-dev.2"]
+# Java UI toolkit support. Installing this extra is the consent for in-JVM
+# instrumentation; pinned exactly because an agent cannot be unloaded from a JVM,
+# so a version mismatch has exactly one remedy — restart the application.
+java = ["platynui-provider-java==0.13.0-dev.2"]
+all = [
+    "platynui-cli==0.13.0-dev.2",
+    "platynui-inspector==0.13.0-dev.2",
+    "platynui-provider-java==0.13.0-dev.2",
+]
 
 [project.urls]
 Homepage = "https://github.com/imbus/robotframework-PlatynUI"
@@ -59,6 +67,7 @@ module-name = "PlatynUI"
 platynui-native = { workspace = true }
 platynui-cli = { workspace = true }
 platynui-inspector = { workspace = true }
+platynui-provider-java = { workspace = true }
 
 [tool.uv.workspace]
 members = ["packages/*"]
@@ -240,6 +249,7 @@ files = [
     "src",
     "packages/native/python",
     "packages/native/tests",
+    "packages/provider-java/src",
     "tests",
 ]
 exclude = [

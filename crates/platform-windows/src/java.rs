@@ -13,6 +13,11 @@
 //! - **native accessibility**: only the free signal — the process-wide window
 //!   claim (the JAB provider claims exactly the windows `isJavaWindow`
 //!   acknowledged). No eager UIA probe, by design.
+//! - **agent present**: the PlatynUI agent's per-user handshake file for that
+//!   pid (`platynui-java-agent`). Probed only for windows already classified as
+//!   JVM, and it is one `stat` on one exact path — never a directory scan, and
+//!   never a connection. Reading the signal must not instrument anything; that
+//!   is the consuming provider's decision, not the classifier's.
 
 #![allow(unsafe_code)]
 
@@ -72,7 +77,13 @@ impl JavaClassifier for WindowsJavaClassifier {
         let class_name = window_class_name(window)?;
         let jvm_runtime = self.jvm_runtime_loaded(pid);
         let claimed = window_claims::is_claimed(window.raw());
-        Ok(classify_from_signals(jvm_runtime, class_name.as_deref(), claimed))
+        // Probe only where the answer means something. A non-JVM window is the
+        // overwhelmingly common case in a desktop enumeration, and it must not
+        // pay for a Java question.
+        let looks_like_a_jvm = jvm_runtime == Some(true)
+            || class_name.as_deref().and_then(platynui_core::platform::java::JavaToolkit::from_window_class).is_some();
+        let agent_present = looks_like_a_jvm.then(|| platynui_java_agent::handshake::agent_present(pid));
+        Ok(classify_from_signals(jvm_runtime, class_name.as_deref(), claimed, agent_present))
     }
 }
 

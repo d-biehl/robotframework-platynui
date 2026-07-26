@@ -1,8 +1,9 @@
 [workspace]
 members = ["crates/*", "apps/*", "packages/*"]
 # apps/test-app-qt is a Python (PySide6) test fixture and apps/test-app-swing a
-# Java (Swing) test fixture — neither is a Cargo crate.
-exclude = ["apps/test-app-qt", "apps/test-app-qml", "apps/test-app-swing"]
+# Java (Swing) test fixture — neither is a Cargo crate. packages/provider-java
+# is pure data: a wheel carrying the Java agent JAR, with no Rust in it.
+exclude = ["apps/test-app-qt", "apps/test-app-qml", "apps/test-app-swing", "packages/provider-java"]
 default-members = ["crates/playground"]
 resolver = "3"
 

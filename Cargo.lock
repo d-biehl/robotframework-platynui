@@ -3639,6 +3639,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "platynui-java-agent"
+version = "0.13.0-dev.2"
+dependencies = [
+ "rustix 1.1.4",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+ "windows",
+]
+
+[[package]]
 name = "platynui-link"
 version = "0.13.0-dev.2"
 
@@ -3704,6 +3717,7 @@ version = "0.13.0-dev.2"
 dependencies = [
  "inventory",
  "platynui-core",
+ "platynui-java-agent",
  "tracing",
  "windows",
 ]
@@ -3735,6 +3749,7 @@ dependencies = [
  "inventory",
  "libloading 0.9.0",
  "platynui-core",
+ "platynui-java-agent",
  "platynui-platform-windows",
  "platynui-provider-windows-uia",
  "sysinfo",

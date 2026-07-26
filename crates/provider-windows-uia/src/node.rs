@@ -321,6 +321,12 @@ impl UiaNode {
                 value: UiValue::from(reachable),
             }));
         }
+        if let Some(agent_present) = classification.agent_present {
+            attrs.push(Arc::new(NativePropAttr {
+                name: java::JVM_AGENT_PRESENT_ATTRIBUTE.into(),
+                value: UiValue::from(agent_present),
+            }));
+        }
         attrs
     }
 
@@ -476,7 +482,10 @@ impl UiNode for UiaNode {
                 // JVM classification facts live outside the UIA property set.
                 if matches!(
                     name,
-                    java::IS_JVM_ATTRIBUTE | java::JVM_TOOLKIT_ATTRIBUTE | java::JVM_ACCESSIBILITY_REACHABLE_ATTRIBUTE
+                    java::IS_JVM_ATTRIBUTE
+                        | java::JVM_TOOLKIT_ATTRIBUTE
+                        | java::JVM_ACCESSIBILITY_REACHABLE_ATTRIBUTE
+                        | java::JVM_AGENT_PRESENT_ATTRIBUTE
                 ) {
                     return self.jvm_attributes().into_iter().find(|attr| attr.name() == name);
                 }

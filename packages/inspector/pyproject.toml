@@ -19,6 +19,12 @@ readme = "README.md"
 authors = [{ name = "Daniel Biehl", email = "daniel.biehl@imbus.de" }]
 requires-python = ">=3.12"
 
+[project.optional-dependencies]
+# Looking into a running Java application needs the agent artifact. Same exact
+# pin as the main package: the Inspector and a test run may be connected to the
+# same JVM, and only one agent version can be in it.
+java = ["platynui-provider-java==0.13.0-dev.2"]
+
 [project.urls]
 Homepage = "https://github.com/imbus/robotframework-PlatynUI"
 Documentation = "https://github.com/imbus/robotframework-PlatynUI#readme"
