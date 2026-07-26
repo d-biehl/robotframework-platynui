@@ -3,19 +3,17 @@
 ## Purpose
 
 The `jab-provider` capability exposes Java Swing/AWT UI trees on Windows to PlatynUI through the Java Access Bridge (JAB), strictly out-of-process: it reads the JDK-owned `WindowsAccessBridge-64.dll` client and never loads code into, or mutates the configuration of, target JVMs. It surfaces Java top-level windows and their accessibility subtrees as normal PlatynUI nodes (normalized roles, standard attributes, interaction patterns, and window capabilities), coexisting with the UIA provider so a Java window appears exactly once in the merged desktop tree.
-
 ## Requirements
-
 ### Requirement: Provider registration and inert absence
-The JAB provider SHALL register on Windows builds via the inventory mechanism like other OS providers, and SHALL be inert — yielding no nodes and failing nothing — when `WindowsAccessBridge-64.dll` cannot be discovered or `providers.jab.enabled` is false. Runtime construction MUST NOT fail because of JAB availability.
+The JAB functionality SHALL be provided as a backend of the single Java provider (`java-provider`), not as an independently registered provider. It SHALL be inert — yielding no nodes and failing nothing — when `WindowsAccessBridge-64.dll` cannot be discovered, or `providers.java.enabled` is false, or `providers.java.jab.enabled` is false. Runtime construction MUST NOT fail because of JAB availability. All other JAB behavior (tree exposure, roles, attributes, patterns, handle hygiene, robustness, diagnostics) is unchanged by the backend refactor.
 
 #### Scenario: Runtime without a JDK on the machine
 - **WHEN** a runtime is created on Windows with no discoverable JAB client DLL
-- **THEN** the runtime comes up normally, the JAB provider contributes no children, and exactly one actionable diagnostic (discovery paths tried) is logged
+- **THEN** the runtime comes up normally, the JAB backend contributes no children, and exactly one actionable diagnostic (discovery paths tried) is logged
 
 #### Scenario: Kill switch
-- **WHEN** `providers.jab.enabled` is set to `false`
-- **THEN** the provider performs no DLL loading and contributes no nodes
+- **WHEN** `providers.java.jab.enabled` is set to `false`
+- **THEN** the backend performs no DLL loading and contributes no nodes
 
 ### Requirement: Java top-level window discovery
 The provider SHALL discover Java top-level windows via `EnumWindows` + `isJavaWindow` and expose each as a `control:Window` (dialogs as `Dialog`) under the desktop, with `Technology` reported as "JAB", plus `app:Application` grouping by process id. (All scenarios in this spec are real-provider-only: they require a live JVM with the bridge enabled and run in the Windows acceptance lane against the Swing fixture app.)
@@ -85,21 +83,21 @@ Every `AccessibleContext` (and any other `JOBJECT64`) obtained from JAB SHALL be
 - **THEN** every walk returns the same structure and the target JVM keeps responding normally (leak regression guard)
 
 ### Requirement: Robustness against unresponsive JVMs
-JAB calls SHALL run on the provider's dedicated pump thread with a per-call deadline (`providers.jab.call_timeout_ms`); a timeout SHALL surface as a provider error for the affected node only, and repeated timeouts SHALL mark that `vmID` degraded (skipped until a health probe succeeds). Other providers and the runtime MUST remain responsive throughout.
+JAB calls SHALL run on the backend's dedicated pump thread with a per-call deadline (`providers.java.jab.call_timeout_ms`); a timeout SHALL surface as a provider error for the affected node only, and repeated timeouts SHALL mark that `vmID` degraded (skipped until a health probe succeeds). Other providers and the runtime MUST remain responsive throughout. The behavior is unchanged by the backend refactor — only the configuration key moves into the `providers.java.jab.*` namespace.
 
 #### Scenario: Frozen JVM does not freeze the runtime
 - **WHEN** the fixture app's event-dispatch thread is suspended and a query touches its tree
 - **THEN** the query returns (with errors or without JAB results) within the configured deadline margin, and a concurrent UIA query completes normally
 
 ### Requirement: Enablement diagnostics without configuration mutation
-When a top-level window's class name starts with `SunAwt` but `isJavaWindow` reports false, the provider SHALL log one actionable diagnostic per window naming both enablement paths (the `-Djavax.accessibility.assistive_technologies` launch flag and `jabswitch`). The provider SHALL NOT write `.accessibility.properties`, registry keys, or any other target-side configuration.
+When a top-level window's class name starts with `SunAwt` but `isJavaWindow` reports false, the JAB backend SHALL report that window as one it cannot serve, and the Java provider SHALL log one actionable diagnostic per window naming both enablement paths (the `-Djavax.accessibility.assistive_technologies` launch flag and `jabswitch`) for every such window no backend serves. Neither SHALL write `.accessibility.properties`, registry keys, or any other target-side configuration. The observable behavior is unchanged by the backend refactor — only the emitter moves, because whether a window is truly unreachable is a question only the provider that knows all backends can answer.
 
 #### Scenario: Bridge not enabled
 - **WHEN** the fixture app runs without the enablement flag and the desktop is queried
 - **THEN** the diagnostic is logged exactly once for that window and no file or registry mutation occurs
 
 ### Requirement: Single appearance of Java windows
-When the JAB provider has claimed a Java top-level window (successful `GetAccessibleContextFromHWND`), the merged desktop tree SHALL show that window exactly once: the UIA provider skips claimed windows (config `providers.windows-uia.honor_window_claims`, default true — keyed by the UIA provider's id per the config convention). With the kill switch off, both representations MAY appear and remain distinguishable via `@Technology`.
+When the Java provider has claimed a Java top-level window through its JAB backend (successful `GetAccessibleContextFromHWND`), the merged desktop tree SHALL show that window exactly once: the UIA provider skips claimed windows (config `providers.windows-uia.honor_window_claims`, default true — keyed by the UIA provider's id per the config convention). With the kill switch off, both representations MAY appear and remain distinguishable via `@Technology`.
 
 #### Scenario: No duplicates in the merged tree
 - **WHEN** the fixture app runs with the bridge enabled and claims are honored

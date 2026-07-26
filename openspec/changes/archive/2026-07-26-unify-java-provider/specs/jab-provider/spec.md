@@ -11,6 +11,13 @@ The JAB functionality SHALL be provided as a backend of the single Java provider
 - **WHEN** `providers.java.jab.enabled` is set to `false`
 - **THEN** the backend performs no DLL loading and contributes no nodes
 
+### Requirement: Enablement diagnostics without configuration mutation
+When a top-level window's class name starts with `SunAwt` but `isJavaWindow` reports false, the JAB backend SHALL report that window as one it cannot serve, and the Java provider SHALL log one actionable diagnostic per window naming both enablement paths (the `-Djavax.accessibility.assistive_technologies` launch flag and `jabswitch`) for every such window no backend serves. Neither SHALL write `.accessibility.properties`, registry keys, or any other target-side configuration. The observable behavior is unchanged by the backend refactor — only the emitter moves, because whether a window is truly unreachable is a question only the provider that knows all backends can answer.
+
+#### Scenario: Bridge not enabled
+- **WHEN** the fixture app runs without the enablement flag and the desktop is queried
+- **THEN** the diagnostic is logged exactly once for that window and no file or registry mutation occurs
+
 ### Requirement: Robustness against unresponsive JVMs
 JAB calls SHALL run on the backend's dedicated pump thread with a per-call deadline (`providers.java.jab.call_timeout_ms`); a timeout SHALL surface as a provider error for the affected node only, and repeated timeouts SHALL mark that `vmID` degraded (skipped until a health probe succeeds). Other providers and the runtime MUST remain responsive throughout. The behavior is unchanged by the backend refactor — only the configuration key moves into the `providers.java.jab.*` namespace.
 

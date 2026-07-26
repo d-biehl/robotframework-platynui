@@ -3,9 +3,7 @@
 ## Purpose
 
 The `jab-hit-test` capability provides point-based hit-testing of Java Swing/AWT windows on Windows through the Java Access Bridge: `element_at_point` on the JAB provider resolves the deepest accessible node under a desktop point, with a reveal-ready ancestor chain for the Inspector picker, single-provider arbitration so a claimed Java window resolves to its JAB node rather than the UIA shell, and bounded behavior against unresponsive JVMs.
-
 ## Requirements
-
 ### Requirement: Point-based hit-testing of Java windows
 The JAB provider SHALL implement `element_at_point`: for a desktop point over a Java top-level window (resolved via `WindowFromPoint` → root owner → `isJavaWindow`), it SHALL return the deepest accessible node at that point using the bridge's native hit-test (`getAccessibleContextAt`), as a `control:`/`item:` node with `@Technology = "JAB"`. Because the JDK's native hit-test answers null for every point until the target JVM has observed a mouse event (`EventQueueMonitor.currentMousePosition`), the provider SHALL fall back to a bounded geometric descent over calibrated child bounds when the bridge reports no context, and SHALL resolve a point over the window but outside every child (frame area) to the window node itself. For a point not over a Java window (or over the host process's own window) it SHALL report `UnsupportedOperation` (or no hit for its own process) so other providers handle the point. (Real-provider-only: requires a live JVM with the bridge enabled; runs in the Windows acceptance lane against the Swing fixture app.)
 
@@ -25,7 +23,7 @@ A node returned by JAB hit-testing SHALL carry the same `RuntimeId` that top-dow
 - **THEN** both carry the identical `RuntimeId`, and the picked node's ancestors resolve up to the `app:Application` node for the fixture's PID
 
 ### Requirement: Single appearance under hit-testing
-When the JAB provider has claimed a Java top-level window, a point over that window SHALL resolve to the JAB node, not the UIA shell, regardless of provider order: the UIA provider SHALL abstain from `element_at_point` for windows claimed by another provider (config `providers.windows-uia.honor_window_claims`, default true). With the kill switch off, UIA MAY resolve the shell.
+When the Java provider has claimed a Java top-level window through its JAB backend, a point over that window SHALL resolve to the JAB node, not the UIA shell, regardless of provider order: the UIA provider SHALL abstain from `element_at_point` for windows claimed by another provider (config `providers.windows-uia.honor_window_claims`, default true). With the kill switch off, UIA MAY resolve the shell. The Java provider SHALL route a point to the first backend that does not abstain, and SHALL pass the abstention on when no backend answers, so a point over a window it does not claim falls through to the platform's native provider exactly as before.
 
 #### Scenario: Claimed Java window resolves to the JAB node
 - **WHEN** the fixture app runs with the bridge enabled and claims are honored, and a point inside its window is hit-tested
@@ -36,7 +34,7 @@ When the JAB provider has claimed a Java top-level window, a point over that win
 - **THEN** the UIA provider resolves an element for that window (the shell), distinguishable via `@Technology`
 
 ### Requirement: Bounded hit-testing against unresponsive JVMs
-JAB hit-testing SHALL run on the provider's pump thread under the per-call deadline (`providers.jab.call_timeout_ms`); a hit-test against an unresponsive JVM SHALL return within the deadline margin as a provider error, and MUST NOT hang the runtime or other providers.
+JAB hit-testing SHALL run on the backend's pump thread under the per-call deadline (`providers.java.jab.call_timeout_ms`); a hit-test against an unresponsive JVM SHALL return within the deadline margin as a provider error, and MUST NOT hang the runtime or other providers. The behavior is unchanged by the backend refactor — only the configuration key moves into the `providers.java.jab.*` namespace.
 
 #### Scenario: Frozen JVM does not hang the picker
 - **WHEN** the fixture app's event-dispatch thread is suspended and a point over its window is hit-tested

@@ -20,7 +20,7 @@ Preparation refactor for the Java agent lane: `provider-java-swing` (and the `-j
 
 ## Decisions (proposed)
 
-1. **Umbrella = router over a backend trait.** `provider-java` implements the UiTree-provider surface and delegates per top-level window to a backend. The trait mirrors what a provider already does per window (discover/claim candidates, serve subtree, patterns, degraded tracking) so the JAB code wraps without restructuring — `provider-jab` keeps its internals (pump thread, handle hygiene, role mapping) and loses only its independent registration. `@Technology` stays backend-specific (`"JAB"`), so locators and the Inspector see no difference.
+1. **Umbrella = router over a backend trait.** `provider-java` implements the UiTree-provider surface and delegates per top-level window to a backend. The trait mirrors what a provider already does per window (discover/claim candidates, serve subtree, patterns, degraded tracking) so the JAB code wraps without restructuring — the JAB crate (renamed `provider-java-jab`) keeps its internals (pump thread, handle hygiene, role mapping) and loses only its independent registration. `@Technology` stays backend-specific (`"JAB"`), so locators and the Inspector see no difference.
 
 2. **Single claimant, boolean claims (the point of the whole change).** The claim rule is **"claim a window when one of the backends can serve it"**. Today the only backend is JAB, so the claimed set is exactly what the JAB provider claims now (`GetAccessibleContextFromHWND` success) and behavior is unchanged; UIA's `honor_window_claims` behavior is untouched. Stating the rule in its general form matters, because the backends do **not** all cover the same windows: JAB speaks `javax.accessibility`, which only Swing/AWT implements, so an SWT or JavaFX window has no JAB fallback at all — without an agent those windows are simply **not claimed** and stay with the native provider (UIA on Windows, AT-SPI on Linux). "What JAB can see" is therefore today's *extent* of the rule, not the rule itself.
 
@@ -39,7 +39,7 @@ Preparation refactor for the Java agent lane: `provider-java-swing` (and the `-j
 ## Risks / Trade-offs
 
 - [Refactor regression in JAB behavior] → the backend trait wraps rather than restructures; the Windows acceptance lane against the Swing fixture is the gate and must pass unchanged.
-- [Config rename breaks existing setups] → accepted (alpha); the rename is loud in the changelog and the old keys fail with a clear unknown-key diagnostic rather than being silently ignored.
+- [Config rename breaks existing setups] → accepted, and cheaper than assumed: pre-1.0 with no public release, so no setup exists that reads the old keys. The rename is loud in the changelog; the old section needs neither an alias nor a migration diagnostic, and the config layer ignores it like any other unclaimed section.
 - [Trait shaped too narrowly for the agent backend] → the agent lane's design (multi-client RPC, degraded tracking mirroring JAB's, node validity) was written against the same provider surface; `java-agent-core`'s walking skeleton exercises it before the backend lands.
 
 ## Migration Plan

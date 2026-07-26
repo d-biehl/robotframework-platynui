@@ -4,7 +4,7 @@ Java support is currently wired as independent pieces: the JAB provider register
 
 ## What Changes
 
-- **New crate `crates/provider-java`** (crate name `platynui-provider-java`): the single registered Java provider — a thin router over toolkit **backends** behind a backend trait. `provider-jab` becomes a library crate wrapped as the first backend; all JAB behavior (tree, roles, patterns, pump thread, diagnostics, `@Technology = "JAB"`) is **unchanged**.
+- **New crate `crates/provider-java`** (crate name `platynui-provider-java`): the single registered Java provider — a thin router over toolkit **backends** behind a backend trait. `provider-jab` becomes a library crate, renamed `crates/provider-java-jab`, wrapped as the first backend; all JAB behavior (tree, roles, patterns, pump thread, diagnostics, `@Technology = "JAB"`) is **unchanged**.
 - **Claims stay boolean**: `provider-java` is the sole Java claimant; the UIA provider's `honor_window_claims` logic is untouched. No rank machinery, now or later — a second backend changes which backend serves a claimed window, never who claims it.
 - **Classifier consumption centralizes**: routing decisions that consume `java-app-classification` move into `provider-java`. Detection itself (`native:IsJvm` etc. + the enablement diagnostic) deliberately **stays in the platform layer** — it is the breadcrumb that tells a user *why* a Java window is empty and *that* a remedy exists, and must therefore work when no Java provider is active.
 - **Config namespace migration**: all three JAB keys (`enabled`, `call_timeout_ms`, `dll_path`) move from `providers.jab.*` to `providers.java.jab.*`, plus a new umbrella switch `providers.java.enabled`; room is reserved for `providers.java.agent.*` (the agent backend's keys land with `provider-java-swing`). The rename includes the user-visible DLL-discovery error message.
@@ -23,6 +23,6 @@ Java support is currently wired as independent pieces: the JAB provider register
 
 ## Impact
 
-- **New**: `crates/provider-java`. **Modified**: `crates/provider-jab` (becomes a library backend; registration removed), runtime provider registration, config handling (**BREAKING** config-key rename `providers.jab.*` → `providers.java.jab.*` — pre-1.0, no compatibility aliases), docs/AGENTS pointers where providers are listed.
+- **New**: `crates/provider-java`. **Modified**: `crates/provider-jab` → `crates/provider-java-jab` (becomes a library backend; registration removed, crate renamed so the backend family is visible), runtime provider registration, config handling (**BREAKING** config-key rename `providers.jab.*` → `providers.java.jab.*` — pre-1.0, no compatibility aliases), docs/AGENTS pointers where providers are listed.
 - **No behavior change** to trees, locators, claims, or diagnostics; `just build-native` required as usual.
 - **Depends on**: nothing open (`java-app-classifier` is archived/landed). **Unblocks**: `provider-java-swing`, which then adds the agent as a second backend instead of a second provider and drops its rank-based-claims design entirely; likewise simplifies the `provider-java-swt`/`-javafx` follow-ups.
