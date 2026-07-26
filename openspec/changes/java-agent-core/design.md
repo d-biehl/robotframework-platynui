@@ -92,9 +92,26 @@ The consent/fidelity axis is why the agent coexists with the native providers ra
 | 8 | Quiescence | inactive ⇒ no Java-related activity at all; never a JVM/JDK/`jattach` on the host |
 | 9 | Build & delivery | Gradle product project; own **`platynui-provider-java`** wheel, exact-pinned `[java]` extras, opt-in-by-install; discovery via **`platynui.providers`**; no embedded libpython |
 
-## Verification items (approach decided; mechanics to confirm)
+## Verification results (walking skeleton, task 1.3/1.4)
 
-- **Attach protocol** (5): the native Rust attach against a running JVM on each OS, incl. the `unsafe` Windows `CreateRemoteThread` leg and its review; and whether `-XX:+EnableDynamicAgentLoading` via `JAVA_TOOL_OPTIONS` works without touching the launch command.
-- **Concurrency** (7): two client connections (Inspector + test run) against one agent; the deadline abandons a wedged toolkit-thread job cleanly.
-- **Multiple targets** (1a): handshake-file discovery across two concurrent JVMs — distinct ports/tokens, correct PID mapping, stale-file cleanup after a killed JVM.
-- **Packaging** (9): agent `-target 8` in the wheel; discovery over both transports; the exact-version handshake refuses a stale agent with an actionable diagnostic.
+Everything below was **measured**, on Windows 11 against the Swing fixture, on
+both Temurin 8 (the fixture's default runtime) and Temurin 21.
+
+- **Attach protocol** (5): the native Rust attach loads the agent into a running JVM on both runtimes. The `unsafe` Windows leg works as designed — `VirtualAllocEx` + an injected x86-64 stub + `CreateRemoteThread` into `JVM_EnqueueOperation`, reply over a client-created overlapped named pipe with a deadline on every wait. **No jattach vendoring needed**; the escape hatch stays unused. Two limits found and reported loudly rather than worked around: only x86-64 targets (a 32-bit or ARM64 target needs its own stub encoding), and a 32-bit JVM cannot be inspected from a 64-bit process (`LoadLibraryEx` of its `jvm.dll` fails) — both fall back to `-javaagent` with a named diagnostic.
+- **Wire-dialect surprise** (new): the `load` reply differs by JDK. Java 8 answers a bare integer, JDK 21 answers `return code: 0`. The first implementation only parsed the Java 8 form and rejected a *successful* JDK 21 attach as a protocol error. Both dialects are parsed now, and an unrecognised body is treated as a refusal message rather than as success — the JDK's own client does the same.
+- **JEP 451** (5): confirmed on JDK 21.0.11, and more precisely than assumed. `JAVA_TOOL_OPTIONS` **does** control `EnableDynamicAgentLoading` — proven by `-XX:-EnableDynamicAgentLoading` blocking the attach — so the sunset is remediable per environment without touching the launch command, which is the load-bearing claim. But `-XX:+EnableDynamicAgentLoading` only *suppresses the warning* when it is on the real command line; via `JAVA_TOOL_OPTIONS` the warning still prints. That is a cosmetic difference and arguably a feature (risk register: the warning makes a dynamic load visible in the target's log). A blocked load surfaces as **agent-refused**, distinct from attach-failed, carrying the target's own remedy text. Table in [`dev-docs/java-toolkits.md`](../../../dev-docs/java-toolkits.md).
+- **Handshake file** (1a): the Windows "user-restricted ACL" is real, not inherited luck — verified by creating the directory under a parent granting `Everyone` full control (result: a single non-inherited ACE for the owner) and by loosening an existing directory and restarting the agent (result: re-hardened). Hardening therefore runs on **every** start, not only on creation.
+- **Multiple targets** (1a): two concurrent JVMs publish distinct ports and tokens, each client reaches the JVM its file named, and a killed JVM's file is ignored (pid gone) and cleanable.
+- **Concurrency** (7): two clients served simultaneously by one agent, interleaved, neither blocking the other. The agent-side deadline is covered by a JUnit test that wedges a stand-in toolkit thread: the caller returns at its deadline, the job is abandoned **without being interrupted** (interrupting a toolkit thread mid-paint is how an observer breaks the application it observes), and the agent serves again once the thread recovers.
+- **Packaging** (9): `-target 8` bytecode (class file major version 52) confirmed in the JAR; the `py3-none-any` wheel carries the JAR and both entry points; discovery verified end-to-end by installing the real wheel into a throwaway virtual environment and resolving it through the environment's own interpreter, with the `agent-path` command agreeing.
+
+**Refinements folded back into §§2–5:**
+
+- The toolkit set is legitimately **empty right after a `-javaagent` injection** — the agent runs before the application loads a toolkit class. Detection therefore re-runs (a short backoff watcher, then on demand per `agent/info`) and the handshake file is republished when the set changes. Detection reads `Instrumentation.getAllLoadedClasses()` rather than probing the toolkits, because `Toolkit.getDefaultToolkit()` would *initialise* AWT in an application that never had it.
+- A toolkit appearing is the first real producer of the **UI-generation counter**: it is a structural change, and it tells a client connected before the window existed that its view is stale.
+- The **Unix attach leg** is implemented and cross-compiled clean for `x86_64-unknown-linux-gnu`, but has **not** been run against a live JVM — no Linux session was available. It is the change's one unverified path; the Linux lane in `provider-java-swing` is where it gets exercised.
+
+## Verification items still open
+
+- Live Unix/macOS attach against a real JVM (see above).
+- A wedged toolkit thread end-to-end over the wire — needs a real toolkit dispatcher, which arrives with the first adapter (`provider-java-swing`). The neutral runtime has no toolkit thread to wedge.
