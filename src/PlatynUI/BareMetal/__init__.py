@@ -991,12 +991,17 @@ class BareMetal(OurDynamicCore):
         ctx = EXECUTION_CONTEXTS.current
         if ctx is None:
             return None
-        libraries = getattr(getattr(ctx.namespace, '_kw_store', None), 'libraries', None)
+        # Robot Framework ships no type information, so every attribute read below is
+        # untyped. Pin the namespace to `object` once: that stops the unknown type from
+        # propagating into each getattr() call, and forces the narrowing to be explicit.
+        namespace = cast(object, ctx.namespace)
+        kw_store: object = getattr(namespace, '_kw_store', None)
+        libraries = cast('dict[str, object] | None', getattr(kw_store, 'libraries', None))
         if not libraries:
             return None
-        for name, lib in libraries.items():  # pyright: ignore[reportUnknownVariableType]
+        for name, lib in libraries.items():
             if getattr(lib, 'code', None) is type(self) and getattr(lib, '_instance', None) is self:
-                return cast(str, name)
+                return name
         return None
 
     def _variable_suffix(self) -> str:
