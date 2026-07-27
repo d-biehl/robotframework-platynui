@@ -761,9 +761,10 @@ pub(crate) fn hit_test_node(
     hwnd: isize,
     pid: u32,
     hit: JabObject,
+    exclusions: Option<Arc<dyn crate::provider::WindowExclusions>>,
 ) -> Arc<dyn UiNode> {
     let scope = IdScope::App { pid };
-    let app: Arc<dyn UiNode> = JabAppNode::orphan(pid, Arc::clone(client), window_manager.clone());
+    let app: Arc<dyn UiNode> = JabAppNode::orphan(pid, Arc::clone(client), window_manager.clone(), exclusions);
     let window =
         JabNode::new_window(Arc::clone(client), window_manager.clone(), vm, window_ctx, hwnd, scope, Some(&app));
     window.hold_parent(app);
@@ -1272,6 +1273,10 @@ pub(crate) struct JabAppNode {
     pid: u32,
     client: Arc<JabClient>,
     window_manager: Option<Arc<dyn WindowManager>>,
+    /// Carried rather than snapshot: [`Self::children`] runs long after the
+    /// enumeration pass that produced this node, so the answer to "does another
+    /// backend serve this window?" has to be asked fresh each time.
+    exclusions: Option<Arc<dyn crate::provider::WindowExclusions>>,
     parent: Mutex<Option<Weak<dyn UiNode>>>,
     self_weak: OnceLock<Weak<dyn UiNode>>,
     runtime_id: OnceLock<RuntimeId>,
@@ -1283,9 +1288,10 @@ impl JabAppNode {
         pid: u32,
         client: Arc<JabClient>,
         window_manager: Option<Arc<dyn WindowManager>>,
+        exclusions: Option<Arc<dyn crate::provider::WindowExclusions>>,
         parent: &Arc<dyn UiNode>,
     ) -> Arc<Self> {
-        Self::build(pid, client, window_manager, Some(parent))
+        Self::build(pid, client, window_manager, exclusions, Some(parent))
     }
 
     /// App node without a parent, capping an off-tree hit-test chain (see
@@ -1294,20 +1300,23 @@ impl JabAppNode {
         pid: u32,
         client: Arc<JabClient>,
         window_manager: Option<Arc<dyn WindowManager>>,
+        exclusions: Option<Arc<dyn crate::provider::WindowExclusions>>,
     ) -> Arc<Self> {
-        Self::build(pid, client, window_manager, None)
+        Self::build(pid, client, window_manager, exclusions, None)
     }
 
     fn build(
         pid: u32,
         client: Arc<JabClient>,
         window_manager: Option<Arc<dyn WindowManager>>,
+        exclusions: Option<Arc<dyn crate::provider::WindowExclusions>>,
         parent: Option<&Arc<dyn UiNode>>,
     ) -> Arc<Self> {
         let node = Arc::new(Self {
             pid,
             client,
             window_manager,
+            exclusions,
             parent: Mutex::new(parent.map(Arc::downgrade)),
             self_weak: OnceLock::new(),
             runtime_id: OnceLock::new(),
@@ -1350,7 +1359,7 @@ impl UiNode for JabAppNode {
     fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
         let parent = self.self_weak.get().and_then(Weak::upgrade);
         let scope = IdScope::App { pid: self.pid };
-        let windows = crate::provider::java_windows(&self.client, Some(self.pid));
+        let windows = crate::provider::java_windows(&self.client, Some(self.pid), self.exclusions.as_deref());
         let client = Arc::clone(&self.client);
         let window_manager = self.window_manager.clone();
         Box::new(windows.into_iter().map(move |window| {

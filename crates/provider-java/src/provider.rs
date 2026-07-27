@@ -5,20 +5,27 @@
 //! | Key | Default | Effect |
 //! |---|---|---|
 //! | `providers.java.enabled` | `true` | Umbrella kill switch: off means no backend is built at all, and Java windows are served by the platform's native provider |
+//! | `providers.java.agent.enabled` | `true` | The in-JVM agent backend's kill switch |
+//! | `providers.java.agent.auto_attach` | `true` | Inject the agent into a Java window's JVM that carries none. On by default: attaching to an application somebody else launched is the normal path, and the deliberate consent is installing the agent package. `false` limits the backend to `-javaagent`-launched targets |
+//! | `providers.java.agent.jar` | discovery | Explicit `platynui-agent.jar` |
+//! | `providers.java.agent.call_timeout_ms` | `5000` | Per-call deadline on the agent connection |
 //! | `providers.java.jab.enabled` | `true` | The JAB backend's kill switch; it then loads no DLL and contributes nothing, leaving the umbrella and other backends alone |
 //! | `providers.java.jab.dll_path` | discovery | Explicit `WindowsAccessBridge-64.dll` |
 //! | `providers.java.jab.call_timeout_ms` | `2000` | Per-call deadline on the JAB pump thread |
 //!
-//! `providers.java.agent.*` is reserved for the in-JVM agent backend and lands
-//! with the `provider-java-swing` change. Each backend reads only its own
-//! sub-map; the provider resolves the namespace and hands the sub-map down.
+//! Each backend reads only its own sub-map; the provider resolves the namespace
+//! and hands the sub-map down. **These flags are the entire user-facing surface
+//! of backend selection** — there is no attach or connect keyword, and no CLI
+//! subcommand: which backend serves a window follows from whether that JVM has
+//! an agent, which is the router's business and not the user's.
 //!
 //! The pre-`unify-java-provider` spelling `providers.jab.*` is simply gone —
 //! not aliased and not diagnosed. The config layer ignores sections nobody
 //! claims, which is the right answer here: there is no released version that
 //! ever read those keys.
 
-use crate::backend::JavaBackend;
+use crate::agent::AgentBackend;
+use crate::backend::{BackendOwnership, JavaBackend};
 use crate::jab::JabBackend;
 use platynui_core::config::RuntimeConfig;
 use platynui_core::platform::{WindowManager, window_claims};
@@ -59,34 +66,87 @@ impl UiTreeProviderFactory for JavaFactory {
 impl JavaFactory {
     /// Build a concrete provider from `config` — split out from `create` so
     /// the config wiring is unit-testable without a live backend.
+    ///
+    /// **The order of the backends is their preference order**, strongest first:
+    /// the router hands each one the windows the stronger ones did not take, so
+    /// "prefer the agent over the Access Bridge" is expressed by pushing the
+    /// agent backend first and by nothing else.
     fn build(config: &RuntimeConfig) -> JavaProvider {
         let settings = config.provider(PROVIDER_ID);
+        let ownership = Arc::new(BackendOwnership::default());
         let mut backends: Vec<Box<dyn JavaBackend>> = Vec::new();
+        let mut agent: Option<Arc<AgentBackend>> = None;
         // Umbrella off: build nothing at all, so no backend can load anything
         // and Java windows stay with the platform's native provider.
         if settings.and_then(|java| java.get_bool(ENABLED_KEY)).unwrap_or(true) {
+            // The agent goes first, and that single fact *is* the routing rule
+            // (design 4): the agent only reports windows of JVMs that carry an
+            // agent, so "prefer the agent when one is present, else the Access
+            // Bridge" needs no condition anywhere — it is the order.
+            let backend = Arc::new(AgentBackend::from_config(
+                settings.and_then(|java| java.get_map(crate::agent::BACKEND_ID)),
+                Some(ownership.view(backends.len())),
+            ));
+            agent = Some(Arc::clone(&backend));
+            backends.push(Box::new(ArcBackend(backend)));
             backends.push(Box::new(JabBackend::from_config(
                 settings.and_then(|java| java.get_map(crate::jab::BACKEND_ID)),
+                ownership.view(backends.len()),
             )));
         }
         debug!(backends = ?backends.iter().map(|backend| backend.id()).collect::<Vec<_>>(), "Java provider built");
-        JavaProvider::new(backends)
+        JavaProvider::new(backends, ownership, agent)
+    }
+}
+
+/// Adapts a shared backend to the boxed trait object the router holds, so the
+/// factory can keep a second handle on the agent backend — the router has to
+/// reach it for the one decision a backend cannot make alone (see
+/// [`AgentBackend::consider_attaching`]).
+struct ArcBackend(Arc<AgentBackend>);
+
+impl JavaBackend for ArcBackend {
+    fn id(&self) -> &'static str {
+        self.0.id()
+    }
+    fn enumerate(&self, parent: &Arc<dyn UiNode>) -> crate::backend::Enumeration {
+        self.0.enumerate(parent)
+    }
+    fn element_at_point(&self, point: Point) -> Result<Option<Arc<dyn UiNode>>, ProviderError> {
+        self.0.element_at_point(point)
+    }
+    fn set_window_manager(&self, window_manager: Arc<dyn WindowManager>) {
+        self.0.set_window_manager(window_manager);
+    }
+    fn shutdown(&self) {
+        self.0.shutdown();
     }
 }
 
 pub struct JavaProvider {
     descriptor: &'static ProviderDescriptor,
+    /// Preference order, strongest first — see [`JavaFactory::build`].
     backends: Vec<Box<dyn JavaBackend>>,
+    /// Which backend currently serves which top-level window.
+    ownership: Arc<BackendOwnership>,
+    /// The agent backend, when one was built.
+    agent: Option<Arc<AgentBackend>>,
     is_shutdown: AtomicBool,
     /// Window claims currently held by this provider instance.
     claimed: Mutex<HashSet<u64>>,
 }
 
 impl JavaProvider {
-    fn new(backends: Vec<Box<dyn JavaBackend>>) -> Self {
+    fn new(
+        backends: Vec<Box<dyn JavaBackend>>,
+        ownership: Arc<BackendOwnership>,
+        agent: Option<Arc<AgentBackend>>,
+    ) -> Self {
         Self {
             descriptor: &DESCRIPTOR,
             backends,
+            ownership,
+            agent,
             is_shutdown: AtomicBool::new(false),
             claimed: Mutex::new(HashSet::new()),
         }
@@ -112,6 +172,39 @@ impl JavaProvider {
             window_claims::release_window(raw, PROVIDER_ID);
         }
     }
+
+    /// One sweep over the backends, in preference order.
+    ///
+    /// Each backend's outcome is recorded before the next one runs, so a weaker
+    /// backend already sees the windows it must leave alone *within this sweep*.
+    /// Selection is the backend's **input** rather than the router's post-filter,
+    /// because the windows under an `app:Application` node are enumerated lazily —
+    /// after this returns — so a filter applied here would miss them.
+    fn sweep(&self, parent: &Arc<dyn UiNode>) -> Sweep {
+        let mut sweep = Sweep::default();
+        for (rank, backend) in self.backends.iter().enumerate() {
+            let mut pass = backend.enumerate(parent);
+            self.ownership.record(rank, &pass.served_windows);
+            sweep.served.extend(pass.served_windows);
+            sweep.nodes.append(&mut pass.nodes);
+            sweep.unserved.append(&mut pass.unserved);
+            for pid in pass.java_processes {
+                if !sweep.java_processes.contains(&pid) {
+                    sweep.java_processes.push(pid);
+                }
+            }
+        }
+        sweep
+    }
+}
+
+/// What one sweep over the backends produced.
+#[derive(Default)]
+struct Sweep {
+    nodes: Vec<Arc<dyn UiNode>>,
+    served: HashSet<u64>,
+    unserved: Vec<crate::backend::UnservedJavaWindow>,
+    java_processes: Vec<u32>,
 }
 
 impl UiTreeProvider for JavaProvider {
@@ -144,28 +237,41 @@ impl UiTreeProvider for JavaProvider {
             return Err(shut_down());
         }
 
-        let mut nodes: Vec<Arc<dyn UiNode>> = Vec::new();
-        let mut served: HashSet<u64> = HashSet::new();
-        let mut unserved = Vec::new();
-        // Every backend's nodes go through as-is: with a single backend there
-        // is nothing to arbitrate. Selecting between two backends over the same
-        // window is `provider-java-swing` task 3.1, and it needs a richer
-        // `Enumeration` than a flat node list — the constraint is written down
-        // there, next to the agent-presence signal that drives the selection.
-        for backend in &self.backends {
-            let mut pass = backend.enumerate(&parent);
-            served.extend(pass.served_windows);
-            nodes.append(&mut pass.nodes);
-            unserved.append(&mut pass.unserved);
+        let mut sweep = self.sweep(&parent);
+
+        // "Offer the agent to this JVM" turns on the process having no agent, not
+        // on its window being unserved: a bridge-served window still has a better
+        // representation available. The pid list comes from the backends that
+        // enumerate windows, which the agent backend cannot — it finds agents.
+        // Only the router can ask, because only it sees all the backends.
+        if let Some(agent) = self.agent.as_ref() {
+            let attached = agent.consider_attaching(&sweep.java_processes);
+            if !attached.is_empty() {
+                // The sweep above is now stale for those JVMs: it was taken before
+                // they had an agent, so it holds Access Bridge nodes for windows the
+                // agent is about to serve better. **Redo it rather than edit it** —
+                // which node stands for which window is not something a flat node
+                // list can answer, and the alternative is the caller seeing the
+                // bridge until it enumerates again (in the Inspector: pressing
+                // refresh twice). The second sweep has the agent recording those
+                // windows at its own rank first, so the Access Bridge skips them on
+                // its own, exactly as in the steady state.
+                //
+                // Paid once per process, because attachment is attempted once per
+                // process — not per pass.
+                debug!(?attached, "re-enumerating: these JVMs gained an agent during this pass");
+                sweep = self.sweep(&parent);
+            }
         }
 
-        self.sync_window_claims(&served);
-        // A Java-looking window is only worth a diagnostic once it is clear
-        // that *no* backend reaches it — with one backend that is every window
-        // it reported, but the rule is the router's, not the backend's.
-        emit_enablement_diagnostics(&unserved, &served);
+        self.sync_window_claims(&sweep.served);
+        // "Tell the user this JVM is unreachable" turns on *no* backend reaching
+        // the window, which is the router's own knowledge.
+        let unreachable: Vec<crate::backend::UnservedJavaWindow> =
+            sweep.unserved.into_iter().filter(|window| !sweep.served.contains(&window.window)).collect();
+        emit_enablement_diagnostics(&unreachable);
 
-        Ok(Box::new(nodes.into_iter()))
+        Ok(Box::new(sweep.nodes.into_iter()))
     }
 
     /// Route the point to the first backend that answers for it.
@@ -206,12 +312,9 @@ fn unsupported_at_point(details: &str) -> ProviderError {
 /// backend serves — on Windows the "bridge not enabled" case. The shared
 /// registry de-duplicates per window, process-wide. Never mutates any
 /// target-side configuration; it only tells the user how to.
-fn emit_enablement_diagnostics(unserved: &[crate::backend::UnservedJavaWindow], served: &HashSet<u64>) {
+fn emit_enablement_diagnostics(unreachable: &[crate::backend::UnservedJavaWindow]) {
     use platynui_core::platform::java::{JavaToolkit, jvm_unreachable_diagnostic_once};
-    for window in unserved {
-        if served.contains(&window.window) {
-            continue;
-        }
+    for window in unreachable {
         let toolkit = JavaToolkit::from_window_class(&window.class_name).unwrap_or(JavaToolkit::Unknown);
         if let Some(hint) = jvm_unreachable_diagnostic_once(window.window, toolkit) {
             warn!(
@@ -275,10 +378,14 @@ mod tests {
     }
 
     /// A backend that serves exactly the windows its handle currently holds,
-    /// so a test can change what the next enumeration pass finds.
+    /// so a test can change what the next enumeration pass finds. Like a real
+    /// backend it drops the windows a stronger one already serves, which is what
+    /// makes the preference order observable.
     struct StubBackend {
+        id: &'static str,
         served: Arc<Mutex<Vec<u64>>>,
         unserved: Vec<u64>,
+        foreign: Option<Arc<crate::backend::ForeignWindows>>,
         shut_down: Arc<AtomicBool>,
     }
 
@@ -288,9 +395,20 @@ mod tests {
     }
 
     fn stub(served: &[u64], unserved: &[u64]) -> (Box<dyn JavaBackend>, StubHandle) {
+        named_stub("stub", served, unserved, None)
+    }
+
+    fn named_stub(
+        id: &'static str,
+        served: &[u64],
+        unserved: &[u64],
+        foreign: Option<Arc<crate::backend::ForeignWindows>>,
+    ) -> (Box<dyn JavaBackend>, StubHandle) {
         let backend = StubBackend {
+            id,
             served: Arc::new(Mutex::new(served.to_vec())),
             unserved: unserved.to_vec(),
+            foreign,
             shut_down: Arc::new(AtomicBool::new(false)),
         };
         let handle = StubHandle { served: Arc::clone(&backend.served), shut_down: Arc::clone(&backend.shut_down) };
@@ -299,17 +417,26 @@ mod tests {
 
     impl JavaBackend for StubBackend {
         fn id(&self) -> &'static str {
-            "stub"
+            self.id
         }
         fn enumerate(&self, _parent: &Arc<dyn UiNode>) -> Enumeration {
+            let served_windows: Vec<u64> = self
+                .served
+                .lock()
+                .expect("served set mutex poisoned")
+                .iter()
+                .copied()
+                .filter(|window| !self.foreign.as_ref().is_some_and(|foreign| foreign.is_foreign(*window)))
+                .collect();
             Enumeration {
-                served_windows: self.served.lock().expect("served set mutex poisoned").clone(),
+                served_windows,
                 nodes: Vec::new(),
                 unserved: self
                     .unserved
                     .iter()
                     .map(|window| UnservedJavaWindow { window: *window, pid: 1, class_name: "SunAwtFrame".into() })
                     .collect(),
+                java_processes: Vec::new(),
             }
         }
         fn element_at_point(&self, _point: Point) -> Result<Option<Arc<dyn UiNode>>, ProviderError> {
@@ -321,11 +448,17 @@ mod tests {
         }
     }
 
+    /// The preference order *is* the routing rule (design 4), so it is what the
+    /// default configuration has to pin: the agent first, the Access Bridge
+    /// behind it. Reversing these two would silently make JAB win every window
+    /// it can reach, which is exactly the fidelity regression this change exists
+    /// to remove.
     #[test]
-    fn defaults_register_the_jab_backend() {
+    fn defaults_prefer_the_agent_over_the_access_bridge() {
         let provider = JavaFactory::build(&RuntimeConfig::default());
         let ids: Vec<_> = provider.backends.iter().map(|backend| backend.id()).collect();
-        assert_eq!(ids, vec![crate::jab::BACKEND_ID]);
+        assert_eq!(ids, vec![crate::agent::BACKEND_ID, crate::jab::BACKEND_ID]);
+        assert!(provider.agent.is_some(), "the router keeps a handle for the attach decision");
     }
 
     #[test]
@@ -339,12 +472,18 @@ mod tests {
 
     #[test]
     fn backend_settings_come_from_the_backends_own_sub_map() {
-        // The umbrella resolves `providers.java.jab.*`; the backend below is
-        // built with its kill switch off and must stay inert without failing.
-        let providers = ConfigMap::new()
-            .with(PROVIDER_ID, ConfigMap::new().with(crate::jab::BACKEND_ID, ConfigMap::new().with("enabled", false)));
+        // The umbrella resolves `providers.java.<backend>.*`; both backends below
+        // are built with their kill switch off and must stay inert without
+        // failing — a disabled backend is still a backend, just one that
+        // contributes nothing.
+        let providers = ConfigMap::new().with(
+            PROVIDER_ID,
+            ConfigMap::new()
+                .with(crate::jab::BACKEND_ID, ConfigMap::new().with("enabled", false))
+                .with(crate::agent::BACKEND_ID, ConfigMap::new().with("enabled", false)),
+        );
         let provider = JavaFactory::build(&RuntimeConfig::new(ConfigMap::new(), providers));
-        assert_eq!(provider.backends.len(), 1, "a disabled backend is still built, just inert");
+        assert_eq!(provider.backends.len(), 2, "a disabled backend is still built, just inert");
         let nodes: Vec<_> = provider.get_nodes(desktop()).expect("inert ok").collect();
         assert!(nodes.is_empty());
     }
@@ -353,7 +492,7 @@ mod tests {
     fn claims_follow_what_the_backends_serve() {
         // The registry is process-global, so every test uses its own windows.
         let (backend, handle) = stub(&[0xC100], &[]);
-        let provider = JavaProvider::new(vec![backend]);
+        let provider = JavaProvider::new(vec![backend], Arc::new(BackendOwnership::default()), None);
 
         let _ = provider.get_nodes(desktop()).expect("enumerate");
         assert!(window_claims::is_claimed_by_other(0xC100, "windows-uia"), "another provider must see the claim");
@@ -368,7 +507,7 @@ mod tests {
     #[test]
     fn shutdown_releases_claims_and_stops_serving() {
         let (backend, handle) = stub(&[0xC200], &[]);
-        let provider = JavaProvider::new(vec![backend]);
+        let provider = JavaProvider::new(vec![backend], Arc::new(BackendOwnership::default()), None);
         let _ = provider.get_nodes(desktop()).expect("enumerate");
         assert!(window_claims::is_claimed(0xC200));
 
@@ -385,16 +524,70 @@ mod tests {
         // 0xC300 looks like a JVM window but no backend reaches it: unclaimed,
         // so the native provider keeps it — and the user is told why.
         let (backend, _handle) = stub(&[], &[0xC300]);
-        let provider = JavaProvider::new(vec![backend]);
+        let provider = JavaProvider::new(vec![backend], Arc::new(BackendOwnership::default()), None);
         let _ = provider.get_nodes(desktop()).expect("enumerate");
         assert!(!window_claims::is_claimed(0xC300));
         assert!(jvm_unreachable_diagnostic_emitted(0xC300), "an unreachable JVM window must say how to fix it");
     }
 
+    /// The whole point of the preference order: when two backends can reach one
+    /// window, the stronger one serves it and the weaker one stays out — and the
+    /// window is claimed exactly once, so no consumer sees two Java trees for it.
+    #[test]
+    fn the_stronger_backend_takes_a_window_both_can_serve() {
+        let ownership = Arc::new(BackendOwnership::default());
+        let (strong, strong_handle) = named_stub("strong", &[0xC400], &[], Some(ownership.view(0)));
+        let (weak, _weak_handle) = named_stub("weak", &[0xC400], &[], Some(ownership.view(1)));
+        let provider = JavaProvider::new(vec![strong, weak], Arc::clone(&ownership), None);
+
+        let _ = provider.get_nodes(desktop()).expect("enumerate");
+        assert!(window_claims::is_claimed(0xC400));
+        assert_eq!(
+            provider.claimed.lock().expect("claims").len(),
+            1,
+            "one window, one claim — the weaker backend must not add a second"
+        );
+
+        // The stronger backend loses the window (its channel went away): the
+        // weaker one takes over on the next pass, still exactly one claim.
+        strong_handle.served.lock().expect("served").clear();
+        let _ = provider.get_nodes(desktop()).expect("enumerate");
+        assert!(window_claims::is_claimed(0xC400), "the weaker backend keeps the window served");
+        provider.shutdown();
+        assert!(!window_claims::is_claimed(0xC400));
+    }
+
+    /// The mid-session case: a window the weaker backend has been serving must
+    /// move to the stronger one as soon as that one can reach it. "Already owned"
+    /// therefore cannot be what excludes a window — only "owned by someone
+    /// stronger" can.
+    #[test]
+    fn a_stronger_backend_appearing_later_takes_the_window_over() {
+        let ownership = Arc::new(BackendOwnership::default());
+        let (strong, strong_handle) = named_stub("strong", &[], &[], Some(ownership.view(0)));
+        let (weak, weak_handle) = named_stub("weak", &[0xC500], &[], Some(ownership.view(1)));
+        let provider = JavaProvider::new(vec![strong, weak], Arc::clone(&ownership), None);
+
+        let _ = provider.get_nodes(desktop()).expect("enumerate");
+        assert!(window_claims::is_claimed(0xC500));
+
+        // An agent appears in that JVM: the strong backend now reaches the window.
+        strong_handle.served.lock().expect("served").push(0xC500);
+        let _ = provider.get_nodes(desktop()).expect("enumerate");
+        assert!(window_claims::is_claimed(0xC500), "still served, just by the other backend");
+        assert_eq!(provider.claimed.lock().expect("claims").len(), 1, "one window, still one claim");
+        // The takeover itself: the window is now foreign to rank 1, although the
+        // weaker backend still wants it and had it a pass ago.
+        assert!(!weak_handle.served.lock().expect("served").is_empty(), "the weaker backend still offers it");
+        assert!(ownership.view(1).is_foreign(0xC500), "the stronger backend owns it now");
+        assert!(!ownership.view(0).is_foreign(0xC500), "and it is not foreign to the owner itself");
+        provider.shutdown();
+    }
+
     #[test]
     fn hit_test_falls_through_when_every_backend_abstains() {
         let (backend, _handle) = stub(&[], &[]);
-        let provider = JavaProvider::new(vec![backend]);
+        let provider = JavaProvider::new(vec![backend], Arc::new(BackendOwnership::default()), None);
         let answer = provider.element_at_point(Point::new(10.0, 10.0));
         assert!(matches!(answer, Err(ProviderError::UnsupportedOperation { .. })));
     }

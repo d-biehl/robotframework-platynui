@@ -26,6 +26,8 @@
 #![allow(clippy::doc_markdown)]
 
 #[cfg(windows)]
+mod agent;
+#[cfg(windows)]
 mod backend;
 #[cfg(windows)]
 mod jab;

@@ -51,6 +51,9 @@ pub struct JabEnumeration {
     /// Java-looking windows the bridge does not answer for; the Java provider
     /// owns what to say about them.
     pub unserved: Vec<UnservedWindow>,
+    /// Processes behind every Java window this pass saw, served or not — what a
+    /// stronger backend needs in order to offer itself to those JVMs.
+    pub java_processes: Vec<u32>,
 }
 
 /// A visible top-level window whose class says AWT (`SunAwt*`) but which the
@@ -66,6 +69,23 @@ pub struct UnservedWindow {
     pub class_name: String,
 }
 
+/// Native windows this backend must leave alone because something else serves
+/// them.
+///
+/// One Swing window is reachable through more than one Java channel — the
+/// bridge sees it, and so does an in-JVM agent — and only the Java provider
+/// knows which one is serving it. It therefore installs a hook here instead of
+/// filtering this backend's results: an `app:Application` node enumerates its
+/// windows *lazily*, long after the pass that produced it, so a set handed to
+/// that pass would be both stale and out of reach by the time it mattered.
+///
+/// Nothing installed means "serve everything you can reach", which is the
+/// single-backend case and the historical behaviour.
+pub trait WindowExclusions: Send + Sync {
+    /// Whether `window` (a raw native handle) is served elsewhere.
+    fn excludes(&self, window: u64) -> bool;
+}
+
 /// Lazily established bridge connection; `Unavailable` remembers that the one
 /// actionable discovery/load diagnostic has already been logged.
 enum ClientState {
@@ -78,6 +98,8 @@ pub struct JabProvider {
     enabled: bool,
     dll_path: Option<PathBuf>,
     call_timeout: Duration,
+    /// Windows a stronger channel serves; see [`WindowExclusions`].
+    exclusions: Option<Arc<dyn WindowExclusions>>,
     client: Mutex<ClientState>,
     connected_at: Mutex<Option<Instant>>,
     first_discovery_done: AtomicBool,
@@ -91,8 +113,12 @@ pub struct JabProvider {
 impl JabProvider {
     /// Build the backend from its own settings sub-map (`providers.java.jab.*`)
     /// — split out so the config wiring is unit-testable without a live bridge.
+    ///
+    /// `exclusions` is the Java provider's answer to "another backend serves
+    /// this window"; `None` means this backend is alone with the Java windows it
+    /// can reach.
     #[must_use]
-    pub fn from_config(settings: Option<&ConfigMap>) -> Self {
+    pub fn from_config(settings: Option<&ConfigMap>, exclusions: Option<Arc<dyn WindowExclusions>>) -> Self {
         let enabled = settings.and_then(|jab| jab.get_bool("enabled")).unwrap_or(true);
         let dll_path = settings.and_then(|jab| jab.get_str("dll_path")).map(PathBuf::from);
         let call_timeout_ms = settings
@@ -100,14 +126,20 @@ impl JabProvider {
             .and_then(|ms| u64::try_from(ms).ok())
             .filter(|ms| *ms > 0)
             .unwrap_or(DEFAULT_CALL_TIMEOUT_MS);
-        Self::new(enabled, dll_path, Duration::from_millis(call_timeout_ms))
+        Self::new(enabled, dll_path, Duration::from_millis(call_timeout_ms), exclusions)
     }
 
-    fn new(enabled: bool, dll_path: Option<PathBuf>, call_timeout: Duration) -> Self {
+    fn new(
+        enabled: bool,
+        dll_path: Option<PathBuf>,
+        call_timeout: Duration,
+        exclusions: Option<Arc<dyn WindowExclusions>>,
+    ) -> Self {
         Self {
             enabled,
             dll_path,
             call_timeout,
+            exclusions,
             client: Mutex::new(ClientState::Untried),
             connected_at: Mutex::new(None),
             first_discovery_done: AtomicBool::new(false),
@@ -165,7 +197,7 @@ impl JabProvider {
     /// Discover Java top-level windows, waiting briefly for the asynchronous
     /// bridge rendezvous on the very first enumeration after connect.
     fn discover_with_rendezvous_grace(&self, client: &Arc<JabClient>) -> Discovery {
-        let mut discovery = discover_java_windows(client, None);
+        let mut discovery = discover_java_windows(client, None, self.exclusions.as_deref());
         if !discovery.windows.is_empty() || self.first_discovery_done.swap(true, Ordering::AcqRel) {
             return discovery;
         }
@@ -173,7 +205,7 @@ impl JabProvider {
         let deadline = connected_at + FIRST_DISCOVERY_WINDOW;
         while discovery.windows.is_empty() && Instant::now() < deadline {
             std::thread::sleep(FIRST_DISCOVERY_POLL);
-            discovery = discover_java_windows(client, None);
+            discovery = discover_java_windows(client, None, self.exclusions.as_deref());
         }
         discovery
     }
@@ -244,12 +276,12 @@ impl JabProvider {
         let window_manager = self.window_manager();
         let mut served_windows: Vec<u64> = Vec::with_capacity(discovery.windows.len());
         let mut nodes: Vec<Arc<dyn UiNode>> = Vec::with_capacity(discovery.windows.len() * 2);
+        // One list, used twice: as the `app:Application` nodes to emit and as the
+        // processes reported outward.
         let mut seen_pids: Vec<u32> = Vec::new();
-        let mut app_pids: Vec<u32> = Vec::new();
         for window in discovery.windows {
             if !seen_pids.contains(&window.pid) {
                 seen_pids.push(window.pid);
-                app_pids.push(window.pid);
             }
             served_windows.push(hwnd_as_claim(window.hwnd));
             nodes.push(JabNode::new_window(
@@ -262,10 +294,22 @@ impl JabProvider {
                 Some(parent),
             ) as Arc<dyn UiNode>);
         }
-        for pid in app_pids {
-            nodes.push(JabAppNode::new(pid, Arc::clone(&client), window_manager.clone(), parent) as Arc<dyn UiNode>);
+        for pid in seen_pids.iter().copied() {
+            nodes.push(JabAppNode::new(
+                pid,
+                Arc::clone(&client),
+                window_manager.clone(),
+                self.exclusions.clone(),
+                parent,
+            ) as Arc<dyn UiNode>);
         }
-        JabEnumeration { served_windows, nodes, unserved: discovery.sunawt_suspects }
+        let mut java_processes = seen_pids;
+        for suspect in &discovery.sunawt_suspects {
+            if !java_processes.contains(&suspect.pid) {
+                java_processes.push(suspect.pid);
+            }
+        }
+        JabEnumeration { served_windows, nodes, unserved: discovery.sunawt_suspects, java_processes }
     }
 
     /// Point-based hit-test of Java windows (design decisions 1–3 and 5 of
@@ -295,6 +339,12 @@ impl JabProvider {
         // pick itself); own-process windows are never Java windows anyway.
         if pid == *SELF_PID {
             return Err(unsupported_at_point("own-process window"));
+        }
+        // A window a stronger channel serves stays that channel's, hit-test
+        // included: answering here would hand the picker a node whose shape does
+        // not match the tree the same window shows.
+        if self.exclusions.as_ref().is_some_and(|excluded| excluded.excludes(hwnd_as_claim(hwnd))) {
+            return Err(unsupported_at_point("window is served by another Java backend"));
         }
         let Ok(client) = self.client() else {
             return Err(unsupported_at_point("JAB client unavailable"));
@@ -329,7 +379,16 @@ impl JabProvider {
                 None => return Ok(None),
             },
         };
-        Ok(Some(crate::node::hit_test_node(&client, self.window_manager(), vm, window_ctx, hwnd, pid, hit)))
+        Ok(Some(crate::node::hit_test_node(
+            &client,
+            self.window_manager(),
+            vm,
+            window_ctx,
+            hwnd,
+            pid,
+            hit,
+            self.exclusions.clone(),
+        )))
     }
 }
 
@@ -376,11 +435,19 @@ pub(crate) struct Discovery {
 /// Enumerate visible Java top-level windows via `EnumWindows` +
 /// `isJavaWindow` + `GetAccessibleContextFromHWND` (used both for the desktop
 /// stream and, PID-filtered, for `app:Application` children).
-pub(crate) fn java_windows(client: &Arc<JabClient>, pid_filter: Option<u32>) -> Vec<JavaWindow> {
-    discover_java_windows(client, pid_filter).windows
+pub(crate) fn java_windows(
+    client: &Arc<JabClient>,
+    pid_filter: Option<u32>,
+    exclusions: Option<&dyn WindowExclusions>,
+) -> Vec<JavaWindow> {
+    discover_java_windows(client, pid_filter, exclusions).windows
 }
 
-fn discover_java_windows(client: &Arc<JabClient>, pid_filter: Option<u32>) -> Discovery {
+fn discover_java_windows(
+    client: &Arc<JabClient>,
+    pid_filter: Option<u32>,
+    exclusions: Option<&dyn WindowExclusions>,
+) -> Discovery {
     let mut windows = Vec::new();
     let mut sunawt_suspects = Vec::new();
 
@@ -391,6 +458,12 @@ fn discover_java_windows(client: &Arc<JabClient>, pid_filter: Option<u32>) -> Di
         if let Some(pid) = pid_filter
             && candidate.pid != pid
         {
+            continue;
+        }
+        // Before the bridge is asked anything: a window another backend serves
+        // is not this backend's to serve, and it is not an unserved-JVM
+        // diagnostic either — somebody *is* serving it.
+        if exclusions.is_some_and(|excluded| excluded.excludes(hwnd_as_claim(candidate.hwnd))) {
             continue;
         }
         let is_java = match client.is_java_window(candidate.hwnd) {
@@ -472,10 +545,11 @@ mod tests {
 
     #[test]
     fn defaults_without_config() {
-        let provider = JabProvider::from_config(None);
+        let provider = JabProvider::from_config(None, None);
         assert!(provider.enabled);
         assert!(provider.dll_path.is_none());
         assert_eq!(provider.call_timeout, Duration::from_millis(DEFAULT_CALL_TIMEOUT_MS));
+        assert!(provider.exclusions.is_none(), "alone with the Java windows unless told otherwise");
     }
 
     #[test]
@@ -484,7 +558,7 @@ mod tests {
             .with("enabled", false)
             .with("dll_path", "C:\\bridge\\WindowsAccessBridge-64.dll")
             .with("call_timeout_ms", 500_i64);
-        let provider = JabProvider::from_config(Some(&settings));
+        let provider = JabProvider::from_config(Some(&settings), None);
         assert!(!provider.enabled);
         assert_eq!(provider.dll_path.as_deref(), Some(std::path::Path::new("C:\\bridge\\WindowsAccessBridge-64.dll")));
         assert_eq!(provider.call_timeout, Duration::from_millis(500));
@@ -493,8 +567,34 @@ mod tests {
     #[test]
     fn invalid_timeout_falls_back_to_default() {
         let settings = ConfigMap::new().with("call_timeout_ms", -1_i64);
-        let provider = JabProvider::from_config(Some(&settings));
+        let provider = JabProvider::from_config(Some(&settings), None);
         assert_eq!(provider.call_timeout, Duration::from_millis(DEFAULT_CALL_TIMEOUT_MS));
+    }
+
+    /// The exclusion hook has to reach every place a window can enter the tree.
+    /// Discovery and the lazy `app:Application` children are separate code paths
+    /// (the second runs long after the pass that produced the node), and a hook
+    /// wired into only one of them would let an agent-served window reappear
+    /// under the application node.
+    #[test]
+    fn the_exclusion_hook_reaches_both_window_paths() {
+        struct ExcludeAll;
+        impl WindowExclusions for ExcludeAll {
+            fn excludes(&self, _window: u64) -> bool {
+                true
+            }
+        }
+
+        let provider = JabProvider::from_config(None, Some(Arc::new(ExcludeAll)));
+        assert!(provider.exclusions.is_some());
+        // Both window-producing paths take the hook as an argument, so this is a
+        // compile-time property; assert on the source rather than on a live
+        // bridge, which a unit test has no way to stand up.
+        let source = include_str!("node.rs");
+        assert!(
+            source.contains("java_windows(&self.client, Some(self.pid), self.exclusions.as_deref())"),
+            "the app node's lazy children must consult the hook, not a snapshot"
+        );
     }
 
     #[test]
@@ -533,7 +633,7 @@ mod tests {
         }
 
         let settings = ConfigMap::new().with("enabled", false);
-        let provider = JabProvider::from_config(Some(&settings));
+        let provider = JabProvider::from_config(Some(&settings), None);
         let parent: Arc<dyn UiNode> = Arc::new(DesktopStub(RuntimeId::from("desktop")));
         let pass = provider.enumerate(&parent);
         assert!(pass.nodes.is_empty());

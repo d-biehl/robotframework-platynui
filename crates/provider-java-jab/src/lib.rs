@@ -51,4 +51,4 @@ mod provider;
 mod pump;
 
 #[cfg(windows)]
-pub use provider::{BACKEND_ID, JabEnumeration, JabProvider, UnservedWindow};
+pub use provider::{BACKEND_ID, JabEnumeration, JabProvider, UnservedWindow, WindowExclusions};

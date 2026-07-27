@@ -44,7 +44,10 @@ use std::path::PathBuf;
 // Crate dependencies of the library that this integration-test target does
 // not use directly (`unused_crate_dependencies` is target-scoped).
 use inventory as _;
+use platynui_java_agent as _;
 use platynui_provider_java_jab as _;
+use serde as _;
+use serde_json as _;
 use std::process::{Child, Command};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
@@ -131,6 +134,13 @@ impl FixtureApp {
     fn has_exited(&mut self) -> bool {
         matches!(self.child.try_wait(), Ok(Some(_)))
     }
+
+    /// Ends the JVM and waits for it, so a test that asserts on the aftermath is
+    /// not racing the process teardown.
+    fn kill_and_wait(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
 }
 
 impl Drop for FixtureApp {
@@ -200,6 +210,19 @@ fn desktop_stub() -> Arc<dyn UiNode> {
     Arc::new(DesktopStub(RuntimeId::from("live-test-desktop")))
 }
 
+/// Config for a test that is *about the Access Bridge*.
+///
+/// Automatic attachment is on by default, and on purpose: a Java window whose JVM
+/// has no agent gets one, because the agent's representation is the better one.
+/// That makes "no agent" a state which does not persist — so a suite that wants
+/// to verify the bridge has to say so, rather than relying on an absence the
+/// provider is actively working to remove.
+fn jab_only() -> RuntimeConfig {
+    let providers =
+        ConfigMap::new().with("java", ConfigMap::new().with("agent", ConfigMap::new().with("enabled", false)));
+    RuntimeConfig::new(ConfigMap::new(), providers)
+}
+
 fn build_provider(config: &RuntimeConfig) -> Arc<dyn UiTreeProvider> {
     let provider = JavaFactory.create(config).expect("provider construction is infallible");
     // Inject the real Win32 window manager so window-capability patterns work.
@@ -257,7 +280,7 @@ fn structure_signature(nodes: &[Arc<dyn UiNode>]) -> Vec<(String, String, String
 #[ignore = "needs a desktop, a Java runtime, and the built Swing fixture (run via just test-acceptance-windows)"]
 fn live_fixture_contract_and_interaction() {
     let mut app = FixtureApp::launch("contract");
-    let provider = build_provider(&RuntimeConfig::default());
+    let provider = build_provider(&jab_only());
     let parent = desktop_stub();
 
     let window = wait_for_window(&provider, &parent, &app.title);
@@ -496,12 +519,18 @@ fn live_frozen_jvm_stays_contained() {
     const CALL_TIMEOUT: Duration = Duration::from_millis(750);
 
     let app = FixtureApp::launch("frozen");
+    // Bridge-only, like every other JAB scenario here (see `jab_only`), plus a
+    // short per-call deadline so a frozen JVM surfaces quickly. The agent has its
+    // own containment mechanism — a degraded session that fails fast — and mixing
+    // the two would test neither.
     let providers = ConfigMap::new().with(
         platynui_provider_java::PROVIDER_ID,
-        ConfigMap::new().with(
-            "jab",
-            ConfigMap::new().with("call_timeout_ms", i64::try_from(CALL_TIMEOUT.as_millis()).expect("fits")),
-        ),
+        ConfigMap::new()
+            .with(
+                "jab",
+                ConfigMap::new().with("call_timeout_ms", i64::try_from(CALL_TIMEOUT.as_millis()).expect("fits")),
+            )
+            .with("agent", ConfigMap::new().with("enabled", false)),
     );
     let config = RuntimeConfig::new(ConfigMap::new(), providers);
     let provider = build_provider(&config);
@@ -705,7 +734,7 @@ fn live_jvm_classification_facts_and_diagnostic() {
     // Bridge on: the JAB window node carries the JVM+Swing+reachable facts.
     {
         let app = FixtureApp::launch("classify-on");
-        let provider = build_provider(&RuntimeConfig::default());
+        let provider = build_provider(&jab_only());
         let parent = desktop_stub();
         let window = wait_for_window(&provider, &parent, &app.title);
         let hwnd = wait_for_native_window(&app.title);
@@ -728,7 +757,7 @@ fn live_jvm_classification_facts_and_diagnostic() {
     // the loop below enumerates repeatedly), and the UIA shell carries the
     // JVM+Swing+not-reachable facts through the platform classifier.
     let app = FixtureApp::launch_with_bridge("classify-off", false);
-    let provider = build_provider(&RuntimeConfig::default());
+    let provider = build_provider(&jab_only());
     let parent = desktop_stub();
     let hwnd = wait_for_native_window(&app.title);
 
@@ -775,4 +804,556 @@ fn live_jvm_classification_facts_and_diagnostic() {
 
     uia.shutdown();
     provider.shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// The agent backend end to end (tasks 4.1 and 4.3)
+
+/// The change's whole reason to exist, proven through the provider rather than
+/// against the wire: a `JTable` cell served by the agent backend has its own
+/// name, its own bounds, its own selection state, and an identity-stable
+/// `RuntimeId` — none of which the Access Bridge can give it, because the JDK
+/// aliases every cell to one shared renderer component.
+///
+/// Also proves the routing: the same window would be reachable through JAB (the
+/// fixture runs with the bridge on), and it must surface **once**, through the
+/// stronger backend.
+#[test]
+#[ignore = "needs a desktop, a Java runtime, the built Swing fixture and the built agent JAR"]
+fn live_agent_serves_table_cells_the_bridge_cannot() {
+    let app = FixtureApp::launch_with_agent("agent-cells");
+    let provider = build_provider(&RuntimeConfig::default());
+    let parent = desktop_stub();
+
+    // Poll: the agent publishes its handshake file, connects and finds a window
+    // a moment after the JVM is up.
+    let deadline = Instant::now() + DISCOVERY_DEADLINE;
+    let window = loop {
+        let nodes: Vec<_> = provider.get_nodes(Arc::clone(&parent)).expect("get_nodes").collect();
+        let agent_windows: Vec<_> = nodes
+            .iter()
+            .filter(|node| {
+                node.name() == app.title && attribute_value(node, "Technology") == Some(UiValue::from("JavaAgent"))
+            })
+            .cloned()
+            .collect();
+        if let Some(window) = agent_windows.first() {
+            // One window, one representation: the bridge can reach this window
+            // too, and must not have contributed a second node for it.
+            let same_title = nodes.iter().filter(|node| node.name() == app.title).count();
+            assert_eq!(
+                same_title, 1,
+                "an agent-served window must appear exactly once, not once per backend that can reach it"
+            );
+            break window.clone();
+        }
+        assert!(Instant::now() < deadline, "no agent-served window for {:?} within {DISCOVERY_DEADLINE:?}", app.title);
+        std::thread::sleep(Duration::from_millis(250));
+    };
+
+    // The core node contract, over the agent's whole tree.
+    //
+    // This is the check that was missing: the contract testkit only ever ran
+    // against JAB nodes, so nothing verified that agent nodes carry what every
+    // `control:`/`item:` node must — `SupportedPatterns` above all, which a
+    // consumer uses to find out what a node can do before trying it.
+    {
+        const CAPABILITY_MARKERS: &[&str] = &[pattern_names::TEXT_EDITABLE];
+        let mut all = Vec::new();
+        walk(&window, &mut all, 0);
+        assert!(all.len() >= 20, "expected the full fixture tree, got {} nodes", all.len());
+
+        // An empty text field still *is* a text field. `control:Text` is the
+        // sentinel the client layer derives the TextContent capability from
+        // (`_ATTRIBUTE_ONLY_PATTERNS`), so it has to be present with an empty
+        // value rather than omitted — otherwise an empty input is indistinguishable
+        // from a label, and `supports_pattern(TextContent)` answers false on
+        // something the user can type into.
+        let field = find_by_name(&all, "stage1-textfield");
+        assert_eq!(
+            attribute_value(field, "Text"),
+            Some(UiValue::from("")),
+            "an empty text field must still expose control:Text"
+        );
+        assert_eq!(
+            attribute_value(field, "IsReadOnly"),
+            Some(UiValue::from(false)),
+            "and pair it with the editability marker"
+        );
+
+        // A cell's name is its *model value*, which is content — not a
+        // developer-provided identifier. Publishing it as `control:Id` would
+        // promise a stability that editing the data breaks.
+        let cell = find_by_name(&all, "r2c0");
+        assert_eq!(cell.id(), None, "a table cell's model value must not be published as control:Id");
+
+        // `SelectedItems` has to name nodes that exist. Ids assembled from a
+        // parallel scheme look like an answer and resolve to nothing.
+        let table = find_by_name(&all, "main-table");
+        let UiValue::Array(selected) = attribute_value(table, "SelectedItems").expect("SelectedItems") else {
+            panic!("SelectedItems must be a list");
+        };
+        assert!(!selected.is_empty(), "row 2 is preselected in the fixture");
+        let known: Vec<String> = all.iter().map(|node| node.runtime_id().as_str().to_owned()).collect();
+        for entry in &selected {
+            let UiValue::String(id) = entry else { panic!("a SelectedItems entry must be a RuntimeId string") };
+            assert!(known.contains(id), "SelectedItems names {id}, which is no node of this tree");
+        }
+
+        // A column header is one of the most clickable things in a table — sorting,
+        // resizing and reordering all happen there — and Swing's accessible view
+        // reports it as an unlaid-out `label` with a zero-height rectangle. The
+        // header component knows better, and that is what has to travel.
+        let header = find_by_name(&all, "col-1");
+        assert_eq!(header.role(), "ColumnHeader", "a header is not a label");
+        assert_eq!(header.namespace(), Namespace::Item);
+        let UiValue::Rect(header_rect) = attribute_value(header, "Bounds").expect("a header has bounds") else {
+            panic!("Bounds must be a rectangle");
+        };
+        assert!(
+            header_rect.width() > 0.0 && header_rect.height() > 0.0,
+            "the header's real rectangle, not the renderer's empty one: {header_rect:?}"
+        );
+        assert_eq!(native_value(header, "ColumnHeader.Column"), Some(UiValue::Integer(1)));
+        assert_eq!(
+            native_value(header, "ColumnHeader.ModelIndex"),
+            Some(UiValue::Integer(1)),
+            "the model index is what survives the user reordering columns"
+        );
+
+        // An element that has never been laid out (a menu item whose popup was
+        // never opened) must report *no* bounds, not an empty rectangle at its
+        // owner's corner — that would aim the pointer at the menu bar and let the
+        // Element capability resolve on something with no place on screen.
+        let hidden = find_by_name(&all, "menu-file-exit");
+        assert_eq!(attribute_value(hidden, "Bounds"), None, "an unlaid-out element has no bounds");
+        assert_eq!(attribute_value(hidden, "ActivationPoint"), None, "and therefore nothing to aim at");
+
+        for node in &all {
+            if matches!(node.namespace(), Namespace::Control | Namespace::Item) {
+                validate_control_or_item(node.as_ref()).expect("core node contract");
+            }
+            let issues = platynui_core::ui::contract::testkit::verify_common_attributes(node.as_ref());
+            assert!(issues.is_empty(), "common-attribute contract violated on {}: {issues:?}", node.runtime_id());
+            for pattern in node.supported_patterns() {
+                if CAPABILITY_MARKERS.contains(&pattern.as_str()) {
+                    assert!(
+                        node.pattern_by_name(&pattern).is_none(),
+                        "capability marker {pattern} must not carry an instance on {}",
+                        node.runtime_id()
+                    );
+                    continue;
+                }
+                assert!(
+                    node.pattern_by_name(&pattern).is_some(),
+                    "advertised pattern {pattern} has no instance on {}",
+                    node.runtime_id()
+                );
+            }
+        }
+    }
+
+    // The JVM classification facts, on the same `native:` names the bridge and the
+    // UIA shell publish them under — so "which Java toolkit is this?" has one
+    // answer regardless of who served the window. The agent's answer is the
+    // authoritative one: it reads the loaded classes from inside the process,
+    // where the platform classifier can only infer from a window class.
+    {
+        use platynui_core::platform::java::{IS_JVM_ATTRIBUTE, JVM_AGENT_PRESENT_ATTRIBUTE, JVM_TOOLKIT_ATTRIBUTE};
+
+        assert_eq!(native_value(&window, IS_JVM_ATTRIBUTE), Some(UiValue::from(true)));
+        assert_eq!(
+            native_value(&window, JVM_TOOLKIT_ATTRIBUTE),
+            Some(UiValue::from("Swing/AWT")),
+            "the shared label, not the agent's wire spelling"
+        );
+        assert_eq!(
+            native_value(&window, JVM_AGENT_PRESENT_ATTRIBUTE),
+            Some(UiValue::from(true)),
+            "we are the agent, so this is certain rather than probed"
+        );
+        // `@Technology` keeps naming the *channel*: it is what tells an
+        // agent-served window from a bridge-served one, which the dedup and
+        // routing suites depend on.
+        assert_eq!(attribute_value(&window, "Technology"), Some(UiValue::from("JavaAgent")));
+    }
+
+    // The native handle came from inside the JVM, so the window patterns resolve
+    // exactly rather than through the platform's PID guess.
+    let handle = native_value(&window, "NativeWindowHandle");
+    assert!(matches!(handle, Some(UiValue::Integer(raw)) if raw != 0), "a window handle, got {handle:?}");
+    assert_eq!(
+        native_value(&window, "WindowHandleSource"),
+        Some(UiValue::from("sun.awt.windows.WComponentPeer#getHWnd")),
+        "the in-JVM strategy is the one that should have answered"
+    );
+
+    let mut nodes = Vec::new();
+    walk(&window, &mut nodes, 0);
+
+    // Cell (2, 0) of the fixture's 4x3 table. Row 2 is preselected and the
+    // fixture never changes it.
+    let cell = find_by_name(&nodes, "r2c0");
+    assert_eq!(cell.role(), "TableCell", "a cell is an item of its table, not the renderer's label");
+    assert_eq!(cell.namespace(), Namespace::Item);
+    assert_eq!(native_value(cell, "TableCell.Row"), Some(UiValue::Integer(2)), "the cell knows its own coordinates");
+    assert_eq!(native_value(cell, "TableCell.Column"), Some(UiValue::Integer(0)));
+    assert_eq!(
+        native_value(cell, "TableCell.IsSelected"),
+        Some(UiValue::from(true)),
+        "row 2 is preselected in the fixture"
+    );
+
+    // Bounds: the JAB gap in one assertion. Every cell of a row must have a
+    // distinct, non-empty rectangle — the bridge reports none at all.
+    let bounds = attribute_value(cell, "Bounds");
+    let UiValue::Rect(rect) = bounds.clone().expect("a cell must have bounds") else {
+        panic!("Bounds must be a rectangle, got {bounds:?}");
+    };
+    assert!(rect.width() > 0.0 && rect.height() > 0.0, "an empty rectangle is not bounds: {rect:?}");
+    let neighbour = find_by_name(&nodes, "r2c1");
+    let UiValue::Rect(neighbour_rect) = attribute_value(neighbour, "Bounds").expect("neighbour bounds") else {
+        panic!("neighbour Bounds must be a rectangle");
+    };
+    assert!(
+        neighbour_rect.x() > rect.x(),
+        "the next column must be to the right; the bridge cannot tell these apart at all"
+    );
+
+    // Identity stability: a second walk must hand out the same RuntimeId for the
+    // same cell. This is what the enumeration-index scheme cannot promise.
+    let first_id = cell.runtime_id().clone();
+    let mut again = Vec::new();
+    walk(&window, &mut again, 0);
+    assert_eq!(
+        find_by_name(&again, "r2c0").runtime_id(),
+        &first_id,
+        "the same cell must keep its identity across enumerations"
+    );
+
+    // And it is honest about being alive, which is what lets a scoped root be
+    // reused instead of re-resolved on every access.
+    assert!(cell.is_valid(), "a cell of a live window is valid");
+
+    provider.shutdown();
+}
+
+/// The other side of the routing rule: a JVM with no agent stays with the Access
+/// Bridge. Nothing about the JAB path may change just because a stronger backend
+/// now exists.
+#[test]
+#[ignore = "needs a desktop, a Java runtime, and the built Swing fixture (run via just test-acceptance-windows)"]
+fn live_automatic_attachment_off_leaves_the_window_to_the_bridge() {
+    // `auto_attach = false` is the documented way to keep the agent to
+    // `-javaagent`-launched targets. The backend stays enabled, so this also
+    // proves the two switches are independent: no attachment, but the agent would
+    // still serve a JVM that already carries one.
+    let providers =
+        ConfigMap::new().with("java", ConfigMap::new().with("agent", ConfigMap::new().with("auto_attach", false)));
+    let app = FixtureApp::launch("no-auto-attach");
+    let provider = build_provider(&RuntimeConfig::new(ConfigMap::new(), providers));
+    let parent = desktop_stub();
+    let window = wait_for_window(&provider, &parent, &app.title);
+    assert_eq!(
+        attribute_value(&window, "Technology"),
+        Some(UiValue::from("JAB")),
+        "with attachment off the bridge serves the window, exactly as before"
+    );
+
+    // And it stays the bridge's: nothing is injected behind the flag's back.
+    std::thread::sleep(Duration::from_secs(3));
+    let still: Vec<_> = provider.get_nodes(Arc::clone(&parent)).expect("get_nodes").collect();
+    let ours = still.iter().find(|node| node.name() == app.title).expect("the window is still served");
+    assert_eq!(attribute_value(ours, "Technology"), Some(UiValue::from("JAB")));
+    provider.shutdown();
+}
+
+/// Task 4.2: a Swing application started by its own script, with no `PlatynUI`
+/// arguments, is served through the agent **without being restarted**.
+///
+/// This is the premise of the whole design rather than a convenience: Java
+/// applications are launched by scripts, installers and Web Start, so the launch
+/// line is typically not `PlatynUI`'s to change, and the Inspector's core use is
+/// looking into something that is *already running* — where `-javaagent` is
+/// impossible by definition.
+#[test]
+#[ignore = "needs a desktop, a Java runtime, the built Swing fixture and the built agent JAR"]
+fn live_a_running_jvm_is_attached_and_served_without_a_restart() {
+    // No `-javaagent`: the fixture is launched exactly as its own script would.
+    let mut app = FixtureApp::launch("auto-attach");
+    let launched_pid = app.pid();
+    let provider = build_provider(&RuntimeConfig::default());
+    let parent = desktop_stub();
+
+    // **The first enumeration that shows the window already shows the agent.**
+    //
+    // That is the property, not a nicety. The pass which discovers an agent-less
+    // Java window is also the pass that injects into it, and it waits for the
+    // agent to become reachable and then enumerates again — so a caller never
+    // sees the weaker backend for a window that is about to be taken over. Before
+    // this, the Inspector needed two refreshes: one to trigger the attach and one
+    // to see its effect.
+    let deadline = Instant::now() + Duration::from_secs(45);
+    let window = loop {
+        let nodes: Vec<_> = provider.get_nodes(Arc::clone(&parent)).expect("get_nodes").collect();
+        let ours: Vec<_> = nodes.iter().filter(|node| node.name() == app.title).collect();
+        // Whatever happens, the window must never appear twice: the takeover
+        // changes which backend serves it, not how many representations exist.
+        assert!(ours.len() <= 1, "the window appeared {} times during the backend takeover", ours.len());
+        if let Some(node) = ours.first() {
+            assert_eq!(
+                attribute_value(node, "Technology"),
+                Some(UiValue::from("JavaAgent")),
+                "the pass that first surfaces the window must already serve it through the agent — \
+                 seeing JAB here means the in-pass attach did not take effect and a second \
+                 enumeration would be needed"
+            );
+            break (*node).clone();
+        }
+        assert!(
+            !app.has_exited(),
+            "the fixture must be served in place — it exited, so something restarted or killed it"
+        );
+        assert!(Instant::now() < deadline, "the fixture window never appeared within 45s");
+        std::thread::sleep(Duration::from_millis(250));
+    };
+
+    // The proof that nothing was restarted: same process, all along.
+    assert_eq!(app.pid(), launched_pid, "the application was never restarted");
+    // And the agent's fidelity is really there, not just its label.
+    let mut nodes = Vec::new();
+    walk(&window, &mut nodes, 0);
+    let cell = find_by_name(&nodes, "r2c0");
+    assert_eq!(native_value(cell, "TableCell.IsSelected"), Some(UiValue::from(true)));
+    provider.shutdown();
+}
+
+/// Task 4.4: a killed JVM must not leave nodes reporting valid.
+///
+/// `UiNode::is_valid`'s `true` default is the trap this guards: the Robot
+/// Framework library reuses the element a scoped root resolved to for exactly as
+/// long as it answers `true`, so a node that stays optimistically valid pins a
+/// dead element forever and every later step acts on nothing.
+#[test]
+#[ignore = "needs a desktop, a Java runtime, the built Swing fixture and the built agent JAR"]
+fn live_a_killed_jvm_leaves_no_valid_nodes() {
+    let mut app = FixtureApp::launch_with_agent("lifetime");
+    let provider = build_provider(&RuntimeConfig::default());
+    let parent = desktop_stub();
+
+    let deadline = Instant::now() + DISCOVERY_DEADLINE;
+    let window = loop {
+        let nodes: Vec<_> = provider.get_nodes(Arc::clone(&parent)).expect("get_nodes").collect();
+        if let Some(node) = nodes.iter().find(|node| {
+            node.name() == app.title && attribute_value(node, "Technology") == Some(UiValue::from("JavaAgent"))
+        }) {
+            break node.clone();
+        }
+        assert!(Instant::now() < deadline, "no agent-served window within {DISCOVERY_DEADLINE:?}");
+        std::thread::sleep(Duration::from_millis(250));
+    };
+
+    // A node of a live window is valid, and something inside it too — the check
+    // has to be per element, not per process.
+    let mut nodes = Vec::new();
+    walk(&window, &mut nodes, 0);
+    let cell = find_by_name(&nodes, "r2c0").clone();
+    assert!(window.is_valid() && cell.is_valid(), "a live window and its cells are valid");
+
+    app.kill_and_wait();
+
+    // Bounded: the answer has to arrive, not hang on a socket to a dead process.
+    let started = Instant::now();
+    let deadline = started + Duration::from_secs(30);
+    loop {
+        if !window.is_valid() && !cell.is_valid() {
+            break;
+        }
+        assert!(Instant::now() < deadline, "nodes of a killed JVM still reported valid after 30s");
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    // Each individual answer must be prompt, whatever the loop above took: a
+    // consumer asks this on every scoped-root access.
+    let one_answer = Instant::now();
+    assert!(!window.is_valid());
+    assert!(one_answer.elapsed() < Duration::from_secs(10), "an invalid answer must be bounded, not a full deadline");
+
+    provider.shutdown();
+}
+
+/// Task 4.6, agent half: a wedged JVM stays bounded and does not take the run
+/// with it.
+///
+/// The JAB backend has had this coverage since `add-jab-provider`; the agent's
+/// own containment — a session that degrades after consecutive bounded failures
+/// and then fails fast until a rate-limited probe recovers it — had none, so it
+/// was correct only by construction. A frozen JVM is the honest test: the agent
+/// is *there*, its socket accepts, and nothing behind it will ever answer.
+#[test]
+#[ignore = "needs a desktop, a Java runtime, the built Swing fixture and the built agent JAR; may be run manually if flaky in CI"]
+fn live_frozen_agent_stays_contained() {
+    const CALL_TIMEOUT: Duration = Duration::from_millis(750);
+
+    let app = FixtureApp::launch_with_agent("frozen-agent");
+    // Short per-call deadline so the freeze surfaces quickly; the agent backend
+    // is otherwise at its defaults, degradation included.
+    let providers = ConfigMap::new().with(
+        platynui_provider_java::PROVIDER_ID,
+        ConfigMap::new().with(
+            "agent",
+            ConfigMap::new().with("call_timeout_ms", i64::try_from(CALL_TIMEOUT.as_millis()).expect("fits")),
+        ),
+    );
+    let provider = build_provider(&RuntimeConfig::new(ConfigMap::new(), providers));
+    let parent = desktop_stub();
+
+    let deadline = Instant::now() + DISCOVERY_DEADLINE;
+    let window = loop {
+        let nodes: Vec<_> = provider.get_nodes(Arc::clone(&parent)).expect("get_nodes").collect();
+        if let Some(node) = nodes.iter().find(|node| {
+            node.name() == app.title && attribute_value(node, "Technology") == Some(UiValue::from("JavaAgent"))
+        }) {
+            break node.clone();
+        }
+        assert!(Instant::now() < deadline, "no agent-served window within {DISCOVERY_DEADLINE:?}");
+        std::thread::sleep(Duration::from_millis(250));
+    };
+    assert!(window.is_valid(), "a live agent-served window is valid");
+
+    // Freeze every thread of the JVM: the socket still accepts, the toolkit
+    // thread behind it never answers again.
+    set_process_frozen(app.pid(), true);
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // Validity is answered `false` rather than optimistically `true`, and it
+        // is answered *within the deadline* rather than hanging on the socket.
+        let start = Instant::now();
+        window.invalidate();
+        assert!(!window.is_valid(), "a frozen JVM must not report a valid node");
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < CALL_TIMEOUT * 4 + Duration::from_secs(1),
+            "the first answer must be bounded by the configured deadline, took {elapsed:?}"
+        );
+
+        // After a streak of bounded failures the session is degraded and stops
+        // paying the deadline at all — which is what keeps one sick application
+        // from making a whole run look hung.
+        for _ in 0..4 {
+            window.invalidate();
+            let _ = window.is_valid();
+        }
+        let start = Instant::now();
+        window.invalidate();
+        let _ = window.is_valid();
+        assert!(start.elapsed() < CALL_TIMEOUT / 2, "a degraded session must fail fast, took {:?}", start.elapsed());
+
+        // Enumeration keeps working: the frozen JVM contributes nothing instead
+        // of stalling the pass, so other Java windows (and other providers)
+        // continue to be served.
+        let start = Instant::now();
+        let _ = provider.get_nodes(Arc::clone(&parent)).expect("enumeration must not fail").count();
+        assert!(
+            start.elapsed() < CALL_TIMEOUT * 6 + Duration::from_secs(2),
+            "an enumeration pass with a frozen agent must stay bounded, took {:?}",
+            start.elapsed()
+        );
+
+        // And another provider is entirely unaffected.
+        let uia =
+            platynui_provider_windows_uia::WindowsUiaFactory.create(&RuntimeConfig::default()).expect("uia provider");
+        let start = Instant::now();
+        let count = uia.get_nodes(desktop_stub()).expect("uia get_nodes").count();
+        assert!(count > 0, "UIA must still see desktop windows");
+        assert!(start.elapsed() < Duration::from_secs(20), "UIA enumeration must not hang");
+        uia.shutdown();
+    }));
+    // Always thaw, even when an assertion above failed.
+    set_process_frozen(app.pid(), false);
+    if let Err(panic) = outcome {
+        std::panic::resume_unwind(panic);
+    }
+
+    // Recovery: the rate-limited probe finds the agent answering again, the
+    // degraded flag clears, and the node becomes usable without a re-enumeration.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        window.invalidate();
+        if window.is_valid() {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the session did not recover after thawing");
+        std::thread::sleep(Duration::from_millis(500));
+    }
+
+    provider.shutdown();
+}
+
+/// Two `PlatynUI` processes on one agent — the Inspector open while a test run is
+/// going — must both work, and must agree on what they are looking at.
+///
+/// The transport already proves two connections coexist (`two_clients_share_one_agent`
+/// in `platynui-java-agent`), but that test predates the toolkit adapter and only
+/// exchanges `ping`/`agent/info`. What matters here is the tree: element ids come
+/// from one registry per JVM, so the same object has to carry the same id for both
+/// readers, or a `RuntimeId` would mean different things depending on who asked and
+/// the Inspector could not reveal what a test run reported.
+///
+/// Two providers in one process are the closest faithful stand-in: separate
+/// backends, separate sessions, separate connections — which is exactly what two
+/// host processes have.
+#[test]
+#[ignore = "needs a desktop, a Java runtime, the built Swing fixture and the built agent JAR"]
+fn live_two_hosts_share_one_agent_and_agree_on_identity() {
+    let app = FixtureApp::launch_with_agent("two-hosts");
+    let inspector = build_provider(&RuntimeConfig::default());
+    let test_run = build_provider(&RuntimeConfig::default());
+    let parent = desktop_stub();
+
+    let window_for = |provider: &Arc<dyn UiTreeProvider>| -> Arc<dyn UiNode> {
+        let deadline = Instant::now() + DISCOVERY_DEADLINE;
+        loop {
+            let nodes: Vec<_> = provider.get_nodes(Arc::clone(&parent)).expect("get_nodes").collect();
+            if let Some(node) = nodes.iter().find(|node| {
+                node.name() == app.title && attribute_value(node, "Technology") == Some(UiValue::from("JavaAgent"))
+            }) {
+                return node.clone();
+            }
+            assert!(Instant::now() < deadline, "no agent-served window within {DISCOVERY_DEADLINE:?}");
+            std::thread::sleep(Duration::from_millis(250));
+        }
+    };
+
+    let inspector_window = window_for(&inspector);
+    let test_run_window = window_for(&test_run);
+    assert_eq!(
+        inspector_window.runtime_id(),
+        test_run_window.runtime_id(),
+        "one element, one identity — both hosts read the same registry"
+    );
+
+    // Interleaved deep reads: a per-process agent would deadlock or time out here,
+    // and ids assigned per connection would diverge.
+    let mut from_inspector = Vec::new();
+    walk(&inspector_window, &mut from_inspector, 0);
+    let mut from_test_run = Vec::new();
+    walk(&test_run_window, &mut from_test_run, 0);
+    assert_eq!(
+        structure_signature(&from_inspector),
+        structure_signature(&from_test_run),
+        "both hosts must see the same tree with the same identities"
+    );
+
+    // And they stay independent: shutting one down leaves the other working, which
+    // is what makes closing the Inspector mid-run harmless.
+    inspector.shutdown();
+    let mut after = Vec::new();
+    walk(&test_run_window, &mut after, 0);
+    assert_eq!(
+        structure_signature(&after),
+        structure_signature(&from_test_run),
+        "one host going away must not disturb the other"
+    );
+    assert!(test_run_window.is_valid(), "the surviving host still has a live node");
+
+    test_run.shutdown();
 }

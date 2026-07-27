@@ -3747,9 +3747,12 @@ version = "0.13.0-dev.2"
 dependencies = [
  "inventory",
  "platynui-core",
+ "platynui-java-agent",
  "platynui-platform-windows",
  "platynui-provider-java-jab",
  "platynui-provider-windows-uia",
+ "serde",
+ "serde_json",
  "tracing",
  "windows",
 ]

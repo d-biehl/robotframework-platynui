@@ -20,9 +20,18 @@ workspace = true
 # the only backend today, JAB, exists on Windows only.
 [target.'cfg(windows)'.dependencies]
 platynui-core = { path = "../core" }
+# The agent backend's transport: provider-neutral, depends on no other PlatynUI
+# crate, and already portable — it is the JAB backend below that keeps this
+# whole section Windows-gated until `java-provider-linux`.
+platynui-java-agent = { path = "../java-agent" }
 platynui-provider-java-jab = { path = "../provider-java-jab" }
 inventory = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
+# The PID-plus-geometry window-handle fallback (design 5): `EnumWindows` +
+# `GetWindowRect`, and nothing else.
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(windows)'.dev-dependencies]
 # Live fixture tests (tests/live_fixture.rs, #[ignore]-gated): real window
@@ -30,4 +39,8 @@ tracing = { version = "0.1", default-features = false, features = ["std"] }
 # frozen-JVM isolation check, and debug-API access to freeze the fixture JVM.
 platynui-platform-windows = { path = "../platform-windows" }
 platynui-provider-windows-uia = { path = "../provider-windows-uia" }
-windows = { version = "0.62", features = ["Win32_System_Diagnostics_Debug", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_System_Diagnostics_Debug",
+  "Win32_UI_WindowsAndMessaging",
+] }
