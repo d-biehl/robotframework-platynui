@@ -30,6 +30,8 @@ The Python native package (`packages/native`) is a Cargo workspace member (the r
 - Java agent (the artifact loaded into a target JVM):
 	- Owning paths: `java/agent` (product), `crates/java-agent` (attach transport + RPC client), `packages/provider-java` (delivery wheel).
 	- The three carry **one version** and must move together; `scripts/update-git-versions.py` syncs `java/agent/gradle.properties` with the rest. Provider↔agent versions are compared for exact equality at connect time, because an agent cannot be unloaded from a JVM.
+	- A toolkit adapter is split across two of them: the tree reader is in `java/agent` (`Swing*.java`), the mapping onto `UiNode` is in `crates/provider-java/src/agent`. Change one and you usually change the other.
+	- **Rebuilding the JAR is not delivering it**: `just build-java-agent` writes `java/agent/build/libs`, but the installed package serves the copy staged under `packages/provider-java` until `just build-provider-java` restages it — and the exact-version handshake cannot notice, because both sides still report the same dev version. Use `just install-provider-java`.
 	- Injection paths, JEP 451 facts and the delivery story: [`dev-docs/java-toolkits.md`](dev-docs/java-toolkits.md), [`java/agent/README.md`](java/agent/README.md).
 - Python / Robot Framework:
 	- Owning paths: `src/PlatynUI`, `packages/`.

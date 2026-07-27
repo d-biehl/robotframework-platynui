@@ -83,7 +83,7 @@ By default the Inspector follows the system light/dark theme; `--theme <system|l
 | Component | Windows | Linux X11 | Linux Wayland | PlatynUI compositor | macOS | Mock |
 |-----------|---------|-----------|---------------|---------------------|-------|------|
 | UI tree provider | ✅ UIA | ✅ AT-SPI2 | ✅ AT-SPI2, window-relative coordinates | ✅ AT-SPI2 + compositor window geometry | ❌ AX stub | ✅ |
-| Java provider backends | ⚠️ experimental JAB (Java Access Bridge), Swing/AWT only | ❌ planned in-JVM agent | ❌ planned in-JVM agent | ❌ planned in-JVM agent | — (JDK implements AX natively) | — |
+| Java provider backends | ⚠️ experimental in-JVM agent + JAB (Java Access Bridge) fallback, Swing/AWT only | ❌ planned in-JVM agent | ❌ planned in-JVM agent | ❌ planned in-JVM agent | — (JDK implements AX natively) | — |
 | Pointer | ✅ SendInput | ✅ XTest | ⚠️ portal (Mutter/KWin) / virtual-input (wlroots) / EIS | ✅ EIS | ❌ stub | ✅ |
 | Keyboard | ✅ SendInput | ✅ XTest | ⚠️ portal (Mutter/KWin) / virtual-input (wlroots) / EIS | ✅ EIS | ❌ stub | ✅ |
 | Desktop info | ✅ Win32 | ✅ XRandR/root geometry | ⚠️ `wl_output` + Mutter/KWin D-Bus enrichment | ✅ `wl_output` | ❌ stub | ✅ |
