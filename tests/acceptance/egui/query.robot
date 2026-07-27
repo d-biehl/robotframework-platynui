@@ -17,7 +17,10 @@ Query Window By Name And Read Its Attributes
     Should Not Be Equal    ${win}    ${None}    msg=egui window not found
     BM.Get Attribute    ${win}    Name    ==    PlatynUI Test App
     ${bounds}=    BM.Get Attribute    ${win}    Bounds
-    Should Not Be Equal    ${bounds}    ${None}    msg=window has no Bounds attribute
+    # `Get Attribute` fetches directly, so an ABSENT attribute already failed the read above — unlike
+    # `Query`, where a non-matching XPath yields ${None}. What is left for this check is the other
+    # case: the attribute is there and its value is null.
+    Should Not Be Equal    ${bounds}    ${None}    msg=window Bounds is present but null
 
 Known Buttons Exist By Id
     [Documentation]    Each expected button — the three action buttons and the three menu buttons —
