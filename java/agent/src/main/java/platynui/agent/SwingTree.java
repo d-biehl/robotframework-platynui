@@ -3,6 +3,7 @@ package platynui.agent;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Point;
+import java.awt.Rectangle;
 import java.awt.Window;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -83,9 +84,13 @@ final class SwingTree {
 
     /** How many children {@link #childrenOf} would report, without building them. */
     static int childCountOf(Object element) {
+        if (element instanceof VirtualChild) {
+            VirtualChild child = (VirtualChild) element;
+            Component owner = child.owner();
+            return child.isRow() && owner instanceof JTable ? ((JTable) owner).getColumnCount() : 0;
+        }
         if (element instanceof JTable) {
-            JTable table = (JTable) element;
-            return table.getRowCount() * table.getColumnCount();
+            return ((JTable) element).getRowCount();
         }
         if (!(element instanceof Component)) {
             return 0;
@@ -108,13 +113,21 @@ final class SwingTree {
      * whatever structure it has exists only in the accessible view.
      *
      * <p>{@code JTable} is the exception that proves the rule: it has no child components (except a
-     * cell editor while one is open, which must not hide the cells), so its cells are grafted
-     * unconditionally and read from the model.
+     * cell editor while one is open, which must not hide the cells), so its content is grafted
+     * unconditionally and read from the model — as <strong>rows</strong>, each holding its own cells.
+     * The flat, row-major cell list is what {@code AccessibleContext.getAccessibleChild(i)} offers
+     * and all the Access Bridge ever had; the model underneath has rows, and so do the tables the
+     * other providers surface.
      */
     static List<Object> childrenOf(Object element) {
         if (element instanceof VirtualChild) {
-            // Virtual children are leaves. A cell's renderer subtree is the shared
-            // renderer's, which belongs to no particular cell.
+            VirtualChild child = (VirtualChild) element;
+            Component owner = child.owner();
+            if (child.isRow() && owner instanceof JTable) {
+                return rowCells((JTable) owner, child.row());
+            }
+            // Every other virtual child is a leaf. A cell's renderer subtree is the
+            // shared renderer's, which belongs to no particular cell.
             return Collections.emptyList();
         }
         if (!(element instanceof Component)) {
@@ -122,7 +135,7 @@ final class SwingTree {
         }
         Component component = (Component) element;
         if (component instanceof JTable) {
-            return tableCells((JTable) component);
+            return tableRows((JTable) component);
         }
         List<Component> spine = visibleComponentChildren(component);
         if (!spine.isEmpty()) {
@@ -154,16 +167,73 @@ final class SwingTree {
         return visible;
     }
 
-    private static List<Object> tableCells(JTable table) {
+    private static List<Object> tableRows(JTable table) {
         int rows = table.getRowCount();
-        int columns = table.getColumnCount();
-        List<Object> cells = new ArrayList<Object>(rows * columns);
+        List<Object> children = new ArrayList<Object>(rows);
         for (int row = 0; row < rows; row++) {
-            for (int column = 0; column < columns; column++) {
-                cells.add(internCell(table, row, column));
-            }
+            children.add(internRow(table, row));
+        }
+        return children;
+    }
+
+    private static List<Object> rowCells(JTable table, int row) {
+        if (row < 0 || row >= table.getRowCount()) {
+            return Collections.emptyList();
+        }
+        int columns = table.getColumnCount();
+        List<Object> cells = new ArrayList<Object>(columns);
+        for (int column = 0; column < columns; column++) {
+            cells.add(internCell(table, row, column));
         }
         return cells;
+    }
+
+    /**
+     * The rectangle a row occupies, in the table's own coordinate space.
+     *
+     * <p>Swing has no row-rectangle API, and the union of the row's cell rectangles is exactly what
+     * one would be: {@code getCellRect} composes to it, and it is what a user would point at.
+     *
+     * @return the union, or {@code null} for a table with no columns or an out-of-range row
+     */
+    static Rectangle rowRect(JTable table, int row) {
+        int columns = table.getColumnCount();
+        if (columns <= 0 || row < 0 || row >= table.getRowCount()) {
+            return null;
+        }
+        Rectangle rect = table.getCellRect(row, 0, false);
+        for (int column = 1; column < columns; column++) {
+            rect = rect.union(table.getCellRect(row, column, false));
+        }
+        return rect;
+    }
+
+    /**
+     * The part of a table-space rectangle that is actually on screen, or {@code null} when none of
+     * it is.
+     *
+     * <p>A table larger than its viewport is the normal case, and {@code getCellRect} answers from
+     * the model regardless: row 90 of a scrolled table reports a rectangle two thousand pixels below
+     * the window. Publishing that would aim the pointer at whatever happens to be there — another
+     * window, another application — and would let the Element capability resolve on something with
+     * no place on screen. That is the same reasoning {@code SwingGeometry.hasArea} applies to
+     * unlaid-out components, one level further: absent is the honest answer.
+     *
+     * <p>Partially scrolled content is <em>clipped</em> rather than dropped, so the rectangle's
+     * centre — which is where pointer input aims — stays inside the part the user can actually see.
+     */
+    static Rectangle visiblePart(JTable table, Rectangle local) {
+        if (local == null) {
+            return null;
+        }
+        Rectangle visible = table.getVisibleRect();
+        if (visible == null || visible.isEmpty()) {
+            // No viewport, or nothing laid out yet; whether the table is on
+            // screen at all is `SwingGeometry.boundsWithin`'s question.
+            return local;
+        }
+        Rectangle clipped = local.intersection(visible);
+        return clipped.isEmpty() ? null : clipped;
     }
 
     private static int accessibleChildCount(Component component) {
@@ -192,13 +262,26 @@ final class SwingTree {
 
     // --------------------------------------------------------------- identity
 
+    /**
+     * Key space of the interning map. Cell keys pack {@code row} into the high word, so the two
+     * marker bits stay clear for any row count a table could plausibly hold.
+     */
+    private static final long INDEXED_KEY = 0x8000_0000_0000_0000L;
+
+    private static final long ROW_KEY = 0x4000_0000_0000_0000L;
+
     /** The interned cell of {@code table} at {@code (row, column)}. */
     static VirtualChild internCell(JTable table, int row, int column) {
         // The key mixes row and column rather than using the accessible child
         // index, because that index depends on the current column count and would
         // alias different cells across a column change.
         long key = (((long) row) << 32) | (column & 0xFFFF_FFFFL);
-        return intern(table, key, row, column);
+        return intern(table, key, Flavour.CELL, row, column);
+    }
+
+    /** The interned row {@code row} of {@code table}. */
+    static VirtualChild internRow(JTable table, int row) {
+        return intern(table, ROW_KEY | (row & 0xFFFF_FFFFL), Flavour.ROW, row, -1);
     }
 
     /**
@@ -210,16 +293,19 @@ final class SwingTree {
      * them. Returning {@code null} rather than guessing is the point: for a component whose children
      * are real components, the accessible order and the component order are two different orders, and
      * a wrong id is worse than a missing one.
+     *
+     * <p>A {@code JTable} is now one of those components. Its accessible children are still cells in
+     * row-major order, while the children this tree hands out are rows, so an accessible index does
+     * not address a direct child any more. Rather than translate — which would answer a
+     * cell-shaped question with a row-shaped id — it declines, and the table's selection is
+     * re-derived from the model instead (see {@code SwingElement}).
      */
     static Object childAt(Component owner, int index) {
         if (owner == null || index < 0) {
             return null;
         }
         if (owner instanceof JTable) {
-            JTable table = (JTable) owner;
-            int columns = table.getColumnCount();
-            // Row-major, exactly as `tableCells` builds them.
-            return columns <= 0 ? null : internCell(table, index / columns, index % columns);
+            return null;
         }
         if (!visibleComponentChildren(owner).isEmpty()) {
             // Spine children: their order is the container's, and nothing
@@ -231,10 +317,10 @@ final class SwingTree {
 
     /** The interned accessibility-only child of {@code owner} at {@code index}. */
     static VirtualChild internIndexed(Component owner, int index) {
-        return intern(owner, 0x8000_0000_0000_0000L | index, -1, index);
+        return intern(owner, INDEXED_KEY | index, Flavour.INDEXED, -1, index);
     }
 
-    private static VirtualChild intern(Component owner, long key, int row, int column) {
+    private static VirtualChild intern(Component owner, long key, Flavour flavour, int row, int column) {
         Map<Long, VirtualChild> perOwner = VIRTUAL_CHILDREN.get(owner);
         if (perOwner == null) {
             perOwner = new HashMap<Long, VirtualChild>();
@@ -243,27 +329,39 @@ final class SwingTree {
         Long boxed = Long.valueOf(key);
         VirtualChild child = perOwner.get(boxed);
         if (child == null) {
-            child = new VirtualChild(owner, row, column);
+            child = new VirtualChild(owner, flavour, row, column);
             perOwner.put(boxed, child);
         }
         return child;
     }
 
+    /** What a {@link VirtualChild} stands for. */
+    enum Flavour {
+        /** A table cell, addressed by {@code (row, column)} and read from the model. */
+        CELL,
+        /** A table row, addressed by its row index; its children are that row's cells. */
+        ROW,
+        /** An accessibility-only child, addressed by its accessible index. */
+        INDEXED
+    }
+
     /**
      * A child with no component of its own, given a stable identity by being interned.
      *
-     * <p>Two flavours in one type: a table cell, addressed by {@code (row, column)} and read from the
-     * model, and an accessibility-only child addressed by its index. They differ in where the truth
-     * about them lives, not in how they are identified.
+     * <p>Three flavours in one type: a table cell and a table row, both addressed by model
+     * coordinates and read from the model, and an accessibility-only child addressed by its index.
+     * They differ in where the truth about them lives, not in how they are identified.
      */
     static final class VirtualChild {
 
         private final WeakReference<Component> owner;
+        private final Flavour flavour;
         private final int row;
         private final int column;
 
-        VirtualChild(Component owner, int row, int column) {
+        VirtualChild(Component owner, Flavour flavour, int row, int column) {
             this.owner = new WeakReference<Component>(owner);
+            this.flavour = flavour;
             this.row = row;
             this.column = column;
         }
@@ -273,7 +371,11 @@ final class SwingTree {
         }
 
         boolean isCell() {
-            return row >= 0;
+            return flavour == Flavour.CELL;
+        }
+
+        boolean isRow() {
+            return flavour == Flavour.ROW;
         }
 
         int row() {
@@ -284,13 +386,18 @@ final class SwingTree {
             return column;
         }
 
-        /** Accessible child index — derived for a cell, so a column change cannot alias it. */
+        /**
+         * Accessible child index — derived for a cell, so a column change cannot alias it.
+         *
+         * <p>A row has none: the accessible view of a {@code JTable} knows only cells, which is the
+         * whole reason the row level has to come from the model.
+         */
         int index() {
             Component target = owner();
-            if (!isCell()) {
+            if (flavour == Flavour.INDEXED) {
                 return column;
             }
-            if (target instanceof JTable) {
+            if (flavour == Flavour.CELL && target instanceof JTable) {
                 return row * ((JTable) target).getColumnCount() + column;
             }
             return -1;
@@ -319,14 +426,17 @@ final class SwingTree {
             if (target == null) {
                 return false;
             }
-            if (isCell()) {
-                if (!(target instanceof JTable)) {
-                    return false;
-                }
-                JTable table = (JTable) target;
-                return row < table.getRowCount() && column < table.getColumnCount();
+            if (flavour == Flavour.INDEXED) {
+                return column < accessibleChildCount(target);
             }
-            return column < accessibleChildCount(target);
+            if (!(target instanceof JTable)) {
+                return false;
+            }
+            JTable table = (JTable) target;
+            if (flavour == Flavour.ROW) {
+                return row < table.getRowCount();
+            }
+            return row < table.getRowCount() && column < table.getColumnCount();
         }
     }
 
@@ -403,10 +513,7 @@ final class SwingTree {
                 Point inDeepest = new Point(local);
                 SwingUtilities.convertPointToScreen(inDeepest, window);
                 SwingUtilities.convertPointFromScreen(inDeepest, deepest);
-                VirtualChild virtual = virtualChildAt(deepest, inDeepest);
-                if (virtual != null) {
-                    chain.add(virtual);
-                }
+                chain.addAll(virtualChainAt(deepest, inDeepest));
             }
             return chain;
         }
@@ -438,33 +545,45 @@ final class SwingTree {
     }
 
     /**
-     * The virtual child of {@code component} under a point in its own coordinate space.
+     * The virtual children of {@code component} under a point in its own coordinate space,
+     * outermost first.
      *
      * <p>This is where the picker stops being able to point only at containers: a table resolves to
-     * a cell, a list to an entry.
+     * a row and then to a cell, a list to an entry. Both come from the same interning table as the
+     * enumerated nodes, so the picked element <em>is</em> the node the tree hands out and a consumer
+     * revealing the result can place it — which is the property that makes an in-JVM hit-test worth
+     * having.
      */
-    private static VirtualChild virtualChildAt(Component component, Point local) {
+    private static List<VirtualChild> virtualChainAt(Component component, Point local) {
         try {
             if (component instanceof JTable) {
                 JTable table = (JTable) component;
                 int row = table.rowAtPoint(local);
                 int column = table.columnAtPoint(local);
-                return row < 0 || column < 0 ? null : internCell(table, row, column);
+                if (row < 0 || column < 0) {
+                    return Collections.emptyList();
+                }
+                List<VirtualChild> chain = new ArrayList<VirtualChild>(2);
+                chain.add(internRow(table, row));
+                chain.add(internCell(table, row, column));
+                return chain;
             }
             if (component instanceof JList) {
                 int index = ((JList<?>) component).locationToIndex(local);
                 if (index < 0 || index >= accessibleChildCount(component)) {
-                    return null;
+                    return Collections.emptyList();
                 }
                 // `locationToIndex` answers for points past the last entry too, so
                 // the cell's own bounds decide.
-                java.awt.Rectangle cell = ((JList<?>) component).getCellBounds(index, index);
-                return cell != null && cell.contains(local) ? internIndexed(component, index) : null;
+                Rectangle cell = ((JList<?>) component).getCellBounds(index, index);
+                return cell != null && cell.contains(local)
+                        ? Collections.<VirtualChild>singletonList(internIndexed(component, index))
+                        : Collections.<VirtualChild>emptyList();
             }
         } catch (RuntimeException e) {
             AgentLog.debug("virtual hit-test failed: " + e);
         }
-        return null;
+        return Collections.emptyList();
     }
 
     // --------------------------------------------------------------- actions
@@ -504,14 +623,19 @@ final class SwingTree {
         return component instanceof Window ? (Window) component : SwingUtilities.getWindowAncestor(component);
     }
 
-    /** The on-screen rectangle of an element, cell bounds included. */
+    /** The on-screen rectangle of an element, cell and row bounds included. */
     static Map<String, Object> boundsOf(Object element) {
         if (element instanceof VirtualChild) {
             VirtualChild child = (VirtualChild) element;
             Component owner = child.owner();
             if (child.isCell() && owner instanceof JTable) {
                 JTable table = (JTable) owner;
-                return SwingGeometry.boundsWithin(table, table.getCellRect(child.row(), child.column(), false));
+                Rectangle cell = table.getCellRect(child.row(), child.column(), false);
+                return SwingGeometry.boundsWithin(table, visiblePart(table, cell));
+            }
+            if (child.isRow() && owner instanceof JTable) {
+                JTable table = (JTable) owner;
+                return SwingGeometry.boundsWithin(table, visiblePart(table, rowRect(table, child.row())));
             }
             AccessibleContext context = child.accessibleContext();
             if (owner == null || context == null || context.getAccessibleComponent() == null) {

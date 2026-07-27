@@ -47,6 +47,12 @@ absent: any text write (text is typed via synthesized keyboard input) and any hi
 the platform's job — what an out-of-process bridge lacks for a table cell is bounds, not a way to
 draw).
 
+The tree it serves is the **instance tree as the spine**, with model-derived structure grafted where
+components end. A `JTable` is the case where that matters most: it has no child components, and its
+accessible projection is a flat, row-major list of cells — so the adapter reads the model instead and
+reports `Table` → row → cell, each row and cell an interned value object with its own identity,
+rectangle and selection state. `SwingTree` builds and interns them, `SwingElement` describes them.
+
 ## Dependencies: none, deliberately
 
 The agent is loaded into a foreign process, so every jar on its classpath would be a jar the target

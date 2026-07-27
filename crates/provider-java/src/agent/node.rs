@@ -20,7 +20,9 @@
 //!   backend's do. What the agent contributes is the native handle that makes
 //!   that resolution exact instead of a PID guess.
 
-use super::element::{Cell, ColumnHeader, Element, FRAME_ICONIFIED, FRAME_MAXIMIZED_BOTH, Kind, Table, map_role};
+use super::element::{
+    Cell, ColumnHeader, Element, FRAME_ICONIFIED, FRAME_MAXIMIZED_BOTH, Kind, Table, TableRow, map_role,
+};
 use super::session::AgentSession;
 use platynui_core::platform::{WindowId, WindowManager};
 use platynui_core::types::{Point, Size};
@@ -372,6 +374,9 @@ impl UiNode for AgentNode {
         if let Some(cell) = element.cell {
             push_cell(&mut attrs, cell);
         }
+        if let Some(row) = element.table_row {
+            push_table_row(&mut attrs, row);
+        }
         if let Some(header) = element.column_header {
             push_column_header(&mut attrs, header);
         }
@@ -501,10 +506,11 @@ fn push_native(attrs: &mut Vec<Arc<dyn UiAttribute>>, element: &Element) {
     dynamic(attrs, "States", UiValue::from(element.states.join(",")));
     if let Some(selection) = element.selection.as_ref() {
         dynamic(attrs, "Selection.Count", UiValue::from(i64::try_from(selection.count).unwrap_or(0)));
-        // The raw accessible child indices, next to the resolved RuntimeIds in
+        // The raw child indices, next to the resolved RuntimeIds in
         // `control:SelectedItems`. Kept because they survive the case the ids do
         // not: when the accessible order and the tree order cannot be shown to
-        // agree, the indices are still exactly what the toolkit said.
+        // agree, the indices are still exactly what the toolkit said. For a table
+        // they are row indices, because a table's children are its rows.
         dynamic(
             attrs,
             "Selection.Indices",
@@ -580,6 +586,16 @@ fn push_cell(attrs: &mut Vec<Arc<dyn UiAttribute>>, cell: Cell) {
     dynamic(attrs, "TableCell.ColumnExtent", UiValue::from(i64::try_from(cell.column_extent).unwrap_or(1)));
     dynamic(attrs, "TableCell.IsSelected", UiValue::from(cell.selected));
     dynamic(attrs, "TableCell.IsEditable", UiValue::from(cell.editable));
+}
+
+/// `native:TableRow.*` — where a row sits and whether it is the selected one.
+///
+/// The index is free and is what a user reads off the screen; it duplicates what
+/// the tree already encodes structurally, which is the point — a row should be
+/// assertable both ways.
+fn push_table_row(attrs: &mut Vec<Arc<dyn UiAttribute>>, row: TableRow) {
+    dynamic(attrs, "TableRow.Index", UiValue::from(i64::try_from(row.row).unwrap_or(0)));
+    dynamic(attrs, "TableRow.IsSelected", UiValue::from(row.selected));
 }
 
 /// `native:ColumnHeader.*` — which column a header belongs to.

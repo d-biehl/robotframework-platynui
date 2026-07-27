@@ -47,6 +47,10 @@ tasks.compileTestJava {
 
 tasks.test {
     useJUnitPlatform()
+    // The Swing tests build real components to read their model and layout, never
+    // to show them. Forcing headless keeps that honest — and keeps the suite
+    // runnable on a build machine with no desktop.
+    systemProperty("java.awt.headless", "true")
     testLogging {
         events("failed")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL

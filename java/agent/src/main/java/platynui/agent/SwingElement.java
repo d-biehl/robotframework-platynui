@@ -3,6 +3,7 @@ package platynui.agent;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Frame;
+import java.awt.Rectangle;
 import java.awt.Window;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -209,7 +210,12 @@ final class SwingElement {
             int row = child.row();
             int column = child.column();
             payload.put("name", modelValueAt(table, row, column));
-            Map<String, Object> bounds = SwingGeometry.boundsWithin(table, table.getCellRect(row, column, false));
+            // Only the part that is on screen: a table larger than its viewport
+            // still answers `getCellRect` for every cell of the model, and a
+            // rectangle below the window is worse than none (see
+            // `SwingTree.visiblePart`).
+            Rectangle onScreen = SwingTree.visiblePart(table, table.getCellRect(row, column, false));
+            Map<String, Object> bounds = SwingGeometry.boundsWithin(table, onScreen);
             if (bounds != null) {
                 payload.put("bounds", bounds);
             }
@@ -226,7 +232,13 @@ final class SwingElement {
             payload.put("cell", cell);
             payload.put("enabled", Boolean.valueOf(table.isEnabled()));
             payload.put("visible", Boolean.valueOf(table.isVisible()));
-            payload.put("showing", Boolean.valueOf(table.isShowing()));
+            // `showing` is "in view", and a scrolled-out cell is not — which is
+            // a different question from `visible`, i.e. "not hidden by its own
+            // flag". The table answers the second for it; only the viewport can
+            // answer the first.
+            payload.put("showing", Boolean.valueOf(table.isShowing() && onScreen != null));
+        } else if (child.isRow() && owner instanceof JTable) {
+            describeTableRow((JTable) owner, child.row(), payload);
         } else if (owner instanceof JTableHeader) {
             describeColumnHeader((JTableHeader) owner, child.index(), payload, wrapper);
         } else {
@@ -246,6 +258,57 @@ final class SwingElement {
         }
         payload.put("focusable", Boolean.FALSE);
         payload.put("focused", Boolean.FALSE);
+    }
+
+    /**
+     * A table row — a level the accessible view of a {@code JTable} does not have at all.
+     *
+     * <p>Swing's accessible projection of a table is a flat, row-major list of cells, which is why
+     * the Access Bridge has no rows and why this level can only come from the model. Everything
+     * about the row is read there: its extent is the union of its cells' rectangles, its selection
+     * is the table's row selection.
+     *
+     * <p><strong>No name.</strong> A row carries no label of its own, and synthesising one by
+     * joining its cells' values would invent an identifier that changes whenever any cell does. A
+     * row is addressed by position or by what it contains — which is how the rows of every other
+     * provider behave too.
+     */
+    private static void describeTableRow(JTable table, int row, Map<String, Object> payload) {
+        // Override the wrapper's role — there is no wrapper for a row — with what
+        // this element is; the provider maps `table row` to `item:TableRow`.
+        payload.put("role", "table row");
+
+        // Clipped to the viewport, like its cells: most rows of a scrolling
+        // table are nowhere on screen, and a rectangle below the window is
+        // worse than none (see `SwingTree.visiblePart`).
+        Rectangle onScreen = SwingTree.visiblePart(table, SwingTree.rowRect(table, row));
+        Map<String, Object> bounds = SwingGeometry.boundsWithin(table, onScreen);
+        if (bounds != null) {
+            payload.put("bounds", bounds);
+        }
+
+        boolean selected = table.isRowSelected(row);
+        Map<String, Object> block = Json.newObject();
+        block.put("row", Long.valueOf(row));
+        block.put("selected", Boolean.valueOf(selected));
+        payload.put("tableRow", block);
+
+        // Derived states rather than the wrapper's, for the same reason as the
+        // role: the accessible view has nothing to say about a row. They travel on
+        // the shared vocabulary, so the provider's normalised `Selectable` surface
+        // resolves without knowing that this element came from a table.
+        List<Object> states = new ArrayList<Object>();
+        if (table.getRowSelectionAllowed()) {
+            states.add("selectable");
+            if (selected) {
+                states.add("selected");
+            }
+        }
+        payload.put("states", states);
+
+        payload.put("enabled", Boolean.valueOf(table.isEnabled()));
+        payload.put("visible", Boolean.valueOf(table.isVisible()));
+        payload.put("showing", Boolean.valueOf(table.isShowing() && onScreen != null));
     }
 
     /**
@@ -301,7 +364,7 @@ final class SwingElement {
         if (owner == null || wrapper == null || wrapper.getAccessibleComponent() == null) {
             return null;
         }
-        java.awt.Rectangle local = wrapper.getAccessibleComponent().getBounds();
+        Rectangle local = wrapper.getAccessibleComponent().getBounds();
         return local == null ? null : SwingGeometry.boundsWithin(owner, local);
     }
 
@@ -514,9 +577,15 @@ final class SwingElement {
      * <p>Bounded scan: a list with everything selected must not turn one attribute read into tens of
      * thousands of registrations. Truncation is reported rather than silent, because a caller that
      * sees fewer ids than {@code count} needs to know why.
+     *
+     * <p>A {@code JTable} takes {@link #tableSelectionOf} instead: its accessible indices address
+     * cells, which are no longer its direct children.
      */
     private static Map<String, Object> selectionOf(
             AccessibleContext context, Component owner, ElementRegistry registry) {
+        if (owner instanceof JTable) {
+            return tableSelectionOf((JTable) owner, registry);
+        }
         AccessibleSelection selection = context == null ? null : context.getAccessibleSelection();
         if (selection == null) {
             return null;
@@ -552,6 +621,47 @@ final class SwingElement {
             }
         } catch (RuntimeException e) {
             return null;
+        }
+        return block;
+    }
+
+    /**
+     * A table's selection, taken from the table rather than from its accessible view.
+     *
+     * <p>{@code AccessibleSelection} on a {@code JTable} answers in terms of accessible child
+     * indices, and those address <strong>cells</strong> — which stopped being the table's direct
+     * children when rows arrived. Rather than translate one shape into the other, the answer is
+     * taken from where it is unambiguous: {@code getSelectedRows} is the table's own account of what
+     * is selected, and the ids therefore name rows, which is what row selection means.
+     *
+     * <p>Cell-level selection does not disappear; it lives on the cell, where {@code isCellSelected}
+     * puts it.
+     */
+    private static Map<String, Object> tableSelectionOf(JTable table, ElementRegistry registry) {
+        int[] rows;
+        try {
+            rows = table.getSelectedRows();
+        } catch (RuntimeException e) {
+            return null;
+        }
+        Map<String, Object> block = Json.newObject();
+        block.put("count", Long.valueOf(rows == null ? 0 : rows.length));
+        List<Object> indices = new ArrayList<Object>();
+        List<Object> ids = new ArrayList<Object>();
+        boolean idsComplete = true;
+        if (rows != null) {
+            for (int row : rows) {
+                if (indices.size() >= SELECTION_SCAN_LIMIT) {
+                    idsComplete = false;
+                    break;
+                }
+                indices.add(Long.valueOf(row));
+                ids.add(Long.valueOf(registry.idFor(SwingTree.internRow(table, row))));
+            }
+        }
+        block.put("indices", indices);
+        if (idsComplete) {
+            block.put("ids", ids);
         }
         return block;
     }

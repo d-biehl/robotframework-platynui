@@ -1,8 +1,15 @@
 *** Settings ***
 Documentation       Java Swing acceptance suites — they drive the REAL Windows runtime
-...                 against apps/test-app-swing through the Java Access Bridge (JAB)
-...                 backend of the Java provider (`crates/provider-java-jab`, OpenSpec
-...                 capability `jab-provider`).
+...                 against apps/test-app-swing through the Java provider (OpenSpec
+...                 capability `java-provider`).
+...
+...                 TWO BACKENDS, TWO RESOURCE FILES. Most suites here are about the
+...                 Java Access Bridge (`crates/provider-java-jab`) and switch the
+...                 in-JVM agent OFF via resources/testapp.resource, because the agent
+...                 is the preferred backend and a Swing JVM does not otherwise stay
+...                 agent-less. Suites about the agent itself use
+...                 resources/testapp_agent.resource, which leaves it on and waits for
+...                 `@Technology = "JavaAgent"`. Both share resources/swing_env.resource.
 ...
 ...                 BUILD REQUIREMENT: the native module must be built WITHOUT the
 ...                 mock-provider feature (``just build-native``). A mock-provider

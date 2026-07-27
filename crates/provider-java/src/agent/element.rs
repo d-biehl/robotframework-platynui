@@ -74,6 +74,8 @@ pub(crate) struct Element {
     pub table: Option<Table>,
     #[serde(default)]
     pub cell: Option<Cell>,
+    #[serde(rename = "tableRow", default)]
+    pub table_row: Option<TableRow>,
     #[serde(rename = "columnHeader", default)]
     pub column_header: Option<ColumnHeader>,
     #[serde(rename = "clientProperties", default)]
@@ -161,6 +163,18 @@ pub(crate) struct Cell {
 
 fn one() -> u64 {
     1
+}
+
+/// A table row — a level the accessible view of a Swing table does not have.
+///
+/// Swing projects a table as a flat, row-major list of cells, which is all the
+/// Access Bridge ever saw; the model underneath has rows, with their own extent
+/// and their own selection state, and that is what the agent reads.
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub(crate) struct TableRow {
+    pub row: u64,
+    #[serde(default)]
+    pub selected: bool,
 }
 
 /// A table column header, described from the header component rather than from
@@ -325,6 +339,15 @@ pub(crate) fn map_role(element: &Element, parent_role: Option<&str>) -> (Namespa
         return (Namespace::Item, "TableCell".to_owned());
     }
 
+    // A row, likewise identified by its payload block rather than by a role the
+    // toolkit never assigned it — the agent synthesises `table row` precisely
+    // because the accessible view has no opinion. `TableRow` is what
+    // `provider-atspi` publishes for the same thing, so a table has the same
+    // shape whichever of the two served it.
+    if element.table_row.is_some() {
+        return (Namespace::Item, "TableRow".to_owned());
+    }
+
     let states = element.state_flags();
     if element.role == "label" {
         match parent_role {
@@ -386,6 +409,9 @@ fn map_role_name(role: &str) -> (Namespace, String) {
         "split pane" => (Namespace::Control, "SplitPane"),
         "status bar" => (Namespace::Control, "StatusBar"),
         "table" => (Namespace::Control, "Table"),
+        // Synthesised by the agent for a table's rows; the accessible vocabulary
+        // has no such role, because the accessible view has no such level.
+        "table row" => (Namespace::Item, "TableRow"),
         "text" => (Namespace::Control, "Text"),
         "toggle button" => (Namespace::Control, "ToggleButton"),
         "tool bar" => (Namespace::Control, "ToolBar"),
@@ -476,10 +502,18 @@ mod tests {
 
     const TABLE: &str = r#"{
         "id": 31, "kind": "component", "role": "table", "className": "javax.swing.JTable",
-        "accessibleName": "main-table", "childCount": 12,
+        "accessibleName": "main-table", "childCount": 4,
         "table": {"rows": 4, "columns": 3, "selectedRows": [2], "selectedColumns": []},
-        "selection": {"count": 3, "indices": [6, 7, 8]},
+        "selection": {"count": 1, "indices": [2], "ids": [44]},
         "states": ["enabled", "focusable", "visible", "showing", "opaque"]
+    }"#;
+
+    const SELECTED_ROW: &str = r#"{
+        "id": 44, "kind": "accessible", "role": "table row", "className": "javax.swing.JTable",
+        "bounds": {"x": 230.0, "y": 470.0, "width": 222.0, "height": 15.0},
+        "tableRow": {"row": 2, "selected": true},
+        "states": ["selectable", "selected"],
+        "childCount": 3, "enabled": true, "visible": true, "showing": true
     }"#;
 
     #[test]
@@ -533,6 +567,10 @@ mod tests {
     #[test]
     fn a_table_cell_is_an_item_not_the_renderers_label() {
         let cell = parse(SELECTED_CELL);
+        // The coordinates identify it, so the promotion does not depend on the
+        // parent — which matters now that a cell's parent is its row, not the
+        // table. Both spellings have to resolve the same way.
+        assert_eq!(map_role(&cell, Some("table row")), (Namespace::Item, "TableCell".to_owned()));
         assert_eq!(map_role(&cell, Some("table")), (Namespace::Item, "TableCell".to_owned()));
         let coordinates = cell.cell.expect("cell block");
         assert_eq!((coordinates.row, coordinates.column), (2, 0));
@@ -549,7 +587,33 @@ mod tests {
         let shape = table.table.expect("table block");
         assert_eq!((shape.rows, shape.columns), (4, 3));
         assert_eq!(shape.selected_rows, vec![2]);
-        assert_eq!(table.selection.expect("selection").indices, vec![6, 7, 8]);
+        // A table's children are its rows, so its selection is stated in rows —
+        // both the indices and the ids, which name the row nodes themselves.
+        assert_eq!(table.child_count, 4);
+        let selection = table.selection.expect("selection");
+        assert_eq!(selection.indices, vec![2]);
+        assert_eq!(selection.ids, Some(vec![44]));
+    }
+
+    /// A row is identified by its payload block, like a cell — the accessible
+    /// view has no role for it, because it has no such level at all.
+    #[test]
+    fn a_table_row_is_an_item_of_its_table() {
+        let row = parse(SELECTED_ROW);
+        assert_eq!(map_role(&row, Some("table")), (Namespace::Item, "TableRow".to_owned()));
+        let block = row.table_row.expect("tableRow block");
+        assert_eq!(block.row, 2);
+        assert!(block.selected, "row 2 is preselected in the fixture");
+        assert!(row.state_flags().selected, "and says so on the shared state vocabulary");
+        // No name of its own: joining the cells' values would invent an
+        // identifier that changes whenever any of them does.
+        assert_eq!(row.display_name(), "");
+        assert_eq!(row.stable_id(), None);
+        // The extent spans the whole row, not one cell.
+        assert_eq!(row.rect(), Some(Rect::new(230.0, 470.0, 222.0, 15.0)));
+        // And the role name resolves on its own too, for a payload that carries
+        // the synthesised role without the block.
+        assert_eq!(map_role_name("table row"), (Namespace::Item, "TableRow".to_owned()));
     }
 
     /// A list entry reports the renderer's role too; the parent plus the

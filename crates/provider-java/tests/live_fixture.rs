@@ -435,8 +435,8 @@ fn live_fixture_contract_and_interaction() {
         table_attrs.iter().all(|name| !name.starts_with("TableCell.")),
         "the table is not a table child itself and must not list TableCell.*: {table_attrs:?}"
     );
-    assert_eq!(native_value(table, "Table.RowCount"), Some(UiValue::from(4i64)), "fixture table is 4x3");
-    assert_eq!(native_value(table, "Table.ColumnCount"), Some(UiValue::from(3i64)));
+    assert_eq!(native_value(table, "Table.RowCount"), Some(UiValue::from(100i64)), "fixture table is 100x6");
+    assert_eq!(native_value(table, "Table.ColumnCount"), Some(UiValue::from(6i64)));
     assert_eq!(native_value(table, "Table.SelectedRowCount"), Some(UiValue::from(1i64)), "row 2 is preselected");
 
     // A data cell answers the per-cell tier through attribute() only. Cells
@@ -445,8 +445,11 @@ fn live_fixture_contract_and_interaction() {
     // names are volatile (last-configured-wins) — the coordinate-based
     // TableCell.* attributes are the stable identity.
     let cells: Vec<Arc<dyn UiNode>> = table.children().collect();
-    assert_eq!(cells.len(), 12, "4x3 fixture table must expose one child per cell");
-    let cell = &cells[5]; // row-major: index 5 = (row 1, column 2), holds "r1c2"
+    // Flat and complete: the bridge reports every cell of the model as a direct
+    // child, scrolled into view or not. That is the shape this backend has and
+    // must keep having — the row level exists only through the agent.
+    assert_eq!(cells.len(), 600, "100x6 fixture table must expose one child per cell");
+    let cell = &cells[8]; // row-major: index 1*6 + 2 = (row 1, column 2), holds "r1c2"
     // Cells LIST their per-cell attributes (so enumeration consumers like the
     // Inspector's attribute panel see them); the values still resolve lazily.
     let cell_attrs = native_names(cell);
@@ -455,11 +458,16 @@ fn live_fixture_contract_and_interaction() {
     }
     assert_eq!(native_value(cell, "TableCell.Row"), Some(UiValue::from(1i64)));
     assert_eq!(native_value(cell, "TableCell.Column"), Some(UiValue::from(2i64)));
-    assert_eq!(native_value(cell, "TableCell.Index"), Some(UiValue::from(5i64)));
+    assert_eq!(native_value(cell, "TableCell.Index"), Some(UiValue::from(8i64)));
     assert_eq!(native_value(cell, "TableCell.IsSelected"), Some(UiValue::from(false)));
-    let selected_cell = &cells[7]; // (row 2, column 1) — row 2 is preselected
+    let selected_cell = &cells[13]; // 2*6 + 1 = (row 2, column 1) — row 2 is preselected
     assert_eq!(native_value(selected_cell, "TableCell.Row"), Some(UiValue::from(2i64)));
     assert_eq!(native_value(selected_cell, "TableCell.IsSelected"), Some(UiValue::from(true)));
+    // Far below the fold: the bridge answers from the model, so a cell nobody
+    // scrolled to still knows where it sits.
+    let offscreen = &cells[90 * 6 + 3];
+    assert_eq!(native_value(offscreen, "TableCell.Row"), Some(UiValue::from(90i64)));
+    assert_eq!(native_value(offscreen, "TableCell.Column"), Some(UiValue::from(3i64)));
 
     // Bitfield gate: a plain label supports none of Table/Value/Text, so none
     // of those attributes exist on it — neither enumerated nor by lookup —
@@ -887,9 +895,110 @@ fn live_agent_serves_table_cells_the_bridge_cannot() {
         let cell = find_by_name(&all, "r2c0");
         assert_eq!(cell.id(), None, "a table cell's model value must not be published as control:Id");
 
-        // `SelectedItems` has to name nodes that exist. Ids assembled from a
-        // parallel scheme look like an answer and resolve to nothing.
+        // A table's children are its **rows**, and each row holds its cells.
+        // The flat, row-major cell list the bridge reports is not a model, it is
+        // what `AccessibleContext.getAccessibleChild(i)` happens to offer; the
+        // agent reads the toolkit's own model, where a row is a first-class
+        // thing — as it already is for `provider-atspi` and `provider-windows-uia`.
         let table = find_by_name(&all, "main-table");
+        let rows: Vec<Arc<dyn UiNode>> = table.children().collect();
+        assert_eq!(rows.len(), 100, "the 100x6 fixture table has one child per row, not 600 direct cells");
+        for (index, row) in rows.iter().enumerate() {
+            assert_eq!(row.role(), "TableRow", "a table's children are rows");
+            assert_eq!(row.namespace(), Namespace::Item);
+            let position = i64::try_from(index).expect("fixture row index");
+            assert_eq!(native_value(row, "TableRow.Index"), Some(UiValue::Integer(position)));
+            // A row carries no label of its own, and joining its cells' values
+            // would invent an identifier that changes when any cell does.
+            assert_eq!(row.id(), None, "a row has no developer-provided identifier");
+        }
+
+        // Cells in detail on three rows: the first, the preselected one, and one
+        // far below the fold. Six hundred of them would prove nothing the three
+        // do not — except how long a walk takes.
+        for index in [0usize, 2, 90] {
+            let position = i64::try_from(index).expect("fixture row index");
+            let cells: Vec<Arc<dyn UiNode>> = rows[index].children().collect();
+            assert_eq!(cells.len(), 6, "row {index} must hold one cell per column");
+            for (column, cell) in cells.iter().enumerate() {
+                let column_position = i64::try_from(column).expect("fixture column index");
+                assert_eq!(cell.role(), "TableCell", "a row's children are cells");
+                assert_eq!(cell.name(), format!("r{index}c{column}"), "the model value, in model order");
+                assert_eq!(native_value(cell, "TableCell.Row"), Some(UiValue::Integer(position)));
+                assert_eq!(native_value(cell, "TableCell.Column"), Some(UiValue::Integer(column_position)));
+                assert_eq!(
+                    native_value(cell, "TableCell.IsSelected"),
+                    Some(UiValue::from(index == 2)),
+                    "row 2 is preselected, and cell-level selection stays on the cell"
+                );
+            }
+        }
+
+        // The fixture table does not fit its viewport, and that is the point.
+        // A row scrolled out of view must report **no** bounds and must not
+        // claim to be in view: its model rectangle is real but sits far below
+        // the window, so publishing it would aim the pointer at whatever
+        // happens to be there — the same reason an unlaid-out menu item
+        // reports nothing rather than an empty rectangle at its owner's corner.
+        let below_the_fold = &rows[90];
+        assert_eq!(attribute_value(below_the_fold, "Bounds"), None, "a row nobody scrolled to has no place on screen");
+        assert_eq!(attribute_value(below_the_fold, "ActivationPoint"), None, "and therefore nothing to aim at");
+        assert_eq!(attribute_value(below_the_fold, "IsInView"), Some(UiValue::from(false)));
+        let hidden_cell = &below_the_fold.children().next().expect("a scrolled-out row still has its cells");
+        assert_eq!(attribute_value(hidden_cell, "Bounds"), None, "nor do its cells");
+        assert_eq!(attribute_value(hidden_cell, "IsInView"), Some(UiValue::from(false)));
+        // It is still *there*, though — name, coordinates and identity all hold.
+        assert_eq!(hidden_cell.name(), "r90c0");
+        assert_eq!(native_value(hidden_cell, "TableCell.Row"), Some(UiValue::Integer(90)));
+
+        // A row has an on-screen rectangle spanning the cells it contains, so it
+        // is something a user could point at rather than a bookkeeping node.
+        let selected_row = &rows[2];
+        let UiValue::Rect(row_rect) = attribute_value(selected_row, "Bounds").expect("a row has bounds") else {
+            panic!("Bounds must be a rectangle");
+        };
+        let row_cells: Vec<Arc<dyn UiNode>> = selected_row.children().collect();
+        let cell_rect = |node: &Arc<dyn UiNode>| match attribute_value(node, "Bounds") {
+            Some(UiValue::Rect(rect)) => rect,
+            other => panic!("a cell must have rectangular bounds, got {other:?}"),
+        };
+        // Row and cells alike are clipped to the viewport, so the span holds
+        // over the columns that are in view — and the ones past the right edge
+        // have no rectangle at all, for the same reason rows below the fold do not.
+        let first = cell_rect(&row_cells[0]);
+        let last = cell_rect(&row_cells[3]);
+        assert!(
+            row_rect.x() <= first.x() && row_rect.right() >= last.right(),
+            "the row must span its cells horizontally: row {row_rect:?}, cells {first:?}..{last:?}"
+        );
+        assert!(row_rect.height() >= first.height(), "and be at least as tall as a cell: {row_rect:?}");
+        assert_eq!(
+            attribute_value(&row_cells[5], "Bounds"),
+            None,
+            "a column scrolled out to the right has no rectangle either"
+        );
+
+        // Row selection, on the row that has it.
+        assert_eq!(native_value(selected_row, "TableRow.IsSelected"), Some(UiValue::from(true)));
+        // …and on the normalised Selectable surface, not only the native one. In
+        // the node's own namespace, which for a row is `item:` — the convention
+        // this backend already follows for cells.
+        assert_eq!(
+            selected_row.attribute(Namespace::Item, "IsSelected").map(|attr| attr.value()),
+            Some(UiValue::from(true))
+        );
+        assert_eq!(native_value(&rows[0], "TableRow.IsSelected"), Some(UiValue::from(false)));
+
+        // Identity: the same row is the same node across enumerations, which is
+        // what an interned `(table, row)` key buys over a positional scheme.
+        let row_ids: Vec<String> = rows.iter().map(|row| row.runtime_id().as_str().to_owned()).collect();
+        let again: Vec<String> = table.children().map(|row| row.runtime_id().as_str().to_owned()).collect();
+        assert_eq!(again, row_ids, "a row must keep its identity across enumerations of an unchanged table");
+
+        // `SelectedItems` has to name nodes that exist. Ids assembled from a
+        // parallel scheme look like an answer and resolve to nothing — and with a
+        // row level the accessible child index no longer addresses a direct
+        // child, so the selection is re-derived from the table's own model.
         let UiValue::Array(selected) = attribute_value(table, "SelectedItems").expect("SelectedItems") else {
             panic!("SelectedItems must be a list");
         };
@@ -899,6 +1008,11 @@ fn live_agent_serves_table_cells_the_bridge_cannot() {
             let UiValue::String(id) = entry else { panic!("a SelectedItems entry must be a RuntimeId string") };
             assert!(known.contains(id), "SelectedItems names {id}, which is no node of this tree");
         }
+        assert_eq!(
+            selected,
+            vec![UiValue::from(row_ids[2].clone())],
+            "row selection names the selected row, not its cells"
+        );
 
         // A column header is one of the most clickable things in a table — sorting,
         // resizing and reordering all happen there — and Swing's accessible view
@@ -1019,6 +1133,24 @@ fn live_agent_serves_table_cells_the_bridge_cannot() {
         neighbour_rect.x() > rect.x(),
         "the next column must be to the right; the bridge cannot tell these apart at all"
     );
+
+    // Hit-testing passes through the row. In-process this is a walk over
+    // rectangles the toolkit already knows, so it needs no physical pointer —
+    // and it must hand back the *same* objects the enumeration does, which is
+    // what lets the Inspector reveal a pick in the tree it already shows.
+    let picked = provider
+        .element_at_point(rect.center())
+        .expect("hit-test over a cell")
+        .expect("a node under the cell's centre");
+    assert_eq!(picked.role(), "TableCell", "the pick reaches the cell, not the table");
+    assert_eq!(
+        picked.runtime_id(),
+        cell.runtime_id(),
+        "the picked cell must be the very node the enumeration produced"
+    );
+    let picked_row = picked.parent().and_then(|parent| parent.upgrade()).expect("a picked cell has a parent");
+    assert_eq!(picked_row.role(), "TableRow", "the chain reaches the cell by way of its row");
+    assert_eq!(native_value(&picked_row, "TableRow.Index"), Some(UiValue::Integer(2)), "and it is the right row");
 
     // Identity stability: a second walk must hand out the same RuntimeId for the
     // same cell. This is what the enumeration-index scheme cannot promise.

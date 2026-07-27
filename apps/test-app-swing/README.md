@@ -84,7 +84,7 @@ out-of-process, so every interactive control carries an explicit, unique
 | Checkbox / radios | `stage2-checkbox`, `stage2-radio-a`, `stage2-radio-b` |
 | Combo / slider / spinner / progress | `stage2-combo`, `stage2-slider`, `stage2-spinner`, `stage2-progress` |
 | Table panel / scroll pane / table | `table-panel`, `table-scroll`, `main-table` |
-| Table cells | content `r<row>c<col>` (4×3 grid, row 2 preselected) — **not** name-addressable: the JDK bridge aliases all JTable cells to the shared renderer, so cell names are volatile; locate cells by row-major child position |
+| Table cells | content `r<row>c<col>` (100×6 grid, row 2 preselected, headers `col-<col>`) — **not** name-addressable through the bridge: the JDK aliases all JTable cells to the shared renderer, so cell names are volatile there; locate cells by row-major child position (`row*6 + col + 1` in XPath). The table deliberately does **not** fit its viewport — both scrollbars are present and most cells are off-view, which is what makes scrolled-out geometry testable. Through the in-JVM agent names are model values and stable, and cells sit beneath row nodes. |
 
 ## Growth rules
 
