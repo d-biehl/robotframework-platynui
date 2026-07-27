@@ -13,6 +13,7 @@ The agent can do it because it reads the toolkit's own model, where a row is a f
 - **Hit-testing gains the level**: a pick inside a table returns `… → Table → TableRow → TableCell`.
 - **Selection has to be re-derived.** `AccessibleSelection` on a `JTable` reports selected *cells*, and the agent's `control:SelectedItems` currently names them by mapping an accessible child index onto the direct child at that index. A row level breaks that correspondence, so the mapping needs a deliberate answer rather than an accidental one (design 4).
 - **New agent-facing acceptance coverage.** The existing Swing suites do **not** break: since `provider-java-swing` they run with the agent disabled and exercise the Access Bridge, whose flat shape is unchanged. What is missing is coverage of the agent's own tree, which today exists only as Rust live fixtures.
+- **The fixture table becomes a realistic one** — 100×6 in a viewport it does not fit, both scrollbars present — and that turned out to matter beyond realism: it exposed that rows and cells scrolled out of view were publishing the rectangle they *would* occupy, hundreds or thousands of pixels outside the window. Off-view content now reports no bounds and `IsInView = false`, and partially scrolled content is clipped to what is actually on screen (design 5).
 
 ## Capabilities
 
