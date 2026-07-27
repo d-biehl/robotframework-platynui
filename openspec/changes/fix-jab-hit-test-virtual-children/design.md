@@ -4,6 +4,8 @@
 
 `add-jab-interface-attributes` then uncovered how the JDK bridge represents JTable content: cell children all alias the one shared cell-renderer component, and `JTableHeader` entries are freshly allocated wrapper objects per `getAccessibleChild(i)` call. Both break `isSameObject` matching **structurally**: for cells every enumerated child is the same renderer (and never the hit's `AccessibleJTableCell` wrapper); for header entries no two lookups ever compare equal. `descend_to_hit` therefore always fails inside tables/headers, and the documented fallback (parentless window-scoped node) leaves the Inspector's ancestor-walking reveal with nothing to do — verified empirically with a hovering pointer: cell and header picks return nodes with empty ancestor chains and `…/hit/0x…` ids.
 
+`provider-java-swing` has since changed *who this is for*, without changing the analysis above. The in-JVM agent is now the preferred backend, and it sidesteps the whole problem: it holds real object references, so it needs no `isSameObject` re-descent at all, and its hit-test returns a chain that already ends at the cell. The bridge remains the floor for JVMs the agent cannot reach — attachment switched off, the delivery package deliberately not installed, or injection refused — and there this fix is still the difference between a working picker and a dead one. Read this change as *raising the floor*, not as the main path.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -36,4 +38,4 @@ Additive behavior change inside the provider's hit-test failure path; no config,
 
 ## Open Questions
 
-- Whether tree widgets (`JTree` — `AccessibleJTreeNode` wrappers, same freshly-allocated pattern as header entries) should get a fixture stage and scenario in this change or a follow-up — leaning follow-up; the mechanism is identical.
+- Whether tree widgets (`JTree` — `AccessibleJTreeNode` wrappers, same freshly-allocated pattern as header entries) should get a fixture stage and scenario here — **answered: follow-up.** The mechanism is indeed identical, but `apps/test-app-swing` contains no `JTree` at all (verified 2026-07-27, likewise no `JList` or `JTabbedPane`), so covering it here would mean building the fixture stage inside a hit-test fix. That stage is wanted by a broader piece of work anyway — how PlatynUI models hierarchical and item-bearing controls, which is a core-vocabulary question rather than a Java one — so the fixture extension belongs there and this change stays a two-function fix.
