@@ -23,7 +23,7 @@ Nodes served by the agent backend SHALL report their validity: a node SHALL be v
 - **THEN** the node reports invalid (never valid-by-default), and no call blocks beyond the deadline margin
 
 ### Requirement: Automatic, keyword-free backend selection
-Backend selection SHALL be automatic and internal to the Java provider: a JVM window is served via the agent backend exactly when an agent is present in that window's JVM (detected via `java-app-classification`), with no explicit attach/connect keyword and **no change to the boolean `window_claims` semantics** — the Java provider remains the single Java claimant. A Java JVM with no agent SHALL continue to be served by the JAB backend (Windows) or the platform's native provider (elsewhere). When an agent appears in an already-running JVM, the serving backend SHALL switch on the next enumeration pass without re-claiming.
+Backend selection SHALL be automatic and internal to the Java provider: a JVM window is served via the agent backend exactly when an agent is present in that window's JVM — detected from the **agent's own handshake rendezvous**, not from a platform Java classifier, so the criterion needs nothing that only some platforms have — with no explicit attach/connect keyword and **no change to the boolean `window_claims` semantics** — the Java provider remains the single Java claimant. A Java JVM with no agent SHALL continue to be served by the JAB backend (Windows) or the platform's native provider (elsewhere). When an agent appears in an already-running JVM, the serving backend SHALL switch without re-claiming: on the *same* pass when that pass is what injected it, and on the next one otherwise.
 
 #### Scenario: Agent backend preferred over JAB for the same window
 - **WHEN** a Swing window's JVM has the agent loaded and the JAB bridge is also enabled
@@ -37,12 +37,16 @@ Backend selection SHALL be automatic and internal to the Java provider: a JVM wi
 - **WHEN** an agent stops responding
 - **THEN** agent calls return within the deadline margin as errors, the vm is marked degraded, and a concurrent query via another provider completes normally
 
+#### Scenario: An agent that answers again is usable again
+- **WHEN** a JVM that stopped answering resumes
+- **THEN** the provider serves its nodes again without the runtime being restarted — a call abandoned at its deadline SHALL NOT leave the connection permanently unusable
+
 ### Requirement: Automatic attachment to detected JVMs, on by default
 When a Java window's JVM carries no agent, the Java provider SHALL attach one automatically, without any keyword or per-application call — attaching to a running application is the normal path, not an exception. This SHALL be governed by `providers.java.agent.auto_attach`, defaulting to **on**; the deliberate consent is the installation of the agent package, not this flag. Setting it to `false` SHALL limit the agent to JVMs launched with `-javaagent`, leaving agent-less JVMs to the JAB backend or the platform's native provider.
 
 #### Scenario: An already-running application is attached automatically
 - **WHEN** a Swing application that was started by its own script is enumerated and its JVM carries no agent
-- **THEN** the agent is injected into that JVM and the window is served through the agent backend, with no keyword called and no restart
+- **THEN** the agent is injected into that JVM and the window is served through the agent backend **in that same enumeration**, with no keyword called and no restart — a consumer never sees the weaker backend for a window that is about to be taken over
 
 #### Scenario: Automatic attachment can be switched off
 - **WHEN** `providers.java.agent.auto_attach` is `false` and an agent-less Swing JVM is detected
