@@ -293,6 +293,18 @@ End‑to‑end / acceptance:
 
   Extra arguments pass through to robotcode and replace the default command entirely. The default is the lane profile matching the session — `real-wayland` / `real-x11` (chosen by the session script) or `real-windows` — which excludes suites tagged for other platforms (`platform:*`, see `robot.toml`); e.g. `just test-acceptance-compositor --profile real-wayland run --suite "Auto Activate"`.
 - **Headless / CI.** `headless=true` runs the Linux backends with no visible window (default under `CI`); it needs a GPU render node or Mesa software GL so egui can draw.
+- **Windows: the session must stay connected and unlocked for the whole run.** This is specific to Windows because it is the one lane without an isolated session (see the table above) — it drives the real desktop and synthesizes real pointer and keyboard input for several minutes. A lock screen, a screensaver with "require sign-in", or a disconnected RDP session takes that desktop away mid-run.
+
+  The failure looks like a permissions bug and is not one:
+
+  ```
+  PointerError: pointer action failed: platform capability unavailable:
+    SetCursorPos: failed: Error { code: HRESULT(0x80070005), message: "Zugriff verweigert" }
+  KeyboardError: keyboard provider is not ready
+  ProviderError: platform capability unavailable: BitBlt: failed
+  ```
+
+  `0x80070005` is `E_ACCESSDENIED`, and here it means *nobody is at this desktop* rather than *you lack a right*. Two shapes, both observed: the whole lane collapses when the session was already locked at the start, or — if an idle timer fires mid-run — the suites that ran before it stay green and everything pointer/keyboard-dependent after it fails, which looks deceptively like a defect localised to one suite. Check `quser` for the session state before reading such a result as a regression, and disable the idle lock (or stay at the machine) for the duration.
 - UI automation is platform-sensitive: include OS/session details (compositor vs X11, headless or not) when reporting failures or adding manual verification notes.
 
 ## 9) Adding or changing public APIs
