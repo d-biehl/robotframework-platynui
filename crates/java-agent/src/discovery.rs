@@ -189,6 +189,35 @@ fn query_colocated_interpreter() -> Option<AgentPackage> {
     query_interpreter(&environment_interpreter()?)
 }
 
+/// Keeps the interpreter's console off the screen.
+///
+/// `python.exe` is a console-subsystem program, and Windows gives such a child a
+/// **fresh console window** when the parent has none — which is exactly the
+/// Inspector's situation. The output is captured either way, so the window is
+/// pure visual noise: a black box that flashes over the application the user is
+/// inspecting, once per process. `CREATE_NO_WINDOW` suppresses it without
+/// changing anything about the query.
+///
+/// Not solved by using `pythonw.exe`: that name only exists for CPython on
+/// Windows, and the interpreter here is whatever the environment happens to
+/// provide.
+#[cfg(windows)]
+fn hide_console(command: &mut std::process::Command) {
+    use std::os::windows::process::CommandExt;
+
+    /// `CREATE_NO_WINDOW` from `processthreadsapi.h` — spelled out rather than
+    /// pulled from a Windows binding, because this crate deliberately depends on
+    /// nothing PlatynUI and carries only the bindings its attach transport needs.
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn hide_console(_command: &mut std::process::Command) {
+    // No console is ever allocated for a child on Unix.
+}
+
 /// Asks one specific interpreter what it has registered in the group.
 ///
 /// Public because "which environment?" is a legitimate question for a caller to
@@ -196,7 +225,10 @@ fn query_colocated_interpreter() -> Option<AgentPackage> {
 /// environment without reaching through process-wide state.
 #[must_use]
 pub fn query_interpreter(interpreter: &Path) -> Option<AgentPackage> {
-    let output = std::process::Command::new(interpreter).arg("-c").arg(QUERY_SNIPPET).output().ok()?;
+    let mut command = std::process::Command::new(interpreter);
+    command.arg("-c").arg(QUERY_SNIPPET);
+    hide_console(&mut command);
+    let output = command.output().ok()?;
     if !output.status.success() {
         tracing::debug!(interpreter = %interpreter.display(), "the environment interpreter refused the query");
         return None;
