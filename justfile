@@ -121,6 +121,16 @@ build-provider-java: build-java-agent
 build-provider-java: build-java-agent
     New-Item -ItemType Directory -Force -Path "{{ provider_java_agent_dir }}" | Out-Null; Copy-Item -Force "{{ java_agent_jar }}" "{{ provider_java_agent_dir }}\platynui-agent.jar"
 
+# Installing this package IS the consent for in-JVM instrumentation, so nothing
+# else installs it for you — not `build-native`, not `build-inspector`. Which
+# means a developer who builds from source and then looks at a Swing app sees the
+# Access Bridge, correctly and confusingly: the agent backend is there, it just
+# finds no JAR to inject. `--no-deps` keeps this additive, so it cannot disturb
+# the editable maturin installs in the same environment.
+# Install the agent's delivery package into the dev environment (enables the agent backend)
+install-provider-java: build-provider-java
+    uv pip install --no-deps -e packages/provider-java
+
 # The JAR is MANDATORY here: a release wheel without it would install as a
 # working package that silently provides no Java support.
 # Build release wheel for the platynui-provider-java package (carries the agent JAR)
