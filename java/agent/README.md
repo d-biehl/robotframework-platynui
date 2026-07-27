@@ -29,6 +29,24 @@ The agent asks for **no instrumentation capabilities** (`Can-Redefine-Classes` a
 `Can-Retransform-Classes` are both `false`): it reads accessibility and scene models, it never
 rewrites application logic.
 
+It does use the instrumentation handle for two things, both read-only in effect:
+
+- `getAllLoadedClasses()` for toolkit detection — deliberately not `Toolkit.getDefaultToolkit()`,
+  which would *initialise* AWT in an application that never had it.
+- `redefineModule()` to open the `java.desktop` packages the toolkit adapters read
+  ([`ModuleAccess`](src/main/java/platynui/agent/ModuleAccess.java)). Measurement says the native
+  window handle needs both `java.awt` and `sun.awt.windows` opened on Java 9+, and the documented
+  remedy — `--add-opens` on the command line — is unavailable to a design built on attaching to a
+  JVM somebody else launched. JEP 261 gave instrumentation agents this power for exactly that reason,
+  so no launch flags are needed on any JDK.
+
+The **Swing/AWT adapter** ([`SwingAdapter`](src/main/java/platynui/agent/SwingAdapter.java)) is
+installed only once toolkit detection has seen Swing or AWT, and serves the tree over `ui/*` methods:
+`ui/windows`, `ui/children`, `ui/element`, `ui/at_point`, `ui/focus`, `ui/window_handle`. Notably
+absent: any text write (text is typed via synthesized keyboard input) and any highlight (drawing is
+the platform's job — what an out-of-process bridge lacks for a table cell is bounds, not a way to
+draw).
+
 ## Dependencies: none, deliberately
 
 The agent is loaded into a foreign process, so every jar on its classpath would be a jar the target

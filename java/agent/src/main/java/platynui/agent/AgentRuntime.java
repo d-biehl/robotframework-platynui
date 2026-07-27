@@ -6,11 +6,11 @@ import java.nio.charset.Charset;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
-import java.util.Collections;
-import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Owns everything the agent runs after injection: toolkit detection, the loopback RPC server, and
@@ -30,16 +30,33 @@ final class AgentRuntime {
 
     private final Instrumentation instrumentation;
     private final String token;
+    /**
+     * The dispatch table, shared live with the server.
+     *
+     * <p>Concurrent and mutable rather than a fixed map, because a toolkit adapter contributes its
+     * methods when the toolkit appears — which with {@code -javaagent} is after the server is already
+     * listening.
+     */
+    private final Map<String, RpcMethod> methods;
+
     private final RpcServer server;
     private final long pid;
     private final ElementRegistry registry = new ElementRegistry();
     private final UiGeneration generation;
 
     /**
-     * How work reaches the toolkit thread. Neutral until an adapter installs its own — this change
-     * surfaces no UI node, so nothing needs a real one yet.
+     * How work reaches the toolkit thread. Neutral until a toolkit adapter installs its own; a JVM
+     * without a UI keeps it.
      */
     private volatile ToolkitDispatcher dispatcher = new ToolkitDispatcher.Direct();
+
+    /**
+     * The toolkit adapter, once one applies to this JVM.
+     *
+     * <p>Late by necessity: injected with {@code -javaagent} the agent runs before the application has
+     * loaded a toolkit class, so at construction time there is nothing to adapt to yet.
+     */
+    private volatile SwingAdapter swingAdapter;
 
     private HandshakeFile handshake;
     private int port;
@@ -48,7 +65,8 @@ final class AgentRuntime {
         this.instrumentation = instrumentation;
         this.token = newToken();
         this.pid = AgentPaths.currentPid();
-        this.server = new RpcServer(buildMethods(), token);
+        this.methods = buildMethods();
+        this.server = new RpcServer(methods, token);
         this.generation = new UiGeneration(server);
     }
 
@@ -96,8 +114,12 @@ final class AgentRuntime {
 
     private void startInternal() throws IOException {
         Path directory = AgentPaths.createHandshakeDirectory();
+        List<String> toolkits = detectToolkits();
+        // Before the port is published: a client that reads the handshake file and
+        // connects immediately must find the tree methods already there.
+        installToolkitAdapter(toolkits);
         port = server.start();
-        handshake = new HandshakeFile(directory, pid, port, token, Agent.version(), detectToolkits());
+        handshake = new HandshakeFile(directory, pid, port, token, Agent.version(), toolkits);
         handshake.publish();
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
             @Override
@@ -174,6 +196,9 @@ final class AgentRuntime {
      */
     private boolean refreshToolkits() {
         List<String> detected = detectToolkits();
+        // The `-javaagent` case: the agent started before the application had
+        // loaded a toolkit class, so this is where the adapter actually arrives.
+        installToolkitAdapter(detected);
         try {
             if (handshake.updateToolkits(detected)) {
                 // A toolkit coming up is a structural UI change by definition, and the first
@@ -190,13 +215,37 @@ final class AgentRuntime {
     // ---------------------------------------------------------------- methods
 
     private Map<String, RpcMethod> buildMethods() {
-        Map<String, RpcMethod> methods = new LinkedHashMap<String, RpcMethod>();
-        methods.put("handshake", new HandshakeMethod());
-        methods.put("ping", new PingMethod());
-        methods.put("agent/info", new InfoMethod());
-        methods.put("element/live", new LivenessMethod());
-        methods.put("ui/generation", new GenerationMethod());
-        return Collections.unmodifiableMap(methods);
+        Map<String, RpcMethod> table = new ConcurrentHashMap<String, RpcMethod>();
+        table.put("handshake", new HandshakeMethod());
+        table.put("ping", new PingMethod());
+        table.put("agent/info", new InfoMethod());
+        table.put("element/live", new LivenessMethod());
+        table.put("ui/generation", new GenerationMethod());
+        table.put("agent/process", new ProcessMethod());
+        return table;
+    }
+
+    /**
+     * Installs the toolkit adapter for {@code toolkits}, once.
+     *
+     * <p>Idempotent and late-safe: called after the first detection and again whenever the watcher
+     * sees the set change, because a {@code -javaagent}-injected agent starts before the application
+     * has loaded a single toolkit class.
+     */
+    private synchronized void installToolkitAdapter(List<String> toolkits) {
+        if (swingAdapter != null || toolkits.isEmpty()) {
+            return;
+        }
+        // Before any adapter reads a JDK internal: on Java 9+ the packages the
+        // native window handle lives in are closed, and the command-line remedy is
+        // not available to a design built on attaching to a JVM somebody else
+        // launched. An instrumentation agent may open them itself.
+        ModuleAccess.openDesktopInternals(instrumentation);
+        SwingAdapter adapter = SwingAdapter.installIfPresent(this, new LinkedHashSet<String>(toolkits));
+        if (adapter != null) {
+            adapter.contributeMethods(methods);
+            swingAdapter = adapter;
+        }
     }
 
     private Map<String, Object> info() {
@@ -310,6 +359,25 @@ final class AgentRuntime {
             Map<String, Object> result = Json.newObject();
             result.put("live", live);
             return result;
+        }
+
+        @Override
+        public boolean allowedBeforeHandshake() {
+            return false;
+        }
+    }
+
+    /**
+     * The process facts behind the provider's {@code app:Application} node.
+     *
+     * <p>Toolkit-independent, so it lives here rather than in an adapter: a JVM with no UI still has a
+     * process, and the answer would be the same for every toolkit anyway.
+     */
+    private static final class ProcessMethod implements RpcMethod {
+
+        @Override
+        public Object invoke(RpcSession session, Map<String, Object> params) {
+            return ProcessFacts.collect();
         }
 
         @Override
