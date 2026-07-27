@@ -8,7 +8,7 @@ Documentation       Window-claims cooperation between the JAB and UIA providers.
 Resource            resources/testapp.resource
 
 Library             PlatynUI.BareMetal
-...                 config={'providers': {'windows-uia': {'honor_window_claims': False}}}
+...                 config={'providers': {'windows-uia': {'honor_window_claims': False}, 'java': {'agent': {'enabled': False}}}}
 ...                 AS    BMOFF
 
 Suite Setup         Launch Default Swing Instance    PlatynUI Swing Dedup

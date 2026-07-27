@@ -17,9 +17,21 @@ Documentation     Launch and tear down Swing fixture instances (apps/test-app-sw
 ...               JAB has no AutomationId equivalent, so ``@Name`` is the locator contract. The main
 ...               window's ``@Name`` is its (per-suite unique) launch title, exposed as
 ...               ``${SWING_TITLE}``, so parallel instances never cross-talk.
+...
+...               THE AGENT IS SWITCHED OFF HERE, deliberately. These suites are *about* the Access
+...               Bridge: they assert ``@Technology = "JAB"``, the renderer-aliased cell names, and the
+...               bridge's role quirks. Since ``provider-java-swing`` the in-JVM agent is the preferred
+...               backend and ``providers.java.agent.auto_attach`` defaults to on, so a Swing JVM does
+...               not *stay* agent-less — the provider injects one and serves the better representation.
+...               A suite that wants the bridge therefore has to say so, rather than relying on an
+...               absence the provider is actively removing. Agent-backed behaviour is covered by its
+...               own suites and by the real-provider live fixture
+...               (``crates/provider-java/tests/live_fixture.rs``).
 Library           OperatingSystem
 Library           Process
-Library           PlatynUI.BareMetal    AS    BM
+Library           PlatynUI.BareMetal
+...               config={'providers': {'java': {'agent': {'enabled': False}}}}
+...               AS    BM
 
 
 *** Variables ***
