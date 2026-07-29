@@ -58,9 +58,9 @@ ever change) or documented app-frame timing.
 ## Tags, platforms, verification
 
 - Tags are three orthogonal dimensions: test level (`acceptance`), build requirement (`real` vs `mock` — which native build the run needs), platform binding (`platform:x11|wayland|windows`). Acceptance suites inherit `acceptance    real` from their `__init__.robot`. Tags select — never `Skip If` on environment probes.
-- Lanes (run headless — nested sessions inherit the desktop size and break geometry tests):
-  `uv run scripts/startxsession.sh --backend headless -- scripts/platynui-robot-session.sh` and
-  `uv run scripts/startcompositor.sh --backend headless -- scripts/platynui-robot-session.sh`.
+- Lanes: the profile brings its own session (robot.toml `wrapper`), so run headless — nested sessions inherit the desktop size and break geometry tests —
+  `PLATYNUI_BACKEND=headless uv run robotcode --profile real-x11 run` and
+  `… --profile real-wayland run` (or `just headless=true test-acceptance-x11` / `-compositor`). Same for `run-debug`/`repl`; `discover` starts no session.
 - Build duality: real lanes need `just build-native`; the `tests/BareMetal` mock lane is `just test-baremetal` (mock build). Rebuild when switching.
 - Judge runs with `uv run --no-sync robotcode results summary --failed` — lane exit codes are unreliable. Static check: `robotcode analyze code <suite dirs>` (clear its cache on stale diagnostics).
 - `BM.Take Screenshot` filenames must be relative (land under `results/`).
