@@ -38,7 +38,6 @@ use atspi_connection::AccessibilityConnection;
 use futures_lite::StreamExt;
 use tracing::{debug, trace};
 
-use crate::SELF_PID;
 use crate::connection::connect_a11y_bus_with;
 use crate::error::AtspiError;
 use crate::node::{AtspiNode, accessible_proxy};
@@ -251,6 +250,13 @@ async fn with_timeout<T>(future: impl std::future::Future<Output = T>) -> Option
 }
 
 async fn worker_loop(events: AccessibilityConnection, query: AccessibilityConnection, registry: Arc<PopupRegistry>) {
+    // Our own PID as resolved by the same daemon that resolves every popup
+    // owner's PID below — not `std::process::id()`; see `resolve_own_pid`'s
+    // doc in lib.rs for why that distinction matters (PID-namespace safety).
+    let own_pid = match query.connection().unique_name() {
+        Some(name) => resolve_pid(&query, name.as_str()).await,
+        None => None,
+    };
     // PID per application bus name; stable for a connection's lifetime, so one
     // D-Bus lookup per application suffices for the own-process filter.
     let mut pid_cache: HashMap<String, Option<u32>> = HashMap::new();
@@ -264,7 +270,7 @@ async fn worker_loop(events: AccessibilityConnection, query: AccessibilityConnec
                 // A popup opening announces itself with showing=true (Qt); the
                 // owner is one `parent()` hop away (verified: PopupMenu → Application).
                 State::Showing if ev.enabled => {
-                    on_popup_candidate(&query, &registry, &mut pid_cache, ev.item, None).await;
+                    on_popup_candidate(&query, &registry, &mut pid_cache, own_pid, ev.item, None).await;
                 }
                 State::Showing => registry.remove(&ev.item),
                 State::Defunct if ev.enabled => registry.remove(&ev.item),
@@ -275,7 +281,7 @@ async fn worker_loop(events: AccessibilityConnection, query: AccessibilityConnec
                 // widget without actually listing them in its GetChildren; the
                 // event source IS the owner, no parent() hop needed.
                 Operation::Insert => {
-                    on_popup_candidate(&query, &registry, &mut pid_cache, ev.child, Some(ev.item)).await;
+                    on_popup_candidate(&query, &registry, &mut pid_cache, own_pid, ev.child, Some(ev.item)).await;
                 }
                 Operation::Delete => registry.remove(&ev.child),
             },
@@ -293,6 +299,7 @@ async fn on_popup_candidate(
     query: &AccessibilityConnection,
     registry: &Arc<PopupRegistry>,
     pid_cache: &mut HashMap<String, Option<u32>>,
+    own_pid: Option<u32>,
     popup: ObjectRefOwned,
     owner_hint: Option<ObjectRefOwned>,
 ) {
@@ -303,7 +310,7 @@ async fn on_popup_candidate(
         return;
     };
 
-    // Own-process filter, consistent with the SELF_PID skip in get_nodes.
+    // Own-process filter, consistent with the own-PID skip in get_nodes.
     let pid = match pid_cache.get(&bus_name) {
         Some(pid) => *pid,
         None => {
@@ -312,7 +319,7 @@ async fn on_popup_candidate(
             resolved
         }
     };
-    if pid == Some(*SELF_PID) {
+    if crate::is_own_process(own_pid, pid) {
         return;
     }
 
