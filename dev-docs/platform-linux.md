@@ -109,6 +109,8 @@ Other C0 control characters (U+0000–U+001F) have no standard keyboard equivale
 
 **Connection**: D-Bus/AT-SPI2 via `zbus` 5 + `atspi-*` 0.14. Blocking tree queries.
 
+**Own-process filter**: applications whose D-Bus connection PID matches ours are skipped in `get_nodes` and the popup watcher. Both PIDs come from the bus daemon (`GetConnectionUnixProcessID`) — never `std::process::id()`, which is namespace-local and not comparable when the provider and the bus daemon do not share a PID namespace (a sidecar container on a shared bus socket). An unresolved PID counts as "not us". The hit-test path (`element_at_point`) is the exception: its PID comes from the window manager (`_NET_WM_PID`, set by the client itself), so it compares against `std::process::id()`.
+
 **Node Model** (`AtspiNode`):
 - Lazy `children()` and streaming `attributes()`.
 - Role mapping to `control`/`item` namespaces via AT-SPI role enum.

@@ -1,6 +1,6 @@
 //! Raw AT-SPI tree inspector: dump the accessibility tree straight from the
 //! registry root over our own atspi stack, with **no provider logic** — no
-//! `window_at_point`, no SELF_PID / empty-app filtering, no caching. Pure
+//! `window_at_point`, no own-process / empty-app filtering, no caching. Pure
 //! `Accessible.GetChildren` recursion, so it shows exactly what the toolkits
 //! publish on the bus. A small, maintained alternative to Accerciser for
 //! debugging what is (or isn't) exposed — e.g. confirming that a given popup or
