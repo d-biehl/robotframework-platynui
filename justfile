@@ -300,6 +300,8 @@ test-all: test test-python
 # under Xvfb (needs a GPU render node or Mesa software GL so egui can render). Force
 # it anywhere with `just headless=true …`, or disable in CI with `headless=false`.
 
+# The compositor lane runs first; like any `just` dependency chain, a failing lane stops
+# the run, so the X11 lane only runs once the compositor lane has passed.
 # Run the egui acceptance lane on this OS (Linux: compositor + X11). Honors headless.
 [linux]
 test-acceptance: test-acceptance-compositor test-acceptance-x11

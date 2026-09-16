@@ -29,6 +29,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::process::ExitCode;
 use std::time::Duration;
 
 /// Linux `ENODEV` errno value, returned when an input device cannot be opened.
@@ -407,11 +408,13 @@ impl DrmBackendState {
 
 /// Run the compositor on real hardware using DRM/KMS.
 ///
+/// Returns the process exit code (see [`State::exit_code`]).
+///
 /// # Errors
 ///
 /// Returns an error if session, device, or event loop initialization fails.
 #[allow(clippy::too_many_lines)]
-pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<ExitCode, Box<dyn std::error::Error>> {
     let mut event_loop: EventLoop<'static, State> = EventLoop::try_new()?;
     let display: Display<State> = Display::new()?;
 
@@ -634,7 +637,7 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
     })?;
 
     tracing::info!("compositor shutting down");
-    Ok(())
+    Ok(state.exit_code())
 }
 
 /// Render one frame on each active DRM output.

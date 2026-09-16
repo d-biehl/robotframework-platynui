@@ -168,8 +168,12 @@ pub struct CompositorArgs {
     #[arg(long)]
     pub restrict_protocols: Option<String>,
 
-    /// Shut down the compositor when the child program (specified after `--`) exits.
-    /// Essential for CI pipelines: compositor starts → app starts → tests run → compositor exits.
+    /// Shut down the compositor when the child program (specified after `--`) exits,
+    /// and exit with the child's result: its exit code (`128 + n` if killed by signal `n`;
+    /// `127` not found, `126` not executable, `1` other start failures; `1` if the session
+    /// ended before it exited).
+    /// Essential for CI pipelines: compositor starts → app starts → tests run → compositor exits
+    /// with the test run's result.
     #[arg(long)]
     pub exit_with_child: bool,
 
@@ -281,10 +285,13 @@ fn apply_xkb_env_defaults(args: &mut CompositorArgs) {
 
 /// Run the compositor with the given CLI arguments.
 ///
+/// Returns the process exit code (see [`state::State::exit_code`]): with
+/// `--exit-with-child` the child's result, success otherwise.
+///
 /// # Errors
 ///
 /// Returns an error if the compositor fails to start or encounters a fatal runtime error.
-pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+pub fn run() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
     let mut args = CompositorArgs::parse();
     init_tracing(args.log_level);
     tracing::info!("PlatynUI Wayland Compositor starting");

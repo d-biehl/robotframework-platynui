@@ -74,7 +74,7 @@ Common recipes:
 | Python tests | `just test-python` | Builds the native package with `mock-provider`, then runs pytest. |
 | BareMetal RF (mock) tests | `just test-baremetal` | Robot suites under `tests/BareMetal` against the built-in mock tree; builds `mock-provider`, no display needed. |
 | Rust and Python tests | `just test-all` | Runs `just test` and `just test-python`. |
-| Acceptance tests | `just test-acceptance` | Real-provider suites under `tests/acceptance` (egui app today; non-mock build). Linux: compositor + X11. See §8 for backends, headless, and CI. |
+| Acceptance tests | `just test-acceptance` | Real-provider suites under `tests/acceptance` (egui app today; non-mock build). Linux: compositor, then X11 — like any `just` dependency chain it stops at the first failing lane. See §8 for backends, headless, and CI. |
 | Full local gate | `just pre-commit` | Runs bootstrap, checks, Rust tests, and Python tests. |
 | Cross-target gate | `just pre-commit-cross` | Linux-only; adds Windows and macOS ARM cargo check/clippy passes. |
 | Install git hooks | `just hooks-install` | Installs `pre-commit`, `commit-msg`, and `pre-push` hooks. |
@@ -286,7 +286,7 @@ End‑to‑end / acceptance:
 
   | Command | Scope |
   |---|---|
-  | `just test-acceptance` | This OS — Linux runs both backends (compositor, then X11); Windows runs on the real desktop. |
+  | `just test-acceptance` | This OS — Linux runs both backends (compositor, then X11; X11 is skipped if the compositor lane fails); Windows runs on the real desktop. |
   | `just test-acceptance-compositor` | Linux — under the PlatynUI Wayland compositor. |
   | `just test-acceptance-x11` | Linux — under an isolated X11/Xephyr session. |
   | `just test-acceptance-windows` | Windows — on the native desktop (UIA), no isolated session. |

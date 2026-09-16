@@ -273,6 +273,11 @@ pub struct State {
     pub exit_with_child: bool,
     /// Child command to spawn after readiness (deferred if `XWayland` is pending).
     pub child_command: Vec<String>,
+    /// The monitored child while it runs (`--exit-with-child`).
+    pub child: Option<std::process::Child>,
+    /// The child's result once it is known — its exit code, or the spawn failure
+    /// code; the compositor exits with it (see [`Self::exit_code`]).
+    pub child_exit_code: Option<u8>,
 
     // -- XWayland --
     pub xwayland: Option<crate::xwayland::XWaylandState>,
@@ -606,6 +611,8 @@ impl State {
             config,
             exit_with_child: false,
             child_command: Vec::new(),
+            child: None,
+            child_exit_code: None,
             xwayland: None,
             xwayland_shell_state: None,
             xwayland_keyboard_grab_state: None,
@@ -678,12 +685,43 @@ impl State {
     /// `XDG_RUNTIME_DIR` from the compositor environment; `DISPLAY` only when
     /// `XWayland` runs (see [`crate::child::spawn_child`] for why a leaked host
     /// `DISPLAY` must not reach the session).
-    pub fn spawn_child_if_requested(&self) {
-        if let Some(child) = crate::child::spawn_child(&self.child_command, self.xwayland.is_some())
-            && self.exit_with_child
-            && let Err(err) = crate::child::monitor_child_exit(&self.loop_handle, child)
-        {
-            tracing::error!(%err, "failed to register child exit monitor");
+    ///
+    /// With `--exit-with-child`, a child that cannot be started ends the session
+    /// right away with the shell's code for it (`127` not found, `126` not
+    /// executable) instead of leaving the compositor running with nothing to wait for.
+    pub fn spawn_child_if_requested(&mut self) {
+        match crate::child::spawn_child(&self.child_command, self.xwayland.is_some()) {
+            Ok(Some(child)) if self.exit_with_child => {
+                self.child = Some(child);
+                if let Err(err) = crate::child::monitor_child_exit(&self.loop_handle) {
+                    tracing::error!(%err, "failed to register child exit monitor");
+                    // Nothing would notice the child exit: end the session (see `exit_code`).
+                    self.running = false;
+                }
+            }
+            Err(err) if self.exit_with_child => {
+                self.child_exit_code = Some(crate::child::spawn_error_exit_code(&err));
+                self.running = false;
+            }
+            Ok(_) | Err(_) => {}
+        }
+    }
+
+    /// Exit code for the compositor process, called once the event loop has stopped.
+    ///
+    /// Without `--exit-with-child` (or without a child command) this is success.
+    /// With it, the compositor reports the child's result: the child's exit code
+    /// once it has exited, the spawn failure code if it never started, and failure
+    /// if the session ended while the child was still running (`--timeout`, the IPC
+    /// `shutdown` command, `SIGTERM`/`SIGINT`, closing the window) — an unknown
+    /// result never reads as success.
+    pub fn exit_code(&mut self) -> std::process::ExitCode {
+        // The session may have ended between the child's exit and the monitor's next poll.
+        crate::child::poll_child_exit(self);
+        match self.child_exit_code {
+            Some(code) => std::process::ExitCode::from(code),
+            None if self.exit_with_child && !self.child_command.is_empty() => std::process::ExitCode::FAILURE,
+            None => std::process::ExitCode::SUCCESS,
         }
     }
 

@@ -14,7 +14,7 @@
 //! messages at full speed. This decouples protocol roundtrips from rendering,
 //! which is critical for responsive resize/maximize of DMA-BUF clients.
 
-use std::{cell::RefCell, rc::Rc, time::Duration};
+use std::{cell::RefCell, process::ExitCode, rc::Rc, time::Duration};
 
 use smithay::{
     backend::{
@@ -85,11 +85,13 @@ struct WinitData {
 
 /// Run the compositor in a winit window.
 ///
+/// Returns the process exit code (see [`State::exit_code`]).
+///
 /// # Errors
 ///
 /// Returns an error if winit initialization, socket creation, or runtime fails.
 #[allow(clippy::too_many_lines)]
-pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<ExitCode, Box<dyn std::error::Error>> {
     let mut event_loop: EventLoop<'static, State> = EventLoop::try_new()?;
     let display: Display<State> = Display::new()?;
 
@@ -210,7 +212,7 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
     })?;
 
     tracing::info!("compositor shutting down");
-    Ok(())
+    Ok(state.exit_code())
 }
 
 /// Process a single winit event.

@@ -6,7 +6,7 @@
 //! Screenshots use a lazily-initialized [`GlowRenderer`] (EGL on a DRI render
 //! node).  Set `LIBGL_ALWAYS_SOFTWARE=1` for environments without a hardware GPU.
 
-use std::time::Duration;
+use std::{process::ExitCode, time::Duration};
 
 use smithay::{
     reexports::{
@@ -26,10 +26,12 @@ const FRAME_INTERVAL: Duration = Duration::from_millis(16);
 
 /// Run the compositor in headless mode.
 ///
+/// Returns the process exit code (see [`State::exit_code`]).
+///
 /// # Errors
 ///
 /// Returns an error if socket creation, event loop setup, or runtime fails.
-pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<ExitCode, Box<dyn std::error::Error>> {
     let mut event_loop: EventLoop<'static, State> = EventLoop::try_new()?;
     let display: Display<State> = Display::new()?;
 
@@ -83,5 +85,5 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<(), Box<dy
     })?;
 
     tracing::info!("compositor shutting down");
-    Ok(())
+    Ok(state.exit_code())
 }

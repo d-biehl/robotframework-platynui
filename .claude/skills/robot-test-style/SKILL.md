@@ -69,5 +69,5 @@ ever change) or documented app-frame timing.
   `PLATYNUI_BACKEND=headless uv run robotcode --profile real-x11 run` and
   `… --profile real-wayland run` (or `just headless=true test-acceptance-x11` / `-compositor`). Same for `run-debug`/`repl`; `discover` starts no session.
 - Build duality: real lanes need `just build-native`; the `tests/BareMetal` mock lane is `just test-baremetal` (mock build). Rebuild when switching.
-- Judge runs with `uv run --no-sync robotcode results summary --failed` — lane exit codes are unreliable. Static check: `robotcode analyze code <suite dirs>` (clear its cache on stale diagnostics).
+- Judge runs with `uv run --no-sync robotcode results summary --failed` — the exit code only tells you that something failed, not what. Static check: `robotcode analyze code <suite dirs>` (clear its cache on stale diagnostics).
 - `BM.Take Screenshot` filenames must be relative (land under `results/`).

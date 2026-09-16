@@ -21,9 +21,12 @@ use {
 };
 
 #[cfg(target_os = "linux")]
-fn main() {
-    if let Err(error) = platynui_wayland_compositor::run() {
-        eprintln!("Compositor exited with error: {error}");
-        std::process::exit(1);
+fn main() -> std::process::ExitCode {
+    match platynui_wayland_compositor::run() {
+        Ok(code) => code,
+        Err(error) => {
+            eprintln!("Compositor exited with error: {error}");
+            std::process::ExitCode::FAILURE
+        }
     }
 }

@@ -78,7 +78,7 @@ because it needs exclusive DRM master access to the GPU. Options:
 | `--window-scale <factor>` | `1.0` | Scale the winit preview window (e.g. `0.5` to halve). Only affects rendering resolution, not client-visible output scale. Useful to fit large multi-output setups on screen. |
 | `--restrict-protocols <ids>` | — | Comma-separated app-ID whitelist for privileged protocols |
 | `--config <path>` | — | Path to TOML configuration file (see [Configuration](configuration.md)) |
-| `--exit-with-child` | `false` | Shut down compositor when the child program exits |
+| `--exit-with-child` | `false` | Shut down compositor when the child program exits, and exit with the child's result |
 | `-- <command> [args...]` | — | Child program to launch after compositor readiness |
 
 ### Keyboard Layout
@@ -131,6 +131,19 @@ platynui-wayland-compositor --backend headless --xwayland --exit-with-child \
 The child program inherits the compositor's environment (`WAYLAND_DISPLAY`, `DISPLAY` if
 XWayland is enabled). The compositor polls the child process every 100 ms and shuts down
 automatically when the child exits.
+
+The compositor then exits with the child's result, so the caller sees the result of the
+command it ran — a failing test run fails the CI step. The exit codes follow the shell
+conventions:
+
+| Situation | Exit code |
+|-----------|-----------|
+| The child exited | The child's exit code |
+| The child was terminated by a signal | `128 + <signal number>` (for example `143` for `SIGTERM`) |
+| The child could not be started — the session ends right away | `127` if the program does not exist, `126` if it is not executable, `1` for any other start failure (for example a script without a `#!` line) |
+| The session ended while the child was still running (`--timeout`, the IPC `shutdown` command, `SIGTERM`/`SIGINT` to the compositor, closing the window) | `1` — the child's result is unknown, so it never reads as success |
+
+Without `--exit-with-child`, the compositor exits with `0` when it shuts down normally.
 
 ## Window Decorations
 
