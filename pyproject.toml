@@ -82,7 +82,10 @@ dev = [
     "semantic-version>=2.10.0",
     "pyright[nodejs]>=1.1.408",
     "pre-commit>=4.6.0",
-    "robotcode[analyze,repl,runner]>=2.6.2",
+    # >=2.7: the acceptance profiles in robot.toml run their session through the
+    # `wrapper` option; an older RobotCode ignores it and would run the lane
+    # against the host desktop while reporting a normal result.
+    "robotcode[analyze,repl,runner]>=2.7.0",
     # Powers the Qt test app (apps/test-app-qt) driven by the qt acceptance suite.
     "PySide6>=6.7",
 ]

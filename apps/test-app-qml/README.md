@@ -101,8 +101,8 @@ against reality before encoding). Linux/AT-SPI facts follow in the next section.
 
 ## Verified platform facts (Linux/AT-SPI on X11, PySide6 6.11)
 
-Read from the real AT-SPI tree inside the isolated X11 session (Xephyr +
-`scripts/platynui-robot-session.sh`). The name contract holds exactly as on
+Read from the real AT-SPI tree inside the isolated X11 session (Xephyr) that the
+`real-x11` lane profile brings up. The name contract holds exactly as on
 Windows: every `Accessible.name` surfaces as `@Name`, the main window's `@Name`
 is its **title** (launch-configuration matching applies), and the child windows
 (`dialog-modeless`, role `Frame`) carry their canonical names as titles.

@@ -131,8 +131,8 @@ behavior under test.
   attribute effects with `Wait Until Query    …/@Attr    ==` (`Get Attribute    ==` waits for
   the element but checks its value only once), and rely on the action
   keywords' built-in waiting instead of pre-checks (§7).
-- **Needs:** the **non-mock** native build and an isolated session via
-  `scripts/platynui-robot-session.sh` (`just test-acceptance*`).
+- **Needs:** the **non-mock** native build and an isolated session, which the lane
+  profile brings up itself (`just test-acceptance*`, or `robotcode --profile real-x11 run`).
 
 **Platform scoping is selection, never a runtime skip.** A suite (or single test) that can
 only run on one platform declares that with a tag — `platform:x11`, `platform:wayland`,
@@ -140,9 +140,11 @@ only run on one platform declares that with a tag — `platform:x11`, `platform:
 all child suites) or `[Tags]` (per test). No platform tag means the suite runs on **every**
 lane. Each lane then selects through its `robot.toml` profile, which inherits `real`
 (selecting `acceptance` AND `real`) and *excludes the foreign platforms' tags* —
-`real-x11`, `real-wayland`, `real-windows` — so untagged suites always stay in. The lane entry points pick the matching profile themselves
-(`platynui-robot-session.sh` from the `XDG_SESSION_TYPE` its session wrapper exported;
-`just test-acceptance-windows` passes `real-windows`).
+`real-x11`, `real-wayland`, `real-windows` — so untagged suites always stay in. The profile is
+the whole entry point: on Linux it also carries the `wrapper` command prefix that establishes
+its session, so selecting `real-wayland` selects both the compositor session and the suites that
+belong in it — from the shell, from `just`, and from the editor alike. (`real-windows` needs no
+session; the Windows recipe passes it directly.)
 
 Two rules follow, and they are strict:
 

@@ -309,14 +309,17 @@ test-acceptance: test-acceptance-compositor test-acceptance-x11
 test-acceptance: test-acceptance-windows
 
 # Run the egui acceptance lane under the PlatynUI Wayland compositor.
+# The session comes from the profile's `wrapper` (robot.toml) — robotcode brings
+# the compositor session up around the run itself, so this is a plain robotcode
+# invocation and the same command works from the IDE or the debugger.
 [linux]
 test-acceptance-compositor *ARGS: build-native
-    uv run scripts/startcompositor.sh {{ if headless == "true" { "--backend headless" } else { "" } }} -- scripts/platynui-robot-session.sh {{ ARGS }}
+    {{ if headless == "true" { "PLATYNUI_BACKEND=headless " } else { "" } }}uv run robotcode --profile real-wayland run {{ ARGS }}
 
 # Run the egui acceptance lane under an isolated X11 session (Xephyr; Xvfb when headless).
 [linux]
 test-acceptance-x11 *ARGS: build-native
-    uv run scripts/startxsession.sh {{ if headless == "true" { "--backend headless" } else { "" } }} -- scripts/platynui-robot-session.sh {{ ARGS }}
+    {{ if headless == "true" { "PLATYNUI_BACKEND=headless " } else { "" } }}uv run robotcode --profile real-x11 run {{ ARGS }}
 
 # Run the acceptance lane on the native Windows desktop (UIA + Java providers).
 # No isolated session — the suites launch the apps on the real desktop. Builds

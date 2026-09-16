@@ -1078,7 +1078,7 @@ dev = [
     { name = "pyright", extras = ["nodejs"], specifier = ">=1.1.408" },
     { name = "pyside6", specifier = ">=6.7" },
     { name = "pytest", specifier = ">=8.4.2" },
-    { name = "robotcode", extras = ["analyze", "repl", "runner"], specifier = ">=2.6.2" },
+    { name = "robotcode", extras = ["analyze", "repl", "runner"], specifier = ">=2.7.0" },
     { name = "robotframework-robocop", specifier = ">=8.0.0" },
     { name = "ruff", specifier = ">=0.12.11" },
     { name = "semantic-version", specifier = ">=2.10.0" },

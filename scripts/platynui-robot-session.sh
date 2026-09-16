@@ -1,38 +1,50 @@
 #!/bin/bash
 set -u
 
-# platynui-robot-session.sh — bring up accessibility, build the egui test
-# application and run RobotCode inside the active session. Robot Framework
-# launches the app instance(s) itself (see tests/acceptance/egui), so the suites
-# decide how many windows exist and tear them down; this script only compiles
-# the binary and hands its path over via PLATYNUI_TEST_APP_BIN.
+# platynui-robot-session.sh — bring up accessibility, build the test fixtures
+# and hand over to the RobotCode run inside the active session.
 #
-# Intended as the *session command* for an isolated graphical session, so the
-# whole stack (compositor/X server + D-Bus + AT-SPI + app + RobotCode) lives
-# and dies together:
+# This is the last link of a RobotCode `wrapper` chain: the acceptance profiles
+# in robot.toml configure
 #
-#   # Wayland (PlatynUI compositor):
-#   uv run scripts/startcompositor.sh -- scripts/platynui-robot-session.sh [robotcode-args...]
+#   wrapper = ["scripts/startcompositor.sh", "--", "scripts/platynui-robot-session.sh"]
+#   wrapper = ["scripts/startxsession.sh",   "--", "scripts/platynui-robot-session.sh"]
 #
-#   # X11 (Xephyr):
-#   uv run scripts/startxsession.sh   -- scripts/platynui-robot-session.sh [robotcode-args...]
+# so robotcode re-executes itself through the session scripts and appends its
+# own command line — the whole stack (compositor/X server + D-Bus + AT-SPI +
+# fixtures + the run) lives and dies together. That appended command arrives
+# here as "$@"; this script only prepares the environment and `exec`s it, per
+# the wrapper contract (foreground, stdio passed through, exit code propagated).
 #
-# With no robotcode-args, the default command is the lane profile matching the
-# session the wrapper established (it exports XDG_SESSION_TYPE):
+# There is therefore nothing to start here by hand — run the lane by profile:
 #
-#   robotcode --profile real-wayland run    # under startcompositor.sh
-#   robotcode --profile real-x11 run        # under startxsession.sh
+#   uv run robotcode --profile real-wayland run         # PlatynUI compositor
+#   uv run robotcode --profile real-x11 run             # X11 (Xephyr, Xvfb when headless)
+#   uv run robotcode --profile real-wayland run-debug   # halts on the first failure, (rdb) prompt
+#   PLATYNUI_BACKEND=headless uv run robotcode --profile real-x11 run   # no visible window
 #
-# i.e. the real AT-SPI runtime driving the egui app, with foreign-platform
-# suites excluded by their platform:* tags (see robot.toml). For interactive
-# debugging — which halts on the first uncaught failure and drops into a live
-# (rdb) prompt — pass an explicit command instead (it overrides the default
-# entirely), e.g.
+# The profile picks both the session (via its wrapper) and the suites (the
+# platform:* tag excludes), so the two can no longer drift apart. Only commands
+# that execute Robot Framework are wrapped — discovery, `libdoc` and the
+# language server never bring a session up.
 #
-#   uv run scripts/startcompositor.sh -- scripts/platynui-robot-session.sh --profile real-wayland run-debug
+# Robot Framework launches the app instance(s) itself (see tests/acceptance/),
+# so the suites decide how many windows exist and tear them down; this script
+# only compiles the binaries and hands their paths over via the environment.
 #
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Refuse a bare invocation before touching anything: without the command
+# RobotCode appends there is nothing to run, and everything below has side
+# effects (accessibility bus, fixture builds).
+if [ "$#" -eq 0 ]; then
+  echo "ERROR: nothing to run — this script is the tail of a RobotCode wrapper and" >&2
+  echo "       is started by robotcode itself, which appends the command to run." >&2
+  echo "       Run the lane by profile instead, e.g.:" >&2
+  echo "         uv run robotcode --profile real-wayland run" >&2
+  exit 2
+fi
 
 # Bring up the AT-SPI accessibility bus, but only if the surrounding session
 # has not already done so. The compositor session does NOT set up AT-SPI (its
@@ -78,8 +90,8 @@ export PLATYNUI_INSPECTOR_BIN="$PROJECT_DIR/target/debug/platynui-inspector-rs"
 echo "Inspector binary: $PLATYNUI_INSPECTOR_BIN (Robot Framework launches it)" >&2
 
 # Hand the Qt (PySide6) test app's interpreter + entrypoint to Robot Framework.
-# PySide6 is a normal dev dependency, already installed by the outer `uv run`
-# sync, so we just point at the project interpreter. Robot Framework launches
+# PySide6 is a normal dev dependency of the project venv, so we just point at
+# the project interpreter. Robot Framework launches
 # that Python DIRECTLY — via `uv run` the started PID would differ from the app's
 # PID (uv spawns Python as a child), breaking the @ProcessId window pinning.
 export PLATYNUI_TEST_APP_QT_PYTHON="$PROJECT_DIR/.venv/bin/python"
@@ -95,21 +107,8 @@ export QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1
 echo "Qt test app: $PLATYNUI_TEST_APP_QT_PYTHON $PLATYNUI_TEST_APP_QT_MAIN (Robot Framework launches it)" >&2
 echo "QML test app: $PLATYNUI_TEST_APP_QML_PYTHON $PLATYNUI_TEST_APP_QML_MAIN (Robot Framework launches it)" >&2
 
-# Default RobotCode command if none was supplied: pick the lane profile
-# matching the session type the wrapper exported. The profile excludes the
-# foreign platforms' `platform:*` tags (see robot.toml) — environment fitness
-# is decided by selection, not by runtime skips.
-if [ "$#" -eq 0 ]; then
-  case "${XDG_SESSION_TYPE:-}" in
-    wayland) set -- --profile real-wayland run ;;
-    x11) set -- --profile real-x11 run ;;
-    *)
-      echo "WARNING: unknown XDG_SESSION_TYPE '${XDG_SESSION_TYPE:-}' — falling back to the unfiltered 'real' profile (platform-bound suites of other platforms will fail, not skip)" >&2
-      set -- --profile real run
-      ;;
-  esac
-fi
-
-echo "Running: robotcode $*" >&2
-# --no-sync: the environment is already prepared by the outer `uv run`.
-uv run --no-sync robotcode "$@"
+# Run the command RobotCode appended to the wrapper. `exec` replaces this
+# script with it, so stdio, signals and the exit code pass through on their own
+# — nothing here needs tearing down (the session scripts own the session).
+echo "Running: $*" >&2
+exec "$@"

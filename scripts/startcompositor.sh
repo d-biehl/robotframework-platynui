@@ -192,6 +192,12 @@ trap cleanup_inner EXIT INT TERM
 export XDG_SESSION_TYPE=wayland
 export XDG_CURRENT_DESKTOP=platynui
 
+# This session IS the environment a profile's \`wrapper\` (robot.toml) would set
+# up, so tell RobotCode not to wrap again — otherwise a \`robotcode --profile
+# real-wayland run\` typed inside the session would start a second, nested one.
+# When robotcode itself started us through the wrapper it has already set this.
+export ROBOTCODE_WRAPPER_APPLIED=1
+
 # Accessibility environment
 export NO_AT_BRIDGE=0
 export ACCESSIBILITY_ENABLED=1

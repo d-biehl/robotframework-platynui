@@ -12,8 +12,12 @@ set -u
 # window manager started in the background. With no `--`, the script keeps its
 # original behaviour and execs the interactive window manager.
 #
-#   uv run scripts/startxsession.sh -- scripts/platynui-robot-session.sh                     # auto (nested if a display is present)
-#   uv run scripts/startxsession.sh --backend headless -- scripts/platynui-robot-session.sh  # CI / no display
+#   scripts/startxsession.sh                                 # interactive session (window manager)
+#   scripts/startxsession.sh --backend headless -- <command>  # run <command> inside a windowless session
+#
+# The acceptance lane does not call this directly: the `real-x11` profile in
+# robot.toml uses it as its `wrapper`, so `uv run robotcode --profile real-x11 run`
+# brings the session up itself.
 #
 # Environment variables:
 #   PLATYNUI_BACKEND   Override backend (default: auto-detect), same as startcompositor.sh.
@@ -144,6 +148,12 @@ dbus-run-session -- bash -c '
   export DISPLAY=:'"$DISPLAY_NUM"'
   export XDG_SESSION_TYPE=x11
   export XDG_CURRENT_DESKTOP=openbox
+
+  # This session IS the environment that the wrapper of a robot.toml profile
+  # sets up, so tell RobotCode not to wrap again — otherwise a robotcode run
+  # started inside the session would bring up a second, nested one. When
+  # robotcode started us through the wrapper it has already set this.
+  export ROBOTCODE_WRAPPER_APPLIED=1
 
   # Accessibility environment
   export NO_AT_BRIDGE=0
