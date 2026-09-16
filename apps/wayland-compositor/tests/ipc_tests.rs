@@ -1165,3 +1165,124 @@ fn ipc_get_pointer_position() {
 
     shutdown_compositor(&socket_path, child);
 }
+
+// ─── Minimized and maximized window state ───────────────────────────────
+
+/// Helper: send `command` until the JSON response satisfies `predicate`, or timeout.
+/// Window-state changes land asynchronously (configure/ack/commit round-trip with the
+/// client), so a single read may still see the previous state.
+fn wait_for_response(
+    socket_path: &PathBuf,
+    command: &str,
+    timeout: Duration,
+    predicate: impl Fn(&Value) -> bool,
+) -> Option<Value> {
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        if let Ok(response) = send_command(socket_path, command)
+            && let Ok(value) = serde_json::from_str::<Value>(&response)
+            && predicate(&value)
+        {
+            return Some(value);
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    None
+}
+
+/// Helper: start a compositor with one egui client and return its stable `window_id`
+/// after maximizing and then minimizing it. `None` when the environment cannot run
+/// the scenario (the caller then skips, like the other client tests).
+fn start_with_window_minimized_from_maximized(test_name: &str, app_id: &str) -> Option<(Child, PathBuf, Child, u64)> {
+    let (child, socket_name) = start_compositor(test_name)?;
+    let Some(socket_path) = wait_for_socket(&socket_name, Duration::from_secs(10)) else {
+        eprintln!("skipping: control socket did not appear");
+        return None;
+    };
+    let Some(mut app) = start_test_app(&socket_name, app_id, "Window State", 30) else {
+        shutdown_compositor(&socket_path, child);
+        return None;
+    };
+    let Some(list) = wait_for_windows(&socket_path, 1, Duration::from_secs(10)) else {
+        eprintln!("skipping: test app window did not appear");
+        let _ = app.kill();
+        shutdown_compositor(&socket_path, child);
+        return None;
+    };
+    let list_json: Value = serde_json::from_str(&list).expect("list_windows should return valid JSON");
+    let window_id = list_json["windows"][0]["window_id"].as_u64().expect("missing stable window_id");
+
+    let get_window = format!(r#"{{"command":"get_window","window_id":{window_id}}}"#);
+    let maximize = send_command(&socket_path, &format!(r#"{{"command":"maximize_window","window_id":{window_id}}}"#))
+        .expect("failed to send maximize_window");
+    assert!(maximize.contains(r#""status":"ok"#), "maximize failed: {maximize}");
+    let maximized = wait_for_response(&socket_path, &get_window, Duration::from_secs(10), |value| {
+        value["window"]["maximized"].as_bool() == Some(true)
+    });
+    assert!(maximized.is_some(), "window never reported maximized");
+
+    let minimize = send_command(&socket_path, &format!(r#"{{"command":"minimize_window","window_id":{window_id}}}"#))
+        .expect("failed to send minimize_window");
+    assert!(minimize.contains(r#""status":"ok"#), "minimize failed: {minimize}");
+
+    Some((child, socket_path, app, window_id))
+}
+
+#[test]
+fn ipc_minimized_window_reports_size_and_state() {
+    let Some((child, socket_path, mut app, window_id)) =
+        start_with_window_minimized_from_maximized("minimized_state", "test.minimized.state")
+    else {
+        return;
+    };
+
+    let list = wait_for_response(&socket_path, r#"{"command": "list_windows"}"#, Duration::from_secs(10), |value| {
+        value["minimized"].as_array().is_some_and(|entries| !entries.is_empty())
+    })
+    .expect("window never appeared in the minimized list");
+    let entry = &list["minimized"][0];
+    assert_eq!(entry["window_id"].as_u64(), Some(window_id), "unexpected minimized entry: {list}");
+    assert_eq!(entry["minimized"].as_bool(), Some(true), "minimized flag missing: {list}");
+    assert_eq!(entry["maximized"].as_bool(), Some(true), "maximized state lost: {list}");
+    assert!(entry["content_width"].as_i64().is_some_and(|w| w > 0), "missing content width: {list}");
+    assert!(entry["content_height"].as_i64().is_some_and(|h| h > 0), "missing content height: {list}");
+
+    let response = send_command(&socket_path, &format!(r#"{{"command":"get_window","window_id":{window_id}}}"#))
+        .expect("failed to send get_window");
+    let response_json: Value = serde_json::from_str(&response).expect("get_window should return valid JSON");
+    assert!(response.contains(r#""status":"ok"#), "minimized window not found by window_id: {response}");
+    assert_eq!(response_json["window"]["window_id"].as_u64(), Some(window_id), "unexpected window: {response}");
+    assert_eq!(response_json["window"]["minimized"].as_bool(), Some(true), "not reported minimized: {response}");
+
+    let _ = app.kill();
+    let _ = app.wait();
+    shutdown_compositor(&socket_path, child);
+}
+
+#[test]
+fn ipc_focus_window_brings_back_minimized_window_maximized() {
+    let Some((child, socket_path, mut app, window_id)) =
+        start_with_window_minimized_from_maximized("focus_minimized", "test.focus.minimized")
+    else {
+        return;
+    };
+    let get_window = format!(r#"{{"command":"get_window","window_id":{window_id}}}"#);
+    let minimized = wait_for_response(&socket_path, &get_window, Duration::from_secs(10), |value| {
+        value["window"]["minimized"].as_bool() == Some(true)
+    });
+    assert!(minimized.is_some(), "window never reported minimized");
+
+    let response = send_command(&socket_path, &format!(r#"{{"command":"focus_window","window_id":{window_id}}}"#))
+        .expect("failed to send focus_window");
+    assert!(response.contains(r#""status":"ok"#), "focus_window did not find the minimized window: {response}");
+
+    let restored = wait_for_response(&socket_path, &get_window, Duration::from_secs(10), |value| {
+        value["window"]["minimized"].as_bool() == Some(false) && value["window"]["focused"].as_bool() == Some(true)
+    })
+    .expect("focused window never came back from minimized");
+    assert_eq!(restored["window"]["maximized"].as_bool(), Some(true), "window lost its maximized state: {restored}");
+
+    let _ = app.kill();
+    let _ = app.wait();
+    shutdown_compositor(&socket_path, child);
+}

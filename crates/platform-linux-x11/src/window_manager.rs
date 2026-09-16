@@ -11,7 +11,7 @@
 //! per-instance.
 
 use crate::x11util::X11Connection;
-use platynui_core::platform::{PlatformError, WindowHit, WindowId, WindowManager};
+use platynui_core::platform::{PlatformError, WindowHit, WindowId, WindowManager, WindowState, WindowVisualState};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::{Namespace, UiNode};
 use std::sync::Arc;
@@ -38,6 +38,8 @@ struct EwmhAtoms {
     net_wm_state_maximized_vert: Atom,
     net_wm_state_maximized_horz: Atom,
     net_wm_state_hidden: Atom,
+    net_wm_state_above: Atom,
+    wm_state: Atom,
     net_supporting_wm_check: Atom,
     net_supported: Atom,
     net_wm_name: Atom,
@@ -78,6 +80,8 @@ fn atoms(x11: &X11Connection) -> Result<std::sync::MutexGuard<'static, EwmhAtoms
         net_wm_state_maximized_vert: intern(conn, b"_NET_WM_STATE_MAXIMIZED_VERT")?,
         net_wm_state_maximized_horz: intern(conn, b"_NET_WM_STATE_MAXIMIZED_HORZ")?,
         net_wm_state_hidden: intern(conn, b"_NET_WM_STATE_HIDDEN")?,
+        net_wm_state_above: intern(conn, b"_NET_WM_STATE_ABOVE")?,
+        wm_state: intern(conn, b"WM_STATE")?,
         net_supporting_wm_check: intern(conn, b"_NET_SUPPORTING_WM_CHECK")?,
         net_supported: intern(conn, b"_NET_SUPPORTED")?,
         net_wm_name: intern(conn, b"_NET_WM_NAME")?,
@@ -260,6 +264,49 @@ fn client_rect(x11: &X11Connection, xid: Window) -> Result<Rect, PlatformError> 
     let (wx, wy) =
         coords.map(|c| (f64::from(c.dst_x), f64::from(c.dst_y))).unwrap_or((f64::from(geom.x), f64::from(geom.y)));
     Ok(Rect::new(wx, wy, f64::from(geom.width), f64::from(geom.height)))
+}
+
+/// ICCCM `WM_STATE` value of a window the window manager has iconified.
+const ICONIC_STATE: u32 = 3;
+
+/// Read a client window's state from `_NET_WM_STATE` and the ICCCM `WM_STATE`.
+/// Fails when the window no longer exists (the property request errors).
+fn read_window_state(x11: &X11Connection, xid: Window, atoms: &EwmhAtoms) -> Result<WindowState, PlatformError> {
+    let net_states: Vec<Atom> = x11
+        .conn
+        .get_property(false, xid, atoms.net_wm_state, AtomEnum::ATOM, 0, 64)
+        .map_err(|e| PlatformError::OperationFailed { operation: "read _NET_WM_STATE", details: Some(e.to_string()) })?
+        .reply()
+        .map_err(|e| PlatformError::OperationFailed {
+            operation: "read _NET_WM_STATE reply",
+            details: Some(e.to_string()),
+        })?
+        .value32()
+        .map(|iter| iter.collect())
+        .unwrap_or_default();
+    let iconic = x11
+        .conn
+        .get_property(false, xid, atoms.wm_state, atoms.wm_state, 0, 1)
+        .ok()
+        .and_then(|cookie| cookie.reply().ok())
+        .and_then(|reply| reply.value32().and_then(|mut iter| iter.next()))
+        == Some(ICONIC_STATE);
+    Ok(decode_window_state(&net_states, iconic, atoms))
+}
+
+/// Map `_NET_WM_STATE` atoms plus the ICCCM iconic flag onto a [`WindowState`].
+/// Minimized wins: an iconified window keeps its maximized atoms so the window
+/// manager can bring it back maximized, but it is not visible as maximized.
+fn decode_window_state(net_states: &[Atom], iconic: bool, atoms: &EwmhAtoms) -> WindowState {
+    let has = |atom: Atom| net_states.contains(&atom);
+    let visual = if iconic || has(atoms.net_wm_state_hidden) {
+        WindowVisualState::Minimized
+    } else if has(atoms.net_wm_state_maximized_vert) && has(atoms.net_wm_state_maximized_horz) {
+        WindowVisualState::Maximized
+    } else {
+        WindowVisualState::Normal
+    };
+    WindowState { visual, topmost: has(atoms.net_wm_state_above) }
 }
 
 /// Find the candidate whose `_NET_WM_NAME` best matches the AT-SPI name.
@@ -541,11 +588,27 @@ impl WindowManager for X11EwmhWindowManager {
         Ok(active_xid == xid)
     }
 
+    fn state(&self, id: WindowId) -> Result<WindowState, PlatformError> {
+        let atoms = atoms(&self.conn)?;
+        read_window_state(&self.conn, id.raw() as Window, &atoms)
+    }
+
     fn activate(&self, id: WindowId) -> Result<(), PlatformError> {
         let xid = id.raw() as Window;
         debug!(xid, "EWMH activate");
         let atoms = atoms(&self.conn)?;
         let x11 = &self.conn;
+        // EWMH does not require a window manager to de-iconify on _NET_ACTIVE_WINDOW.
+        // ICCCM §4.1.4 does: a client leaves Iconic state by mapping its window. The
+        // window manager receives the MapRequest and keeps _NET_WM_STATE untouched,
+        // so a window minimized while maximized comes back maximized.
+        if read_window_state(x11, xid, &atoms).is_ok_and(|state| state.is_minimized()) {
+            debug!(xid, "EWMH activate: de-iconify via MapWindow");
+            x11.conn.map_window(xid).map_err(|e| PlatformError::OperationFailed {
+                operation: "x11 map_window",
+                details: Some(e.to_string()),
+            })?;
+        }
         send_client_message(&x11.conn, x11.root, xid, atoms.net_active_window, [2, 0, 0, 0, 0])?;
         flush(&x11.conn)
     }
@@ -720,4 +783,55 @@ pub fn check_ewmh_wm_support(x11: &X11Connection) -> Result<bool, PlatformError>
     }
 
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_atoms() -> EwmhAtoms {
+        EwmhAtoms {
+            net_client_list: 1,
+            net_client_list_stacking: 2,
+            net_wm_pid: 3,
+            net_active_window: 4,
+            net_close_window: 5,
+            net_wm_state: 6,
+            net_wm_state_maximized_vert: 7,
+            net_wm_state_maximized_horz: 8,
+            net_wm_state_hidden: 9,
+            net_wm_state_above: 10,
+            wm_state: 11,
+            net_supporting_wm_check: 12,
+            net_supported: 13,
+            net_wm_name: 14,
+            utf8_string: 15,
+        }
+    }
+
+    #[test]
+    fn decode_window_state_reports_maximized_only_for_both_axes() {
+        let atoms = test_atoms();
+        let both =
+            decode_window_state(&[atoms.net_wm_state_maximized_vert, atoms.net_wm_state_maximized_horz], false, &atoms);
+        assert_eq!(both, WindowState { visual: WindowVisualState::Maximized, topmost: false });
+        let vertical = decode_window_state(&[atoms.net_wm_state_maximized_vert], false, &atoms);
+        assert_eq!(vertical.visual, WindowVisualState::Normal);
+    }
+
+    #[test]
+    fn decode_window_state_reports_minimized_over_maximized() {
+        let atoms = test_atoms();
+        let maximized = [atoms.net_wm_state_maximized_vert, atoms.net_wm_state_maximized_horz];
+        let hidden = [maximized[0], maximized[1], atoms.net_wm_state_hidden];
+        assert_eq!(decode_window_state(&hidden, false, &atoms).visual, WindowVisualState::Minimized);
+        assert_eq!(decode_window_state(&maximized, true, &atoms).visual, WindowVisualState::Minimized);
+    }
+
+    #[test]
+    fn decode_window_state_reports_topmost_from_above() {
+        let atoms = test_atoms();
+        assert!(decode_window_state(&[atoms.net_wm_state_above], false, &atoms).topmost);
+        assert!(!decode_window_state(&[], false, &atoms).topmost);
+    }
 }

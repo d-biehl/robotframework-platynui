@@ -20,7 +20,8 @@
 //! - `{"command": "get_window", "app_id": "..."}` → get window by `app_id` (exact match)
 //! - `{"command": "get_window", "title": "..."}` → get window by title (case-insensitive substring)
 //! - `{"command": "close_window", "id"|"app_id"|"title": ...}` → send close to a window
-//! - `{"command": "focus_window", "id"|"app_id"|"title": ...}` → focus a window
+//! - `{"command": "focus_window", "id"|"app_id"|"title"|"window_id": ...}` → activate a window (a minimized one
+//!   addressed by `window_id` comes back first, keeping its maximized state)
 //! - `{"command": "screenshot"}` → capture the current frame (base64 PNG)
 //! - `{"command": "get_pointer_position"}` → current pointer coordinates (`x`, `y`)
 //! - `{"command": "window_at_point", "x": <f64>, "y": <f64>}` → frontmost window at the point (or null)
@@ -130,6 +131,7 @@ struct OpaqueRegionRect {
 
 /// Window information returned in IPC responses.
 #[derive(Serialize)]
+#[allow(clippy::struct_excessive_bools)] // wire format: independent window state flags
 struct WindowInfo {
     id: usize,
     window_id: u64,
@@ -150,6 +152,9 @@ struct WindowInfo {
     geometry_x: i32,
     geometry_y: i32,
     focused: bool,
+    /// Always `false` here: mapped windows are never minimized. Present so both window
+    /// shapes carry the same state fields.
+    minimized: bool,
     maximized: bool,
     fullscreen: bool,
     /// Decoration mode: `"csd"` (client-side) or `"ssd"` (server-side).
@@ -175,6 +180,10 @@ struct PopupInfo {
 }
 
 /// Minimized window information.
+///
+/// `x`/`y` are the position the window returns to. The content size and the
+/// maximized flag let clients match a minimized window against its accessibility
+/// node and tell whether it will come back maximized.
 #[derive(Serialize)]
 struct MinimizedWindowInfo {
     id: String,
@@ -184,6 +193,11 @@ struct MinimizedWindowInfo {
     pid: Option<u32>,
     x: i32,
     y: i32,
+    content_width: i32,
+    content_height: i32,
+    /// Always `true`: the window is in the compositor's minimized list.
+    minimized: bool,
+    maximized: bool,
 }
 
 /// Output information.
@@ -403,14 +417,24 @@ fn process_command(input: &str, state: &mut State) -> Option<String> {
         }
 
         Some("get_window") => {
-            match resolve_window_selector(
+            let mapped = resolve_window_selector(
                 state,
                 request.window_id,
                 request.id,
                 request.app_id.as_deref(),
                 request.title.as_deref(),
-            ) {
-                Some(info) => serde_json::json!({"status": "ok", "window": info}),
+            )
+            .map(|info| serde_json::json!(info));
+            // A minimized window is unmapped, so only the stable window_id can still
+            // address it.
+            let window = mapped.or_else(|| {
+                request
+                    .window_id
+                    .and_then(|window_id| minimized_window_info(state, window_id))
+                    .map(|info| serde_json::json!(info))
+            });
+            match window {
+                Some(window) => serde_json::json!({"status": "ok", "window": window}),
                 None => serde_json::json!({"status": "error", "message": "window not found"}),
             }
         }
@@ -432,13 +456,12 @@ fn process_command(input: &str, state: &mut State) -> Option<String> {
         }
 
         Some("focus_window") => {
-            match resolve_and_act_on_window(
+            match focus_window_by_selector(
                 state,
                 request.window_id,
                 request.id,
                 request.app_id.as_deref(),
                 request.title.as_deref(),
-                focus_window,
             ) {
                 Some((t, a)) => {
                     serde_json::json!({"status": "ok", "message": "window focused", "title": t, "app_id": a})
@@ -917,6 +940,41 @@ fn restore_window_by_selector(
     resolve_and_act_on_window(state, None, id, app_id, title, restore_window)
 }
 
+/// Activate a window: bring it back if minimized, then focus and raise it.
+///
+/// A window addressed by `window_id` is looked up among mapped and minimized
+/// windows; the index, `app_id` and `title` selectors only reach mapped windows.
+fn focus_window_by_selector(
+    state: &mut State,
+    window_id: Option<u64>,
+    id: Option<u64>,
+    app_id: Option<&str>,
+    title: Option<&str>,
+) -> Option<(String, String)> {
+    if let Some(window_id) = window_id {
+        let window = state
+            .space
+            .elements()
+            .find(|window| window_stable_id(window) == window_id)
+            .or_else(|| {
+                state
+                    .minimized_windows
+                    .iter()
+                    .map(|(window, _)| window)
+                    .find(|window| window_stable_id(window) == window_id)
+            })
+            .cloned();
+        if let Some(window) = window {
+            let resolved_title = foreign_toplevel::window_title(&window);
+            let resolved_app_id = foreign_toplevel::window_app_id(&window);
+            crate::handlers::foreign_toplevel::activate_window(state, &window);
+            return Some((resolved_title, resolved_app_id));
+        }
+    }
+
+    resolve_and_act_on_window(state, None, id, app_id, title, focus_window)
+}
+
 fn move_window_by_selector(
     state: &mut State,
     window_id: Option<u64>,
@@ -1035,6 +1093,7 @@ fn build_window_info(state: &State, idx: usize, window: &Window) -> WindowInfo {
         geometry_x: geo.loc.x,
         geometry_y: geo.loc.y,
         focused: is_focused(state, window),
+        minimized: false,
         maximized: is_maximized(window),
         fullscreen: is_fullscreen(window),
         decoration_mode: if crate::decorations::window_has_ssd(window) { "ssd" } else { "csd" },
@@ -1158,16 +1217,40 @@ fn list_minimized_windows(state: &State) -> Vec<MinimizedWindowInfo> {
         .minimized_windows
         .iter()
         .enumerate()
-        .map(|(idx, (window, pos))| MinimizedWindowInfo {
-            id: format!("minimized_{idx}"),
-            window_id: window_stable_id(window),
-            title: foreign_toplevel::window_title(window),
-            app_id: foreign_toplevel::window_app_id(window),
-            pid: window_pid(state, window),
-            x: pos.x,
-            y: pos.y,
-        })
+        .map(|(idx, (window, pos))| build_minimized_window_info(state, idx, window, *pos))
         .collect()
+}
+
+fn build_minimized_window_info(
+    state: &State,
+    idx: usize,
+    window: &Window,
+    pos: smithay::utils::Point<i32, Logical>,
+) -> MinimizedWindowInfo {
+    let size = window.geometry().size;
+    MinimizedWindowInfo {
+        id: format!("minimized_{idx}"),
+        window_id: window_stable_id(window),
+        title: foreign_toplevel::window_title(window),
+        app_id: foreign_toplevel::window_app_id(window),
+        pid: window_pid(state, window),
+        x: pos.x,
+        y: pos.y,
+        content_width: size.w,
+        content_height: size.h,
+        minimized: true,
+        maximized: is_maximized(window),
+    }
+}
+
+/// Info about a minimized window, found by its stable id.
+fn minimized_window_info(state: &State, window_id: u64) -> Option<MinimizedWindowInfo> {
+    state
+        .minimized_windows
+        .iter()
+        .enumerate()
+        .find(|(_, (window, _))| window_stable_id(window) == window_id)
+        .map(|(idx, (window, pos))| build_minimized_window_info(state, idx, window, *pos))
 }
 
 fn window_stable_id(window: &Window) -> u64 {
@@ -1212,7 +1295,8 @@ fn close_window(state: &State, id: u64) -> bool {
     false
 }
 
-/// Focus a window by index.
+/// Activate a window by index: focus and raise it, like a foreign-toplevel
+/// activation request.
 ///
 /// # Panics
 ///
@@ -1221,10 +1305,7 @@ fn focus_window(state: &mut State, id: u64) -> bool {
     let Some(id) = usize::try_from(id).ok() else { return false };
     let window = state.space.elements().nth(id).cloned();
     if let Some(window) = window {
-        let serial = smithay::utils::SERIAL_COUNTER.next_serial();
-        let keyboard = state.keyboard();
-        keyboard.set_focus(state, Some(crate::focus::KeyboardFocusTarget::Window(window.clone())), serial);
-        state.space.raise_element(&window, true);
+        crate::handlers::foreign_toplevel::activate_window(state, &window);
         true
     } else {
         false

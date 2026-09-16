@@ -13,10 +13,11 @@ use atspi_proxies::table::TableProxy;
 use atspi_proxies::table_cell::TableCellProxy;
 use atspi_proxies::text::TextProxy;
 use atspi_proxies::value::ValueProxy;
-use platynui_core::platform::{WindowId, WindowManager};
+use platynui_core::platform::{WindowId, WindowManager, WindowState};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::attribute_names::{
-    activation_target, application, common, element, focusable, text_content, window_state as window_state_attr,
+    activation_target, application, common, element, focusable, maximizable, minimizable, text_content,
+    window_state as window_state_attr,
 };
 use platynui_core::ui::{
     ActivatableAction, CloseableAction, FocusableAction, MaximizableAction, MinimizableAction, MovableAction,
@@ -26,7 +27,7 @@ use platynui_core::ui::{
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, OnceLock, Weak};
-use tracing::{trace, warn};
+use tracing::{debug, trace, warn};
 use zbus::proxy::CacheProperties;
 
 use crate::clearable_cell::ClearableCell;
@@ -1211,6 +1212,18 @@ impl Iterator for AttrsIter {
                         None
                     }
                 }
+                23..=25 => {
+                    if self.is_window_surface {
+                        let kind = match self.idx {
+                            23 => StdAttrKind::IsMinimized,
+                            24 => StdAttrKind::IsMaximized,
+                            _ => StdAttrKind::IsTopmost,
+                        };
+                        Some(Arc::new(LazyStdAttr { namespace: self.namespace, kind, ctx: self.ctx.clone() }))
+                    } else {
+                        None
+                    }
+                }
                 // Yield lazy native properties — D-Bus is only called
                 // when the consumer invokes `.value()` on the attribute.
                 _ => {
@@ -1231,7 +1244,7 @@ impl Iterator for AttrsIter {
             match item {
                 Some(attr) => return Some(attr),
                 None => {
-                    if self.idx > 23 {
+                    if self.idx > 26 {
                         return None;
                     }
                     continue;
@@ -1463,6 +1476,14 @@ impl LazyNodeData {
         let (wm, wid) = self.resolve_window()?;
         wm.is_active(wid).ok()
     }
+
+    /// Read this window's minimized/maximized/topmost state from the registered
+    /// [`WindowManager`]. Returns `None` when the window cannot be resolved or
+    /// the window manager cannot report its state.
+    fn resolve_window_state(&self) -> Option<WindowState> {
+        let (wm, wid) = self.resolve_window()?;
+        wm.state(wid).inspect_err(|err| debug!(%err, window = %wid, "window state unavailable")).ok()
+    }
 }
 
 /// Discriminant for lazily-evaluated standard attributes.
@@ -1480,6 +1501,9 @@ enum StdAttrKind {
     SupportedPatterns,
     IsActive,
     IsModal,
+    IsMinimized,
+    IsMaximized,
+    IsTopmost,
     Text,
 }
 
@@ -1515,6 +1539,9 @@ impl UiAttribute for LazyStdAttr {
             StdAttrKind::SupportedPatterns => common::SUPPORTED_PATTERNS,
             StdAttrKind::IsActive => window_state_attr::IS_ACTIVE,
             StdAttrKind::IsModal => window_state_attr::IS_MODAL,
+            StdAttrKind::IsMinimized => minimizable::IS_MINIMIZED,
+            StdAttrKind::IsMaximized => maximizable::IS_MAXIMIZED,
+            StdAttrKind::IsTopmost => window_state_attr::IS_TOPMOST,
             StdAttrKind::Text => text_content::TEXT,
         }
     }
@@ -1591,6 +1618,13 @@ impl UiAttribute for LazyStdAttr {
                 let modal = self.ctx.resolve_state().map(|s| s.contains(State::Modal)).unwrap_or(false);
                 UiValue::from(modal)
             }
+            StdAttrKind::IsMinimized => {
+                UiValue::from(self.ctx.resolve_window_state().is_some_and(|state| state.is_minimized()))
+            }
+            StdAttrKind::IsMaximized => {
+                UiValue::from(self.ctx.resolve_window_state().is_some_and(|state| state.is_maximized()))
+            }
+            StdAttrKind::IsTopmost => UiValue::from(self.ctx.resolve_window_state().is_some_and(|state| state.topmost)),
             StdAttrKind::Text => {
                 // Verbatim GetText(0,-1); preserve empty strings (an empty
                 // text field must stay present-and-empty, not collapse to

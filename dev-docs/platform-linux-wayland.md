@@ -207,7 +207,7 @@ Use **ext-image-copy-capture-v1** as primary — it has broad adoption (KWin, Sw
 
 ## 6. Window Management
 
-This is the most challenging area. Wayland has **no equivalent to X11's EWMH** for programmatic window management. PlatynUI's `WindowManager` trait (see [`crates/core/src/platform/window_manager.rs`](../crates/core/src/platform/window_manager.rs)) requires 10 methods. Under Wayland, **7 of 10** are solvable via standard protocols; the remaining 3 (`bounds`, `move_to`, `resize`) require compositor-specific IPC.
+This is the most challenging area. Wayland has **no equivalent to X11's EWMH** for programmatic window management. PlatynUI's `WindowManager` trait (see [`crates/core/src/platform/window_manager.rs`](../crates/core/src/platform/window_manager.rs)) covers resolving, reading and changing windows. Under Wayland, all of it except `bounds`, `move_to` and `resize` is solvable via standard protocols; those three require compositor-specific IPC.
 
 ### 6.1. Available Protocols
 
@@ -277,6 +277,7 @@ WindowManager (Wayland)
 |---|---|---|---|
 | `resolve_window()` | ✅ `ext-foreign-toplevel-list` + AT-SPI PID | — | ✅ All compositors |
 | `is_active()` | ✅ `wlr-foreign-toplevel` state events | — | ✅ All compositors |
+| `state()` | ✅ `wlr-foreign-toplevel` state events (minimized, maximized) | — | ✅ All compositors |
 | `activate()` | ✅ `wlr-foreign-toplevel` activate | — | ✅ All compositors |
 | `close()` | ✅ `wlr-foreign-toplevel` close | — | ✅ All compositors |
 | `minimize()` / `restore()` | ✅ `wlr-foreign-toplevel` set/unset | — | ✅ All compositors |
@@ -285,7 +286,7 @@ WindowManager (Wayland)
 | `move_to()` | ❌ | ✅ KWin, Sway, Hyprland | ⚠️ Not on Mutter/cosmic |
 | `resize()` | ❌ | ✅ KWin, Sway, Hyprland | ⚠️ Not on Mutter/cosmic |
 
-**Coverage:** KWin + Sway + Hyprland account for the vast majority of Wayland desktops other than GNOME. Together with Mutter (7 of 10 methods), this gives >95% of Linux desktops at least basic window management, and KDE/Sway/Hyprland users get full parity with X11.
+**Coverage:** KWin + Sway + Hyprland account for the vast majority of Wayland desktops other than GNOME. Together with Mutter (everything except `bounds`, `move_to` and `resize`), this gives >95% of Linux desktops at least basic window management, and KDE/Sway/Hyprland users get full parity with X11.
 
 ### 6.5. The Mutter Problem and `ActivationPoint`
 
@@ -542,6 +543,8 @@ The PlatynUI project includes a purpose-built Wayland compositor for CI testing 
 - **No GPU required** for headless mode — CPU rendering, fast startup
 
 The compositor is the primary target for deterministic integration testing. The `ControlSocketBackend` in `platform-linux-wayland` communicates with it via the control socket IPC.
+
+The window manager backend for this compositor resolves a node's window among both the mapped windows and the minimized ones: a minimized window is unmapped, so the compositor lists it separately, with its content size and whether it is maximized, and `get_window` still finds it by its stable `window_id`. Window state comes from the same reports — a window in the minimized list is minimized, otherwise the compositor's `maximized` flag decides, and no window is ever kept on top. Activation (`focus_window`) goes through the same path as a foreign-toplevel activation request: a minimized window is put back at its old position, keeping its maximized state, and is then focused and raised.
 
 ### 11.8. Recommendation
 

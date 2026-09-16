@@ -20,8 +20,8 @@ use crate::map;
 use platynui_core::platform::{WindowId, WindowManager, java};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::attribute_names::{
-    activation_target, application, common, element, expandable, focusable, selectable, selection_provider,
-    stateful_value, text_content, text_editable, toggleable, window_state,
+    activation_target, application, common, element, expandable, focusable, maximizable, minimizable, selectable,
+    selection_provider, stateful_value, text_content, text_editable, toggleable, window_state,
 };
 use platynui_core::ui::{
     ActivatableAction, CloseableAction, FocusableAction, MaximizableAction, MinimizableAction, MovableAction,
@@ -481,6 +481,9 @@ impl UiNode for JabNode {
 
         if self.is_top_level() {
             attrs.push(Arc::new(IsActiveAttr { lazy: Arc::clone(&lazy) }));
+            for kind in [WindowStateKind::Minimized, WindowStateKind::Maximized, WindowStateKind::Topmost] {
+                attrs.push(Arc::new(WindowStateAttr { lazy: Arc::clone(&lazy), kind }));
+            }
             attrs.push(static_attr(ns, window_state::IS_MODAL, UiValue::from(states.modal)));
             attrs.push(static_attr(
                 Namespace::Native,
@@ -1195,6 +1198,50 @@ impl UiAttribute for IsActiveAttr {
         })()
         .unwrap_or(false);
         UiValue::from(active)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum WindowStateKind {
+    Minimized,
+    Maximized,
+    Topmost,
+}
+
+/// `IsMinimized` / `IsMaximized` / `IsTopmost` of a top-level window, read live
+/// from the injected `WindowManager` like `IsActive`; `false` when the window
+/// cannot be resolved or its state cannot be read.
+struct WindowStateAttr {
+    lazy: Arc<LazyAttrs>,
+    kind: WindowStateKind,
+}
+
+impl UiAttribute for WindowStateAttr {
+    fn namespace(&self) -> Namespace {
+        Namespace::Control
+    }
+
+    fn name(&self) -> &str {
+        match self.kind {
+            WindowStateKind::Minimized => minimizable::IS_MINIMIZED,
+            WindowStateKind::Maximized => maximizable::IS_MAXIMIZED,
+            WindowStateKind::Topmost => window_state::IS_TOPMOST,
+        }
+    }
+
+    fn value(&self) -> UiValue {
+        let state = (|| {
+            let node = self.lazy.owner.as_ref()?.upgrade()?;
+            let wm = self.lazy.window_manager.clone()?;
+            let wid = wm.resolve_window(node.as_ref()).ok()?;
+            wm.state(wid).inspect_err(|err| debug!(%err, window = %wid, "window state unavailable")).ok()
+        })();
+        let flag = state.is_some_and(|state| match self.kind {
+            WindowStateKind::Minimized => state.is_minimized(),
+            WindowStateKind::Maximized => state.is_maximized(),
+            WindowStateKind::Topmost => state.topmost,
+        });
+        UiValue::from(flag)
     }
 }
 

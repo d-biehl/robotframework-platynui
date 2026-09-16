@@ -21,6 +21,6 @@ pub use pointer::{
     PointOrigin, PointerAccelerationProfile, PointerButton, PointerDevice, PointerMotionMode, ScrollDelta,
 };
 pub use screenshot::{PixelFormat, Screenshot, ScreenshotProvider, ScreenshotRequest};
-pub use window_manager::{WindowHit, WindowId, WindowManager};
+pub use window_manager::{WindowHit, WindowId, WindowManager, WindowState, WindowVisualState};
 
 pub use crate::register_platform_factory;

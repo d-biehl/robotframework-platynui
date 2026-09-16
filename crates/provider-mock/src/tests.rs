@@ -300,6 +300,47 @@ fn window_surface_actions_update_state() {
 
 #[rstest]
 #[serial]
+fn activation_brings_a_window_back_in_the_state_it_was_minimized_from() {
+    let provider = mock_provider();
+    let desktop: Arc<dyn UiNode> = Arc::new(DesktopNode);
+    let app = provider.get_nodes(Arc::clone(&desktop)).unwrap().next().unwrap();
+    let mut windows = provider.get_nodes(Arc::clone(&app)).unwrap();
+    let window =
+        windows.find(|node| node.runtime_id().as_str() == factory::WINDOW_RUNTIME_ID).expect("main window present");
+
+    let activatable = window.pattern::<ActivatableAction>().expect("activatable pattern registered");
+    let minimizable = window.pattern::<MinimizableAction>().expect("minimizable pattern registered");
+    let maximizable = window.pattern::<MaximizableAction>().expect("maximizable pattern registered");
+    let restorable = window.pattern::<RestorableAction>().expect("restorable pattern registered");
+    let minimized = || attr_bool(&window, Namespace::Control, minimizable::IS_MINIMIZED);
+    let maximized = || attr_bool(&window, Namespace::Control, maximizable::IS_MAXIMIZED);
+
+    // Minimized from maximized: reported as minimized only, activation brings it back maximized.
+    // Minimizing an already minimized window must not lose the remembered state.
+    maximizable.maximize().expect("maximize succeeds");
+    minimizable.minimize().expect("minimize succeeds");
+    minimizable.minimize().expect("minimizing again succeeds");
+    assert!(minimized() && !maximized());
+    activatable.activate().expect("activate succeeds");
+    assert!(!minimized() && maximized());
+
+    // Restoring a window minimized from maximized brings it back normal, and a later
+    // minimize/activate cycle does not resurrect the old maximized state.
+    minimizable.minimize().expect("minimize succeeds");
+    restorable.restore().expect("restore succeeds");
+    assert!(!minimized() && !maximized());
+    minimizable.minimize().expect("minimize succeeds");
+    activatable.activate().expect("activate succeeds");
+    assert!(!minimized() && !maximized());
+
+    // Maximizing a window minimized from the normal state brings it back maximized.
+    minimizable.minimize().expect("minimize succeeds");
+    maximizable.maximize().expect("maximize succeeds");
+    assert!(!minimized() && maximized());
+}
+
+#[rstest]
+#[serial]
 fn activation_point_aliases_absent_and_value_ok() {
     let provider = mock_provider();
     let desktop: Arc<dyn UiNode> = Arc::new(DesktopNode);

@@ -1,4 +1,4 @@
-use platynui_core::platform::{PlatformError, WindowId, WindowManager};
+use platynui_core::platform::{PlatformError, WindowId, WindowManager, WindowState, WindowVisualState};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::UiNode;
 use std::sync::Mutex;
@@ -11,6 +11,7 @@ pub enum WindowManagerLogEntry {
     ResolveWindow,
     Bounds(WindowId),
     IsActive(WindowId),
+    State(WindowId),
     Activate(WindowId),
     Close(WindowId),
     Minimize(WindowId),
@@ -54,6 +55,11 @@ impl WindowManager for MockWindowManager {
     fn is_active(&self, id: WindowId) -> Result<bool, PlatformError> {
         self.record(WindowManagerLogEntry::IsActive(id));
         Ok(true)
+    }
+
+    fn state(&self, id: WindowId) -> Result<WindowState, PlatformError> {
+        self.record(WindowManagerLogEntry::State(id));
+        Ok(WindowState { visual: WindowVisualState::Normal, topmost: false })
     }
 
     fn activate(&self, id: WindowId) -> Result<(), PlatformError> {
@@ -116,5 +122,15 @@ mod tests {
         let log = take_window_manager_log();
         assert_eq!(log.len(), 1);
         assert_eq!(log[0], WindowManagerLogEntry::Activate(id));
+    }
+
+    #[rstest]
+    #[serial]
+    fn mock_state_reports_normal_and_records_entry() {
+        reset_window_manager_state();
+        let id = WindowId::new(7);
+        let state = MOCK_WINDOW_MANAGER.state(id).unwrap();
+        assert_eq!(state, WindowState { visual: WindowVisualState::Normal, topmost: false });
+        assert_eq!(take_window_manager_log(), vec![WindowManagerLogEntry::State(id)]);
     }
 }

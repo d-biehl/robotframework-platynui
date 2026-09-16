@@ -482,7 +482,7 @@ The paired reader is `TextContent` (`Text`); `Clearable` follows the same princi
 
 | Pattern → Attribute / Action | UIA | AT-SPI2 | macOS AX |
 |--------------------|-----|---------|----------|
-| Activatable.activate() | WindowPattern.SetWindowVisualState(Normal) + SetFocus | EWMH _NET_ACTIVE_WINDOW | AXRaise + AXFocused |
+| Activatable.activate() | ShowWindow(SW_RESTORE) if iconic + SetFocus | MapWindow if iconified + EWMH _NET_ACTIVE_WINDOW | AXRaise + AXFocused |
 | Minimizable.minimize() | WindowPattern.SetWindowVisualState(Minimized) | EWMH _NET_WM_STATE | AXMinimized = true |
 | Maximizable.maximize() | WindowPattern.SetWindowVisualState(Maximized) | EWMH _NET_WM_STATE | AXFullScreen (approx) |
 | Restorable.restore() | WindowPattern.SetWindowVisualState(Normal) | EWMH _NET_WM_STATE | AXMinimized = false |
@@ -490,9 +490,9 @@ The paired reader is `TextContent` (`Text`); `Clearable` follows the same princi
 | Movable.move_to() | TransformPattern.Move(x, y) | EWMH _NET_MOVERESIZE_WINDOW | AXPosition = (x, y) |
 | Resizable.resize() | TransformPattern.Resize(w, h) | EWMH _NET_MOVERESIZE_WINDOW | AXSize = (w, h) |
 | Responsive.accepts_user_input() | IsEnabled && IsInView + WaitForInputIdle | State.SENSITIVE && State.SHOWING | AXEnabled |
-| IsMinimized | WindowPattern.WindowVisualState == Minimized | State.ICONIFIED | AXMinimized |
-| IsMaximized | WindowPattern.WindowVisualState == Maximized | EWMH _NET_WM_STATE check | AXFullScreen |
-| IsTopmost | WindowPattern.IsTopmost | EWMH _NET_WM_STATE_ABOVE | AXMain hint |
+| IsMinimized | WindowPattern.WindowVisualState == Minimized | WindowManager state (EWMH _NET_WM_STATE_HIDDEN / ICCCM WM_STATE) | AXMinimized |
+| IsMaximized | WindowPattern.WindowVisualState == Maximized | WindowManager state (EWMH _NET_WM_STATE_MAXIMIZED_*) | AXFullScreen |
+| IsTopmost | WindowPattern.IsTopmost | WindowManager state (EWMH _NET_WM_STATE_ABOVE) | AXMain hint |
 
 **Application**
 
@@ -655,6 +655,15 @@ The central idea is **resolving a window from a node**. Automation finds element
 
 - **Windows**: reads `native:NativeWindowHandle` → HWND (+ PID-fallback via `EnumWindows`)
 - **X11**: walks parent chain for `control:ProcessId`, matches via `_NET_CLIENT_LIST` + `_NET_WM_PID`; disambiguates multi-window PIDs by comparing `node.name()` against `_NET_WM_NAME`
+- **PlatynUI compositor (Wayland)**: matches the node's process id, window title and size against the windows the compositor reports over its control socket — the mapped ones and the minimized ones, so a minimized window can still be found and brought back
+
+**Activation never changes a window's size.** Activating a window brings it to the foreground and gives it the keyboard focus. If the window is minimized, it comes back in the state it was minimized from: a window that was maximized before it was minimized comes back maximized. A window that is not minimized keeps whether it is maximized, and activation never moves or resizes it. Returning a window to its normal size is a separate operation, *restore*, and is never a side effect of activation.
+
+This matters because activation is rarely an explicit step. The runtime's *bring to front* activates the top-level window of an element, and the Robot Framework library does that before every pointer and keyboard action while `auto_activate` is on. If activation un-maximized windows, simply clicking into a maximized application would resize it, and the click itself could land on geometry that was about to change. Each backend meets the guarantee with the platform's own "bring back from minimized" mechanism: Win32 restores an iconic window before raising it, X11 maps an iconified client window as ICCCM prescribes before requesting activation, and the PlatynUI compositor takes a minimized window out of its minimized list at its old position without touching its maximized state.
+
+**Reading a window's state.** The WindowManager also answers how a window is currently shown. The answer names exactly one visual state — *normal*, *minimized* or *maximized* — plus whether the window is kept above other windows. The three visual states are exclusive on purpose: a window that was maximized and then minimized reports *minimized*, even though the platform may still remember that it will come back maximized. A window manager without a notion of "always on top" reports every window as not kept on top. A window manager that cannot read window state at all reports the query as unavailable rather than guessing.
+
+Two kinds of consumers use this answer. Providers whose toolkit accessibility API does not carry window state — AT-SPI and the Java Access Bridge — derive the `IsMinimized`, `IsMaximized` and `IsTopmost` attributes of top-level windows from it, the same way they already derive `IsActive` from the window manager. Providers that do get the state from their toolkit, such as UIA (`WindowPattern`) or the in-JVM Java agent, keep using that. And backends use it internally, for example X11 activation, which only needs to bring a window back when it is actually minimized.
 
 **Virtual Desktop Switching** (planned, not yet implemented) — `ensure_window_accessible()` will be added to the `WindowManager` trait and called in `bring_to_front()` before `activate()`. See `dev-docs/planning.md` §3.2 for the design:
 - **X11**: read `_NET_WM_DESKTOP`, switch via `_NET_CURRENT_DESKTOP` ClientMessage if different

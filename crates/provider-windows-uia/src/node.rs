@@ -571,12 +571,22 @@ impl UiNode for UiaNode {
                 /// foreground window. `SetFocus`/foreground changes are asynchronous
                 /// on Windows, so without this a caller reading the active state
                 /// immediately afterwards could observe the pre-activation state.
+                ///
+                /// A minimized window is brought back first with `SW_RESTORE`, which
+                /// returns it to the state it was minimized from (maximized stays
+                /// maximized). `SetWindowVisualState(Normal)` would un-maximize it.
                 unsafe fn activate(&self) -> Result<(), crate::error::UiaError> {
-                    use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
-                    unsafe { self.set_focus()? };
-                    if let Ok(hwnd) = unsafe { self.elem.CurrentNativeWindowHandle() }
-                        && !hwnd.0.is_null()
+                    use windows::Win32::UI::WindowsAndMessaging::{
+                        GetForegroundWindow, IsIconic, SW_RESTORE, ShowWindow,
+                    };
+                    let hwnd = unsafe { self.elem.CurrentNativeWindowHandle() }.ok().filter(|hwnd| !hwnd.0.is_null());
+                    if let Some(hwnd) = hwnd
+                        && unsafe { IsIconic(hwnd) }.as_bool()
                     {
+                        let _ = unsafe { ShowWindow(hwnd, SW_RESTORE) };
+                    }
+                    unsafe { self.set_focus()? };
+                    if let Some(hwnd) = hwnd {
                         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1000);
                         while std::time::Instant::now() < deadline {
                             if unsafe { GetForegroundWindow() }.0 == hwnd.0 {

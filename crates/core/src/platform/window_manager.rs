@@ -51,6 +51,42 @@ pub struct WindowHit {
     pub bounds: Rect,
 }
 
+/// How a top-level window is shown.
+///
+/// The three states are exclusive: a minimized window is `Minimized` even when
+/// it will come back maximized once it is activated.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum WindowVisualState {
+    /// Shown at its regular size and position.
+    Normal,
+    /// Minimized (iconified); not visible on the desktop.
+    Minimized,
+    /// Maximized to fill the work area.
+    Maximized,
+}
+
+/// A window's state as reported by [`WindowManager::state`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub struct WindowState {
+    /// How the window is shown.
+    pub visual: WindowVisualState,
+    /// Whether the window is kept above other windows. Window managers without
+    /// such a concept report `false`.
+    pub topmost: bool,
+}
+
+impl WindowState {
+    /// Whether the window is minimized.
+    pub fn is_minimized(&self) -> bool {
+        self.visual == WindowVisualState::Minimized
+    }
+
+    /// Whether the window is maximized (and not minimized).
+    pub fn is_maximized(&self) -> bool {
+        self.visual == WindowVisualState::Maximized
+    }
+}
+
 /// Platform-native window management operations.
 ///
 /// Implementations live in platform crates (e.g. `platform-linux-x11`,
@@ -79,7 +115,22 @@ pub trait WindowManager: Send + Sync {
     /// Whether this window is the currently active (foreground) window.
     fn is_active(&self, id: WindowId) -> Result<bool, PlatformError>;
 
-    /// Bring the window to the foreground.
+    /// The window's current state: whether it is minimized, maximized or
+    /// shown normally, and whether it is kept on top.
+    ///
+    /// The default reports the capability as unavailable, so window managers
+    /// that cannot read window state never guess one.
+    fn state(&self, _id: WindowId) -> Result<WindowState, PlatformError> {
+        Err(PlatformError::CapabilityUnavailable { capability: "window_state", details: None })
+    }
+
+    /// Bring the window to the foreground and make it the active window.
+    ///
+    /// A minimized window comes back in the state it was minimized from, so a
+    /// window minimized while maximized comes back maximized. Activation never
+    /// changes whether a visible window is maximized, and never moves or
+    /// resizes it — returning a window to its normal state is
+    /// [`restore`](WindowManager::restore)'s job.
     fn activate(&self, id: WindowId) -> Result<(), PlatformError>;
 
     /// Request the window manager to close this window.
@@ -246,6 +297,23 @@ mod tests {
         let wm = StubWindowManager;
         let rect = wm.bounds(WindowId::new(1), None).unwrap();
         assert!((rect.width() - 800.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn state_is_unavailable_unless_implemented() {
+        let wm = StubWindowManager;
+        let err = wm.state(WindowId::new(1)).unwrap_err();
+        assert!(matches!(err, PlatformError::CapabilityUnavailable { capability: "window_state", .. }));
+    }
+
+    #[test]
+    fn window_state_flags_follow_the_visual_state() {
+        let minimized = WindowState { visual: WindowVisualState::Minimized, topmost: false };
+        assert!(minimized.is_minimized() && !minimized.is_maximized());
+        let maximized = WindowState { visual: WindowVisualState::Maximized, topmost: true };
+        assert!(maximized.is_maximized() && !maximized.is_minimized());
+        let normal = WindowState { visual: WindowVisualState::Normal, topmost: false };
+        assert!(!normal.is_minimized() && !normal.is_maximized());
     }
 
     #[test]

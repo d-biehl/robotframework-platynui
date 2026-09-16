@@ -2,7 +2,7 @@
 
 mod platynui_ipc;
 
-use platynui_core::platform::{PlatformError, WindowHit, WindowId, WindowManager};
+use platynui_core::platform::{PlatformError, WindowHit, WindowId, WindowManager, WindowState};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::UiNode;
 
@@ -19,6 +19,9 @@ trait CompositorBackend: Send + Sync {
         Err(PlatformError::CapabilityUnavailable { capability: "popups", details: None })
     }
     fn is_active(&self, id: WindowId) -> Result<bool, PlatformError>;
+    fn state(&self, _id: WindowId) -> Result<WindowState, PlatformError> {
+        Err(PlatformError::CapabilityUnavailable { capability: "window_state", details: None })
+    }
     fn activate(&self, id: WindowId) -> Result<(), PlatformError>;
     fn close(&self, id: WindowId) -> Result<(), PlatformError>;
     fn minimize(&self, id: WindowId) -> Result<(), PlatformError>;
@@ -50,6 +53,10 @@ impl WindowManager for WaylandWindowManager {
 
     fn is_active(&self, id: WindowId) -> Result<bool, PlatformError> {
         backend()?.is_active(id)
+    }
+
+    fn state(&self, id: WindowId) -> Result<WindowState, PlatformError> {
+        backend()?.state(id)
     }
 
     fn activate(&self, id: WindowId) -> Result<(), PlatformError> {

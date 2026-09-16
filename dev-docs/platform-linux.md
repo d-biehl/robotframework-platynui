@@ -126,5 +126,8 @@ Other C0 control characters (U+0000–U+001F) have no standard keyboard equivale
 
 - XID resolution: `_NET_CLIENT_LIST` + `_NET_WM_PID` matching with `_NET_WM_NAME` fallback for multi-window PIDs.
 - EWMH actions: `_NET_ACTIVE_WINDOW`, `_NET_CLOSE_WINDOW`.
+- Window state: read from the client window's `_NET_WM_STATE`. `_NET_WM_STATE_HIDDEN` (or ICCCM `WM_STATE` = Iconic) means minimized and wins over everything else, since an iconified window keeps its maximized atoms; both `_NET_WM_STATE_MAXIMIZED_VERT` and `_HORZ` mean maximized; `_NET_WM_STATE_ABOVE` means kept on top. A window that no longer exists fails the property read, so the query reports an error instead of a state.
+- `activate()`: EWMH does not require a window manager to de-iconify on `_NET_ACTIVE_WINDOW`, so an iconified window is first mapped (ICCCM §4.1.4, the client-side way out of Iconic state). The window manager handles the resulting MapRequest and leaves `_NET_WM_STATE` alone, so a window minimized while maximized comes back maximized. `_NET_ACTIVE_WINDOW` follows as before.
+- The AT-SPI provider exposes `IsMinimized`, `IsMaximized` and `IsTopmost` on top-level windows from this state, next to `IsActive`; each read asks the window manager again, and a window that cannot be resolved reads `false`.
 - WindowSurface pattern on Frame/Window/Dialog roles: `activate()`, `close()`, `accepts_user_input()`.
 - `IsTopmost` via EWMH, `AcceptsUserInput` via AT-SPI State.

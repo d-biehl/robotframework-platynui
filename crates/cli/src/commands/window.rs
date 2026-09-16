@@ -29,7 +29,10 @@ pub struct WindowArgs {
 
     #[arg(long, help = "Activate the selected windows.")]
     pub activate: bool,
-    #[arg(long = "bring-to-front", help = "Bring windows to front (restore if minimized, then activate).")]
+    #[arg(
+        long = "bring-to-front",
+        help = "Bring windows to front (a minimized window comes back, a maximized one stays maximized)."
+    )]
     pub bring_to_front: bool,
     #[arg(long = "wait-ms", value_parser = clap::value_parser!(u64), requires = "bring_to_front", help = "Wait up to N milliseconds for input readiness (only with --bring-to-front).")]
     pub wait_ms: Option<u64>,

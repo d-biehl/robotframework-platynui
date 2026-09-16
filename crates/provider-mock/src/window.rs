@@ -53,6 +53,9 @@ struct WindowState {
     is_active: bool,
     is_minimized: bool,
     is_maximized: bool,
+    /// Whether a minimized window comes back maximized when it is activated.
+    /// Only meaningful while `is_minimized` is set.
+    restores_maximized: bool,
     is_topmost: bool,
     is_modal: bool,
     can_minimize: bool,
@@ -70,6 +73,7 @@ impl From<WindowConfig> for WindowState {
             is_active: config.is_active,
             is_minimized: config.is_minimized,
             is_maximized: config.is_maximized,
+            restores_maximized: false,
             is_topmost: config.is_topmost,
             is_modal: config.is_modal,
             can_minimize: config.can_minimize,
@@ -301,7 +305,12 @@ fn activate(runtime_id: &RuntimeId) -> Result<(), PatternError> {
         }
         let state = guard.get_mut(runtime_id).expect("window state present");
         state.is_active = true;
-        state.is_minimized = false;
+        // Activation brings a minimized window back in the state it was minimized
+        // from, and never changes whether a visible window is maximized.
+        if state.is_minimized {
+            state.is_minimized = false;
+            state.is_maximized = state.restores_maximized;
+        }
         state.is_topmost = true;
         deactivated
     };
@@ -317,6 +326,9 @@ fn minimize(runtime_id: &RuntimeId) -> Result<(), PatternError> {
     mutate_state(runtime_id, |state| {
         if !state.can_minimize {
             return Err(PatternError::new("window does not support minimize"));
+        }
+        if !state.is_minimized {
+            state.restores_maximized = state.is_maximized;
         }
         state.is_minimized = true;
         state.is_maximized = false;

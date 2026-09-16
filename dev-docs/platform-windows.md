@@ -67,7 +67,7 @@ Both paths matter: `attributes()` enumerates and `attribute()` matches by name i
 **Patterns**:
 - `Focusable`: `SetFocus()`, withheld when `IsKeyboardFocusable` is explicitly false (static labels, title-bar buttons). That property defaults to `FALSE`, so it is read with `ignoreDefaultValue` to tell "the provider denies it" from "the provider does not implement it". A provider that supplies nothing (an Electron window with accessibility off, some Win32 panes) is resolved by the window surface: a top-level window keeps the pattern, an inner element does not.
 - `TextEditable`: capability marker on text-bearing elements that are not read-only; no write action — text is typed (see `remove-programmatic-set-text`)
-- `WindowSurface`: via `WindowPattern` + `TransformPattern` (activate, minimize, maximize, restore, move, resize, close)
+- `WindowSurface`: via `WindowPattern` + `TransformPattern` (activate, minimize, maximize, restore, move, resize, close). Activation is `SetFocus` on the window, preceded by `ShowWindow(SW_RESTORE)` when its native window handle is iconic; `SetWindowVisualState(Normal)` is not used for activation because it would un-maximize the window
 - `accepts_user_input()`: heuristic `IsEnabled && IsInView` + `WaitForInputIdle` (100ms timeout)
 - Virtualized elements: best-effort `VirtualizedItemPattern::Realize()` before child traversal
 
@@ -136,7 +136,7 @@ The second backend is the Java Access Bridge. Java Swing/AWT apps implement no U
 5. *In-process agent* — the route the commercial Java UI-test tools take (QF-Test, Squish for Java, Jubula load an agent into the target JVM via `-javaagent`/attach and bypass JAB entirely; full fidelity incl. `getCellRect`). Crosses the project's original zero-instrumentation stance (pinned by the `no_configuration_mutation_code_paths_exist` test), so it is a deliberate policy decision — under active evaluation as the durable full-fidelity path, and the *only* path for some cases (e.g. JavaFX on Linux, which has no native accessibility at all). See [`java-toolkits.md`](java-toolkits.md).
 6. *Upstream OpenJDK fix* — make the bridge return the `AccessibleJTableCell` instead of the renderer (the workaround dates back to the JDK-6 era). Correct and durable, but years of lead time and never available for existing JDK-8 target apps.
 
-**Patterns**: Focusable (`requestFocus`), ActivationTarget (bounds center), TextContent (chunked `getAccessibleTextRange`) + TextEditable (capability marker from the text interface and the `editable` state — no write action; text is typed), Toggleable, StatefulValue, Selectable/SelectionProvider, Expandable — each advertised only when the backing JAB interface/state is present. Window capability patterns on top-level nodes delegate to the injected `WindowManager` via `native:NativeWindowHandle` (the atspi blueprint), so activate/move/close/… reuse the Win32 implementation below.
+**Patterns**: Focusable (`requestFocus`), ActivationTarget (bounds center), TextContent (chunked `getAccessibleTextRange`) + TextEditable (capability marker from the text interface and the `editable` state — no write action; text is typed), Toggleable, StatefulValue, Selectable/SelectionProvider, Expandable — each advertised only when the backing JAB interface/state is present. Window capability patterns on top-level nodes delegate to the injected `WindowManager` via `native:NativeWindowHandle` (the atspi blueprint), so activate/move/close/… reuse the Win32 implementation below. The same goes for `IsActive`, `IsMinimized`, `IsMaximized` and `IsTopmost` on top-level nodes: each read asks the window manager, and a window that cannot be resolved reads `false`.
 
 **Single appearance**: the Java provider registers each claimed Java HWND (claim owner id `java`) in a process-wide claims registry (`platynui_core::platform::window_claims`); the UIA provider skips windows claimed by another provider during root streaming (`providers.windows-uia.honor_window_claims`, default true). Kill switch off → both representations appear, distinguishable via `@Technology`.
 
@@ -153,7 +153,8 @@ The second backend is the Java Access Bridge. Java Swing/AWT apps implement no U
 - `resolve_window()`: reads `native:NativeWindowHandle` → HWND (+ PID-fallback via `EnumWindows`)
 - `bounds()`: `GetWindowRect(hwnd)` → desktop coordinates
 - `is_active()`: `GetForegroundWindow() == hwnd`
-- `activate()`: `ShowWindow(SW_RESTORE)` if minimized + `AttachThreadInput` bypass for foreground lock, then `BringWindowToTop(hwnd)` followed by `SetForegroundWindow(hwnd)`
+- `state()`: `IsIconic` → minimized (checked first: a minimized window is never reported maximized), `IsZoomed` → maximized, `WS_EX_TOPMOST` in the extended style → kept on top; a handle that is no longer a window (`IsWindow`) fails the query
+- `activate()`: `ShowWindow(SW_RESTORE)` if minimized + `AttachThreadInput` bypass for foreground lock, then `BringWindowToTop(hwnd)` followed by `SetForegroundWindow(hwnd)`. On a minimized window `SW_RESTORE` returns it to the state it was minimized from, so a maximized window comes back maximized; a visible window is never un-maximized
 - `close()`: `PostMessageW(WM_CLOSE)`
 - `minimize/maximize/restore()`: `ShowWindow(SW_MINIMIZE/SW_MAXIMIZE/SW_RESTORE)`
 - `move_to/resize()`: `SetWindowPos(hwnd, ...)`

@@ -582,7 +582,9 @@ class BareMetal(OurDynamicCore):
     succeed while nothing happens.
 
     Two of them only change which window is in front: `Activate Window` (like `Bring To Front`) raises
-    a window and gives it the keyboard focus. The others change a window's display state — and
+    a window and gives it the keyboard focus. Raising never changes a window's size: a minimized
+    window comes back the way it was before it was minimized — maximized if it was maximized — and a
+    maximized window stays maximized. The others change a window's display state — and
     `Restore Window` is the inverse of `Minimize Window` and `Maximize Window`, returning a minimized
     or maximized window to the floating size and position it had before.
 
@@ -2056,8 +2058,10 @@ class BareMetal(OurDynamicCore):
     ) -> None:
         """Bring a window to the front and give it the keyboard focus.
 
-        Waits for its target like the other action keywords. The target must be a window that can
-        be activated; the keyword fails if it cannot (see `Window control`).
+        A minimized window comes back the way it was before it was minimized, and a maximized window
+        stays maximized; use `Restore Window` to return a window to its floating size. Waits for its
+        target like the other action keywords. The target must be a window that can be activated; the
+        keyword fails if it cannot (see `Window control`).
 
         Args:
             descriptor: The window element to activate.
@@ -2149,8 +2153,9 @@ class BareMetal(OurDynamicCore):
 
         Pointer actions already do this when ``auto_activate`` is on (the default), so you rarely
         need it directly — reach for it to raise a window deliberately, for example when
-        ``auto_activate`` is off. A minimized window is restored first. `Activate Window` does the
-        same thing for a window you already have.
+        ``auto_activate`` is off. A minimized window comes back the way it was before it was
+        minimized, and a maximized window stays maximized. `Activate Window` does the same thing for
+        a window you already have.
 
         Args:
             descriptor: The element whose window to bring to the front.

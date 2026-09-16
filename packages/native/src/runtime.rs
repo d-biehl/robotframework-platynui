@@ -397,6 +397,9 @@ impl PyActivatable {
         core_rs::ui::pattern_names::ACTIVATABLE
     }
     /// Brings the window to the foreground and activates it.
+    ///
+    /// A minimized window comes back in the state it was minimized from; a maximized
+    /// window stays maximized.
     fn activate(&self) -> PyResult<()> {
         self.node
             .pattern::<core_rs::ui::pattern::ActivatableAction>()

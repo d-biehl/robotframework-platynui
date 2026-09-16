@@ -4,7 +4,7 @@ use std::time::Duration;
 use platynui_core::platform::{HighlightRequest, PlatformError, Screenshot, ScreenshotRequest};
 use platynui_core::ui::{
     ActivatableAction, ActivatablePattern, FocusableAction, FocusablePattern, Namespace, ResponsiveAction,
-    ResponsivePattern, RestorableAction, RestorablePattern, UiNode, UiNodeExt,
+    ResponsivePattern, UiNode, UiNodeExt,
 };
 
 use super::error::{BringToFrontError, FocusError};
@@ -52,8 +52,11 @@ impl Runtime {
         None
     }
 
-    /// Bring the window associated with `node` to the foreground. If minimized, tries `restore()`
-    /// first, then `activate()`.
+    /// Bring the window associated with `node` to the foreground by activating it.
+    ///
+    /// Activation brings a minimized window back in the state it was minimized from and never
+    /// un-maximizes a window, so bringing an element to the front does not move or resize its
+    /// window. Returning a window to its normal state is the `Restorable` pattern's job.
     pub fn bring_to_front(&self, node: &Arc<dyn UiNode>) -> Result<(), BringToFrontError> {
         let window = match self.top_level_window_for(node) {
             Some(w) => w,
@@ -65,13 +68,6 @@ impl Runtime {
         let activatable = window
             .pattern::<ActivatableAction>()
             .ok_or_else(|| BringToFrontError::PatternMissing { runtime_id: rid.clone() })?;
-
-        // Always try to restore to a normal state first. On many platforms this is a no-op when
-        // the window is already visible, but required when minimized. Ignore errors here and rely
-        // on the subsequent activate() to surface meaningful failures.
-        if let Some(restorable) = window.pattern::<RestorableAction>() {
-            let _ = restorable.restore();
-        }
         activatable.activate().map_err(|source| BringToFrontError::ActionFailed { runtime_id: rid, source })
     }
 
@@ -153,7 +149,9 @@ mod tests {
     use platynui_core::provider::UiTreeProviderFactory;
     use platynui_core::types::Rect;
     use platynui_core::ui::attribute_names;
-    use platynui_core::ui::{MinimizableAction, MinimizablePattern, Namespace, UiNode, UiValue};
+    use platynui_core::ui::{
+        MaximizableAction, MaximizablePattern, MinimizableAction, MinimizablePattern, Namespace, UiNode, UiValue,
+    };
     use platynui_platform_mock::{
         reset_highlight_state, reset_screenshot_state, take_highlight_log, take_screenshot_log,
     };
@@ -220,8 +218,8 @@ mod tests {
         assert_eq!(take_screenshot_log().len(), 1);
     }
 
-    fn is_minimized_bool(node: &Arc<dyn UiNode>) -> Option<bool> {
-        let attr = node.attribute(Namespace::Control, attribute_names::minimizable::IS_MINIMIZED)?;
+    fn window_flag(node: &Arc<dyn UiNode>, name: &str) -> Option<bool> {
+        let attr = node.attribute(Namespace::Control, name)?;
         match attr.value() {
             UiValue::Bool(b) => Some(b),
             UiValue::Integer(i) => Some(i != 0),
@@ -247,13 +245,65 @@ mod tests {
         let pattern = window.pattern::<MinimizableAction>().expect("mock window exposes Minimizable");
         pattern.minimize().expect("minimize succeeds");
 
-        let is_min = is_minimized_bool(&window).unwrap_or(false);
+        let is_min = window_flag(&window, attribute_names::minimizable::IS_MINIMIZED).unwrap_or(false);
         assert!(is_min, "window should be minimized before bring_to_front");
 
         runtime.bring_to_front(&window).expect("bring_to_front succeeds");
 
-        let is_min = is_minimized_bool(&window).unwrap_or(true);
+        let is_min = window_flag(&window, attribute_names::minimizable::IS_MINIMIZED).unwrap_or(true);
         assert!(!is_min, "window should be restored after bring_to_front");
+    }
+
+    fn first_node(runtime: &Runtime, xpath: &str) -> Arc<dyn UiNode> {
+        runtime
+            .evaluate(None, xpath)
+            .expect("evaluate ok")
+            .into_iter()
+            .find_map(|it| match it {
+                EvaluationItem::Node(n) => Some(n),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no node for {xpath}"))
+    }
+
+    #[rstest]
+    fn bring_to_front_keeps_maximized_window_maximized() {
+        let runtime = Runtime::new_with_factories(&[&platynui_provider_mock::MOCK_PROVIDER_FACTORY])
+            .expect("runtime initializes with mock provider");
+        let window = first_node(&runtime, "//control:Window[@Name='Operations Console']");
+
+        window.pattern::<MaximizableAction>().expect("mock window exposes Maximizable").maximize().expect("maximize");
+        runtime.bring_to_front(&window).expect("bring_to_front succeeds");
+
+        assert_eq!(window_flag(&window, attribute_names::maximizable::IS_MAXIMIZED), Some(true));
+        assert_eq!(window_flag(&window, attribute_names::window_state::IS_ACTIVE), Some(true));
+    }
+
+    #[rstest]
+    fn bring_to_front_brings_back_window_minimized_from_maximized_as_maximized() {
+        let runtime = Runtime::new_with_factories(&[&platynui_provider_mock::MOCK_PROVIDER_FACTORY])
+            .expect("runtime initializes with mock provider");
+        let window = first_node(&runtime, "//control:Window[@Name='Detail View']");
+
+        window.pattern::<MaximizableAction>().expect("mock window exposes Maximizable").maximize().expect("maximize");
+        window.pattern::<MinimizableAction>().expect("mock window exposes Minimizable").minimize().expect("minimize");
+        runtime.bring_to_front(&window).expect("bring_to_front succeeds");
+
+        assert_eq!(window_flag(&window, attribute_names::minimizable::IS_MINIMIZED), Some(false));
+        assert_eq!(window_flag(&window, attribute_names::maximizable::IS_MAXIMIZED), Some(true));
+    }
+
+    #[rstest]
+    fn bring_to_front_reports_failed_activation(rt_runtime_rejecting_window: Runtime) {
+        let runtime = rt_runtime_rejecting_window;
+        let window = first_node(&runtime, "//control:Window");
+        let err = runtime.bring_to_front(&window).expect_err("activation is rejected");
+        match err {
+            super::super::error::BringToFrontError::ActionFailed { runtime_id, .. } => {
+                assert_eq!(runtime_id, "rejecting-window");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 
     #[rstest]

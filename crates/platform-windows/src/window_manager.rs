@@ -14,16 +14,17 @@
 //!    Application node), we enumerate top-level windows with `EnumWindows` and
 //!    match by PID.
 
-use platynui_core::platform::{PlatformError, WindowId, WindowManager};
+use platynui_core::platform::{PlatformError, WindowId, WindowManager, WindowState, WindowVisualState};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::{Namespace, UiNode, UiValue};
 use tracing::debug;
 use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, EnumWindows, GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId, IsIconic,
-    IsWindowVisible, PostMessageW, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_NOZORDER, SetForegroundWindow, SetWindowPos, ShowWindow, WM_CLOSE,
+    BringWindowToTop, EnumWindows, GWL_EXSTYLE, GetForegroundWindow, GetWindowLongPtrW, GetWindowRect,
+    GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, IsZoomed, PostMessageW, SW_MAXIMIZE, SW_MINIMIZE,
+    SW_RESTORE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow, SetWindowPos, ShowWindow,
+    WM_CLOSE, WS_EX_TOPMOST,
 };
 use windows::core::BOOL;
 
@@ -185,6 +186,29 @@ impl WindowManager for Win32WindowManager {
         let hwnd = hwnd_from_id(id);
         let fg = unsafe { GetForegroundWindow() };
         Ok(fg == hwnd)
+    }
+
+    fn state(&self, id: WindowId) -> Result<WindowState, PlatformError> {
+        let hwnd = hwnd_from_id(id);
+        if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
+            return Err(PlatformError::OperationFailed {
+                operation: "read window state",
+                details: Some(format!("{id} is no longer a window")),
+            });
+        }
+
+        // IsIconic first: a minimized window reports Minimized even when it will be
+        // restored to maximized.
+        let visual = if unsafe { IsIconic(hwnd) }.as_bool() {
+            WindowVisualState::Minimized
+        } else if unsafe { IsZoomed(hwnd) }.as_bool() {
+            WindowVisualState::Maximized
+        } else {
+            WindowVisualState::Normal
+        };
+        let exstyle = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) };
+        let topmost = exstyle & isize::try_from(WS_EX_TOPMOST.0).unwrap_or(0) != 0;
+        Ok(WindowState { visual, topmost })
     }
 
     fn activate(&self, id: WindowId) -> Result<(), PlatformError> {

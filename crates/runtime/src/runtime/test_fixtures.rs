@@ -11,7 +11,8 @@ use platynui_core::provider::{
 use platynui_core::ui::attribute_names;
 use platynui_core::ui::identifiers::TechnologyId;
 use platynui_core::ui::{
-    FocusableAction, Namespace, PatternName, RuntimeId, UiAttribute, UiNode, UiPattern, UiValue, pattern_names,
+    ActivatableAction, FocusableAction, Namespace, PatternError, PatternName, RuntimeId, UiAttribute, UiNode,
+    UiPattern, UiValue, pattern_names,
 };
 use platynui_platform_mock as _;
 use platynui_provider_mock as _;
@@ -33,6 +34,11 @@ pub fn rt_runtime_stub() -> Runtime {
 #[fixture]
 pub fn rt_runtime_focus() -> Runtime {
     return rt_with_pf(&[&FOCUS_FACTORY]);
+}
+
+#[fixture]
+pub fn rt_runtime_rejecting_window() -> Runtime {
+    return rt_with_pf(&[&REJECTING_WINDOW_FACTORY]);
 }
 
 #[fixture]
@@ -331,6 +337,97 @@ impl UiTreeProviderFactory for FocusFactory {
     }
 }
 pub static FOCUS_FACTORY: FocusFactory = FocusFactory;
+
+// --- Window whose activation fails ---
+
+pub struct RejectingWindowNode {
+    runtime_id: RuntimeId,
+    parent: Mutex<Option<Weak<dyn UiNode>>>,
+}
+impl UiNode for RejectingWindowNode {
+    fn namespace(&self) -> Namespace {
+        Namespace::Control
+    }
+    fn role(&self) -> &str {
+        "Window"
+    }
+    fn name(&self) -> String {
+        "Rejecting".to_string()
+    }
+    fn runtime_id(&self) -> &RuntimeId {
+        &self.runtime_id
+    }
+    fn parent(&self) -> Option<Weak<dyn UiNode>> {
+        self.parent.lock().unwrap().clone()
+    }
+    fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
+        Box::new(std::iter::empty())
+    }
+    fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
+        Box::new(std::iter::empty())
+    }
+    fn supported_patterns(&self) -> Vec<PatternName> {
+        vec![PatternName::from(pattern_names::ACTIVATABLE)]
+    }
+    fn pattern_by_name(&self, pattern: &PatternName) -> Option<Arc<dyn UiPattern>> {
+        (*pattern == PatternName::from(pattern_names::ACTIVATABLE)).then(|| {
+            Arc::new(ActivatableAction::new(|| Err(PatternError::new("window rejected activation"))))
+                as Arc<dyn UiPattern>
+        })
+    }
+    fn invalidate(&self) {}
+}
+
+pub struct RejectingWindowProvider {
+    desc: &'static ProviderDescriptor,
+    window: Arc<RejectingWindowNode>,
+}
+impl UiTreeProvider for RejectingWindowProvider {
+    fn descriptor(&self) -> &ProviderDescriptor {
+        self.desc
+    }
+    fn get_nodes(
+        &self,
+        parent: Arc<dyn UiNode>,
+    ) -> Result<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>, ProviderError> {
+        *self.window.parent.lock().unwrap() = Some(Arc::downgrade(&parent));
+        Ok(Box::new(std::iter::once(self.window.clone() as Arc<dyn UiNode>)))
+    }
+    fn subscribe_events(&self, _listener: Arc<dyn ProviderEventListener>) -> Result<(), ProviderError> {
+        Ok(())
+    }
+    fn shutdown(&self) {}
+}
+
+pub struct RejectingWindowFactory;
+impl RejectingWindowFactory {
+    pub fn descriptor_static() -> &'static ProviderDescriptor {
+        static DESCRIPTOR: LazyLock<ProviderDescriptor> = LazyLock::new(|| {
+            ProviderDescriptor::new(
+                "runtime-rejecting-window",
+                "Runtime Rejecting Window",
+                TechnologyId::from("Runtime"),
+                ProviderKind::Native,
+            )
+        });
+        &DESCRIPTOR
+    }
+}
+impl UiTreeProviderFactory for RejectingWindowFactory {
+    fn descriptor(&self) -> &ProviderDescriptor {
+        Self::descriptor_static()
+    }
+    fn create(&self, _config: &platynui_core::config::RuntimeConfig) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
+        Ok(Arc::new(RejectingWindowProvider {
+            desc: Self::descriptor_static(),
+            window: Arc::new(RejectingWindowNode {
+                runtime_id: RuntimeId::from("rejecting-window"),
+                parent: Mutex::new(None),
+            }),
+        }))
+    }
+}
+pub static REJECTING_WINDOW_FACTORY: RejectingWindowFactory = RejectingWindowFactory;
 
 // --- Keyboard test helpers ---
 

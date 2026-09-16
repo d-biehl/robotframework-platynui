@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 
-use platynui_core::platform::{PlatformError, WindowHit, WindowId};
+use platynui_core::platform::{PlatformError, WindowHit, WindowId, WindowState, WindowVisualState};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::{Namespace, PatternName, UiNode, pattern_names};
 use serde_json::{Value, json};
@@ -39,6 +39,9 @@ struct ControlWindowInfo {
     geometry_x: f64,
     geometry_y: f64,
     focused: bool,
+    /// The window is in the compositor's minimized list (unmapped).
+    minimized: bool,
+    maximized: bool,
     /// Decoration mode reported by the compositor: `"csd"` or `"ssd"`.
     decoration_mode: Option<String>,
     opaque_region: Option<Vec<OpaqueRect>>,
@@ -123,6 +126,10 @@ impl CompositorBackend for PlatynUiIpcBackend {
 
     fn is_active(&self, id: WindowId) -> Result<bool, PlatformError> {
         Ok(resolve_window_info(id)?.focused)
+    }
+
+    fn state(&self, id: WindowId) -> Result<WindowState, PlatformError> {
+        Ok(window_state_of(&resolve_window_info(id)?))
     }
 
     fn activate(&self, id: WindowId) -> Result<(), PlatformError> {
@@ -273,8 +280,15 @@ fn current_selector(id: WindowId) -> Result<WindowSelector, PlatformError> {
     })
 }
 
+/// All windows the compositor knows, mapped and minimized.
 fn list_windows() -> Result<Vec<ControlWindowInfo>, PlatformError> {
-    let response = send_command(&json!({"command": "list_windows"}))?;
+    decode_list_windows(&send_command(&json!({"command": "list_windows"}))?)
+}
+
+/// Decode a `list_windows` response: the mapped `windows` followed by the
+/// `minimized` ones. Membership in the minimized array is what makes a window
+/// minimized, so those entries are flagged regardless of their own fields.
+fn decode_list_windows(response: &Value) -> Result<Vec<ControlWindowInfo>, PlatformError> {
     let Some(windows) = response.get("windows").and_then(Value::as_array) else {
         return Err(PlatformError::OperationFailed {
             operation: "decode list_windows response",
@@ -282,7 +296,25 @@ fn list_windows() -> Result<Vec<ControlWindowInfo>, PlatformError> {
         });
     };
 
-    windows.iter().map(decode_window).collect()
+    let mut decoded: Vec<ControlWindowInfo> = windows.iter().map(decode_window).collect::<Result<_, _>>()?;
+    for entry in response.get("minimized").and_then(Value::as_array).into_iter().flatten() {
+        let mut window = decode_window(entry)?;
+        window.minimized = true;
+        decoded.push(window);
+    }
+    Ok(decoded)
+}
+
+/// The compositor has no always-on-top windows, so `topmost` is always false.
+fn window_state_of(info: &ControlWindowInfo) -> WindowState {
+    let visual = if info.minimized {
+        WindowVisualState::Minimized
+    } else if info.maximized {
+        WindowVisualState::Maximized
+    } else {
+        WindowVisualState::Normal
+    };
+    WindowState { visual, topmost: false }
 }
 
 /// Max per-axis difference (px) between a node's AT-SPI size and a compositor
@@ -476,6 +508,8 @@ fn decode_window(value: &Value) -> Result<ControlWindowInfo, PlatformError> {
         geometry_x: value.get("geometry_x").and_then(Value::as_f64).unwrap_or(0.0),
         geometry_y: value.get("geometry_y").and_then(Value::as_f64).unwrap_or(0.0),
         focused: value.get("focused").and_then(Value::as_bool).unwrap_or(false),
+        minimized: value.get("minimized").and_then(Value::as_bool).unwrap_or(false),
+        maximized: value.get("maximized").and_then(Value::as_bool).unwrap_or(false),
         decoration_mode: value.get("decoration_mode").and_then(Value::as_str).map(String::from),
         opaque_region: decode_opaque_region(value),
     })
@@ -556,6 +590,8 @@ mod tests {
                 geometry_x: 0.0,
                 geometry_y: 0.0,
                 focused: false,
+                minimized: false,
+                maximized: false,
                 decoration_mode: None,
                 opaque_region: None,
             },
@@ -575,6 +611,8 @@ mod tests {
                 geometry_x: 0.0,
                 geometry_y: 0.0,
                 focused: true,
+                minimized: false,
+                maximized: false,
                 decoration_mode: None,
                 opaque_region: None,
             },
@@ -605,6 +643,8 @@ mod tests {
                 geometry_x: 0.0,
                 geometry_y: 0.0,
                 focused: false,
+                minimized: false,
+                maximized: false,
                 decoration_mode: None,
                 opaque_region: None,
             },
@@ -624,6 +664,8 @@ mod tests {
                 geometry_x: 0.0,
                 geometry_y: 0.0,
                 focused: false,
+                minimized: false,
+                maximized: false,
                 decoration_mode: None,
                 opaque_region: None,
             },
@@ -641,6 +683,78 @@ mod tests {
             match_best_window(&same_size, Some(42), "child-dialog-1", Some((260.0, 180.0))).is_none(),
             "must not guess between equally-sized windows"
         );
+    }
+
+    #[test]
+    fn decode_list_windows_includes_minimized_windows() {
+        let response = json!({
+            "status": "ok",
+            "windows": [
+                {"window_id": 1, "title": "Mapped", "pid": 10, "content_width": 400, "content_height": 300,
+                 "maximized": true, "minimized": false}
+            ],
+            "minimized": [
+                {"id": "minimized_0", "window_id": 2, "title": "Hidden", "pid": 10, "x": 5, "y": 6,
+                 "content_width": 640, "content_height": 480, "maximized": true, "minimized": true}
+            ]
+        });
+
+        let windows = decode_list_windows(&response).expect("expected decoded windows");
+        assert_eq!(windows.len(), 2);
+        assert_eq!(windows[0].window_id, 1);
+        assert!(!windows[0].minimized && windows[0].maximized);
+        assert_eq!(windows[1].window_id, 2);
+        assert!(windows[1].minimized && windows[1].maximized);
+        assert!((windows[1].content_width - 640.0).abs() < f64::EPSILON);
+        assert!((windows[1].content_height - 480.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn decode_list_windows_treats_minimized_entries_as_minimized() {
+        // Membership in the minimized array is what makes a window minimized, even
+        // when an entry carries no explicit flag.
+        let response = json!({
+            "status": "ok",
+            "windows": [],
+            "minimized": [{"id": "minimized_0", "window_id": 3, "title": "Hidden", "x": 0, "y": 0}]
+        });
+
+        let windows = decode_list_windows(&response).expect("expected decoded windows");
+        assert_eq!(windows.len(), 1);
+        assert!(windows[0].minimized);
+    }
+
+    #[test]
+    fn match_best_window_matches_a_minimized_window() {
+        let response = json!({
+            "status": "ok",
+            "windows": [
+                {"window_id": 1, "title": "Other", "pid": 7, "content_width": 640, "content_height": 480}
+            ],
+            "minimized": [
+                {"id": "minimized_0", "window_id": 2, "title": "Target", "pid": 42,
+                 "content_width": 640, "content_height": 480, "maximized": false, "minimized": true}
+            ]
+        });
+        let windows = decode_list_windows(&response).expect("expected decoded windows");
+
+        let matched = match_best_window(&windows, Some(42), "Target", Some((640.0, 480.0)))
+            .expect("expected the minimized window to match");
+        assert_eq!(matched.window_id, 2);
+        assert!(matched.minimized);
+    }
+
+    #[test]
+    fn window_state_reports_minimized_over_maximized() {
+        let mut info = decode_window(&json!({"window_id": 1, "maximized": true})).expect("expected decoded window");
+        assert_eq!(window_state_of(&info), WindowState { visual: WindowVisualState::Maximized, topmost: false });
+
+        info.minimized = true;
+        assert_eq!(window_state_of(&info), WindowState { visual: WindowVisualState::Minimized, topmost: false });
+
+        info.minimized = false;
+        info.maximized = false;
+        assert_eq!(window_state_of(&info), WindowState { visual: WindowVisualState::Normal, topmost: false });
     }
 
     #[test]
@@ -753,6 +867,8 @@ mod tests {
             geometry_x: 25.0,
             geometry_y: 25.0,
             focused: false,
+            minimized: false,
+            maximized: false,
             decoration_mode: Some("csd".into()),
             opaque_region: Some(vec![OpaqueRect {
                 kind: "add".into(),
@@ -788,6 +904,8 @@ mod tests {
             geometry_x: 0.0,
             geometry_y: 0.0,
             focused: false,
+            minimized: false,
+            maximized: false,
             decoration_mode: Some("csd".into()),
             opaque_region: Some(vec![OpaqueRect { kind: "add".into(), x: 10.0, y: 12.0, width: 780.0, height: 576.0 }]),
         };
@@ -814,6 +932,8 @@ mod tests {
             geometry_x: 6.0,
             geometry_y: 8.0,
             focused: false,
+            minimized: false,
+            maximized: false,
             decoration_mode: Some("csd".into()),
             opaque_region: None,
         };
@@ -840,6 +960,8 @@ mod tests {
             geometry_x: 0.0,
             geometry_y: 0.0,
             focused: false,
+            minimized: false,
+            maximized: false,
             decoration_mode: Some("ssd".into()),
             opaque_region: None,
         };
@@ -867,6 +989,8 @@ mod tests {
             geometry_x: 10.0,
             geometry_y: 10.0,
             focused: false,
+            minimized: false,
+            maximized: false,
             decoration_mode: Some("csd".into()),
             opaque_region: Some(vec![OpaqueRect { kind: "add".into(), x: 10.0, y: 10.0, width: 780.0, height: 580.0 }]),
         };

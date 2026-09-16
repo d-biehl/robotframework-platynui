@@ -24,6 +24,20 @@ Move Repositions The Window To The Requested Origin
     BM.Move Window    .//Window[@Name="${SWING_TITLE}"]    ${180}    ${160}
     Wait Until Keyword Succeeds    5s    0.25s    Window Origin Should Be    ${180}    ${160}
 
+Window State Is Reported And Activation Brings A Maximized Frame Back Maximized
+    [Documentation]    The window manager reports the frame's state: @IsMaximized after Maximize
+    ...    Window, @IsMinimized (and no longer @IsMaximized) after Minimize Window. Activate Window
+    ...    brings the minimized frame back in the state it was minimized from — maximized.
+    BM.Maximize Window    .//Window[@Name="${SWING_TITLE}"]
+    BM.Get Attribute    .//Window[@Name="${SWING_TITLE}"]    IsMaximized    ==    ${True}
+    BM.Minimize Window    .//Window[@Name="${SWING_TITLE}"]
+    BM.Get Attribute    .//Window[@Name="${SWING_TITLE}"]    IsMinimized    ==    ${True}
+    BM.Get Attribute    .//Window[@Name="${SWING_TITLE}"]    IsMaximized    ==    ${False}
+    BM.Activate Window    .//Window[@Name="${SWING_TITLE}"]
+    BM.Get Attribute    .//Window[@Name="${SWING_TITLE}"]    IsMinimized    ==    ${False}
+    BM.Get Attribute    .//Window[@Name="${SWING_TITLE}"]    IsMaximized    ==    ${True}
+    [Teardown]    BM.Restore Window    .//Window[@Name="${SWING_TITLE}"]
+
 Close Ends The Fixture Process And Removes The Window
     [Documentation]    The fixture uses EXIT_ON_CLOSE, so a Closeable-driven close must terminate the
     ...    JVM and the window must vanish from the tree on a later poll (asserted desktop-absolute:
