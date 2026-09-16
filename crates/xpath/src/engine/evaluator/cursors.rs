@@ -874,11 +874,11 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
             }
             NT::NsWildcard(ns) => {
                 let n = attr.name()?;
-                Some(n.ns_uri.as_deref().is_some_and(|u| u == ns.as_ref()))
+                Some(n.ns_uri.as_deref().is_some_and(|u| u == ns.as_str()))
             }
             NT::LocalWildcard(local) => {
                 let n = attr.name()?;
-                Some(n.local == local.as_ref())
+                Some(n.local == local.as_str())
             }
             _ => None,
         }

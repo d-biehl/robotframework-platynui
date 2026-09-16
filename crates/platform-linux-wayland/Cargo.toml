@@ -28,7 +28,7 @@ png = "0.18"
 zbus = { version = "5", features = ["blocking-api"] }
 
 [dev-dependencies]
-rstest = "0.26"
+rstest = "0.27"
 
 [lints]
 workspace = true

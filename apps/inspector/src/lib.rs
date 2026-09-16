@@ -87,12 +87,12 @@ fn settings_path() -> Option<std::path::PathBuf> {
     #[cfg(target_os = "windows")]
     let config_dir = std::env::var_os("APPDATA").map(std::path::PathBuf::from);
     #[cfg(target_os = "macos")]
-    let config_dir = home::home_dir().map(|home| home.join("Library").join("Application Support"));
+    let config_dir = std::env::home_dir().map(|home| home.join("Library").join("Application Support"));
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let config_dir = std::env::var_os("XDG_CONFIG_HOME")
         .map(std::path::PathBuf::from)
         .filter(|path| path.is_absolute())
-        .or_else(|| home::home_dir().map(|home| home.join(".config")));
+        .or_else(|| std::env::home_dir().map(|home| home.join(".config")));
     config_dir.map(|dir| dir.join("platynui").join("inspector.ron"))
 }
 

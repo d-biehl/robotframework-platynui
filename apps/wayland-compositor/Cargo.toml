@@ -59,7 +59,7 @@ tiny-skia = "0.12"
 swash = "0.2"
 
 # System font discovery
-fontdb = "0.23"
+fontdb = "0.24"
 
 # Screenshot encoding
 png = "0.18"

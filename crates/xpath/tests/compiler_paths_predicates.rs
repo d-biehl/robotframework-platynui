@@ -141,7 +141,7 @@ fn name_tests_wildcards() {
     let mut found_local = false;
     for op in &local_wc.0 {
         if let OpCode::AxisStep(_, NodeTestIR::LocalWildcard(l), _) = op
-            && l.as_ref() == "a"
+            && l.as_str() == "a"
         {
             found_local = true;
             break;
@@ -152,7 +152,7 @@ fn name_tests_wildcards() {
     let mut found_ns = false;
     for op in &ns_wc.0 {
         if let OpCode::AxisStep(_, NodeTestIR::NsWildcard(p), _) = op
-            && p.as_ref() == "ns"
+            && p.as_str() == "ns"
         {
             found_ns = true;
             break;

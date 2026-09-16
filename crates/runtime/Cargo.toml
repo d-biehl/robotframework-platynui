@@ -19,14 +19,14 @@ mock-provider = ["platynui-provider-mock", "platynui-platform-mock"]
 [dependencies]
 platynui-core = { path = "../core" }
 platynui-xpath = { path = "../xpath" }
-rust_decimal = "1.42"
+rust_decimal = "1.43"
 serde_json = "1.0"
 thiserror = "2.0"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 platynui-provider-mock = { path = "../provider-mock", optional = true }
 platynui-platform-mock = { path = "../platform-mock", optional = true }
-pest = { version = "2.8", default-features = false, features = ["std"] }
-pest_derive = "2.8"
+pest = { version = "2.9", default-features = false, features = ["std"] }
+pest_derive = "2.9"
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", features = ["system"] }
@@ -34,7 +34,7 @@ rustix = { version = "1", features = ["system"] }
 
 [dev-dependencies]
 inventory = "0.3"
-rstest = "0.26"
+rstest = "0.27"
 platynui-platform-mock = { path = "../platform-mock" }
 platynui-provider-mock = { path = "../provider-mock" }
-serial_test = "3.5"
+serial_test = "4.0"

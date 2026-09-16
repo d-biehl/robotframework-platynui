@@ -20,7 +20,7 @@ inventory = "0.3"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
-rstest = "0.26"
+rstest = "0.27"
 
 [lints]
 workspace = true

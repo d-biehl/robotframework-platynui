@@ -13,26 +13,26 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-pest = "2.8"
-pest_derive = "2.8"
+pest = "2.9"
+pest_derive = "2.9"
 unicode-normalization = "0.1"
-fancy-regex = "0.18"
+fancy-regex = "0.19"
 chrono = { version = "0.4", default-features = false, features = [
     "clock",
     "std",
 ] }
-base64 = "0.22"
+base64 = "0.23"
 thiserror = "2.0"
-rust_decimal = "1.42"
+rust_decimal = "1.43"
 url = "2.5"
-smallvec = "1.15"
+smallvec = "1.16"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
-string_cache = "0.10"
+string_cache = "0.11"
 compact_str = "0.10"
 lru = "0.18"
 
 [dev-dependencies]
-rstest = "0.26"
+rstest = "0.27"
 
 [[example]]
 name = "platynui_xpath_repl"

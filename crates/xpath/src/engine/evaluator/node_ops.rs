@@ -14,7 +14,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
             None => return false,
         };
 
-        if expected.local.as_ref() != node_name.local.as_str() {
+        if expected.local.as_str() != node_name.local.as_str() {
             return false;
         }
 
@@ -67,7 +67,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 .unwrap_or(false),
             LocalWildcard(local) => {
                 // Use interned comparison for local names
-                node.name().map(|n| n.local.as_str() == local.as_ref()).unwrap_or(false)
+                node.name().map(|n| n.local.as_str() == local.as_str()).unwrap_or(false)
             }
             KindText => matches!(node.kind(), crate::model::NodeKind::Text),
             KindComment => matches!(node.kind(), crate::model::NodeKind::Comment),
