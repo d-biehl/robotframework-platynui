@@ -74,13 +74,14 @@ Activating A Maximized Background Window Keeps Its Size
     Should Be Equal    ${after}    ${before}    msg=activation changed the window's bounds
     BM.Get Attribute    ${ALPHA}    IsMaximized    ==    ${True}
 
-Bring To Front On An Element Of A Minimized Window Brings It Back
-    [Documentation]    The button is captured before minimizing: while a window is minimized, the
-    ...    toolkit may stop exposing its contents, so a fresh query for the button could find nothing.
-    ${button}=    BM.Query    ${ALPHA}//*[@Id="btn-click-me"]    only_first=${True}
+Bring To Front Brings Back A Minimized Window
+    [Documentation]    Brings the window itself to the front, not an element inside it: while a window
+    ...    is minimized the toolkit may withdraw its contents from the accessibility tree (egui does on
+    ...    X11), so an element of a minimized window is neither findable nor reliably still valid.
+    ...    Resolving the window from an inner element is covered by the Pointer Click test below.
     BM.Minimize Window    ${ALPHA}
     BM.Wait Until Query    ${ALPHA}/@IsMinimized    ==    ${True}
-    BM.Bring To Front    ${button}
+    BM.Bring To Front    ${ALPHA}
     BM.Wait Until Query    ${ALPHA}/@IsMinimized    ==    ${False}
     BM.Wait Until Query    ${ALPHA}/@IsActive    ==    ${True}
 
