@@ -76,8 +76,8 @@ Activating A Maximized Background Window Keeps Its Size
 
 Bring To Front Brings Back A Minimized Window
     [Documentation]    Brings the window itself to the front, not an element inside it: while a window
-    ...    is minimized the toolkit may withdraw its contents from the accessibility tree (egui does on
-    ...    X11), so an element of a minimized window is neither findable nor reliably still valid.
+    ...    is minimized the toolkit may withdraw its contents from the accessibility tree, so an element
+    ...    of a minimized window is neither findable nor reliably still valid.
     ...    Resolving the window from an inner element is covered by the Pointer Click test below.
     BM.Minimize Window    ${ALPHA}
     BM.Wait Until Query    ${ALPHA}/@IsMinimized    ==    ${True}

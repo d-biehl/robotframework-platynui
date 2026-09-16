@@ -53,7 +53,7 @@ Bringing an element to the front SHALL activate the top-level window that contai
 - **GIVEN** a top-level window that has been minimized from the normal state
 - **WHEN** `Bring To Front` is called with an element inside that window
 - **THEN** the window's `@IsMinimized` SHALL be `False` and its `@IsActive` SHALL be `True`
-- **NOTE** verified against the mock only: real toolkits may withdraw a minimized window's contents from the accessibility tree (egui on X11 does), so no element inside it can be addressed reliably; the acceptance lane brings the minimized window itself to the front
+- **NOTE** verified against the mock only: real toolkits may withdraw a minimized window's contents from the accessibility tree, so no element inside it can be addressed reliably; the acceptance lane brings the minimized window itself to the front
 
 #### Scenario: Element without an activatable window
 
