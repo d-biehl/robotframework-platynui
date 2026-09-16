@@ -46,13 +46,10 @@ paths = "tests"
 description = "Real-provider acceptance suites under tests/acceptance (tags 'acceptance' AND 'real'; needs the non-mock build)"
 includes = ["acceptanceANDreal"]
 
-# Mock lane: drive the PlatynUI.BareMetal library against the built-in mock tree.
-# Deterministic, needs no display, runs on any OS. REQUIRES the mock-provider
-# native build (just build-native-mock). Run with `robotcode --profile mock run`
-# (or `just test-baremetal`).
-# Per-platform refinements of `real`. The session script / just recipes pick
-# the one matching the session they establish; `real` itself stays runnable as
-# the select-everything parent (discover/dry-run).
+# Per-platform refinements of `real`. Each Linux lane profile brings its own
+# session through `wrapper` (below), and the `just` recipes select the profile —
+# no session script picks one. `real` itself stays runnable as the
+# select-everything parent (discover/dry-run).
 [profiles.real-x11]
 description = "Real lane on an X11 session (excludes wayland/windows-only suites)"
 inherits = ["real"]
@@ -77,6 +74,10 @@ description = "Real lane on the Windows desktop (excludes x11/wayland-only suite
 inherits = ["real"]
 excludes = ["platform:x11", "platform:wayland"]
 
+# Mock lane: drive the PlatynUI.BareMetal library against the built-in mock tree.
+# Deterministic, needs no display, runs on any OS. REQUIRES the mock-provider
+# native build (just build-native-mock). Run with `robotcode --profile mock run`
+# (or `just test-baremetal`).
 [profiles.mock]
 description = "BareMetal RF suites against the built-in mock tree (tag 'mock'; needs the mock-provider build)"
 includes = ["mock"]

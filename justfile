@@ -290,10 +290,11 @@ test-all: test test-python
 # The acceptance lane (tests/acceptance, tags `acceptance` + `real`) drives the real platform
 # provider against the test apps there. Each recipe rebuilds the non-mock
 # native module first (a mock-provider build would silently resolve the built-in
-# mock tree instead). Robot Framework launches the app instance(s) itself; extra
-# ARGS are forwarded to robotcode and default to the lane profile matching the
-# session (`real-wayland` / `real-x11` via the session script, `real-windows` on
-# Windows) — the profiles exclude foreign `platform:*` tags, see robot.toml.
+# mock tree instead). Robot Framework launches the app instance(s) itself. Each
+# recipe runs its lane profile (`real-wayland`, `real-x11`, `real-windows`), which
+# excludes foreign `platform:*` tags — see robot.toml. On Linux the profile's
+# `wrapper` brings the session up and extra ARGS are appended to
+# `robotcode --profile … run`; on Windows they replace the default command.
 #
 # headless defaults to true under CI (the `CI` env var) and runs the Linux backends
 # with no visible window — the compositor uses its headless backend and X11 runs
