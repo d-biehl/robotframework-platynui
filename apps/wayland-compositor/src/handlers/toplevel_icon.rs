@@ -205,7 +205,7 @@ fn read_icon_buffer(
             let row = unsafe { std::slice::from_raw_parts(ptr.add(src_start), width * 4) };
 
             // Convert from Wayland ARGB8888 (B, G, R, A bytes on LE) to RGBA.
-            for pixel in row.chunks_exact(4) {
+            for pixel in row.as_chunks::<4>().0 {
                 rgba.push(pixel[2]); // R
                 rgba.push(pixel[1]); // G
                 rgba.push(pixel[0]); // B

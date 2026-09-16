@@ -79,7 +79,7 @@ pub fn release_all_pressed_inputs(state: &mut State) {
     }
 
     // --- Pointer buttons ---
-    let pressed_buttons: Vec<u32> = state.pressed_buttons.drain(..).collect();
+    let pressed_buttons = std::mem::take(&mut state.pressed_buttons);
     if !pressed_buttons.is_empty() {
         tracing::info!(count = pressed_buttons.len(), "releasing stuck pointer buttons on focus loss");
         let pointer = state.pointer();

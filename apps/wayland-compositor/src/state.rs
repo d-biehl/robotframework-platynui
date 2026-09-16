@@ -1375,7 +1375,7 @@ impl State {
                     states
                         .data_map
                         .get::<XdgToplevelSurfaceData>()
-                        .is_some_and(|data| data.lock().ok().is_some_and(|d| d.modal))
+                        .is_some_and(|data| data.lock().is_ok_and(|d| d.modal))
                 })
             })
             .cloned();

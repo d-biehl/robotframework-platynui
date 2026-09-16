@@ -1351,7 +1351,7 @@ fn to_rgba_bytes(shot: &core_rs::platform::Screenshot) -> Vec<u8> {
         PixelFormat::Rgba8 => shot.pixels.clone(),
         PixelFormat::Bgra8 => {
             let mut converted = shot.pixels.clone();
-            for chunk in converted.chunks_exact_mut(4) {
+            for chunk in converted.as_chunks_mut::<4>().0 {
                 chunk.swap(0, 2);
             }
             converted

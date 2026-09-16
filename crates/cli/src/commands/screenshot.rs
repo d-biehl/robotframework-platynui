@@ -60,7 +60,7 @@ fn ensure_rgba_bytes(screenshot: &Screenshot) -> Vec<u8> {
         PixelFormat::Rgba8 => screenshot.pixels.clone(),
         PixelFormat::Bgra8 => {
             let mut converted = screenshot.pixels.clone();
-            for chunk in converted.chunks_exact_mut(4) {
+            for chunk in converted.as_chunks_mut::<4>().0 {
                 chunk.swap(0, 2);
             }
             converted

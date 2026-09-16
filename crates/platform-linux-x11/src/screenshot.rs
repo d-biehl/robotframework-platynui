@@ -44,7 +44,7 @@ impl ScreenshotProvider for LinuxScreenshot {
         }
         let mut pixels = reply.data;
         // Ensure alpha is fully opaque to avoid artifacts from undefined padding/alpha bits in 24/32bpp.
-        for chunk in pixels.chunks_exact_mut(4) {
+        for chunk in pixels.as_chunks_mut::<4>().0 {
             chunk[3] = 0xFF;
         }
         let format = PixelFormat::Bgra8;

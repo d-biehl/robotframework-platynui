@@ -49,7 +49,7 @@ impl ScreenshotProvider for MockScreenshot {
         let mut pixels = vec![0u8; (width * height * PixelFormat::Rgba8.bytes_per_pixel() as u32) as usize];
         let pitch = width as usize * 4;
 
-        for chunk in pixels.chunks_exact_mut(4) {
+        for chunk in pixels.as_chunks_mut::<4>().0 {
             chunk[3] = 0xFF;
         }
 
