@@ -36,9 +36,6 @@ use zbus::proxy::CacheProperties;
 
 use crate::timeout::{block_on_timeout_call, block_on_timeout_init};
 
-/// Cache current process ID once; stable for the entire process lifetime.
-static SELF_PID: LazyLock<u32> = LazyLock::new(std::process::id);
-
 pub const PROVIDER_ID: &str = "atspi";
 pub const PROVIDER_NAME: &str = "AT-SPI2";
 pub static TECHNOLOGY: LazyLock<TechnologyId> = LazyLock::new(|| TechnologyId::from("AT-SPI2"));
@@ -100,6 +97,11 @@ pub struct AtspiProvider {
     /// Whether starting the worker was already attempted; a failed start is
     /// logged once and not retried on every call.
     popup_watcher_started: AtomicBool,
+    /// Our own D-Bus connection's PID as resolved by the AT-SPI bus daemon —
+    /// see [`AtspiProvider::own_pid`] for why this must go through the daemon
+    /// rather than `std::process::id()`. Memoized for `conn`'s lifetime,
+    /// cleared alongside it in `shutdown()`.
+    own_pid: ClearableCell<Option<u32>>,
 }
 
 impl AtspiProvider {
@@ -114,6 +116,7 @@ impl AtspiProvider {
             popups: Arc::new(PopupRegistry::new()),
             popup_watcher: Mutex::new(None),
             popup_watcher_started: AtomicBool::new(false),
+            own_pid: ClearableCell::new(),
         }
     }
 
@@ -125,6 +128,28 @@ impl AtspiProvider {
         let conn = self.conn.get_or_try_init(|| Ok(Arc::new(connect_a11y_bus_with(bus_address)?)))?;
         self.ensure_popup_watcher();
         Ok(conn)
+    }
+
+    /// Our own D-Bus connection's PID, resolved the *same way* `get_nodes`
+    /// resolves every application's PID: by asking the AT-SPI bus daemon via
+    /// `GetConnectionUnixProcessID`, not via `std::process::id()`.
+    ///
+    /// `std::process::id()` is only comparable to a daemon-reported PID when
+    /// this process and the daemon share a PID namespace. When the provider
+    /// runs in a different PID namespace than the AT-SPI bus daemon (e.g. a
+    /// sidecar container automating an application in a neighbouring
+    /// container, with no `shareProcessNamespace`), the daemon cannot
+    /// translate a peer's PID across that namespace boundary at all and
+    /// reports an explicit lookup failure for it — it does not return a wrong
+    /// number. Resolving our own PID through that same daemon round-trip
+    /// surfaces that same `None` for us, so the own-process comparison below
+    /// stays apples-to-apples instead of comparing a namespace-local
+    /// `std::process::id()` against a daemon-namespace-relative PID, which
+    /// can coincidentally collide (observed in practice: both sides landing
+    /// on PID 11 after a similar number of setup processes in each
+    /// container) and wrongly filter out the real target application.
+    fn own_pid(&self, conn: &AccessibilityConnection) -> Option<u32> {
+        self.own_pid.get_or_init(|| resolve_own_pid(conn))
     }
 
     /// Lazily start the popup event worker alongside the provider connection.
@@ -173,6 +198,7 @@ impl UiTreeProvider for AtspiProvider {
             watcher.stop();
         }
         self.conn.clear();
+        self.own_pid.clear();
     }
 
     fn get_nodes(
@@ -196,6 +222,7 @@ impl UiTreeProvider for AtspiProvider {
             .ok_or_else(|| AtspiError::timeout("registry children"))?
             .map_err(|err| AtspiError::dbus("registry children", err))?;
 
+        let own_pid = self.own_pid(&conn);
         let parent = Arc::clone(&parent);
         let conn = conn.clone();
         let window_manager = self.window_manager.get();
@@ -218,8 +245,8 @@ impl UiTreeProvider for AtspiProvider {
                 })
                 .flatten()
             };
-            if app_pid == Some(*SELF_PID) {
-                debug!(app = %app_bus, pid = *SELF_PID, "skipped own process");
+            if is_own_process(own_pid, app_pid) {
+                debug!(app = %app_bus, pid = ?app_pid, "skipped own process");
                 return None;
             }
 
@@ -313,8 +340,11 @@ impl UiTreeProvider for AtspiProvider {
             return Ok(None);
         };
         // Never resolve the host process's own UI (consistent with get_nodes,
-        // which skips SELF_PID). A picker over its own window picks nothing.
-        if pid == *SELF_PID {
+        // which skips the own process too). `hit.pid` comes from the window
+        // manager (`_NET_WM_PID`, set by the client itself), so our
+        // namespace-local PID is the apples-to-apples comparison here — unlike
+        // the daemon-reported PIDs in `get_nodes`; see `own_pid`.
+        if pid == std::process::id() {
             return Ok(None);
         }
 
@@ -332,6 +362,32 @@ impl UiTreeProvider for AtspiProvider {
         // the hit window's frame when one matches (see `descend_to_point`).
         Ok(Some(descend_to_point(&conn, &window_manager, &popups, app_node, app_obj, point, hit.id)))
     }
+}
+
+/// Whether `other` is our own process, given both PIDs as resolved by the
+/// bus daemon (see [`AtspiProvider::own_pid`]).
+///
+/// Deliberately requires **both** sides to be `Some`: an unresolvable PID
+/// (the daemon cannot translate a peer's PID across a PID-namespace
+/// boundary, e.g. a sidecar automating a neighbouring container) must never
+/// be treated as a match just because it equals another unresolvable `None`
+/// — that would silently drop every application the daemon can't resolve a
+/// PID for, which is the opposite of "not us".
+pub(crate) fn is_own_process(own_pid: Option<u32>, other: Option<u32>) -> bool {
+    matches!((own_pid, other), (Some(a), Some(b)) if a == b)
+}
+
+/// Resolve our own D-Bus connection's PID via the bus daemon — see
+/// [`AtspiProvider::own_pid`] for why this, and not `std::process::id()`, is
+/// the correct way to learn "our own PID" for the own-process comparison.
+fn resolve_own_pid(conn: &AccessibilityConnection) -> Option<u32> {
+    let own_name = conn.connection().unique_name()?.as_str().to_owned();
+    let conn_inner = conn.connection().clone();
+    block_on_timeout_call(async move {
+        let dbus = zbus::fdo::DBusProxy::new(&conn_inner).await.ok()?;
+        dbus.get_connection_unix_process_id(zbus::names::BusName::try_from(own_name).ok()?).await.ok()
+    })
+    .flatten()
 }
 
 /// Resolve the AT-SPI application accessible whose D-Bus connection belongs to
@@ -629,5 +685,19 @@ mod tests {
         // Disabled → nodes get no registry handle → enumeration stays on the
         // exact pre-event top-down code path (the rollback guarantee).
         assert!(provider.popups_handle().is_none());
+    }
+
+    #[test]
+    fn is_own_process_matches_only_when_both_pids_resolved_and_equal() {
+        assert!(is_own_process(Some(11), Some(11)));
+        assert!(!is_own_process(Some(11), Some(12)));
+        // The regression this guards against: two unresolved lookups (e.g.
+        // the AT-SPI bus daemon cannot translate a PID across a PID-namespace
+        // boundary) must never be treated as "the same process" just because
+        // `None == None`, or every such application would be wrongly
+        // filtered out of the tree.
+        assert!(!is_own_process(None, None));
+        assert!(!is_own_process(Some(11), None));
+        assert!(!is_own_process(None, Some(11)));
     }
 }
