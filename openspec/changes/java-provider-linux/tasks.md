@@ -1,14 +1,18 @@
 <!-- The Linux bring-up of the Java provider, not of a toolkit adapter. Builds on
      provider-java-swing (the agent backend it makes available there) and
      java-agent-core (agent, transport, Unix attach — already verified on Linux).
-     Task 1.1 is a measurement and gates section 2: do not build either branch
-     of design 1 before it has an answer. -->
+     Section 1 is no longer measurement-gated: automatic attachment needs the
+     native window list whatever the in-process handle measurement says (design 1
+     and 5). The measurement in 1.4 decides only whether the agent's own answer is
+     used for identity in addition. -->
 
-## 1. Decide where the native window identity comes from
+## 1. The windowing system as a source of windows and their owners
 
-- [ ] 1.1 **Measure first** (design 1): does `sun.awt.X11.XBaseWindow#getWindow` yield the top-level X11 window id across JDK 8 / 17 / 21, on bare X11 **and** under XWayland, and what `--add-opens` does each need? Record the matrix in design.md next to the JDK-internals matrix `provider-java-swing` builds for Windows
-- [ ] 1.2 Settle design 1 from the measurement and write the decision down: option (a) the agent reports the id — preferred, no new platform capability; option (b) `WindowManager` gains an enumeration method answered from `_NET_CLIENT_LIST`. Do not build (b) unless 1.1 rules out (a)
-- [ ] 1.3 If (a): the agent reads the X11 id, and `provider-java-swing`'s PID+geometry fallback (its design 5) is recorded as Windows-only — on Linux there is no native window list to match against. If (b): the enumeration method lives in the platform layer (`platynui_core::platform::WindowManager` + `platform-linux-x11`), never in the provider, so the `x11rb`-free provider rule holds
+- [ ] 1.1 Add the top-level enumeration method to `platynui_core::platform::WindowManager` — native window handles with their owning process ids — and implement it in `platform-linux-x11` from `_NET_CLIENT_LIST`/`_NET_CLIENT_LIST_STACKING`, which the crate already interns but does not expose. Other backends report `CapabilityUnavailable`, as they already do for unimplemented window operations. Never in the provider: the `x11rb`-free provider rule is what keeps `provider-atspi` identical on X11 and Wayland
+- [ ] 1.2 Resolve window → owning pid by the rule `dev-docs/java-toolkits.md` already settles (design 5): X-Resource v1.2 `XResQueryClientIds` with the `LocalClientPID` mask as the authoritative source, EWMH `_NET_WM_PID` only as a fallback and only when `WM_CLIENT_MACHINE` names the local host. A window claiming a pid it does not own must not be followed — attaching into the wrong process is not a cosmetic error
+- [ ] 1.3 Handle a session with no conforming window manager: no `_NET_CLIENT_LIST` means an empty answer, no candidates, and therefore today's behaviour (`-javaagent`-launched JVMs still served) — not an error and not a warning per pass
+- [ ] 1.4 **Measure** (design 1a): does `sun.awt.X11.XBaseWindow#getWindow` yield the top-level X11 window id across JDK 8 / 17 / 21, on bare X11 **and** under XWayland, and what does each need opened? Run it with the **shipping** agent artifact, whose classes are bootstrap-defined. Record the matrix in design.md next to the JDK-internals matrix `provider-java-swing` builds for Windows
+- [ ] 1.5 Settle identity from 1.4: where the in-process answer works it is preferred for agent-served windows (exact, no correlation); otherwise the enumeration from 1.1 supplies it. Either way record `provider-java-swing`'s PID+geometry fallback (its design 5) as Windows-only
 
 ## 2. Make the provider portable
 
@@ -17,11 +21,19 @@
 - [ ] 2.3 Window nodes on X11: geometry and the window capability patterns delegate to the platform `WindowManager` through the native handle from section 1 (the same delegation shape the JAB backend uses via `native:NativeWindowHandle`)
 - [ ] 2.4 Inert absence (design 4): no agent anywhere ⇒ no nodes, no failures, nothing beyond the cost of one `handshake::discover()` directory scan that finds nothing. On Linux there is no JAB fallback whose absence would be noticed instead, so this is the only thing standing between "no Java apps" and a confusing empty tree
 - [ ] 2.5 Routing stays single-backend here (design 2): the agent-presence criterion comes from `handshake::agent_present(pid)`, which needs no `JavaClassifier`; the agent-vs-JAB `Enumeration` reshape must not leak in from `provider-java-swing`
+- [ ] 2.6 Attach candidates in the router (design 5): `JavaProvider` keeps the `WindowManager` it already receives in `set_window_manager` and forwards today, and fills `java_processes` from section 1's enumeration, filtered by `platynui_java_agent::jvm::process_runs_jvm`. The condition is **static — "no backend of this build enumerates native windows", declared on the backend trait** — never "this pass produced no candidates", which is true on Windows whenever JAB sees no Java window. The agent backend keeps its shape: it finds agents, it does not enumerate windows
+- [ ] 2.7 Keep `process_runs_jvm`'s `None` non-blocking, exactly as `attach::load_agent` already treats it: only a definite `Some(false)` excludes a pid, so a window whose owner cannot be probed is still a candidate and the attach fails cheaply instead of the JVM being silently skipped
+- [ ] 2.8 Hold the quiescence boundary (design 5): windows are enumerated and only their owners are looked at — no `/proc` sweep, no machine-wide JVM enumeration, and a JVM without a window is never probed. The simpler implementation is the forbidden one, so make it visible in review
+- [ ] 2.9 Windows is untouched by 2.6–2.8: its candidate list stays JAB-fed. Assert it for a pass in which JAB finds **no** Java window as well — that is the case the wrong condition would slip through, and the case that is masked today only by `platform-windows` not implementing the enumeration. A regression here would change which processes PlatynUI injects into on the platform that already works
 
 ## 3. Acceptance & verification
 
 - [ ] 3.1 **Linux lane**: the Swing fixture launched inside the existing X11 acceptance session (`just test-acceptance-x11`), served through the agent — the first proof that Swing on Linux is reachable without `java-atk-wrapper`. Suite tagging `platform:x11`; the existing Swing suites stay `platform:windows` because they assert JAB behavior
-- [ ] 3.2 Geometry agreement: the agent's reported bounds against the X11 window's real geometry for the same window, confirming the physical-pixel wire contract on a second windowing system
-- [ ] 3.3 XWayland (design 3): the same fixture under a Wayland session via XWayland, confirming the X11 window id is valid on the XWayland display. Document what `xwayland-satellite` is for and that no second path is built
-- [ ] 3.4 Windows regression: the full Windows acceptance lane unchanged — the portability work must not disturb the JAB path. Mock lanes green; `just check`/`test`/`build-native` green, plus `just check-windows`/`clippy-windows` from Linux
-- [ ] 3.5 Docs: `dev-docs/platform-linux.md` gains the Java section (what serves Java there and why the agent is the path rather than an upgrade over one), `dev-docs/java-toolkits.md`'s Linux column updated, `README.md`'s platform-support row updated
+- [ ] 3.2 **Automatic attachment on X11** (spec: *An agent-less Java application on X11 is attached automatically*): the fixture launched **without** `-javaagent` is found, its owner resolved and recognised as a JVM, attached, and served in the same enumeration pass. This is the scenario that proves the candidate source exists rather than merely being described
+- [ ] 3.3 Window→pid trust (spec: *A window is not followed to a process it only claims*): a window advertising a `_NET_WM_PID` it does not own is not offered an agent
+- [ ] 3.4 Quiescence (spec: *A JVM with no window is never touched*): a windowless JVM alongside the fixture is neither probed nor attached, and no machine-wide enumeration occurs
+- [ ] 3.5 Attachment switched off (spec: *Automatic attachment switched off leaves the window unserved, not degraded*): with `auto_attach = false` the agent-less window is absent from the tree and the diagnostic does not imply a fallback
+- [ ] 3.6 Geometry agreement: the agent's reported bounds against the X11 window's real geometry for the same window, confirming the physical-pixel wire contract on a second windowing system
+- [ ] 3.7 XWayland (design 3 and 5): the same fixture under a Wayland session via XWayland — the X11 window id valid on the XWayland display, **and** the client list plus pid resolution answering there, since automatic attachment now depends on both. Document what `xwayland-satellite` is for and that no second path is built
+- [ ] 3.8 Windows regression: the full Windows acceptance lane unchanged — the portability work must not disturb the JAB path, and the candidate source must stay JAB-fed there. Mock lanes green; `just check`/`test`/`build-native` green, plus `just check-windows`/`clippy-windows` from Linux
+- [ ] 3.9 Docs: `dev-docs/platform-linux.md` gains the Java section (what serves Java there, why the agent is the path rather than an upgrade over one, and that automatic attachment needs a conforming window manager), `dev-docs/java-toolkits.md`'s Linux column updated, `README.md`'s platform-support row updated
