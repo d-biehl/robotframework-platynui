@@ -29,6 +29,25 @@ One qualification on the middle claim, measured after this change was written: t
     - **(a) The agent reports it.** `sun.awt.X11.XBaseWindow#getWindow` (and its per-JDK forms, with the `--add-opens` matrix on 9+) yields the X11 window id in-process. This answers *"what is the native identity of this window?"* for a JVM that **already has an agent** — which is every window this backend serves, so where it works it is the cheapest and most exact answer available, and it makes `provider-java-swing` decision 5's PID+geometry fallback Windows-only by construction.
 
       The opening mechanism is `ModuleAccess`, which already requests `sun.awt.X11` on every platform for exactly this, and it keeps working now that the agent's classes are bootstrap-defined ([`java-agent-web-start`](../java-agent-web-start/design.md) decision 1) — verified on JDK 21 by reading the Windows handle through the same path. Run the measurement below with the **shipping** artifact rather than an ad-hoc agent, so the loading model under test is the one that will be deployed.
+
+      **Measured (2026-09-17), with the shipping JAR and no launch flags of any kind:**
+
+      | Fixture runtime | `handle` | `handleSource` |
+      |---|---|---|
+      | Temurin 8.0.504 | 4194311 | `sun.awt.X11.XBaseWindow#getWindow` |
+      | Temurin 21.0.11 | 6291463 | `sun.awt.X11.XBaseWindow#getWindow` |
+      | Temurin 26.0.2 | 8388615 | `sun.awt.X11.XBaseWindow#getWindow` |
+
+      So option (a) works, and the `--add-opens` matrix this task feared turns out to be empty:
+      `ModuleAccess` already requests `sun.awt.X11` on every platform and opens it to the agent
+      itself, bootstrap-defined classes included. Nothing on the command line, on any of the three.
+
+      What this does **not** yet cover is the windowing half of the question. All three ran under
+      WSLg, whose X server the distro cannot identify from the inside (no `Xwayland` or `weston`
+      process is visible there), so "the id is valid on the XWayland display rather than on the
+      Wayland compositor" — decision 3's verification — still needs a bare X11 session and a
+      conventional XWayland one. Note also that WSLg synthesises no pointer or keyboard input, so it
+      can host this measurement but not the acceptance lane; that needs `scripts/startxsession.sh`.
     - **(b) `WindowManager` gains an enumeration method**, answered on X11 from `_NET_CLIENT_LIST`/`_NET_CLIENT_LIST_STACKING` — which `platform-linux-x11` already reads internally but does not expose. Keep it in the platform layer: a provider growing its own `x11rb` client would break the rule that keeps `provider-atspi` free of windowing dependencies and working identically on X11 and Wayland.
 
     **(b) is now unconditional**, because it is the only thing that can answer *"which windows exist, and which processes own them?"* for a JVM that has **no agent yet** — the question automatic attachment is made of, and one an in-process agent cannot answer by definition, since there is no agent in there to ask. The earlier instruction "do not build (b) speculatively" is withdrawn: it is not speculative any more.
