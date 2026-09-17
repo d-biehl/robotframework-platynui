@@ -715,9 +715,14 @@ final class SwingElement {
      * automation ids.
      *
      * <p>Reachable only reflectively — {@code JComponent} exposes a getter per key but no key list —
-     * so this is best effort by construction: on 9+ without
-     * {@code --add-opens java.desktop/javax.swing=ALL-UNNAMED} the block is simply absent, which is
-     * a missing convenience and not a broken element.
+     * so this is best effort by construction. No launch flag is involved on 9+, despite what an
+     * earlier note here claimed: {@link ModuleAccess} opens {@code javax.swing} to the agent itself
+     * before any adapter reads anything. The block is absent only when that opening was refused,
+     * which is a missing convenience and not a broken element.
+     *
+     * <p>"Absent" was also the state on <em>every</em> JDK until the key lookup below was corrected,
+     * and nothing noticed — which is what a silently-empty optional block buys you. It is covered by
+     * a test now.
      */
     private static final class SwingClientProperties {
 
@@ -754,10 +759,26 @@ final class SwingElement {
             return properties;
         }
 
+        /**
+         * The accessors, resolved once and kept.
+         *
+         * <p>Lazily and never negatively: {@code setAccessible} only succeeds after
+         * {@link ModuleAccess} has opened {@code javax.swing}, and nothing guarantees this class is
+         * first touched after that. Caching a failure would turn a momentary ordering into a
+         * permanent one.
+         */
+        private static volatile Field clientPropertiesField;
+        private static volatile Method keysMethod;
+        private static volatile Class<?> keysOwner;
+
         private static Object clientPropertyTable(JComponent component) {
             try {
-                Field field = JComponent.class.getDeclaredField("clientProperties");
-                field.setAccessible(true);
+                Field field = clientPropertiesField;
+                if (field == null) {
+                    field = JComponent.class.getDeclaredField("clientProperties");
+                    field.setAccessible(true);
+                    clientPropertiesField = field;
+                }
                 return field.get(component);
             } catch (ReflectiveOperationException | RuntimeException e) {
                 return null;
@@ -766,8 +787,17 @@ final class SwingElement {
 
         private static Object[] keysOf(Object table) {
             try {
-                Method getKeys = table.getClass().getDeclaredMethod("getKeys", java.util.Vector.class);
-                getKeys.setAccessible(true);
+                // `javax.swing.ArrayTable.getKeys(Object[])` — the parameter is an array to append
+                // into, and passing null asks it to allocate. It is NOT `getKeys(Vector)`; looking
+                // for that signature is how this whole block silently produced nothing on every
+                // JDK, since a wrong lookup and a closed package fail the same way here.
+                Method getKeys = table.getClass() == keysOwner ? keysMethod : null;
+                if (getKeys == null) {
+                    getKeys = table.getClass().getDeclaredMethod("getKeys", Object[].class);
+                    getKeys.setAccessible(true);
+                    keysMethod = getKeys;
+                    keysOwner = table.getClass();
+                }
                 Object keys = getKeys.invoke(table, (Object) null);
                 return keys instanceof Object[] ? (Object[]) keys : null;
             } catch (ReflectiveOperationException | RuntimeException e) {

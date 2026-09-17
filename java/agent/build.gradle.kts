@@ -66,6 +66,9 @@ tasks.test {
     // through `Instrumentation.redefineModule` (ModuleAccess), which a plain test JVM has no
     // equivalent of — so the tests are given the same access the agent grants itself.
     jvmArgs("--add-exports", "java.desktop/sun.awt=ALL-UNNAMED")
+    // Same reason, one package further: the client-property reader gets at a private
+    // JComponent field, which in a target the agent opens for itself.
+    jvmArgs("--add-opens", "java.desktop/javax.swing=ALL-UNNAMED")
     testLogging {
         events("failed")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
