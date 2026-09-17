@@ -96,6 +96,15 @@ tasks.jar {
             // logic, so it asks for no instrumentation capabilities.
             "Can-Redefine-Classes" to "false",
             "Can-Retransform-Classes" to "false",
+            // The agent's own classes go on the bootstrap loader, which defines them
+            // with a null protection domain and therefore all permissions. Without
+            // this the agent is subject to the *target's* policy, and a Java Web Start
+            // application — whose JNLP SecurityManager denies getenv, property reads
+            // and sockets — kills it on its first line. Attaching an agent is already
+            // a fully privileged operation, so this grants no reach the attach did not
+            // already have. The relative name resolves against this JAR's own
+            // directory, so the version-less file name above is load-bearing here too.
+            "Boot-Class-Path" to "platynui-agent.jar",
             // Convenience attach driver for hosts that happen to have a JDK
             // (`java -jar platynui-agent.jar <pid>`); the normal path is the
             // native Rust attach transport, which needs no JDK at all (design 5).

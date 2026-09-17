@@ -97,18 +97,30 @@ final class AgentRuntime {
      * could not open a socket. What the operator gets instead is a JVM without a reachable agent,
      * which the provider reports as "no agent here" — the same state as a JVM that was never
      * injected.
+     *
+     * <p>This is also where the agent's idempotence lives, keyed on a <em>running</em> agent: a JVM
+     * that already carries one keeps it, while a failed start leaves {@code instance} null and the
+     * JVM open to the client's remaining attach attempts. Keying on "an attempt was made" would turn
+     * one transient failure into a JVM that is unreachable for the rest of its life.
      */
     static synchronized void start(String args, Instrumentation instrumentation) {
         if (instance != null) {
             return;
         }
-        AgentRuntime runtime = new AgentRuntime(instrumentation);
+        AgentRuntime runtime = null;
         try {
+            // Construction is inside the guard on purpose: it is what first touches
+            // AgentPaths, RpcServer and their class initializers, and an initializer that
+            // throws surfaces as an ExceptionInInitializerError — an Error, and the exact
+            // shape that once escaped `agentmain` into the target's attach thread.
+            runtime = new AgentRuntime(instrumentation);
             runtime.startInternal();
             instance = runtime;
-        } catch (IOException | RuntimeException e) {
+        } catch (Throwable e) {
             AgentLog.error("agent " + Agent.version() + " failed to start (args=" + args + ")", e);
-            runtime.stop();
+            if (runtime != null) {
+                runtime.stop();
+            }
         }
     }
 

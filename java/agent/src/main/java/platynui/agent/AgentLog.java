@@ -12,7 +12,21 @@ final class AgentLog {
 
     private static final String PREFIX = "[PlatynUI agent] ";
 
-    private static final boolean DEBUG = Boolean.getBoolean("platynui.agent.debug");
+    private static final boolean DEBUG = debugRequested();
+
+    /**
+     * Reading a system property is itself permission-gated, and a target running under a
+     * {@code SecurityManager} may deny it. The diagnostic channel must survive that: throwing here
+     * would take out the class initializer, and with it every error message the agent still had to
+     * report.
+     */
+    private static boolean debugRequested() {
+        try {
+            return Boolean.getBoolean("platynui.agent.debug");
+        } catch (SecurityException e) {
+            return false;
+        }
+    }
 
     private AgentLog() {
         // Static helper.
