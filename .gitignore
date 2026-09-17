@@ -23,6 +23,12 @@ results/
 # gradle (Java test fixtures; their build/ output is covered by build/ above)
 .gradle/
 
+# Eclipse-style output the VSCode Java extension writes beside the Gradle projects
+# it indexes — not produced by any build recipe, but it appears as soon as someone
+# opens a .java file in the editor.
+java/*/bin/
+apps/test-app-swing/bin/
+
 # rust
 target/
 
