@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Unsigned and sandboxed on purpose: no <security> element, so the application
+  runs under the JNLP SecurityManager with the default grants. That is the
+  harsher of the two real shapes; a signed <all-permissions/> JNLP trusts the
+  application's own code but still leaves an attached agent under the same
+  restrictions, which is the case this harness reproduces either way.
+
+  <j2se version="1.8"/> is what makes OpenWebStart's JVM manager fetch a Java 8
+  runtime into its cache, so the target JVM is Java 8 without one being
+  installed on the host.
+-->
+<jnlp spec="1.0+" codebase="http://localhost:8099/" href="demo.jnlp">
+  <information>
+    <title>PlatynUI WebStart Demo</title>
+    <vendor>PlatynUI</vendor>
+    <description>Swing application launched through Java Web Start</description>
+  </information>
+  <resources>
+    <j2se version="1.8"/>
+    <jar href="webstart-demo.jar" main="true"/>
+  </resources>
+  <application-desc main-class="platynui.demo.WebStartDemo"/>
+</jnlp>
