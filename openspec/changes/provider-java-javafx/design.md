@@ -23,6 +23,8 @@ Second toolkit adapter on the foundation from [`java-agent-core`](../java-agent-
 
 3. **Reflection across the module system.** FX 9+ lives on the module path (`javafx.*` modules); the agent sits in the unnamed module. The agent holds `Instrumentation`, so `redefineModule` can open what reflection needs — no `--add-opens` burden on the user's launch command. FX 8 (bundled in JDK 8) needs none of this. Which internals actually need opening (glass `Window` for native handles, virtualized-cell access) is spike work.
 
+   **The agent's classes are bootstrap-defined** since [`java-agent-web-start`](../java-agent-web-start/design.md) decision 1 put the agent JAR on `Boot-Class-Path` — the only way it survives a Java Web Start target's `SecurityManager`. A bootstrap-defined class can only *resolve* what the boot loader defines, and `javafx.*` is not part of the JDK: it is on the application class path or module path. So this adapter cannot reference `javafx.stage.Stage`, `Platform` or any FX type at compile time or through a bare `Class.forName` — every FX access, not just the internals, has to go through a loader taken from the application side (the FX classes' own loader, reached from a live FX object or via `Instrumentation.getAllLoadedClasses()`, which is how `ToolkitDetector` already recognises FX without touching it). This subsumes decision 2's `Platform.runLater` as well. Opening packages via `redefineModule` remains necessary but is *not* sufficient: opening solves visibility, not which loader can find the class. Spike item: confirm a single reflective FX handle can carry both the thread marshaling and the scene-graph reads, so the adapter has one loader boundary rather than one per call site.
+
 4. **Coordinates: physical desktop pixels in-JVM** (swing decision 2b), FX flavor: `Node.localToScreen` yields FX user space; conversion to physical via `Screen`/glass output scale. Spike verifies on a HiDPI monitor across JDK 8 / 17 / 21.
 
 5. **Window handle: hybrid** (swing decision 8), FX flavor: glass internals (`com.sun.glass.ui.Window.getNativeHandle`/`getRawHandle`) first, PID+geometry fallback second.
@@ -32,6 +34,7 @@ Second toolkit adapter on the foundation from [`java-agent-core`](../java-agent-
 ## Risks / Trade-offs
 
 - [FX internals (glass, virtualization) shift across 8/11/17/21] → reflection guarded per version; spike pins the matrix; PID+geometry fallback for handles.
+- [No FX type is directly referenceable from the bootstrap-defined agent (decision 3)] → the whole adapter sits behind a reflective handle onto the application's FX loader, which costs more code and loses compile-time checking against the FX API. Mitigation is to concentrate the boundary in one place and cover it by fixture tests rather than to spread `Class.forName` through the adapter. A spike that assumes direct FX references would validate nothing.
 - [Headless/Monocle FX in CI] → acceptance runs against the real windowed fixture, as for Swing; Monocle is out of scope.
 - [Linux lane has no native cross-check (FX invisible to AT-SPI)] → verify against the fixture's own observable state (the blueprint's last-action observables) instead of a second provider.
 
