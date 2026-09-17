@@ -35,6 +35,20 @@ interface ToolkitDispatcher {
     String name();
 
     /**
+     * Turns a toolkit world into the dispatcher that serves it.
+     *
+     * <p>Installed by the adapter, because what a "world" is belongs to the toolkit — AWT's
+     * {@code AppContext}, and whatever JavaFX turns out to need. The neutral runtime only has to
+     * know that an element's world, recorded in {@link ElementRegistry}, can be turned back into a
+     * toolkit thread, so that its own element-scoped endpoints dispatch as correctly as the
+     * adapter's do.
+     */
+    interface Resolver {
+        /** The toolkit thread for {@code world}, or {@code null} to use the default. */
+        ToolkitDispatcher forWorld(Object world);
+    }
+
+    /**
      * Runs work on the toolkit thread under a deadline.
      *
      * <p>Reentrancy matters: when the caller already <em>is</em> the toolkit thread, scheduling and

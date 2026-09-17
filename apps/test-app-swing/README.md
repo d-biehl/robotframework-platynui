@@ -45,7 +45,28 @@ directory travels via `PLATYNUI_TEST_APP_SWING_CLASSES` and the launch JVM via
 `PLATYNUI_TEST_APP_SWING_JAVA` (the acceptance recipe points it at the
 provisioned Java 8 from `build/java-launchers.properties`; without it the PATH
 `java` is used). Running the compiled classes works identically on the Java 8
-runtime and on the JDK 21 toolchain.
+runtime and on the JDK 21 toolchain — **in the default launch**. The diagnostic
+modes below are the exception: `--app-context` reaches a JDK internal, so from
+JDK 9 on it needs `--add-exports java.desktop/sun.awt=ALL-UNNAMED` (carried by
+`JDK_JAVA_OPTIONS`, which Java 8 ignores) and exits rather than degrading
+without it, and the security-policy mode needs a JDK that still has a security
+manager, which is 23 and older (JEP 486).
+
+### Diagnostic launch modes
+
+Four opt-in flags reproduce, on a plain JVM, conditions a Java Web Start target
+imposes — so coverage of them costs no Web Start installation (OpenSpec
+`java-agent-web-start`). The default launch does not touch any of them, and each
+**fails the launch rather than degrading**: a fixture that quietly ran in one
+`AppContext`, or quietly ran unsandboxed, would satisfy every assertion that does
+not depend on the condition, which is all these modes exist to provide.
+
+| Flag | What it does |
+|---|---|
+| `--app-context` | Builds the UI in a second AWT `AppContext`, leaving a never-shown launcher window in the first — so an observer's threads are in neither. Needs `--add-exports java.desktop/sun.awt=ALL-UNNAMED` from JDK 9 on. |
+| `--companion-window` | Also *shows* the launcher's window, so both toolkit worlds hold something readable. |
+| `--require-security-manager` | Exits unless a security manager is installed **and** this code holds all permissions — the signed-`<all-permissions/>` JNLP shape. Pair with `-Djava.security.manager -Djava.security.policy=policy/trusted-app.policy -Dplatynui.fixture.classes=<classes as a URL path>`. Needs a JDK that still has a security manager: 23 and older (JEP 486). |
+| `--wedge-after <s>` / `--wedge-for <s>` | Stops this window's event queue for a while, so "one toolkit world wedged, the others still answering" is observable. |
 
 ### Accessibility enablement (Windows)
 

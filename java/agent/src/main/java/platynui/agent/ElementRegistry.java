@@ -46,15 +46,44 @@ final class ElementRegistry {
         }
     };
 
+    /**
+     * Which toolkit world an element belongs to — for a JVM that has more than one.
+     *
+     * <p>Answered from the element, and recorded when the id is handed out. Deriving it per call
+     * from the thread that happens to ask would make an identity mean different things to different
+     * callers, and the wrongness would be invisible: every read would still return <em>some</em>
+     * answer, just occasionally from the wrong world.
+     */
+    interface WorldCheck {
+        Object worldOf(Object element);
+    }
+
     private final AtomicLong nextId = new AtomicLong();
     private final ReferenceQueue<Object> collected = new ReferenceQueue<Object>();
     private final Map<Long, ElementReference> byId = new HashMap<Long, ElementReference>();
     private final Map<IdentityKey, Long> byIdentity = new HashMap<IdentityKey, Long>();
 
     private volatile LivenessCheck livenessCheck = REACHABLE;
+    private volatile WorldCheck worldCheck;
 
     void setLivenessCheck(LivenessCheck check) {
         livenessCheck = check == null ? REACHABLE : check;
+    }
+
+    void setWorldCheck(WorldCheck check) {
+        worldCheck = check;
+    }
+
+    /**
+     * The toolkit world recorded for an id when it was registered, or {@code null}.
+     *
+     * <p>Kept even after that world is gone: an element of a disposed world must still answer "no
+     * longer live" rather than throw, and the answer costs a map lookup either way.
+     */
+    synchronized Object worldOf(long id) {
+        sweep();
+        ElementReference reference = byId.get(Long.valueOf(id));
+        return reference == null ? null : reference.world;
     }
 
     /** The id for {@code element}, assigning one on first sight. */
@@ -69,7 +98,9 @@ final class ElementRegistry {
             return existing.longValue();
         }
         long id = nextId.incrementAndGet();
-        ElementReference reference = new ElementReference(element, collected, id, key);
+        WorldCheck check = worldCheck;
+        ElementReference reference =
+                new ElementReference(element, collected, id, key, check == null ? null : check.worldOf(element));
         byId.put(Long.valueOf(id), reference);
         byIdentity.put(key, Long.valueOf(id));
         return id;
@@ -116,11 +147,17 @@ final class ElementRegistry {
 
         private final long id;
         private final IdentityKey key;
+        /**
+         * Strong on purpose, and no leak: the element holds its own toolkit world anyway, and this
+         * entry dies with the element.
+         */
+        private final Object world;
 
-        ElementReference(Object referent, ReferenceQueue<Object> queue, long id, IdentityKey key) {
+        ElementReference(Object referent, ReferenceQueue<Object> queue, long id, IdentityKey key, Object world) {
             super(referent, queue);
             this.id = id;
             this.key = key;
+            this.world = world;
         }
     }
 

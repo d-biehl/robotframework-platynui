@@ -144,6 +144,20 @@ of Agents") puts the Attach path on a sunset trajectory: JDK 21 warns when an
 agent is loaded dynamically, and a future release will disallow it by default.
 The opt-in is `-XX:+EnableDynamicAgentLoading`.
 
+**The sunset has not landed yet — measured on Temurin 24.0.2**, because "a future
+release" is the kind of phrase that quietly becomes "the release you are on".
+Attaching into an unflagged JDK 24 target still works; the JVM only says so:
+
+```text
+WARNING: A Java agent has been loaded dynamically (…/platynui-agent.jar)
+WARNING: Dynamic loading of agents will be disallowed by default in a future release
+```
+
+Still future tense on 24, so the opt-in remains cosmetic there. Do not confuse
+this with JDK 24's *other* removal: [JEP 486](https://openjdk.org/jeps/486)
+permanently disabled the **Security Manager** in 24, which is unrelated to agents
+and matters here only because the sandbox test fixture depends on one.
+
 **Measured on Temurin JDK 21.0.11** (`java-agent-core` task 1.3), because the
 "remedy without editing the command line" claim is load-bearing:
 
@@ -172,6 +186,69 @@ JEP 451 targets *agent loading only*; JVM discovery/listing (`jcmd -l`, `jps`,
 unaffected. PlatynUI does not use any of them: it reaches a JVM through the
 window that owns it, so machine-wide enumeration answers a question it never
 asks.
+
+### Getting in is not the same as working there
+
+Two properties of the *target* decide whether an agent that loaded successfully
+can do anything, and both were found the hard way against a real OpenWebStart
+1.14 application (`java-agent-web-start`). Neither is specific to Web Start; Web
+Start just has both at once.
+
+**The target's security policy applies to the agent.** An attached agent JAR is
+appended to the target's **system class path**, so its protection domain is an
+ordinary file code source with only the base policy's grants. Under a JNLP
+`SecurityManager` that means the agent is denied environment reads, property
+reads and socket accept — measured, on its very first statement:
+
+```text
+Denying permission: ("java.lang.RuntimePermission" "getenv.PLATYNUI_AGENT_DIR")
+```
+
+The attach itself reports **success**, so the failure is silent: the provider
+sees a JVM that simply has no agent. The remedy is in the artifact, not in the
+target: `Boot-Class-Path: platynui-agent.jar` in the agent's manifest puts its
+classes on the bootstrap loader, which defines them with a `null` protection
+domain and therefore all permissions. That grants no reach the attach did not
+already grant — loading an agent is unrestricted code execution in that process,
+which is the whole reason JEP 451 exists — and it is what the JNLP runtime does
+for its own code (`-Xbootclasspath/a:openwebstart.jar`).
+
+Two consequences worth knowing. The entry is **relative to the JAR's own
+directory**, so the artifact's version-less file name is load-bearing: stage it
+under a different name and the entry matches nothing, the JVM says nothing, and
+the agent quietly falls back to system-loader loading — invisible except in a
+policy-restricted target. And on JDK 9+ appending to the bootstrap class path
+makes the JVM print `Sharing is only supported for boot loader classes because
+bootstrap classpath has been appended` and lose class-data sharing for the
+application's own classes: a small, real cost imposed on a process an operator
+has deliberately chosen to instrument.
+
+**"The toolkit thread" is not one per JVM.** AWT partitions a JVM into
+`sun.awt.AppContext`s, each with its own window list and event queue, and both
+`Window.getWindows()` and `EventQueue.invokeLater` silently resolve against the
+**calling thread's** context. Java Web Start and applet runtimes create one per
+hosted application, so an agent whose threads live elsewhere enumerates nothing
+and posts work to a queue that will never run it. Measured in the target:
+
+```text
+this thread's AppContext = sun.awt.AppContext[threadGroup=system]
+Window.getWindows() from here: 1          <- the launcher's, not the application's
+AppContexts in this JVM: 2
+  [threadGroup=system]                 -> SharedOwnerFrame showing=false
+  [threadGroup=PlatynUI WebStart Demo] -> JFrame showing=true   <- the application
+```
+
+It gets sharper than "the wrong context": once a JVM has more than one,
+`AppContext.getAppContext()` loses its single-context shortcut and walks the
+calling thread's group chain instead — an attach listener's carries none, so it
+returns `null` and `Window.getWindows()` throws.
+
+This is a fact about **every** Java toolkit adapter, not about Swing: the
+enumeration has to span all contexts, and each call has to be dispatched to the
+event queue of the context that owns the element it concerns — resolved from the
+element, never from the agent thread. JavaFX has the same problem in a different
+shape (one FX thread, many `Stage`s), which is why the requirement is stated
+toolkit-neutrally even though the mechanism lives in the Swing adapter.
 
 ## Routing summary
 
@@ -202,3 +279,33 @@ JVM, so a mismatch's only remedy is restarting the application); the extras pin
 them together, and the connection handshake refuses a mismatch rather than
 degrading. `platynui-provider-java agent-path` prints the JAR path for the
 hand-written `-javaagent:` case.
+
+### What has to be true for a target to be served
+
+The intended answer is "nothing beyond installing the extra", and for an
+ordinary desktop application that holds. It is not the whole truth, so here is
+the rest — every item below presents as *the agent is simply not there*, which
+is the hardest symptom to reason backwards from:
+
+- **The attach needs the same user and a non-elevated target.** An elevated JVM
+  cannot be attached from a normal session; on Unix the trigger file and signal
+  need matching credentials. Endpoint protection that blocks
+  `CreateRemoteThread` looks exactly like an attach failure, because that is
+  what it is.
+- **Architecture has to match**: the attach transport writes into the target's
+  address space, so an x86-64 host cannot attach to a 32-bit JVM.
+- **A JNLP cannot carry the flags.** IcedTea-Web validates a JNLP's
+  `java-vm-args` against a fixed whitelist (`JvmUtils`) and silently drops the
+  rest — observed as `Ignoring java-vm-args due to illegal Property` for a plain
+  `-D`. Neither `-javaagent:` nor `-XX:+EnableDynamicAgentLoading` is on it. So
+  for a Web Start target, **`JAVA_TOOL_OPTIONS` is the only channel for both**:
+  the durable `-javaagent` fallback and the JEP 451 opt-in alike. The child JVM
+  inherits it, which the table above proves controls the flag.
+- **A version mismatch is only fixed by restarting the application.** An agent
+  cannot be unloaded, so a JVM carrying version A stays on version A for its
+  life; the handshake refuses to interoperate rather than find out later.
+- **An agent that loaded and then failed says so in the target's log, not in
+  yours.** By design it keeps its failures away from the application it
+  observes, so nothing is thrown and the attach still reports success. The
+  client side reports the silence as a warning naming that log; the agent's own
+  lines are prefixed `[PlatynUI agent]` and go to the target's stderr.

@@ -1,3 +1,5 @@
+import java.util.jar.JarFile
+
 // The PlatynUI Java agent — the artifact that gets loaded INTO a target JVM
 // (OpenSpec change `java-agent-core`). Toolchain policy mirrors the Java
 // fixtures under apps/: build on an auto-provisioned JDK 21, emit Java 8
@@ -51,6 +53,19 @@ tasks.test {
     // to show them. Forcing headless keeps that honest — and keeps the suite
     // runnable on a build machine with no desktop.
     systemProperty("java.awt.headless", "true")
+    // The handshake directory is resolved from this variable, so the suite writes
+    // under build/ instead of into the developer's real agent directory.
+    environment("PLATYNUI_AGENT_DIR", layout.buildDirectory.dir("test-agents").get().asFile.absolutePath)
+    // One test installs a SecurityManager, to prove the diagnostic channel survives a policy that
+    // denies it — the failure measured in a real Java Web Start target. Installing one at runtime
+    // needs this opt-in from JDK 18 on, and JEP 486 removes the possibility altogether in JDK 24:
+    // when the toolchain above moves there, that coverage has to move to the live attach tests
+    // rather than quietly disappear with a version bump.
+    jvmArgs("-Djava.security.manager=allow")
+    // The AppContext accessors read a JDK internal. In a target JVM the agent opens it itself
+    // through `Instrumentation.redefineModule` (ModuleAccess), which a plain test JVM has no
+    // equivalent of — so the tests are given the same access the agent grants itself.
+    jvmArgs("--add-exports", "java.desktop/sun.awt=ALL-UNNAMED")
     testLogging {
         events("failed")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
@@ -115,10 +130,36 @@ tasks.jar {
     }
 }
 
+// `Boot-Class-Path` is resolved by the JVM against the agent JAR's own directory, so it must name
+// the file this build actually produces. The attribute and `archiveFileName` are set independently
+// a few lines apart, and a mismatch is SILENT: the entry matches nothing, the JVM reports nothing,
+// and the agent falls back to system-loader loading — which works everywhere except in a target
+// with a restrictive security policy, the one case nobody exercises locally. So it is checked
+// rather than remembered.
+val checkAgentManifest = tasks.register("checkAgentManifest") {
+    description = "Fail if the agent JAR's Boot-Class-Path does not name the JAR itself"
+    group = "verification"
+    val jarFile = tasks.jar.flatMap { it.archiveFile }
+    inputs.file(jarFile)
+    doLast {
+        val artifact = jarFile.get().asFile
+        val bootClassPath = JarFile(artifact).use { it.manifest.mainAttributes.getValue("Boot-Class-Path") }
+        check(bootClassPath == artifact.name) {
+            "Boot-Class-Path is \"$bootClassPath\" but this build produces \"${artifact.name}\" — the entry " +
+                "would match nothing and the agent would silently load through the system class loader, " +
+                "losing the privileges a sandboxed target denies it"
+        }
+    }
+}
+
+tasks.check {
+    dependsOn(checkAgentManifest)
+}
+
 // `just build-java-agent` calls this; `assemble` would also drag in distributions
 // we do not produce.
 tasks.register("agentJar") {
     description = "Build the PlatynUI agent JAR (build/libs/platynui-agent.jar)"
     group = "build"
-    dependsOn(tasks.jar)
+    dependsOn(tasks.jar, checkAgentManifest)
 }

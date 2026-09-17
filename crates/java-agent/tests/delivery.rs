@@ -122,6 +122,20 @@ fn the_installed_package_is_discovered_through_the_environment_interpreter() {
         package.agent_jar.display()
     );
 
+    // The delivered file has to keep the name its own manifest names. `Boot-Class-Path:
+    // platynui-agent.jar` is resolved by the JVM relative to the JAR's directory, which is what
+    // puts the agent's classes on the bootstrap loader and out of reach of a target's security
+    // policy. Stage it under any other name and nothing fails: the entry matches nothing, the JVM
+    // says nothing, and the agent quietly loads through the system class loader instead — visible
+    // only in a sandboxed target, which is the one case nobody runs locally. The Gradle build ties
+    // the attribute to the name it produces; this ties the name that actually ships.
+    assert_eq!(
+        package.agent_jar.file_name().and_then(std::ffi::OsStr::to_str),
+        Some("platynui-agent.jar"),
+        "the shipped JAR must keep the name its Boot-Class-Path entry names, got {}",
+        package.agent_jar.display()
+    );
+
     // The operator-facing command must agree with what discovery resolved —
     // it is what a user pastes into a `-javaagent:` line when attach is blocked.
     let printed = run(Command::new(script_in(&venv, "platynui-provider-java")).arg("agent-path"), "agent-path");

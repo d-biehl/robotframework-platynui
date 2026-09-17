@@ -52,6 +52,8 @@ use std::process::{Child, Command};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 use tracing as _;
+// Captures the tracing output of one unit test over in `agent::backend`; nothing here needs it.
+use tracing_subscriber as _;
 
 const DISCOVERY_DEADLINE: Duration = Duration::from_secs(20);
 

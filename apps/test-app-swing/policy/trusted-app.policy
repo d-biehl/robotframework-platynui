@@ -1,0 +1,27 @@
+// The sandbox shape of a signed <all-permissions/> Java Web Start application:
+// the application's own code base is fully trusted, and everything else in the
+// JVM gets only what the default policy grants — which is nothing that matters.
+//
+// That asymmetry is the point. An agent injected into such a JVM lands on the
+// SYSTEM class path, so its protection domain is an ordinary file code source
+// with no grant here, and it is denied environment reads, property reads and
+// socket accept exactly as a JNLPSecurityManager denies them. Measured against
+// OpenWebStart 1.14, the first denial is the same one:
+//
+//     Denying permission: ("java.lang.RuntimePermission"
+//                          "getenv.PLATYNUI_AGENT_DIR")
+//
+// This is used with -Djava.security.policy=<this file> (single '='), so it
+// EXTENDS the JDK's own java.policy rather than replacing it — again matching a
+// real target, which has its base policy too.
+//
+// `platynui.fixture.classes` is passed by whoever launches the fixture, because
+// a checkout lives wherever it lives. It must be a URL-shaped path: forward
+// slashes on every platform, no trailing slash. A codeBase that matches nothing
+// loads WITHOUT ANY ERROR and silently leaves the fixture sandboxed as well,
+// which is a harsher and different shape than the one under test — so the
+// fixture asserts its own permissions at startup (`--require-security-manager`)
+// instead of trusting this file to have applied.
+grant codeBase "file:${platynui.fixture.classes}/-" {
+    permission java.security.AllPermission;
+};

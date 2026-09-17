@@ -43,10 +43,33 @@ final class SwingAdapter {
         SwingAdapter adapter = new SwingAdapter(runtime);
         runtime.setToolkitDispatcher(new SwingDispatcher());
         runtime.registry().setLivenessCheck(SwingTree.LIVENESS);
+        runtime.registry().setWorldCheck(WORLD_OF_ELEMENT);
+        // So the runtime's own element-scoped endpoints — `element/live` — reach the same thread
+        // the adapter's do, instead of whichever queue the RPC handler could see.
+        runtime.setToolkitDispatcherResolver(new ToolkitDispatcher.Resolver() {
+            @Override
+            public ToolkitDispatcher forWorld(Object world) {
+                return world == null ? null : new SwingDispatcher(world);
+            }
+        });
         adapter.watchStructuralChanges();
-        AgentLog.debug("Swing/AWT adapter installed");
+        AgentLog.debug("Swing/AWT adapter installed; toolkit worlds: "
+                + (AppContexts.available() ? String.valueOf(AppContexts.all().size()) : "not enumerable"));
         return adapter;
     }
+
+    /**
+     * Which toolkit world an element belongs to, asked of the element rather than of the thread.
+     *
+     * <p>A {@code VirtualChild} (a table row or cell) has no context of its own; it belongs to
+     * wherever its owning component does.
+     */
+    private static final ElementRegistry.WorldCheck WORLD_OF_ELEMENT = new ElementRegistry.WorldCheck() {
+        @Override
+        public Object worldOf(Object element) {
+            return AppContexts.of(SwingTree.componentOf(element));
+        }
+    };
 
     /**
      * Bumps the UI-generation counter when the structure changes.
@@ -55,8 +78,35 @@ final class SwingAdapter {
      * to the application's own components, where they would survive the agent and change what the
      * application holds on to. The counter is only an invalidation <em>hint</em> — per-element
      * validity has its own endpoint — so a coarse signal is exactly the right amount of information.
+     *
+     * <p>"Global" here really is per JVM, across toolkit worlds — measured, because the opposite was
+     * the obvious guess and it is wrong: the listener list hangs off the single {@code Toolkit}
+     * instance, not off an {@code AppContext}, so one registration hears every world's events
+     * ({@code AppContextEventsTest}). Registering once per world would install N listeners in a
+     * foreign process to learn the same thing N times.
+     *
+     * <p>Where it registers from still matters. An agent thread in a multi-world JVM has no
+     * {@code AppContext} of its own, and AWT calls that resolve one then fail — so the registration
+     * is posted to a world's event thread when there are worlds to ask, and only done inline when
+     * this JVM has no enumerable ones (the single-world case, where the calling thread's context is
+     * always found).
      */
     private void watchStructuralChanges() {
+        List<Object> worlds = AppContexts.all();
+        if (worlds.isEmpty()) {
+            listenHere();
+            return;
+        }
+        new SwingDispatcher(worlds.get(0)).submit(new Runnable() {
+            @Override
+            public void run() {
+                listenHere();
+            }
+        });
+    }
+
+    /** Registers the structural listener from the calling thread's toolkit world. */
+    private void listenHere() {
         try {
             Toolkit.getDefaultToolkit().addAWTEventListener(new AWTEventListener() {
                 @Override
@@ -97,19 +147,51 @@ final class SwingAdapter {
         return payloads;
     }
 
-    /** Resolves an {@code id} parameter to a live element, or fails the call. */
-    private Object require(Map<String, Object> params) throws RpcException {
+    /**
+     * An element and the toolkit thread that may touch it.
+     *
+     * <p>The two travel together on purpose: every read of a component has to happen on the event
+     * queue of the world that component belongs to, and separating the pair is how a call ends up
+     * dispatched to whichever queue the agent thread could reach.
+     */
+    private static final class Target {
+
+        private final Object element;
+        private final ToolkitDispatcher dispatcher;
+
+        Target(Object element, ToolkitDispatcher dispatcher) {
+            this.element = element;
+            this.dispatcher = dispatcher;
+        }
+    }
+
+    /** Resolves an {@code id} parameter to a live element and its toolkit thread, or fails. */
+    private Target require(Map<String, Object> params) throws RpcException {
         Object raw = params.get("id");
         if (!(raw instanceof Long)) {
             throw new RpcException(RpcException.INVALID_PARAMS, "'id' must be an element id");
         }
-        Object element = runtime.registry().resolve(((Long) raw).longValue());
+        long id = ((Long) raw).longValue();
+        Object element = runtime.registry().resolve(id);
         if (element == null) {
             // Gone rather than never-registered, from the caller's point of view the
             // same thing: the element it holds is stale and has to be looked up again.
             throw new RpcException(RpcException.INVALID_PARAMS, "element " + raw + " is gone");
         }
-        return element;
+        // The world recorded when the id was handed out — never re-derived from this thread, whose
+        // own world is either the wrong one or none at all.
+        return new Target(element, dispatcherFor(runtime.registry().worldOf(id)));
+    }
+
+    /**
+     * The dispatcher for one toolkit world, or the installed default when the world is unknown.
+     *
+     * <p>Not cached: a dispatcher is two fields, and a map keyed by {@code AppContext} would hold
+     * disposed worlds alive for the life of the agent — a weak map cannot help, because the value
+     * references the key.
+     */
+    private ToolkitDispatcher dispatcherFor(Object world) {
+        return runtime.dispatcherForWorld(world);
     }
 
     private static double requireDouble(Map<String, Object> params, String key) throws RpcException {
@@ -130,15 +212,53 @@ final class SwingAdapter {
 
         @Override
         public Object invoke(RpcSession session, Map<String, Object> params) throws RpcException {
-            List<Object> windows = runtime.onToolkitThread(new java.util.concurrent.Callable<List<Object>>() {
-                @Override
-                public List<Object> call() {
-                    return describeAll(SwingTree.windows());
-                }
-            });
             Map<String, Object> result = Json.newObject();
-            result.put("windows", windows);
+            result.put("windows", allWindows());
             return result;
+        }
+
+        /**
+         * The union across every toolkit world, each world asked on its own event thread.
+         *
+         * <p>A world that misses its deadline contributes nothing and does not fail the call. That
+         * is a deliberate asymmetry with the per-element endpoints, which do fail: a frozen Web
+         * Start application must not make a healthy one in the same JVM disappear, and "this world
+         * did not answer" is indistinguishable from "this world has no windows" to a caller either
+         * way. When *no* world answers, the failure is propagated — that is the frozen-JVM case the
+         * transport's containment promise is about.
+         */
+        private List<Object> allWindows() throws RpcException {
+            List<Object> worlds = AppContexts.all();
+            if (worlds.isEmpty()) {
+                return runtime.onToolkitThread(new java.util.concurrent.Callable<List<Object>>() {
+                    @Override
+                    public List<Object> call() {
+                        return describeAll(SwingTree.windows());
+                    }
+                });
+            }
+            List<Object> windows = new ArrayList<Object>();
+            RpcException lastFailure = null;
+            int answered = 0;
+            for (final Object world : worlds) {
+                try {
+                    windows.addAll(runtime.onToolkitThread(
+                            dispatcherFor(world), new java.util.concurrent.Callable<List<Object>>() {
+                                @Override
+                                public List<Object> call() {
+                                    return describeAll(SwingTree.windowsOf(world));
+                                }
+                            }));
+                    answered++;
+                } catch (RpcException e) {
+                    AgentLog.debug("toolkit world " + world + " did not answer ui/windows: " + e.getMessage());
+                    lastFailure = e;
+                }
+            }
+            if (answered == 0 && lastFailure != null) {
+                throw lastFailure;
+            }
+            return windows;
         }
 
         @Override
@@ -152,13 +272,14 @@ final class SwingAdapter {
 
         @Override
         public Object invoke(RpcSession session, Map<String, Object> params) throws RpcException {
-            final Object element = require(params);
-            List<Object> children = runtime.onToolkitThread(new java.util.concurrent.Callable<List<Object>>() {
-                @Override
-                public List<Object> call() {
-                    return describeAll(SwingTree.childrenOf(element));
-                }
-            });
+            final Target target = require(params);
+            List<Object> children =
+                    runtime.onToolkitThread(target.dispatcher, new java.util.concurrent.Callable<List<Object>>() {
+                        @Override
+                        public List<Object> call() {
+                            return describeAll(SwingTree.childrenOf(target.element));
+                        }
+                    });
             Map<String, Object> result = Json.newObject();
             result.put("children", children);
             return result;
@@ -175,12 +296,12 @@ final class SwingAdapter {
 
         @Override
         public Object invoke(RpcSession session, Map<String, Object> params) throws RpcException {
-            final Object element = require(params);
-            Map<String, Object> payload =
-                    runtime.onToolkitThread(new java.util.concurrent.Callable<Map<String, Object>>() {
+            final Target target = require(params);
+            Map<String, Object> payload = runtime.onToolkitThread(
+                    target.dispatcher, new java.util.concurrent.Callable<Map<String, Object>>() {
                         @Override
                         public Map<String, Object> call() {
-                            return describe(element);
+                            return describe(target.element);
                         }
                     });
             Map<String, Object> result = Json.newObject();
@@ -207,15 +328,54 @@ final class SwingAdapter {
         public Object invoke(RpcSession session, Map<String, Object> params) throws RpcException {
             final double x = requireDouble(params, "x");
             final double y = requireDouble(params, "y");
-            List<Object> chain = runtime.onToolkitThread(new java.util.concurrent.Callable<List<Object>>() {
-                @Override
-                public List<Object> call() {
-                    return describeAll(SwingTree.chainAt(x, y));
-                }
-            });
             Map<String, Object> result = Json.newObject();
-            result.put("chain", chain);
+            result.put("chain", chainAt(x, y));
             return result;
+        }
+
+        /**
+         * Asks each toolkit world in turn, on its own event thread, and takes the first hit.
+         *
+         * <p>A point over a Web Start application is in a world the agent's threads are not in, so
+         * a single lookup would answer "nothing here" rather than fail — the quietest possible
+         * wrong answer for a picker. A world that misses its deadline is skipped for the same
+         * reason {@code ui/windows} skips it: a frozen application must not make the window under
+         * the pointer unpickable in a healthy one.
+         */
+        private List<Object> chainAt(final double x, final double y) throws RpcException {
+            List<Object> worlds = AppContexts.all();
+            if (worlds.isEmpty()) {
+                return runtime.onToolkitThread(new java.util.concurrent.Callable<List<Object>>() {
+                    @Override
+                    public List<Object> call() {
+                        return describeAll(SwingTree.chainAt(x, y));
+                    }
+                });
+            }
+            RpcException lastFailure = null;
+            int answered = 0;
+            for (final Object world : worlds) {
+                try {
+                    List<Object> chain = runtime.onToolkitThread(
+                            dispatcherFor(world), new java.util.concurrent.Callable<List<Object>>() {
+                                @Override
+                                public List<Object> call() {
+                                    return describeAll(SwingTree.chainAt(SwingTree.windowsOf(world), x, y));
+                                }
+                            });
+                    answered++;
+                    if (!chain.isEmpty()) {
+                        return chain;
+                    }
+                } catch (RpcException e) {
+                    AgentLog.debug("toolkit world " + world + " did not answer ui/at_point: " + e.getMessage());
+                    lastFailure = e;
+                }
+            }
+            if (answered == 0 && lastFailure != null) {
+                throw lastFailure;
+            }
+            return new ArrayList<Object>();
         }
 
         @Override
@@ -236,13 +396,14 @@ final class SwingAdapter {
 
         @Override
         public Object invoke(RpcSession session, Map<String, Object> params) throws RpcException {
-            final Object element = require(params);
-            Boolean requested = runtime.onToolkitThread(new java.util.concurrent.Callable<Boolean>() {
-                @Override
-                public Boolean call() {
-                    return Boolean.valueOf(SwingTree.requestFocus(element));
-                }
-            });
+            final Target target = require(params);
+            Boolean requested =
+                    runtime.onToolkitThread(target.dispatcher, new java.util.concurrent.Callable<Boolean>() {
+                        @Override
+                        public Boolean call() {
+                            return Boolean.valueOf(SwingTree.requestFocus(target.element));
+                        }
+                    });
             Map<String, Object> result = Json.newObject();
             result.put("requested", requested);
             return result;
@@ -265,12 +426,13 @@ final class SwingAdapter {
 
         @Override
         public Object invoke(RpcSession session, Map<String, Object> params) throws RpcException {
-            final Object element = require(params);
-            return runtime.onToolkitThread(new java.util.concurrent.Callable<Map<String, Object>>() {
-                @Override
-                public Map<String, Object> call() {
-                    Map<String, Object> result = Json.newObject();
-                    Window window = SwingTree.windowOf(element);
+            final Target target = require(params);
+            return runtime.onToolkitThread(
+                    target.dispatcher, new java.util.concurrent.Callable<Map<String, Object>>() {
+                        @Override
+                        public Map<String, Object> call() {
+                            Map<String, Object> result = Json.newObject();
+                            Window window = SwingTree.windowOf(target.element);
                     SwingWindowHandle.describeInto(result, window);
                     result.put("pid", Long.valueOf(AgentPaths.currentPid()));
                     // The window's own rectangle travels along: it is what the

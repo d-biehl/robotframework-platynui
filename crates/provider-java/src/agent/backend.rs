@@ -273,7 +273,18 @@ impl AgentBackend {
             std::thread::sleep(ATTACH_READY_POLL);
         }
         for pid in &pending {
-            debug!(pid, "the injected agent did not publish a handshake in time; it serves from a later pass");
+            // A warning, not a debug line. The agent was loaded — the JVM said so — and then went
+            // quiet, which is a failure inside the target rather than a slow start, and the only
+            // evidence left: since the agent keeps its own failures away from the application it
+            // observes, nothing is thrown, nothing is returned, and this silence is all the client
+            // ever sees. Naming the target's log is the whole value of the line; the cause was
+            // printed there and there is no way for an operator to guess that.
+            warn!(
+                pid,
+                "the injected agent published no handshake within {ATTACH_READY_TIMEOUT:?}; \
+                 if it never does, the reason was printed to that process's own stderr \
+                 (look for \"[PlatynUI agent]\")"
+            );
         }
         injected.retain(|pid| !pending.contains(pid));
         for pid in injected.iter() {
@@ -468,6 +479,47 @@ fn unsupported(details: &str) -> ProviderError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The only signal an operator gets when an agent dies inside the target.
+    ///
+    /// The agent keeps its own failures away from the application it observes, so nothing is
+    /// thrown, the attach reports success, and the JVM simply never answers. At debug level that
+    /// presents as "nothing happens", which is exactly how this class of failure stayed hidden.
+    #[test]
+    fn an_injected_agent_that_never_answers_is_a_warning() {
+        #[derive(Clone)]
+        struct Captured(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+        impl std::io::Write for Captured {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().expect("log buffer").extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let buffer = std::sync::Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+        let writer = Captured(std::sync::Arc::clone(&buffer));
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+
+        // A pid nothing will ever publish for: the wait runs out, which is the whole scenario.
+        let mut injected = vec![u32::MAX];
+        tracing::subscriber::with_default(subscriber, || AgentBackend::await_readiness(&mut injected));
+
+        assert!(injected.is_empty(), "a pid that never answered must not be reported as served");
+        let log = String::from_utf8(buffer.lock().expect("log buffer").clone()).expect("utf-8 log");
+        assert!(log.contains("WARN"), "the silence must be a warning, not a debug line: {log}");
+        assert!(log.contains("published no handshake"), "{log}");
+        assert!(
+            log.contains("[PlatynUI agent]"),
+            "it must name where the cause was printed, which nobody can guess: {log}"
+        );
+    }
 
     #[test]
     fn defaults_are_enabled_with_automatic_attachment_on() {

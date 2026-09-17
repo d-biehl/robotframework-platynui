@@ -7,6 +7,7 @@ import java.awt.Rectangle;
 import java.awt.Window;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -53,16 +54,34 @@ final class SwingTree {
     // -------------------------------------------------------------- top level
 
     /**
-     * The JVM's showing top-level windows.
+     * The showing top-level windows the <em>calling thread</em> can see.
      *
-     * <p>{@code Window.getWindows()} is the authoritative list — it is the JVM's own, so it needs no
-     * platform window enumeration and works identically wherever the agent runs. Frames and dialogs
-     * are both top-level nodes, matching how every other provider presents them.
+     * <p>{@code Window.getWindows()} needs no platform window enumeration and works identically
+     * wherever the agent runs — but it is scoped to the caller's AWT {@code AppContext}, so it is
+     * authoritative only for a JVM that has exactly one. The agent asks per world instead
+     * ({@link #windowsOf}); this remains the answer for a JVM whose worlds cannot be enumerated,
+     * and it is what {@link #windowsOf} degrades to.
      */
     static List<Window> windows() {
+        return showingActiveFirst(Arrays.asList(Window.getWindows()));
+    }
+
+    /**
+     * The showing top-level windows of one toolkit world.
+     *
+     * <p>Frames and dialogs are both top-level nodes, matching how every other provider presents
+     * them. The showing filter is what keeps a launcher's furniture out — a Web Start runtime's
+     * shared owner frame and its download dialogs are in a world of their own and are not showing
+     * by the time the application's window is.
+     */
+    static List<Window> windowsOf(Object appContext) {
+        return showingActiveFirst(AppContexts.windowsOf(appContext));
+    }
+
+    private static List<Window> showingActiveFirst(List<Window> candidates) {
         List<Window> windows = new ArrayList<Window>();
         Window active = null;
-        for (Window window : Window.getWindows()) {
+        for (Window window : candidates) {
             if (window == null || !window.isShowing()) {
                 continue;
             }
@@ -500,7 +519,18 @@ final class SwingTree {
      *     no window of this JVM covers the point
      */
     static List<Object> chainAt(double deviceX, double deviceY) {
-        for (Window window : windows()) {
+        return chainAt(windows(), deviceX, deviceY);
+    }
+
+    /**
+     * Hit-test within one toolkit world's windows.
+     *
+     * <p>Split out because the caller has to ask each world on that world's own event thread: a
+     * point over a Web Start application's window is in a world the agent's thread is not in, and
+     * asking the wrong one answers "nothing here" rather than failing.
+     */
+    static List<Object> chainAt(List<Window> windows, double deviceX, double deviceY) {
+        for (Window window : windows) {
             Point local = SwingGeometry.toLocal(window, deviceX, deviceY);
             if (local == null || !containsLocal(window, local)) {
                 continue;

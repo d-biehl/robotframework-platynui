@@ -44,3 +44,8 @@ windows = { version = "0.62", features = [
   "Win32_System_Diagnostics_Debug",
   "Win32_UI_WindowsAndMessaging",
 ] }
+
+[dev-dependencies]
+# Captures the tracing output of one unit test: the level of the "agent went
+# quiet" diagnostic is the contract there, not just its text.
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }

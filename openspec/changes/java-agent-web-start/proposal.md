@@ -15,7 +15,7 @@ Both defects are structural rather than incidental to OpenWebStart: the first hi
 - The Rust side SHALL stop hiding this class of failure: an agent that was injected but never published a handshake is currently a `debug!` line, which is why the symptom presents as "nothing happens". It becomes a warning naming the target's own log as the place the cause was printed.
 - Live coverage SHALL include a target that reproduces both conditions — a fixture launched under a restrictive policy and in a dedicated `AppContext` — so neither defect can return unnoticed. No OpenWebStart installation is required to run it. The policy half is bound to a JDK that still has a security manager (JEP 486 disabled it permanently in JDK 24), which is why it is pinned explicitly rather than left to the fixture's toolchain.
 
-Not breaking for consumers: no protocol version bump, no configuration change, no node-shape change. One behavioural side effect on the **target**, on JDK 9+: appending to the bootstrap class path makes the JVM print `Sharing is only supported for boot loader classes...` and disables class-data sharing for the application's own classes. Making it conditional was considered and rejected in design — under `-javaagent` the agent runs before the security manager exists, so the condition cannot be evaluated when the decision has to be made.
+Not breaking for consumers: no protocol version bump, no configuration change, no node-shape change. One behavioural side effect on the **target**, on any JDK that ships a default CDS archive (12 and up, per JEP 341; measured on 21 and 24): appending to the bootstrap class path makes the JVM print `Sharing is only supported for boot loader classes...` and disables class-data sharing for the application's own classes. Making it conditional was considered and rejected in design — under `-javaagent` the agent runs before the security manager exists, so the condition cannot be evaluated when the decision has to be made.
 
 ## Capabilities
 
@@ -27,6 +27,7 @@ None. Both defects sit inside capabilities that already exist and already promis
 
 - `java-agent`: the agent runtime gains two requirements it silently lacked — that it operates independently of the target's security policy (and fails visibly rather than silently when it cannot), and that "the toolkit thread" is resolved per `AppContext` rather than assumed to be one per JVM. The existing *Injection into a running JVM without launch changes* and *Bounded, multi-client agent runtime* requirements are the ones affected.
 - `java-provider`: *Agent-backed Java UI tree* promises a running Swing application is served without launch changes; it gains the Web Start case as an explicit scenario, since that is the launch path the capability was justified by and the one it did not cover.
+- `swing-test-app`: *Test-app CLI conventions* enumerates the fixture's CLI surface, which the two diagnostic launch modes extend. The modes are opt-in and the default launch is unchanged, but "a mode that cannot apply fails the launch" is a contract worth stating: a fixture that silently degraded to the default shape would keep every dependent test green while testing nothing.
 
 ## Impact
 

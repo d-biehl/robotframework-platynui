@@ -51,6 +51,13 @@ final class AgentRuntime {
     private volatile ToolkitDispatcher dispatcher = new ToolkitDispatcher.Direct();
 
     /**
+     * Turns an element's recorded toolkit world into the thread that may touch it.
+     *
+     * <p>Neutral until an adapter installs one; a JVM with a single toolkit world never needs it.
+     */
+    private volatile ToolkitDispatcher.Resolver dispatcherResolver;
+
+    /**
      * The toolkit adapter, once one applies to this JVM.
      *
      * <p>Late by necessity: injected with {@code -javaagent} the agent runs before the application has
@@ -88,6 +95,17 @@ final class AgentRuntime {
     /** Installs the toolkit's dispatcher; called by an adapter once it knows the toolkit. */
     void setToolkitDispatcher(ToolkitDispatcher toolkitDispatcher) {
         dispatcher = toolkitDispatcher == null ? new ToolkitDispatcher.Direct() : toolkitDispatcher;
+    }
+
+    /** Installs the world-to-dispatcher mapping; see {@link ToolkitDispatcher.Resolver}. */
+    void setToolkitDispatcherResolver(ToolkitDispatcher.Resolver resolver) {
+        dispatcherResolver = resolver;
+    }
+
+    /** The toolkit thread of one world, or {@code null} for the installed default. */
+    ToolkitDispatcher dispatcherForWorld(Object world) {
+        ToolkitDispatcher.Resolver resolver = dispatcherResolver;
+        return world == null || resolver == null ? null : resolver.forWorld(world);
     }
 
     /**
@@ -277,7 +295,23 @@ final class AgentRuntime {
      * of the runtime and not something each adapter has to remember.
      */
     <T> T onToolkitThread(java.util.concurrent.Callable<T> task) throws RpcException {
-        return ToolkitDispatcher.Calls.invokeWithDeadline(dispatcher, task, DEFAULT_CALL_DEADLINE_MS);
+        return onToolkitThread(dispatcher, task);
+    }
+
+    /**
+     * Runs a read on one specific toolkit thread, under the same deadline.
+     *
+     * <p>A JVM may hold several independent toolkit worlds — AWT's {@code AppContext}s are the case
+     * in the field — and which one a call belongs to is a property of the element it concerns, not
+     * of the agent thread that happens to be handling it. The adapter therefore chooses the
+     * dispatcher; the boundedness stays here, so each world is bounded the same way and one wedged
+     * queue cannot take the others with it.
+     *
+     * @param target the toolkit thread to run on, or {@code null} for the installed default
+     */
+    <T> T onToolkitThread(ToolkitDispatcher target, java.util.concurrent.Callable<T> task) throws RpcException {
+        return ToolkitDispatcher.Calls.invokeWithDeadline(
+                target == null ? dispatcher : target, task, DEFAULT_CALL_DEADLINE_MS);
     }
 
     /**
@@ -359,15 +393,18 @@ final class AgentRuntime {
                 throw new RpcException(RpcException.INVALID_PARAMS, "'id' must be an element id");
             }
             final long id = ((Long) rawId).longValue();
-            // On the toolkit thread: "still attached to a showing window" is a question only the
-            // toolkit may be asked, and asking it off-thread is how observers cause the races they
-            // then report as flakiness.
-            Boolean live = onToolkitThread(new java.util.concurrent.Callable<Boolean>() {
-                @Override
-                public Boolean call() {
-                    return Boolean.valueOf(registry.isLive(id));
-                }
-            });
+            // On the toolkit thread — and on the RIGHT one. "Still attached to a showing window" is
+            // a question only the toolkit may be asked, and asking it off-thread is how observers
+            // cause the races they then report as flakiness; asking the wrong world's thread is how
+            // an agent answers for a JVM it cannot see, which is worse because it looks like an
+            // answer.
+            Boolean live = onToolkitThread(dispatcherForWorld(registry.worldOf(id)),
+                    new java.util.concurrent.Callable<Boolean>() {
+                        @Override
+                        public Boolean call() {
+                            return Boolean.valueOf(registry.isLive(id));
+                        }
+                    });
             Map<String, Object> result = Json.newObject();
             result.put("live", live);
             return result;

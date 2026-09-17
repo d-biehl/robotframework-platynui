@@ -47,6 +47,34 @@ const HANDSHAKE_DEADLINE: Duration = Duration::from_secs(20);
 /// The launched fixture JVM; killed on drop so a panicking test cleans up.
 struct FixtureJvm {
     child: Child,
+    title: String,
+}
+
+/// Optional launch shapes, for the two conditions a Java Web Start target
+/// imposes (OpenSpec `java-agent-web-start`). Both default to off: every test
+/// that is not about them launches the fixture exactly as before.
+#[derive(Clone, Default)]
+struct FixtureModes {
+    /// Where the fixture's JVM publishes its handshake file — the agent reads
+    /// `PLATYNUI_AGENT_DIR` from the environment it was injected into. A path
+    /// the agent cannot create is how a start-up failure is induced from
+    /// outside, after the agent is already loaded and running its own code.
+    agent_dir: Option<PathBuf>,
+    /// Start under a security manager with the trusted-app policy: the fixture's
+    /// own code holds all permissions, everything else in the JVM — an injected
+    /// agent included — gets the sandbox. The shape of a signed
+    /// `<all-permissions/>` JNLP.
+    sandboxed: bool,
+    /// Build the UI in a second AWT `AppContext`, with the launcher's furniture
+    /// left in the first one. The shape Web Start and applet runtimes produce,
+    /// in which an observer's own threads are in neither.
+    second_app_context: bool,
+    /// Also *show* the launcher's window, so both worlds hold something readable.
+    /// Without it the first world is invisible by construction, and "one world
+    /// wedged, the other still answering" has nothing to answer with.
+    companion_window: bool,
+    /// Stop the application world's event queue: `(after, for)`, in seconds.
+    wedge: Option<(u32, u32)>,
 }
 
 impl FixtureJvm {
@@ -63,6 +91,14 @@ impl FixtureJvm {
     }
 
     fn launch(title_suffix: &str, jvm_args: &[String]) -> Self {
+        Self::launch_with(title_suffix, jvm_args, &FixtureModes::default())
+    }
+
+    /// Launches the fixture in one of the Web Start shapes, or both at once.
+    ///
+    /// The two conditions are independent — a restrictive policy and a second
+    /// toolkit world — and a real Web Start target has both, so they compose.
+    fn launch_with(title_suffix: &str, jvm_args: &[String], modes: &FixtureModes) -> Self {
         let classes = swing_classes_dir();
         assert!(
             classes.is_dir(),
@@ -70,22 +106,67 @@ impl FixtureJvm {
             classes.display()
         );
         let title = format!("PlatynUI Agent Live {} {}", std::process::id(), title_suffix);
-        let child = Command::new(swing_java_launcher())
-            .args(jvm_args)
-            .arg("-cp")
-            .arg(&classes)
-            .arg("platynui.testapp.Main")
-            .arg("--title")
-            .arg(&title)
-            .arg("--auto-close")
-            .arg("180")
+
+        let mut command = Command::new(swing_java_launcher());
+        command.args(jvm_args);
+        if let Some(directory) = &modes.agent_dir {
+            command.env("PLATYNUI_AGENT_DIR", directory);
+        }
+
+        if modes.sandboxed {
+            let major = java_major_version();
+            assert!(
+                major < 24,
+                "the sandbox mode needs a JDK that still has a security manager: JEP 486 disabled \
+                 it permanently in JDK 24, where -Djava.security.manager with any value but \
+                 `disallow` makes the JVM refuse to start. The launcher {} is JDK {major} — point \
+                 PLATYNUI_TEST_APP_SWING_JAVA at a JDK 23 or older, or drop this coverage \
+                 deliberately rather than by a toolchain bump.",
+                swing_java_launcher().display()
+            );
+            command
+                .arg("-Djava.security.manager")
+                .arg(format!("-Djava.security.policy={}", policy_file().display()))
+                .arg(format!("-Dplatynui.fixture.classes={}", url_path(&classes)));
+        }
+        if modes.second_app_context {
+            // `sun.awt` is not exported on JDK 9+ and the fixture needs it to create the second
+            // context. JDK_JAVA_OPTIONS carries the flag there and is ignored by Java 8, which
+            // needs none — so one environment variable covers both without first asking the
+            // launcher which it is.
+            command.env("JDK_JAVA_OPTIONS", "--add-exports java.desktop/sun.awt=ALL-UNNAMED");
+        }
+
+        command.arg("-cp").arg(&classes).arg("platynui.testapp.Main");
+        command.arg("--title").arg(&title).arg("--auto-close").arg("180");
+        if modes.sandboxed {
+            // The fixture checks that the policy actually reached it. A codeBase matching nothing
+            // loads silently and would leave the fixture sandboxed too — a different target.
+            command.arg("--require-security-manager");
+        }
+        if modes.second_app_context {
+            command.arg("--app-context");
+        }
+        if modes.companion_window {
+            command.arg("--companion-window");
+        }
+        if let Some((after, duration)) = modes.wedge {
+            command.arg("--wedge-after").arg(after.to_string()).arg("--wedge-for").arg(duration.to_string());
+        }
+
+        let child = command
             .spawn()
             .expect("failed to launch the fixture JVM — set PLATYNUI_TEST_APP_SWING_JAVA or put `java` on PATH");
-        Self { child }
+        Self { child, title }
     }
 
     fn pid(&self) -> u32 {
         self.child.id()
+    }
+
+    /// The window title this instance was launched with — also its accessible name.
+    fn title(&self) -> &str {
+        &self.title
     }
 
     /// Waits until the JVM is far enough along that its attach listener can
@@ -101,6 +182,12 @@ impl FixtureJvm {
             std::thread::sleep(Duration::from_millis(100));
         }
         panic!("the fixture JVM {} never loaded a JVM runtime", self.pid());
+    }
+
+    /// Whether the target process is still alive — the question behind "the
+    /// agent's failure stayed inside the agent".
+    fn is_running(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(None))
     }
 
     fn kill(&mut self) {
@@ -137,6 +224,60 @@ fn agent_jar() -> PathBuf {
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
+}
+
+fn policy_file() -> PathBuf {
+    let policy = repo_root().join("apps").join("test-app-swing").join("policy").join("trusted-app.policy");
+    assert!(policy.is_file(), "fixture policy file not found at {}", policy.display());
+    policy
+}
+
+/// A path as a policy file's `codeBase` URL wants it: forward slashes, no
+/// trailing separator. A `codeBase` that matches nothing is accepted silently,
+/// so this conversion is load-bearing rather than cosmetic.
+fn url_path(path: &std::path::Path) -> String {
+    path.display().to_string().replace('\\', "/").trim_end_matches('/').to_string()
+}
+
+/// The major version of the JVM the fixture launches on, read from `java -version`.
+///
+/// Only one launch mode needs it, and it needs it before launching rather than
+/// after: a JDK 24 refusing `-Djava.security.manager` looks like a fixture that
+/// will not start, with nothing naming the reason.
+fn java_major_version() -> u32 {
+    let launcher = swing_java_launcher();
+    let output = Command::new(&launcher).arg("-version").output().expect("could not run the fixture's java launcher");
+    // Both dialects put it in the first quoted token: `java version "1.8.0_442"`
+    // before 9, `openjdk version "21.0.12"` from 9 on.
+    let text = String::from_utf8_lossy(&output.stderr);
+    let quoted = text
+        .split('"')
+        .nth(1)
+        .unwrap_or_else(|| panic!("no version string in `{} -version`: {text}", launcher.display()));
+    let mut parts = quoted.split('.');
+    let first = parts.next().unwrap_or_default();
+    let major = if first == "1" { parts.next().unwrap_or("0") } else { first };
+    major
+        .split(|c: char| !c.is_ascii_digit())
+        .next()
+        .unwrap_or("0")
+        .parse()
+        .unwrap_or_else(|_| panic!("could not read a major version from {quoted:?}"))
+}
+
+/// Polls until the JVM has published a handshake file into `directory` — the
+/// variant for a fixture pointed at its own `PLATYNUI_AGENT_DIR`.
+fn await_agent_in(directory: &std::path::Path, pid: u32) -> handshake::HandshakeInfo {
+    let deadline = Instant::now() + HANDSHAKE_DEADLINE;
+    while Instant::now() < deadline {
+        match handshake::for_pid_in(directory, pid) {
+            Ok(Some(info)) => return info,
+            Ok(None) => {}
+            Err(e) => panic!("handshake file for {pid} in {} is unusable: {e}", directory.display()),
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    panic!("no agent published itself in process {pid} within {HANDSHAKE_DEADLINE:?}");
 }
 
 /// Polls until the JVM has published a handshake file.
@@ -357,4 +498,304 @@ fn attaching_to_a_dead_process_reports_the_process() {
 
     let error = attach::load_agent(pid, &agent_jar(), None, Duration::from_secs(2)).expect_err("the process is gone");
     assert!(matches!(error, AgentError::ProcessUnavailable { .. }), "expected ProcessUnavailable, got {error:?}");
+}
+
+// ---------------------------------------------------------------------------
+// Web Start conditions (OpenSpec `java-agent-web-start`)
+
+/// The shape of a Java Web Start target: the application is trusted, everything
+/// else in its JVM is sandboxed. Before the agent's classes were bootstrap-
+/// defined it died here on its very first `getenv` — while the attach reported
+/// success, which is what made the failure silent rather than merely fatal.
+#[test]
+#[ignore = "needs a JVM and the built fixture"]
+fn a_sandboxed_application_still_gets_a_working_agent() {
+    let fixture = FixtureJvm::launch_with("sandboxed", &[], &FixtureModes { sandboxed: true, ..Default::default() });
+    fixture.wait_until_started();
+    let pid = fixture.pid();
+
+    attach::load_agent(pid, &agent_jar(), None, DEFAULT_ATTACH_TIMEOUT).expect("native attach");
+
+    let info = await_agent(pid);
+    // Not incidental: the version comes from a resource the agent reads through its own class,
+    // and in this shape that class is bootstrap-defined — the one case where reading it through
+    // `getClassLoader()` would have dereferenced null.
+    assert!(
+        !info.agent_version.is_empty() && info.agent_version != "unknown",
+        "the sandboxed agent must still know its own version, got {:?}",
+        info.agent_version
+    );
+
+    let mut client = AgentClient::connect(&info, ClientConfig::default()).expect("connect");
+    client.ping().expect("ping");
+    assert!(await_toolkit(&mut client).contains(&"swing".to_owned()), "the fixture is a Swing application");
+
+    let answer = client.call("ui/windows", serde_json::json!({})).expect("ui/windows");
+    let windows = answer["windows"].as_array().expect("a windows array");
+    assert!(!windows.is_empty(), "the sandboxed application's window must be served: {answer}");
+}
+
+/// A start that fails must fail **inside** the agent. The failure is induced
+/// from outside — the handshake directory is pointed at a path that cannot be
+/// created — so the agent is already loaded and running its own code when it
+/// goes wrong, which is the case that once threw an `ExceptionInInitializerError`
+/// out of `agentmain` into the target's attach listener thread.
+#[test]
+#[ignore = "needs a JVM and the built fixture"]
+fn a_failed_start_never_reaches_the_application() {
+    let workspace = tempfile::tempdir().expect("tempdir");
+    let barrier = workspace.path().join("blocked");
+    std::fs::write(&barrier, b"a file where the agent wants a directory").expect("write barrier");
+    let agent_dir = barrier.join("agents");
+
+    let mut fixture = FixtureJvm::launch_with(
+        "failed-start",
+        &[],
+        &FixtureModes { agent_dir: Some(agent_dir.clone()), ..Default::default() },
+    );
+    fixture.wait_until_started();
+    let pid = fixture.pid();
+
+    // The attach succeeds: the JVM loaded the agent and `agentmain` returned normally. Whatever
+    // went wrong afterwards is the agent's business and must stay there.
+    attach::load_agent(pid, &agent_jar(), None, DEFAULT_ATTACH_TIMEOUT).expect("native attach");
+    std::thread::sleep(Duration::from_secs(2));
+
+    assert!(
+        handshake::for_pid_in(&agent_dir, pid).expect("handshake lookup").is_none(),
+        "the start was supposed to fail, so nothing may have been published"
+    );
+    assert!(fixture.is_running(), "the target application must survive an agent that could not start");
+}
+
+/// "Already tried" is not "already running". A JVM whose agent failed to start
+/// must accept another attempt, or one transient cause makes it unreachable for
+/// the rest of its life — and the client's retry budget is spent on a target
+/// that has quietly decided never to answer.
+#[test]
+#[ignore = "needs a JVM and the built fixture"]
+fn a_failed_start_does_not_disable_the_jvm_for_later_attempts() {
+    let workspace = tempfile::tempdir().expect("tempdir");
+    let barrier = workspace.path().join("blocked");
+    std::fs::write(&barrier, b"a file where the agent wants a directory").expect("write barrier");
+    let agent_dir = barrier.join("agents");
+
+    let fixture = FixtureJvm::launch_with(
+        "retry-after-failure",
+        &[],
+        &FixtureModes { agent_dir: Some(agent_dir.clone()), ..Default::default() },
+    );
+    fixture.wait_until_started();
+    let pid = fixture.pid();
+
+    attach::load_agent(pid, &agent_jar(), None, DEFAULT_ATTACH_TIMEOUT).expect("first attach");
+    std::thread::sleep(Duration::from_secs(2));
+    assert!(
+        handshake::for_pid_in(&agent_dir, pid).expect("handshake lookup").is_none(),
+        "the first start was supposed to fail"
+    );
+
+    // Remove the obstacle the first start tripped over — same JVM, same agent, a cause that is
+    // simply no longer there.
+    std::fs::remove_file(&barrier).expect("remove barrier");
+
+    attach::load_agent(pid, &agent_jar(), None, DEFAULT_ATTACH_TIMEOUT).expect("second attach");
+    let info = await_agent_in(&agent_dir, pid);
+    let mut client = AgentClient::connect(&info, ClientConfig::default()).expect("connect");
+    client.ping().expect("ping");
+    assert_eq!(client.info().pid, pid);
+}
+
+/// Polls `ui/windows` until the application's window has appeared.
+fn await_windows(client: &mut AgentClient) -> Vec<serde_json::Value> {
+    let deadline = Instant::now() + HANDSHAKE_DEADLINE;
+    while Instant::now() < deadline {
+        let answer = client.call("ui/windows", serde_json::json!({})).expect("ui/windows");
+        let windows = answer["windows"].as_array().expect("a windows array").clone();
+        if !windows.is_empty() {
+            return windows;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    panic!("the agent never reported a window");
+}
+
+/// The accessible name an element carries, under either of the two keys the
+/// payload uses: an explicitly set name, or the accessibility API's own.
+fn named(element: &serde_json::Value) -> Option<&str> {
+    element["name"].as_str().or_else(|| element["accessibleName"].as_str())
+}
+
+/// Walks the tree from `id` and returns the first element carrying `name`.
+///
+/// Depth-first over whole levels, because the interesting question is whether the
+/// tree is readable at all from the outside, not how fast.
+fn find_named(client: &mut AgentClient, id: i64, name: &str, depth: u32) -> Option<serde_json::Value> {
+    if depth == 0 {
+        return None;
+    }
+    let answer = client.call("ui/children", serde_json::json!({ "id": id })).ok()?;
+    let children = answer["children"].as_array()?.clone();
+    if let Some(hit) = children.iter().find(|child| named(child) == Some(name)) {
+        return Some(hit.clone());
+    }
+    for child in &children {
+        if let Some(found) = child["id"].as_i64().and_then(|id| find_named(client, id, name, depth - 1)) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// An application that lives in its own AWT toolkit world — the Web Start shape —
+/// must be served like any other, which before this change it was not: the agent's
+/// threads are in a different world (or in none), and the window list it could
+/// reach from there was empty.
+#[test]
+#[ignore = "needs a JVM and the built fixture"]
+fn an_element_outside_the_agents_own_toolkit_world_is_served() {
+    let fixture =
+        FixtureJvm::launch_with("app-context", &[], &FixtureModes { second_app_context: true, ..Default::default() });
+    fixture.wait_until_started();
+    let pid = fixture.pid();
+    attach::load_agent(pid, &agent_jar(), None, DEFAULT_ATTACH_TIMEOUT).expect("native attach");
+
+    let info = await_agent(pid);
+    let mut client = AgentClient::connect(&info, ClientConfig::default()).expect("connect");
+    await_toolkit(&mut client);
+
+    let windows = await_windows(&mut client);
+    let window = windows
+        .iter()
+        .find(|window| named(window) == Some(fixture.title()))
+        .unwrap_or_else(|| panic!("the application's window is missing from {windows:?}"));
+
+    // Readable to full depth, not merely present: the table sits six levels down, and reaching it
+    // means every intermediate call was dispatched to a queue that actually runs.
+    let id = window["id"].as_i64().expect("a window id");
+    let table = find_named(&mut client, id, "main-table", 12)
+        .expect("the tree must be readable down to the table in the application's own world");
+    assert!(table["childCount"].as_i64().unwrap_or(0) > 0, "the table must report its children: {table}");
+}
+
+/// The launcher's own windows are not part of the application. A Web Start runtime
+/// keeps a shared owner frame and its download dialogs in the world it hosts the
+/// application from; none of them is showing by the time the application's window
+/// is, and the showing filter is what has to keep them out — now that the agent
+/// looks into every world rather than only its own.
+#[test]
+#[ignore = "needs a JVM and the built fixture"]
+fn the_launchers_own_windows_are_not_part_of_the_application() {
+    let fixture =
+        FixtureJvm::launch_with("furniture", &[], &FixtureModes { second_app_context: true, ..Default::default() });
+    fixture.wait_until_started();
+    let pid = fixture.pid();
+    attach::load_agent(pid, &agent_jar(), None, DEFAULT_ATTACH_TIMEOUT).expect("native attach");
+
+    let info = await_agent(pid);
+    let mut client = AgentClient::connect(&info, ClientConfig::default()).expect("connect");
+    await_toolkit(&mut client);
+
+    let windows = await_windows(&mut client);
+    assert!(
+        windows.iter().any(|window| named(window) == Some(fixture.title())),
+        "the application's window must be there: {windows:?}"
+    );
+    assert!(
+        !windows.iter().any(|window| named(window) == Some("launcher-furniture")),
+        "the launcher's never-shown window must not be reported: {windows:?}"
+    );
+}
+
+/// Several toolkit worlds mean several toolkit threads, and one of them stopping
+/// must not take the others with it. Before the dispatcher knew about worlds there
+/// was only one queue to wedge and the question could not even be asked.
+#[test]
+#[ignore = "needs a JVM and the built fixture"]
+fn one_wedged_toolkit_world_does_not_disable_the_others() {
+    let fixture = FixtureJvm::launch_with(
+        "wedge",
+        &[],
+        &FixtureModes { second_app_context: true, companion_window: true, wedge: Some((8, 40)), ..Default::default() },
+    );
+    fixture.wait_until_started();
+    let pid = fixture.pid();
+    attach::load_agent(pid, &agent_jar(), None, DEFAULT_ATTACH_TIMEOUT).expect("native attach");
+
+    let info = await_agent(pid);
+    let mut client = AgentClient::connect(&info, ClientConfig::default()).expect("connect");
+    await_toolkit(&mut client);
+
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let (application, companion) = loop {
+        let windows = await_windows(&mut client);
+        let application = windows.iter().find(|window| named(window) == Some(fixture.title())).cloned();
+        let companion = windows.iter().find(|window| named(window) == Some("companion-window")).cloned();
+        if let (Some(application), Some(companion)) = (application, companion) {
+            break (application, companion);
+        }
+        assert!(Instant::now() < deadline, "both worlds must show a window before the wedge starts");
+        std::thread::sleep(Duration::from_millis(200));
+    };
+    let application_id = application["id"].as_i64().expect("an id");
+    let companion_id = companion["id"].as_i64().expect("an id");
+
+    // Wait for the wedge to actually take hold, rather than assuming the schedule.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        if client.call("ui/element", serde_json::json!({ "id": application_id })).is_err() {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the application's event queue never stopped answering");
+        std::thread::sleep(Duration::from_millis(250));
+    }
+
+    // The point: the other world is untouched. Asked repeatedly, because "answered once" could be
+    // a stale cache, and there is none — every read goes to that world's own queue.
+    for attempt in 0..3 {
+        client
+            .call("ui/element", serde_json::json!({ "id": companion_id }))
+            .unwrap_or_else(|e| panic!("attempt {attempt}: the healthy world must keep answering, got {e}"));
+    }
+    assert!(
+        client.call("ui/element", serde_json::json!({ "id": application_id })).is_err(),
+        "the wedged world must still fail at its deadline"
+    );
+}
+
+/// Hit-testing has to cross toolkit worlds for the same reason enumeration does:
+/// a point over a Web Start application is over a window in a world the agent's
+/// threads are not in, and a single-world lookup answers "nothing here" — the
+/// quietest possible wrong answer for a picker.
+#[test]
+#[ignore = "needs a JVM and the built fixture"]
+fn a_point_over_another_toolkit_world_returns_its_chain() {
+    let fixture =
+        FixtureJvm::launch_with("at-point", &[], &FixtureModes { second_app_context: true, ..Default::default() });
+    fixture.wait_until_started();
+    let pid = fixture.pid();
+    attach::load_agent(pid, &agent_jar(), None, DEFAULT_ATTACH_TIMEOUT).expect("native attach");
+
+    let info = await_agent(pid);
+    let mut client = AgentClient::connect(&info, ClientConfig::default()).expect("connect");
+    await_toolkit(&mut client);
+
+    let windows = await_windows(&mut client);
+    let window = windows
+        .iter()
+        .find(|window| named(window) == Some(fixture.title()))
+        .unwrap_or_else(|| panic!("the application's window is missing from {windows:?}"));
+    let bounds = &window["bounds"];
+    let centre_x = bounds["x"].as_f64().expect("x") + bounds["width"].as_f64().expect("width") / 2.0;
+    let centre_y = bounds["y"].as_f64().expect("y") + bounds["height"].as_f64().expect("height") / 2.0;
+
+    let answer = client.call("ui/at_point", serde_json::json!({ "x": centre_x, "y": centre_y })).expect("ui/at_point");
+    let chain = answer["chain"].as_array().expect("a chain array");
+    assert!(!chain.is_empty(), "a point inside the window must hit something: {answer}");
+    assert_eq!(
+        named(&chain[0]),
+        Some(fixture.title()),
+        "the chain must start at the window that owns the point, outermost first: {answer}"
+    );
+    assert!(chain.len() > 1, "the centre of the window is over its content, so the chain goes deeper: {answer}");
 }
