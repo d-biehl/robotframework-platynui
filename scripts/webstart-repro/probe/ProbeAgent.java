@@ -24,8 +24,16 @@ public final class ProbeAgent {
         Object mine = getAppContext.invoke(null);
         out.println("this thread's AppContext = " + mine);
 
-        java.awt.Window[] visibleHere = java.awt.Window.getWindows();
-        out.println("Window.getWindows() from here: " + visibleHere.length);
+        // Guarded, because the interesting targets are the ones where this throws. Once a JVM has
+        // more than one AppContext, AppContext.getAppContext() loses its single-context shortcut
+        // and walks the calling thread's group chain instead — and an attach listener's chain
+        // carries no context at all, so it returns null and Window.getWindows() dereferences it.
+        // "Threw" and "returned 0" are both the same finding: not the application's windows.
+        try {
+            out.println("Window.getWindows() from here: " + java.awt.Window.getWindows().length);
+        } catch (RuntimeException e) {
+            out.println("Window.getWindows() from here: threw " + e);
+        }
 
         Set<?> all = (Set<?>) getAppContexts.invoke(null);
         out.println("AppContexts in this JVM: " + all.size());

@@ -35,9 +35,14 @@ val java21Launcher = javaToolchains.launcherFor {
 
 // Consumers (`just` recipes, acceptance lane) launch the compiled classes with
 // their own `java -D… -cp` command line; this file tells them where the
-// provisioned JVMs live: `java8` is the default launch runtime, `java21` the
-// compile toolchain for the dual-runtime smoke. Forward slashes so the file
-// parses as `.properties` (backslash is its escape character).
+// provisioned JVMs live. `java8` is the default launch runtime — the acceptance
+// lane and the live tests read only that one. `java21` is the second runtime of
+// the capability's "runs unmodified on Java 8 and on JDK 21" requirement, and it
+// is read by `just test-test-app-swing-runtimes`, which is what that requirement
+// is checked with. (It used to be described as the compile toolchain for a
+// "dual-runtime smoke": the compile toolchain is declared above in `java {}`,
+// and the smoke did not exist.) Forward slashes so the file parses as
+// `.properties` (backslash is its escape character).
 val writeJavaLaunchers = tasks.register("writeJavaLaunchers") {
     description = "Write the provisioned Java launcher paths to build/java-launchers.properties"
     val outputFile = layout.buildDirectory.file("java-launchers.properties")

@@ -412,6 +412,31 @@ test-java-agent-live: build-java-agent test-java-agent build-test-app-swing
 
 # ─── Swing Test App (Java fixture for the JAB provider work) ───────────────────
 
+# The `swing-test-app` capability requires the built classes to run unmodified on
+# a genuine Java 8 AND on the JDK 21 toolchain — the reason `java21` sits in
+# build/java-launchers.properties at all. Nothing checked it until now, which is
+# how "the compile toolchain for the dual-runtime smoke" ended up describing a
+# smoke that did not exist. Each runtime starts the fixture, renders its control
+# set and honours --auto-close; a non-zero exit from either fails the recipe.
+# Check the fixture starts on both provisioned runtimes (Java 8 and JDK 21)
+[windows]
+test-test-app-swing-runtimes: build-test-app-swing
+    $launchers = (Get-Content -Raw "{{ swing_app_launchers }}") | ConvertFrom-StringData;     foreach ($name in 'java8', 'java21') {         $exe = $launchers.$name;         if (-not $exe) { throw "$name missing from {{ swing_app_launchers }}" };         Write-Host "--- $name ($exe)";         & $exe -cp "{{ swing_app_classes }}" platynui.testapp.Main --title "runtime smoke $name" --auto-close 3;         if ($LASTEXITCODE -ne 0) { throw "the fixture failed on $name (exit $LASTEXITCODE)" }     }
+
+# See the Windows twin above for why this exists.
+# Check the fixture starts on both provisioned runtimes (Java 8 and JDK 21)
+[unix]
+test-test-app-swing-runtimes: build-test-app-swing
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for name in java8 java21; do
+        exe="$(sed -n "s/^$name=//p" "{{ swing_app_launchers }}")"
+        [ -n "$exe" ] || { echo "$name missing from {{ swing_app_launchers }}" >&2; exit 1; }
+        echo "--- $name ($exe)"
+        "$exe" -cp "{{ swing_app_classes }}" platynui.testapp.Main --title "runtime smoke $name" --auto-close 3
+    done
+
+
 # Build the Swing test app via its Gradle wrapper (needs only a `java` 8+ on
 # PATH: the Gradle daemon JVM, the JDK 21 compile toolchain and the Java 8
 # launch runtime are all auto-provisioned — network access required on the

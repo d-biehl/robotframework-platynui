@@ -24,8 +24,10 @@ when the agent's loading or threading changes, not on every commit.
    Its JVM manager fetches what the JNLP asks for (`<j2se version="1.8"/>` pulls
    a full Temurin 8 **JDK** into `~\.cache\icedtea-web\jvm-cache`). No Java 8 is
    needed on the host: anything that has to run in the target is compiled
-   `--release 8` by whatever JDK is installed, and the attach itself is performed
-   *by the target's own runtime*.
+   `--release 8` by a host **JDK 9 or newer** (`--release` does not exist before
+   9, so a Java 8 JDK cannot serve as the host — `run.ps1` asks each candidate its
+   version and refuses rather than picking one that cannot compile), and the
+   attach itself is performed *by the target's own runtime*.
 
    That last point is not a convenience. An attach reply comes in two dialects —
    Java 8 answers a bare integer, JDK 9+ answers `return code: N` — and a newer

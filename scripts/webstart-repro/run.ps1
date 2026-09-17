@@ -34,12 +34,40 @@ $ows = Join-Path $env:LOCALAPPDATA 'Programs\OpenWebStart\javaws.exe'
 if (-not $Jar) { $Jar = Join-Path $repo 'java\agent\build\libs\platynui-agent.jar' }
 
 function Find-Jdk {
-    # A JDK, not a JRE: the demo needs javac/jar, and the attach helper needs
-    # lib\tools.jar (Java 8) or the jdk.attach module (9+).
-    foreach ($candidate in @($env:JAVA_HOME) + (Get-ChildItem 'C:\Program Files\Eclipse Adoptium', 'C:\Program Files\Java' -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending | ForEach-Object { $_.FullName })) {
-        if ($candidate -and (Test-Path (Join-Path $candidate 'bin\javac.exe'))) { return $candidate }
+    # A JDK **9 or newer**, not a JRE and not a Java 8: everything that has to run
+    # in the target is cross-compiled with `--release`, which javac only learned in
+    # 9, and the attach helper needs the `jdk.attach` module when the target is not
+    # a Java 8.
+    #
+    # Each candidate is ASKED its version rather than judged by its directory name.
+    # The name sort this replaced ranked `jdk-8.0.504.1-hotspot` above
+    # `jdk-21.0.12.101-hotspot` — "8" sorts after "2" — so on a machine with both it
+    # picked the one JDK here that cannot compile anything, and only an already-set
+    # JAVA_HOME hid that.
+    $roots = @('C:\Program Files\Eclipse Adoptium', 'C:\Program Files\Java', (Join-Path $env:USERPROFILE '.jdks'))
+    $candidates = @($env:JAVA_HOME) + (Get-ChildItem $roots -Directory -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+    $best = $null
+    foreach ($candidate in $candidates) {
+        if (-not $candidate) { continue }
+        $javac = Join-Path $candidate 'bin\javac.exe'
+        if (-not (Test-Path $javac)) { continue }
+        # Java 8 reports `javac 1.8.0_504`, so the leading number is 1 and it is
+        # rejected by the same test that accepts `javac 21.0.12.1`.
+        #
+        # Run in a child scope with the default error preference, because Java 8
+        # prints its version to *stderr* (9+ moved it to stdout) and this script's
+        # `Stop` preference turns any native stderr output into a terminating
+        # error — which would kill the probe on precisely the JVM it exists to
+        # reject.
+        $reported = & { $ErrorActionPreference = 'Continue'; (& $javac -version 2>&1) | Out-String }
+        if ($reported -notmatch 'javac\s+(\d+)') { continue }
+        $major = [int]$Matches[1]
+        if ($major -lt 9) { continue }
+        if (-not $best -or $major -gt $best.Major) { $best = @{ Home = $candidate; Major = $major } }
     }
-    throw 'no JDK found; set JAVA_HOME'
+    if (-not $best) { throw 'no JDK 9+ found (javac must understand --release); set JAVA_HOME to one' }
+    Write-Host "JDK:   $($best.Home) (javac $($best.Major))"
+    return $best.Home
 }
 
 function Stop-Ows {
@@ -51,7 +79,6 @@ function Stop-Ows {
 
 if (-not (Test-Path $ows)) { throw "OpenWebStart not found at $ows — see README.md" }
 $jdk = Find-Jdk
-Write-Host "JDK:   $jdk"
 Write-Host "agent: $Jar"
 
 # ---------------------------------------------------------------- build & serve
@@ -62,13 +89,15 @@ Write-Host "agent: $Jar"
 $targetRelease = @('--release', '8')
 New-Item -ItemType Directory -Force -Path $site, (Join-Path $work 'classes'), (Join-Path $work 'probe') | Out-Null
 & "$jdk\bin\javac.exe" @targetRelease -d (Join-Path $work 'classes') (Join-Path $here 'demo\WebStartDemo.java')
-if ($LASTEXITCODE -ne 0) { throw 'cannot compile the demo for Java 8' }
+if ($LASTEXITCODE -ne 0) { throw "cannot compile the demo for Java 8 with the javac in $jdk — " +
+    'a JDK that has dropped `--release 8` (it is deprecated since 21) cannot host this harness; ' +
+    'point JAVA_HOME at an older one' }
 & "$jdk\bin\jar.exe" cfe (Join-Path $site 'webstart-demo.jar') platynui.demo.WebStartDemo -C (Join-Path $work 'classes') .
 Copy-Item -Force (Join-Path $here 'demo\demo.jnlp') (Join-Path $site 'demo.jnlp')
 
 if ($Probe) {
     & "$jdk\bin\javac.exe" @targetRelease -d (Join-Path $work 'probe') (Join-Path $here 'probe\ProbeAgent.java')
-    if ($LASTEXITCODE -ne 0) { throw 'cannot compile the probe agent for Java 8' }
+    if ($LASTEXITCODE -ne 0) { throw "cannot compile the probe agent for Java 8 with the javac in $jdk" }
     @"
 Manifest-Version: 1.0
 Agent-Class: platynui.probe.ProbeAgent
@@ -122,14 +151,24 @@ try {
     # `com.sun.tools.attach` does not, so match the versions instead.
     $targetHome = Split-Path -Parent (Split-Path -Parent $app.ExecutablePath)
     $toolsJar = Join-Path $targetHome 'lib\tools.jar'
-    $attachJava = if (Test-Path $toolsJar) { Join-Path $targetHome 'bin\java.exe' } else { Join-Path $jdk 'bin\java.exe' }
-    $attachCp = if (Test-Path $toolsJar) { "$(Join-Path $work 'probe');$toolsJar" } else { Join-Path $work 'probe' }
+    $targetIsJava8 = Test-Path $toolsJar
+    $attachJava = if ($targetIsJava8) { Join-Path $targetHome 'bin\java.exe' } else { Join-Path $jdk 'bin\java.exe' }
+    $attachCp = if ($targetIsJava8) { "$(Join-Path $work 'probe');$toolsJar" } else { Join-Path $work 'probe' }
     Write-Host "application JVM pid = $appPid ($targetHome)"
     Start-Sleep 8
 
     # ------------------------------------------------------------------- attach
-    & "$jdk\bin\javac.exe" @targetRelease -cp $(if (Test-Path $toolsJar) { $toolsJar } else { '.' }) `
-        -d (Join-Path $work 'probe') (Join-Path $here 'probe\Attach.java')
+    # Compiled for whichever runtime will RUN it, which is not always the host JDK.
+    # `com.sun.tools.attach` sits in `tools.jar` on Java 8 but in the `jdk.attach`
+    # MODULE from 9 on — and a module is not part of the release-8 platform API, so
+    # `--release 8` against it fails with "package com.sun.tools.attach does not
+    # exist". Hence release-8-plus-tools.jar for a Java 8 target, and the host JDK's
+    # own platform otherwise, which is also the runtime that then executes it.
+    if ($targetIsJava8) {
+        & "$jdk\bin\javac.exe" @targetRelease -cp $toolsJar -d (Join-Path $work 'probe') (Join-Path $here 'probe\Attach.java')
+    } else {
+        & "$jdk\bin\javac.exe" -d (Join-Path $work 'probe') (Join-Path $here 'probe\Attach.java')
+    }
     if ($LASTEXITCODE -ne 0) { throw 'cannot compile the attach helper' }
 
     $probeOut = Join-Path $work 'probe-out.txt'
