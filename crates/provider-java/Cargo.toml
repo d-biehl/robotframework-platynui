@@ -34,6 +34,12 @@ tracing = { version = "0.1", default-features = false, features = ["std"] }
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(windows)'.dev-dependencies]
+# Captures the tracing output of one unit test: the level of the "agent went
+# quiet" diagnostic is the contract there, not just its text. Windows-only like
+# everything it tests — the crate body is `#[cfg(windows)]`, so on other targets
+# this dependency would be unused and `unused_crate_dependencies` would fire.
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
+
 # Live fixture tests (tests/live_fixture.rs, #[ignore]-gated): real window
 # manager for the window-capability patterns, real UIA provider for the
 # frozen-JVM isolation check, and debug-API access to freeze the fixture JVM.
@@ -44,8 +50,3 @@ windows = { version = "0.62", features = [
   "Win32_System_Diagnostics_Debug",
   "Win32_UI_WindowsAndMessaging",
 ] }
-
-[dev-dependencies]
-# Captures the tracing output of one unit test: the level of the "agent went
-# quiet" diagnostic is the contract there, not just its text.
-tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
