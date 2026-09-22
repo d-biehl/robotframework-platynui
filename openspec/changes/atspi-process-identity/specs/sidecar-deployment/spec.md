@@ -18,7 +18,12 @@ The deployment SHALL be expected to satisfy these prerequisites, and PlatynUI SH
 
 Process IDs are the one thing the two sides cannot share. Every PID that crosses the boundary — reported by the bus daemon, by the display server or by the compositor — SHALL be treated as a value in the reporter's namespace, never as a value that can be compared with the runtime's own PID or with any other PID valid only in the runtime's namespace. Because the topology places the display server, the bus daemon and the application in one namespace, PIDs that those parties report about the same application are values in that one namespace and MAY be compared with each other. This requirement covers what the accessibility provider reports; the window-system half of the same rule is specified by the capabilities that own it — `element-at-point` for the window manager's own-window skip, `compositor-client-identity` for what the PlatynUI compositor reports about a client it cannot see and for its own skip of the caller's windows, and `wayland-compositor-detection` for identifying the compositor itself.
 
-One deployment violates the prerequisite that the accessibility bus daemon run in the application's namespace, and violates it wholesale: the daemon in a container of its own, in a third PID namespace. Such a daemon can number neither side — the application's namespace is a sibling of its own, the runtime's an ancestor — so for both it answers with a `0`, an omitted value or an explicit "unknown", and no application carries a process-ID attribute at all. What the rest of this capability makes a per-application outcome then holds for every application on that bus (see *Correlating a native window to an application needs a process ID both sides can express*, *An unresolved identity never matches*): the point hit-test resolves no element; where that number is the only key the window system offers, as it is for the X11 window manager's lookup of an application node's window, the operations that go through the window manager — activate, minimize, maximize, restore, close, move and resize — fail; where the window system offers another key, as the PlatynUI compositor does with a window's title and size, the window still resolves, but the popup geometry filtered by that number does not. This is a boundary of the supported topology, not a defect inside it, and nothing here asks PlatynUI to detect such a deployment: a deployment that needs those behaviours is expected to place the accessibility bus daemon in the application's namespace, as the prerequisite above states.
+What the bus daemon can see decides two things, and they fail independently of each other:
+
+- **Whether the daemon can see the application** decides whether that application has an identity at all. Where it cannot — the two namespaces are siblings, or the application's namespace contains the daemon's — the daemon answers with `0`, an omitted value or an explicit "unknown", the application carries no process-ID attribute, and everything keyed on it is unavailable for that application: no correlation between its node and its native window in either direction (see *Correlating a native window to an application needs a process ID both sides can express*), and therefore no window-management operation on that node and no element resolved at a point inside its windows.
+- **Whether the daemon can see the runtime** decides whether the provider has an identity of its own on that bus. Where it cannot, the outcome is *no identity*: the provider's own user interface is no longer excluded from its own tree, and no process-table attribute is read for any application on that bus.
+
+The supported topology is the combination in which the first holds and the second does not. Both other combinations occur in practice and are outside it: a bus daemon in a namespace of its own, sharing with neither side, loses both for every application on that bus; a daemon that shares the runtime's namespace but not the application's keeps the provider's own identity and loses the application's. Nothing here asks PlatynUI to detect which combination it is in, and none of them is a defect to be worked around: the rules of this capability hold unchanged in all of them — no identifier is fabricated, an unresolved identity never matches — and a deployment that needs the behaviours above is expected to place the accessibility bus daemon in the application's namespace, as the prerequisite states.
 
 #### Scenario: The application tree is readable from a sibling container
 
@@ -50,77 +55,48 @@ One deployment violates the prerequisite that the accessibility bus daemon run i
 
 ### Requirement: Process identity is decided once per bus connection from the daemon's view of that connection
 
-The accessibility provider SHALL determine, once per connection to the accessibility bus, how it can recognise its own process on that bus, by asking the bus daemon for the credentials of **its own** connection. The outcome SHALL be exactly one of four modes:
+The accessibility provider SHALL determine, once per connection to the accessibility bus, whether it can recognise its own process on that bus, by asking the bus daemon for the credentials of **its own** connection. The outcome SHALL be exactly one of two:
 
-- **Process-fd identity** — when the daemon returns a process file descriptor for our own connection, that descriptor refers to a process on the kernel's process filesystem (`pidfs`), and the process it pins is our own. Another connection is then ours exactly when the daemon returns a process file descriptor for it that pins the same process. This holds across PID namespaces, because these identities are namespace-independent.
-- **Translated-descriptor identity** — otherwise, when the daemon returns a process file descriptor for our own connection whose process, expressed as a process ID in *our own* namespace, is our own process. Another connection is then ours exactly when its descriptor's process ID in our namespace equals ours. A descriptor whose process has no process ID in our namespace — the peer is invisible to us — is never ours. This mode covers kernels without `pidfs` on which the daemon still returns descriptors.
-- **Process-id identity** — otherwise, when the daemon reports a process ID for our own connection that equals our own process ID. Daemon-reported process IDs are then values in our own numbering space, and another connection is ours exactly when its reported process ID equals ours.
-- **No identity** — otherwise. The provider SHALL then perform no own-process check at all.
+- **Local numbering** — the daemon reports a process ID for our own connection and that process ID equals our own. The daemon's process IDs are then values in the runtime's own namespace: another connection is ours exactly when the process ID the daemon reports for it equals ours, and such a process ID MAY be used where a process ID valid in the runtime's namespace is required.
+- **No identity** — otherwise: the daemon reports no process ID for our own connection, reports `0`, answers that it is unknown, or reports a number that is not ours. The provider SHALL then perform no own-process check at all, and SHALL treat no process ID the daemon reports as valid in the runtime's namespace.
 
-The check that the descriptor refers to a process on `pidfs` SHALL NOT be omitted from the process-fd test, and SHALL NOT be treated as implied by the descriptor pinning our own process: on kernels without `pidfs` every such descriptor shares one identity, so that test alone passes for every peer and would make the provider claim every application as its own. On such kernels the decision SHALL fall through to translated-descriptor identity, whose comparison the kernel performs per process rather than by shared identity.
+Asking about **our own** connection is what makes this safe: the daemon's answer is checked against a number the provider already knows, so no number from another namespace is ever trusted on its own. The provider SHALL NOT establish its own identity from a process ID the daemon reports about a *peer*, and SHALL NOT compare two process IDs whose namespaces it has not established.
 
-The provider SHALL record the chosen mode and the inputs it was chosen from, once per connection, so that a mode lower than expected is diagnosable from a log. When the outcome is *no identity*, the record SHALL be a warning stating that own-process exclusion is inactive.
+The provider SHALL record the outcome and the inputs it was decided from, once per connection, so that a lost identity is diagnosable from a log. When the outcome is *no identity*, the record SHALL be a warning stating that own-process exclusion is inactive.
 
-#### Scenario: A modern daemon on a modern kernel gives process-fd identity
+#### Scenario: A daemon that numbers our own connection as we do gives local numbering
 
-- **GIVEN** credentials for our own connection that contain a process file descriptor, the descriptor lives on `pidfs`, and it pins our own process
-- **WHEN** the mode is decided
-- **THEN** the mode SHALL be process-fd identity
-- **NOTE** Decidable from injected inputs without a bus. Measured on dbus-daemon 1.16.2 and dbus-broker 35/37 on kernels ≥ 6.9, both in and across PID namespaces.
-
-#### Scenario: A process file descriptor that is not on pidfs does not give process-fd identity
-
-- **GIVEN** credentials for our own connection that contain a process file descriptor which is **not** on `pidfs`, even though it appears to pin our own process
-- **WHEN** the mode is decided
-- **THEN** the mode SHALL NOT be process-fd identity, and the decision SHALL continue with the translated-descriptor test
-- **NOTE** Decidable from injected inputs. Measured on Ubuntu 24.04's GA kernel 6.8 with dbus-broker 35 — the combination a stock Ubuntu 24.04 desktop runs — where every such descriptor is an anonymous inode with one shared inode number, so the "pins our own process" test succeeds for every peer.
-
-#### Scenario: A descriptor without pidfs still identifies through the process ID in our namespace
-
-- **GIVEN** credentials for our own connection that contain a process file descriptor which is not on `pidfs`, and whose process ID in our own namespace equals our own
-- **WHEN** the mode is decided
-- **THEN** the mode SHALL be translated-descriptor identity
-- **NOTE** Decidable from injected inputs. Measured on Ubuntu 24.04's GA kernel 6.8 with dbus-broker 35: over 22 peer checks the process ID in the reader's namespace classified every peer correctly, with no false positive, where a shared-inode comparison classified every peer as our own.
-
-#### Scenario: In translated-descriptor mode a peer we cannot see is never ours
-
-- **GIVEN** translated-descriptor identity, and a peer whose process file descriptor has no process ID in our own namespace
-- **WHEN** the peer is classified
-- **THEN** the peer SHALL NOT be treated as our own process
-- **NOTE** Decidable from injected inputs. This is the sidecar case: the kernel reports no process ID for a process in a namespace we cannot see, and an unresolved identity never matches.
-
-#### Scenario: A process file descriptor pinning another process does not give process-fd identity
-
-- **GIVEN** credentials for our own connection that contain a `pidfs` process file descriptor which pins a process other than our own
-- **WHEN** the mode is decided
-- **THEN** the mode SHALL NOT be process-fd identity, and the decision SHALL continue with the process-id test
-
-#### Scenario: A daemon without process descriptors but with a matching process ID gives process-id identity
-
-- **GIVEN** credentials for our own connection with no process file descriptor and a reported process ID equal to our own
-- **WHEN** the mode is decided
-- **THEN** the mode SHALL be process-id identity
-- **NOTE** Decidable from injected inputs. Measured on dbus-daemon 1.12/1.14 and dbus-broker 29/33 within one namespace, which return no descriptor at all.
+- **GIVEN** credentials for our own connection that report a process ID equal to our own
+- **WHEN** the outcome is decided
+- **THEN** the outcome SHALL be local numbering
+- **NOTE** Decidable from injected inputs without a bus. Measured within one namespace on dbus-daemon 1.12/1.14/1.16.2 and dbus-broker 29/33/35/37 — every implementation reports our own process ID for our own connection when it shares our namespace.
 
 #### Scenario: A daemon that cannot see us gives no identity
 
-- **GIVEN** credentials for our own connection from which no descriptor test succeeds — no process file descriptor at all, or one whose process has no process ID in our namespace — and a reported process ID that is `0`, absent, or different from our own
-- **WHEN** the mode is decided
-- **THEN** the mode SHALL be *no identity*, and a warning SHALL state that own-process exclusion is inactive
-- **NOTE** Decidable from injected inputs. Measured for dbus-daemon 1.12/1.14 and dbus-broker 29/33 across PID namespaces, where the daemon reports `0` for a peer it cannot see.
+- **GIVEN** credentials for our own connection whose process ID is `0`, absent, or answered as unknown
+- **WHEN** the outcome is decided
+- **THEN** the outcome SHALL be *no identity*, and a warning SHALL state that own-process exclusion is inactive
+- **NOTE** Decidable from injected inputs. Measured across PID namespaces in all three shapes daemons answer with: the credentials carry `0` (dbus-daemon 1.12/1.14, dbus-broker 29/33), they omit the process ID while the dedicated query answers a successful `0` (dbus-broker 35/37), and they omit it while that query answers that the process ID is unknown (dbus-daemon ≥ 1.15.10).
 
-#### Scenario: The mode is decided once and named in the log
+#### Scenario: A daemon that reports a process ID which is not ours gives no identity
+
+- **GIVEN** credentials for our own connection that report a non-zero process ID different from our own
+- **WHEN** the outcome is decided
+- **THEN** the outcome SHALL be *no identity*
+- **NOTE** Decidable from injected inputs. A daemon in an ancestor namespace numbers us with a number that is real but not ours; the self-check is what catches it, and the outcome is the safe one rather than a comparison in a numbering space the provider never established.
+
+#### Scenario: The outcome is decided once and named in the log
 
 - **GIVEN** a provider connected to the accessibility bus
 - **WHEN** many tree queries run over that connection
-- **THEN** the mode SHALL be decided once for that connection, and the log SHALL contain exactly one record for it naming the mode and the inputs it was decided from
+- **THEN** the outcome SHALL be decided once for that connection, and the log SHALL contain exactly one record for it naming the outcome and the inputs it was decided from
 - **NOTE** Real provider only for the "once" part; the provider holds more than one bus connection, and each decides and records for itself.
 
 #### Scenario: A transient failure while deciding is retried, not frozen
 
 - **GIVEN** the credentials query for our own connection fails transiently (timeout, I/O error)
 - **WHEN** the next tree query runs
-- **THEN** the mode SHALL be decided again rather than fixed to *no identity* by the failed attempt
+- **THEN** the outcome SHALL be decided again rather than fixed to *no identity* by the failed attempt
 
 ### Requirement: An unresolved identity never matches
 
@@ -128,23 +104,10 @@ The provider SHALL treat "the daemon cannot tell me who this is" as *unknown*, a
 
 #### Scenario: A peer the daemon cannot resolve is not our own
 
-- **GIVEN** process-id identity, and a peer for which the daemon reports the process ID `0` or reports none
+- **GIVEN** local numbering, and a peer for which the daemon reports the process ID `0` or reports none
 - **WHEN** that peer is classified
 - **THEN** it SHALL NOT be classified as our own process
 - **NOTE** Decidable from injected inputs. This is the case an implementation that resolves its *own* PID through the daemon gets wrong: both sides read `0` and every unresolvable application is discarded.
-
-#### Scenario: A peer without a process descriptor is not our own
-
-- **GIVEN** process-fd identity, and a peer for which the daemon returns no process file descriptor
-- **WHEN** that peer is classified
-- **THEN** it SHALL NOT be classified as our own process
-
-#### Scenario: Our own connection is recognised across PID namespaces
-
-- **GIVEN** process-fd identity in the sidecar topology, where the daemon reports nothing usable about our process IDs
-- **WHEN** the provider's own accessibility connection is classified
-- **THEN** it SHALL be classified as our own process
-- **NOTE** Real provider only. Measured: across namespaces on a 1.16 daemon the process-ID comparison recognises neither its own connection nor anything else, so own-process exclusion is silently inactive; the descriptor comparison restores it.
 
 #### Scenario: Nothing is filtered without identity
 
@@ -185,11 +148,11 @@ The point hit-test SHALL likewise not resolve the host's own UI, but it starts f
 - **GIVEN** *no identity* mode, and the host process has its own accessible application on the same bus
 - **WHEN** the tree is enumerated
 - **THEN** the host's own application MAY appear in the tree, and this SHALL NOT cause any other application to be hidden
-- **NOTE** Real provider only. This is the accepted loss of the fallback: exposing our own UI is recoverable by a query, mistaking somebody else's application for ours is not.
+- **NOTE** Real provider only. This is the accepted loss, and in the sidecar topology it is the normal outcome rather than an edge case: a daemon that cannot see the runtime cannot identify it either. Exposing our own UI is recoverable by a query and, where the runtime has no user interface on that display at all, costs nothing; mistaking somebody else's application for ours is neither.
 
 ### Requirement: An application reports its own process ID, and process-table data only through a process ID valid in the runtime's namespace
 
-An application node SHALL report as its process ID the number the application's own environment knows it by, and SHALL read process-table data only through a process ID valid in the runtime's own namespace. Across a PID-namespace boundary these are two different numbers for one application: the process ID the accessibility bus daemon reports for the application's connection, and — where the runtime can see the process at all — the one it has in the runtime's own namespace. In a shared namespace they are the same number. The provider SHALL NOT compare the two with each other, and SHALL NOT compare either with a process ID from another namespace; reporting a process ID as an attribute is not a comparison.
+An application node SHALL report as its process ID the number the application's own environment knows it by — the process ID the accessibility bus daemon reports for that application's connection — and SHALL read process-table data only through a process ID valid in the runtime's own namespace. Whether the reported number *is* such a process ID is decided once per connection rather than per application: it is one exactly under *local numbering*, where the daemon has shown that it numbers processes as the runtime does. Under *no identity* the provider has no process ID valid in its own namespace for any application on that bus, whatever the reported number looks like. In a shared namespace the two coincide, which is why an ordinary desktop sees no change. The provider SHALL NOT compare a reported process ID with one from another namespace; reporting a process ID as an attribute is not a comparison.
 
 The process-ID attribute of an application node (`@ProcessId` on `app:Application`) is the application's identity. It SHALL report the process ID as the application's own environment knows it: the process ID the accessibility bus daemon reports for that application's connection. It SHALL be reported whether or not that number is valid in the runtime's own namespace. It SHALL be **absent** when the daemon cannot tell — it omits the process ID, reports `0`, answers that the process ID is unknown, or the lookup fails — and it SHALL NEVER be `0`.
 
@@ -215,7 +178,7 @@ The identifier a consumer reads from an application node SHALL be the value of i
 
 #### Scenario: Process-table attributes need a local process ID even when the process ID is reported
 
-- **GIVEN** the sidecar topology, and an application whose process ID the bus daemon reports while the application has no process ID in the runtime's namespace
+- **GIVEN** the sidecar topology, where the bus daemon cannot see the runtime and the outcome is therefore *no identity*, and an application whose process ID the daemon does report
 - **WHEN** that application node's attributes are read
 - **THEN** the process-ID attribute SHALL be present, and every process-table attribute SHALL be absent
 - **NOTE** Decidable from injected inputs; end to end only against a real provider across two PID namespaces. This is the normal picture of a sidecar deployment. Measured today: the process-table attributes are present and empty or wrong there, because they are read with the reported number.
