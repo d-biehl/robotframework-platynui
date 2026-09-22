@@ -24,7 +24,8 @@
 //!   addressed by `window_id` comes back first, keeping its maximized state)
 //! - `{"command": "screenshot"}` → capture the current frame (base64 PNG)
 //! - `{"command": "get_pointer_position"}` → current pointer coordinates (`x`, `y`)
-//! - `{"command": "window_at_point", "x": <f64>, "y": <f64>}` → frontmost window at the point (or null)
+//! - `{"command": "window_at_point", "x": <f64>, "y": <f64>}` → frontmost window at the point that the
+//!   asking process does not own (or null)
 //! - `{"command": "key_event", "key": <evdev_code>, "state": "press"|"release"}` → inject a keyboard event
 //! - `{"command": "pointer_move_to", "x": <f64>, "y": <f64>}` → move pointer to absolute position
 //! - `{"command": "pointer_button", "button": <evdev_code>, "state": "press"|"release"}` → inject pointer button
@@ -47,6 +48,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use smithay::backend::input::{AxisSource, ButtonState, KeyState};
+use smithay::desktop::space::SpaceElement;
 use smithay::desktop::{PopupManager, Window};
 use smithay::input::keyboard::{FilterResult, xkb};
 use smithay::input::pointer::{AxisFrame, MotionEvent};
@@ -56,6 +58,7 @@ use smithay::wayland::compositor::{self, SurfaceAttributes};
 use smithay::wayland::seat::WaylandFocus;
 use smithay::wayland::shell::xdg::XdgPopupSurfaceData;
 
+use crate::client::ClientState;
 use crate::handlers::foreign_toplevel;
 use crate::input;
 use crate::state::State;
@@ -219,6 +222,10 @@ struct OutputInfo {
 struct ControlClient {
     stream: UnixStream,
     buf: Vec<u8>,
+    /// The process that opened this connection, as established when it was
+    /// accepted. `None` means it could not be established. This is who "the
+    /// caller" is for commands that answer relative to the asking process.
+    caller: Option<u32>,
 }
 
 impl AsFd for ControlClient {
@@ -284,7 +291,22 @@ pub fn setup_control_socket(
 /// removed when the client disconnects or a fatal I/O error occurs.
 fn register_control_client(stream: UnixStream, state: &mut State) -> std::io::Result<()> {
     stream.set_nonblocking(true)?;
-    let client = ControlClient { stream, buf: Vec::with_capacity(1024) };
+
+    // Both outcomes log at `debug`: the runtime opens one connection per command
+    // (`crates/platform-linux-wayland/src/control_ipc.rs`), so a warning here
+    // would flood the log that the per-client warning already makes readable.
+    let caller = match crate::client::peer_process(&stream) {
+        Ok(pid) => {
+            tracing::debug!(pid, "control connection peer identified");
+            Some(pid)
+        }
+        Err(reason) => {
+            tracing::debug!(%reason, "could not identify the control connection's peer");
+            None
+        }
+    };
+
+    let client = ControlClient { stream, buf: Vec::with_capacity(1024), caller };
     let source = calloop::generic::Generic::new(client, calloop::Interest::READ, calloop::Mode::Level);
     state
         .loop_handle
@@ -334,7 +356,7 @@ fn handle_client_data(client: &mut ControlClient, state: &mut State) -> calloop:
         if line.is_empty() {
             continue;
         }
-        let response = process_command(line, state);
+        let response = process_command(line, state, client.caller);
         if let Some(response) = response
             && let Err(err) = write_response(&mut client.stream, &response)
         {
@@ -378,8 +400,12 @@ fn write_response(stream: &mut UnixStream, response: &str) -> std::io::Result<()
 ///
 /// Returns `None` for fire-and-forget input injection commands that need
 /// no client acknowledgement (key, pointer, scroll events).
+///
+/// `caller` is the process the connection belongs to (`None` when the compositor
+/// could not establish it); commands whose answer depends on who asked — the
+/// window at a point — take it from here rather than from the request.
 #[allow(clippy::too_many_lines)]
-fn process_command(input: &str, state: &mut State) -> Option<String> {
+fn process_command(input: &str, state: &mut State, caller: Option<u32>) -> Option<String> {
     let request: Request = match serde_json::from_str(input.trim()) {
         Ok(req) => req,
         Err(_) => {
@@ -563,19 +589,13 @@ fn process_command(input: &str, state: &mut State) -> Option<String> {
         }
 
         Some("window_at_point") => match (request.x, request.y) {
-            (Some(x), Some(y)) => {
-                // The compositor owns the authoritative stacking order;
-                // `element_under` returns the frontmost window at the point.
-                let hit = state.space.element_under((x, y)).map(|(window, _)| window.clone());
-                match hit {
-                    Some(window) => {
-                        let idx = state.space.elements().position(|candidate| candidate == &window).unwrap_or(0);
-                        let info = build_window_info(state, idx, &window);
-                        serde_json::json!({"status": "ok", "window": info})
-                    }
-                    None => serde_json::json!({"status": "ok", "window": serde_json::Value::Null}),
+            (Some(x), Some(y)) => match window_at_point(state, (x, y), caller) {
+                Some((idx, window)) => {
+                    let info = build_window_info(state, idx, &window);
+                    serde_json::json!({"status": "ok", "window": info})
                 }
-            }
+                None => serde_json::json!({"status": "ok", "window": serde_json::Value::Null}),
+            },
             _ => serde_json::json!({"status": "error", "message": "window_at_point requires x and y"}),
         },
 
@@ -1081,7 +1101,7 @@ fn build_window_info(state: &State, idx: usize, window: &Window) -> WindowInfo {
         window_id: window_stable_id(window),
         title: foreign_toplevel::window_title(window),
         app_id: foreign_toplevel::window_app_id(window),
-        pid: window_pid(state, window),
+        pid: window_pid(window),
         x: frame_bounds.loc.x,
         y: frame_bounds.loc.y,
         width: frame_bounds.size.w,
@@ -1200,7 +1220,7 @@ fn list_popups(state: &State) -> Vec<PopupInfo> {
             }
             popups.push(PopupInfo {
                 parent_window_id: window_stable_id(window),
-                pid: window_pid(state, window),
+                pid: window_pid(window),
                 x: root_loc.x + location.x,
                 y: root_loc.y + location.y,
                 width: placed.size.w,
@@ -1217,12 +1237,11 @@ fn list_minimized_windows(state: &State) -> Vec<MinimizedWindowInfo> {
         .minimized_windows
         .iter()
         .enumerate()
-        .map(|(idx, (window, pos))| build_minimized_window_info(state, idx, window, *pos))
+        .map(|(idx, (window, pos))| build_minimized_window_info(idx, window, *pos))
         .collect()
 }
 
 fn build_minimized_window_info(
-    state: &State,
     idx: usize,
     window: &Window,
     pos: smithay::utils::Point<i32, Logical>,
@@ -1233,7 +1252,7 @@ fn build_minimized_window_info(
         window_id: window_stable_id(window),
         title: foreign_toplevel::window_title(window),
         app_id: foreign_toplevel::window_app_id(window),
-        pid: window_pid(state, window),
+        pid: window_pid(window),
         x: pos.x,
         y: pos.y,
         content_width: size.w,
@@ -1250,7 +1269,7 @@ fn minimized_window_info(state: &State, window_id: u64) -> Option<MinimizedWindo
         .iter()
         .enumerate()
         .find(|(_, (window, _))| window_stable_id(window) == window_id)
-        .map(|(idx, (window, pos))| build_minimized_window_info(state, idx, window, *pos))
+        .map(|(idx, (window, pos))| build_minimized_window_info(idx, window, *pos))
 }
 
 fn window_stable_id(window: &Window) -> u64 {
@@ -1267,15 +1286,125 @@ fn window_stable_id(window: &Window) -> u64 {
     0
 }
 
-fn window_pid(state: &State, window: &Window) -> Option<u32> {
+/// What the compositor knows about the process behind a window.
+///
+/// The two cases are kept apart because only one of them is an identity the
+/// compositor established itself, and only such an identity may be used for a
+/// decision (see [`excludes_caller`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WindowOwner {
+    /// The peer credentials the compositor read when it accepted the client's
+    /// connection. `None` when the peer could not be identified.
+    Established(Option<u32>),
+    /// The process id an X11 client declared about itself (`_NET_WM_PID`), which
+    /// the compositor cannot verify. `None` when it declared none.
+    Declared(Option<u32>),
+}
+
+impl WindowOwner {
+    /// The process id to report, whichever source it came from.
+    fn pid(self) -> Option<u32> {
+        match self {
+            Self::Established(pid) | Self::Declared(pid) => pid,
+        }
+    }
+}
+
+/// Who owns a window, as far as the compositor can tell.
+///
+/// `XWayland` is a separate source and stays one: an X11-backed window reports
+/// what its own client declared, never the peer credentials of `XWayland`'s
+/// Wayland connection — which carries no [`ClientState`] at all, because smithay
+/// opens that connection itself (`src/xwayland.rs`), and therefore reads as
+/// unidentified here.
+fn window_owner(window: &Window) -> WindowOwner {
     if let Some(x11) = window.x11_surface() {
-        return x11.pid();
+        return WindowOwner::Declared(declared_pid(x11.pid()));
     }
 
-    let surface = window.wl_surface()?;
-    let client = surface.client()?;
-    let creds = client.get_credentials(&state.display_handle).ok()?;
-    u32::try_from(creds.pid).ok()
+    WindowOwner::Established(
+        window
+            .wl_surface()
+            .and_then(|surface| surface.client())
+            .and_then(|client| client.get_data::<ClientState>().and_then(|data| data.peer_process)),
+    )
+}
+
+/// A process id an X11 client declared about itself, normalized.
+///
+/// The client writes `_NET_WM_PID` and smithay reports the property as it stands
+/// (`smithay-0.7.0/src/xwayland/xwm/surface.rs:767` stores any `CARDINAL`), so
+/// `0` can arrive here. `0` is the one value this capability never puts on the
+/// wire — a consumer filtering by process would match against it — so a client
+/// that declares it is reported like a client that declares nothing.
+fn declared_pid(declared: Option<u32>) -> Option<u32> {
+    declared.filter(|pid| *pid > 0)
+}
+
+/// The process id reported for a window, or `None` when it is unknown.
+fn window_pid(window: &Window) -> Option<u32> {
+    window_owner(window).pid()
+}
+
+/// Whether the window at a point belongs to the process that asked, and must
+/// therefore be skipped in favour of the window behind it.
+///
+/// A window is excluded **only on a positive match** of two identities the
+/// compositor established itself: the one it read when it accepted the client's
+/// connection, and the peer of the control connection the request arrived on.
+/// When either side is unknown nothing is excluded — answering with an occluded
+/// window on the strength of an identity that was never established is a worse
+/// answer than answering with the caller's own window.
+///
+/// A declared `_NET_WM_PID` is not such an identity: the compositor did not
+/// establish it and cannot verify it, so an X11 client must not be able to make
+/// its window unpickable by claiming the caller's number.
+fn excludes_caller(owner: WindowOwner, caller: Option<u32>) -> bool {
+    match (owner, caller) {
+        (WindowOwner::Established(Some(owner)), Some(caller)) => owner == caller,
+        _ => false,
+    }
+}
+
+/// The frontmost window at a point that the asking process does not own.
+///
+/// The compositor owns the authoritative stacking order, so it walks that order
+/// itself: `Space::element_under` returns only the frontmost hit and cannot be
+/// asked for the next one down, which is what skipping the caller's own window
+/// needs. The walk applies smithay's own criterion — the bounding box, then the
+/// window's input region at its render location — over `elements()` reversed,
+/// front-to-back, the order the renderer relies on (see `render.rs`).
+///
+/// The window comes back with its index in `elements()`, which is what the
+/// response reports as `id`.
+fn window_at_point(state: &State, point: (f64, f64), caller: Option<u32>) -> Option<(usize, Window)> {
+    let point = Point::<f64, Logical>::from(point);
+    state
+        .space
+        .elements()
+        .enumerate()
+        .rev()
+        .find(|(_, window)| hits_input_region(state, window, point) && !excludes_caller(window_owner(window), caller))
+        .map(|(idx, window)| (idx, window.clone()))
+}
+
+/// Whether a point hits a window, by the same criterion `Space::element_under`
+/// applies: the bounding box first, then the input region at the location the
+/// window is actually drawn at — its location in the space minus its geometry
+/// offset.
+fn hits_input_region(state: &State, window: &Window, point: Point<f64, Logical>) -> bool {
+    let Some(bbox) = state.space.element_bbox(window) else {
+        return false;
+    };
+    if !bbox.to_f64().contains(point) {
+        return false;
+    }
+
+    let Some(location) = state.space.element_location(window) else {
+        return false;
+    };
+    let render_location = location - window.geometry().loc;
+    window.is_in_input_region(&(point - render_location.to_f64()))
 }
 
 /// Get info about a specific window by index.
@@ -1561,5 +1690,126 @@ mod tests {
         assert_eq!(frame.loc.y, 78);
         assert_eq!(frame.size.w, 800);
         assert_eq!(frame.size.h, 600);
+    }
+
+    fn window_info(pid: Option<u32>) -> WindowInfo {
+        WindowInfo {
+            id: 3,
+            window_id: 0x1234_5678,
+            title: "Fixture".to_string(),
+            app_id: "test.fixture".to_string(),
+            pid,
+            x: 10,
+            y: 20,
+            width: 300,
+            height: 200,
+            content_x: 10,
+            content_y: 20,
+            content_width: 300,
+            content_height: 200,
+            geometry_x: 0,
+            geometry_y: 0,
+            focused: true,
+            minimized: false,
+            maximized: false,
+            fullscreen: false,
+            decoration_mode: "csd",
+            opaque_region: None,
+        }
+    }
+
+    fn popup_info(pid: Option<u32>) -> PopupInfo {
+        PopupInfo { parent_window_id: 0x1234_5678, pid, x: 41, y: 61, width: 100, height: 80 }
+    }
+
+    fn minimized_window_info(pid: Option<u32>) -> MinimizedWindowInfo {
+        MinimizedWindowInfo {
+            id: "minimized_0".to_string(),
+            window_id: 0x1234_5678,
+            title: "Fixture".to_string(),
+            app_id: "test.fixture".to_string(),
+            pid,
+            x: 10,
+            y: 20,
+            content_width: 300,
+            content_height: 200,
+            minimized: true,
+            maximized: false,
+        }
+    }
+
+    /// A client whose process the compositor could not identify is reported as
+    /// JSON `null` — never as `0`, which a consumer filtering by PID would
+    /// take for a real process. Every other field keeps its ordinary value, so
+    /// the entry differs from an identified one in the `pid` alone.
+    #[test]
+    fn an_unknown_process_is_reported_as_null_and_never_as_zero() {
+        let entries = [
+            (
+                serde_json::to_string(&window_info(None)).expect("window info serializes"),
+                serde_json::to_string(&window_info(Some(4242))).expect("window info serializes"),
+            ),
+            (
+                serde_json::to_string(&popup_info(None)).expect("popup info serializes"),
+                serde_json::to_string(&popup_info(Some(4242))).expect("popup info serializes"),
+            ),
+            (
+                serde_json::to_string(&minimized_window_info(None)).expect("minimized info serializes"),
+                serde_json::to_string(&minimized_window_info(Some(4242))).expect("minimized info serializes"),
+            ),
+        ];
+
+        for (unknown, identified) in &entries {
+            assert!(unknown.contains(r#""pid":null"#), "unknown process must serialize as null: {unknown}");
+            assert!(!unknown.contains(r#""pid":0"#), "0 is never reported: {unknown}");
+            assert!(
+                serde_json::from_str::<serde_json::Value>(unknown).is_ok(),
+                "entry must stay valid JSON: {unknown}"
+            );
+            assert_eq!(
+                &unknown.replace(r#""pid":null"#, r#""pid":4242"#),
+                identified,
+                "the two entries must differ in the pid alone"
+            );
+        }
+    }
+
+    /// The point lookup excludes a window only on a positive match of two
+    /// identities the compositor established itself.
+    #[test]
+    fn a_window_of_the_calling_process_is_skipped() {
+        assert!(excludes_caller(WindowOwner::Established(Some(4242)), Some(4242)));
+    }
+
+    #[test]
+    fn a_window_of_another_process_is_kept() {
+        assert!(!excludes_caller(WindowOwner::Established(Some(4242)), Some(99)));
+    }
+
+    #[test]
+    fn a_window_whose_client_was_not_identified_is_kept() {
+        assert!(!excludes_caller(WindowOwner::Established(None), Some(4242)));
+        assert!(!excludes_caller(WindowOwner::Established(None), None));
+    }
+
+    #[test]
+    fn an_unidentified_caller_excludes_nothing() {
+        assert!(!excludes_caller(WindowOwner::Established(Some(4242)), None));
+    }
+
+    /// `_NET_WM_PID` is whatever the X11 client wrote, so `0` can arrive — and
+    /// `0` is the one value that never reaches the wire, whatever its source.
+    #[test]
+    fn a_declared_process_id_of_zero_is_no_process() {
+        assert_eq!(declared_pid(Some(0)), None);
+        assert_eq!(declared_pid(None), None);
+        assert_eq!(declared_pid(Some(4242)), Some(4242));
+    }
+
+    /// A declared `_NET_WM_PID` is not an identity: an X11 client could
+    /// otherwise make its window unpickable by claiming the caller's number.
+    #[test]
+    fn a_declared_process_id_never_excludes() {
+        assert!(!excludes_caller(WindowOwner::Declared(Some(4242)), Some(4242)));
     }
 }

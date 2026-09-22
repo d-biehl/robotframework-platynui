@@ -235,9 +235,34 @@ List all currently mapped (visible) and minimized windows.
 | `y`          | int    | Y position in logical compositor coordinates           |
 | `width`      | int    | Window width in logical pixels                         |
 | `height`     | int    | Window height in logical pixels                        |
+| `pid`        | int |null | Process the window's client belongs to, or `null` (see below) |
 | `focused`    | bool   | Whether this window has keyboard focus                 |
 | `maximized`  | bool   | Whether this window is maximized                       |
 | `fullscreen` | bool   | Whether this window is fullscreen                      |
+
+#### The `pid` field
+
+Every entry that names a process — a window, a minimized window, a popup, and the
+window at a point — carries `pid` with the same meaning and the same two sources:
+
+- For a **Wayland client**, it is the process the compositor itself established
+  from the peer credentials of the client's connection, when it accepted that
+  connection.
+- For an **X11 client through XWayland**, it is the process the client declared
+  for itself in `_NET_WM_PID`. The compositor cannot verify that value and
+  reports it as given; it is never the process of XWayland's own connection.
+
+`pid` is `null` when the process is unknown. For a Wayland client that means the
+compositor could not identify it — typically because the client lives in a PID
+namespace the compositor cannot see, which is the normal situation when the
+compositor and the automation runtime run in different containers; for an X11
+client it means the client declared no process id, or declared `0`, which is not
+a process.
+
+The field is always present, and the compositor never reports `0`, a negative
+number or any other placeholder: a consumer that filters by process can tell
+"not identified" from a real process id without knowing how the identification
+failed. Everything else about such an entry is reported as usual.
 
 ---
 
@@ -306,6 +331,63 @@ match, the compositor falls through to `title` matching.
 ```json
 {"status": "error", "message": "window not found"}
 ```
+
+---
+
+### `window_at_point`
+
+Ask which window is at a point in logical compositor coordinates.
+
+**Request:**
+```json
+{"command": "window_at_point", "x": 640.0, "y": 480.0}
+```
+
+**Parameters:**
+
+| Field | Type  | Required | Description                                |
+|-------|-------|----------|--------------------------------------------|
+| `x`   | float | yes      | X position in logical compositor coordinates |
+| `y`   | float | yes      | Y position in logical compositor coordinates |
+
+**Response:** `window` carries the same fields as `get_window`'s, or `null` when
+no window is reported for that point:
+
+```json
+{"status": "ok", "window": {"id": 0, "window_id": 123456789, "app_id": "org.kde.kate", "pid": 4242}}
+```
+
+```json
+{"status": "ok", "window": null}
+```
+
+A missing coordinate is the command's own error:
+
+```json
+{"status": "error", "message": "window_at_point requires x and y"}
+```
+
+A coordinate that is not a number never reaches that check — it fails request
+parsing like any other malformed request, and the answer is
+`{"status": "error", "message": "invalid JSON"}`.
+
+**The asking process's own windows are skipped.** The answer is the frontmost
+window at the point that the *asking* process does not own — the window
+**behind** its own one, and `null` when there is none. "Asking" means the peer of
+the control connection the request arrived on, so the same point can yield
+different answers to different callers. This is what lets a picker resolve the
+window under its own overlay.
+
+A window is skipped **only when both identities are known and equal**. Nothing is
+skipped when the compositor could not identify the window's client, when it could
+not identify the caller (both are the case across sibling PID namespaces), or
+when the window's process is only what an XWayland client declared about itself —
+that value is not an identity the compositor established, so an X11 client cannot
+make its window unpickable by claiming the caller's process id.
+
+The skipping applies to this command alone. `list_windows`, `get_window` and
+`list_popups` keep reporting the caller's own windows: they answer what exists,
+not what is under a point.
 
 ---
 

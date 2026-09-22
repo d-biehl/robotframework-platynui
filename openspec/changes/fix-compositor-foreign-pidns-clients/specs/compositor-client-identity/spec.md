@@ -73,7 +73,15 @@ Wherever the control socket reports a window's process id — mapped windows, mi
 
 For a window backed by an X11 client through XWayland, the reported process id SHALL be the process the X11 client declares for itself, and SHALL be `null` when it declares none. The compositor SHALL NOT substitute the peer credentials of XWayland's own connection, and SHALL NOT report an XWayland window's process id as unknown merely because XWayland's own connection carries no captured identity.
 
-A declared process id is a value the X11 client chooses and the compositor cannot verify; it is reported as given.
+A declared process id is a value the X11 client chooses and the compositor cannot verify; it is reported as given — with one exception that the requirement *An unknown process is reported as absent, never as zero* imposes on every source: a declared `0` is not a process id, and SHALL be reported as `null` like a window that declares none.
+
+#### Scenario: An X11 client that declares a process id of zero is reported as null
+
+- **GIVEN** a compositor with XWayland running
+- **WHEN** an X11 client that declares `_NET_WM_PID` as `0` maps a window and the window listing is requested
+- **THEN** that window's entry SHALL carry a `pid` of `null`, because `0` is never reported whatever its source
+
+  The decision over the declared value is verifiable in the default lane; end-to-end it needs a real `Xwayland` binary.
 
 #### Scenario: An X11 client that declares its process is reported with it
 

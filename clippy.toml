@@ -12,6 +12,17 @@ disallowed-types = [
     { path = "once_cell::unsync::OnceCell", reason = "Use std::cell::OnceCell instead (stable since Rust 1.70)" },
 ]
 
+# --- Disallowed methods ---
+# `Client::get_credentials` reads SO_PEERCRED through a `rustix` whose `UCred.pid`
+# is a non-zero `Pid`, so a peer in a PID namespace the compositor cannot see —
+# reported by the kernel as process id 0 — cannot be represented and the accessor
+# panics inside `wayland-backend`, aborting the whole session. The compositor
+# establishes a client's identity itself when it accepts the connection
+# (`apps/wayland-compositor/src/client.rs`).
+disallowed-methods = [
+    { path = "wayland_server::Client::get_credentials", reason = "panics for a peer in a foreign PID namespace; use the identity captured in ClientState" },
+]
+
 # --- Function signature limits ---
 # Default is 7, but low-level drawing/FFI functions legitimately need more.
 too-many-arguments-threshold = 10

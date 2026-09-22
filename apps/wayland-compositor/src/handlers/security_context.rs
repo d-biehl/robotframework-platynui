@@ -26,7 +26,9 @@ impl SecurityContextHandler for State {
 
         // Accept the new security context and register its listener.
         if let Err(err) = self.loop_handle.insert_source(source, |client_stream, _security_context, state| {
-            if let Err(err) = state.display_handle.insert_client(client_stream, Arc::new(ClientState::default())) {
+            // A sandboxed client is identified at its own accept, like any other.
+            let client_data = ClientState::accepted(&client_stream);
+            if let Err(err) = state.display_handle.insert_client(client_stream, Arc::new(client_data)) {
                 tracing::warn!(%err, "failed to insert security-context client");
             }
         }) {

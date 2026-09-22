@@ -75,6 +75,13 @@ toml = "1.1"
 # Signal handling
 signal-hook = "0.4"
 
+# Peer credentials of an accepted connection (SO_PEERCRED). A safe wrapper that
+# can represent a process id of 0 — the kernel's answer for a peer in a PID
+# namespace this process cannot see. rustix' non-zero `Pid` cannot hold that
+# value and std's `UnixStream::peer_cred` is still unstable
+# (rust-lang/rust#42839), so `nix` is what avoids an `unsafe` block here.
+nix = { version = "0.31", default-features = false, features = ["socket"] }
+
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 # Minimal raw Wayland client for the ipc_tests popup fixture (the egui test
 # app cannot create xdg_popups — its menus render in-window). Both crates are

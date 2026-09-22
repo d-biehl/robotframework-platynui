@@ -66,7 +66,7 @@ The identity is stored as an option and flows unchanged into the existing `Optio
 
 `window_pid` keeps returning `_NET_WM_PID` for X11-backed windows and only then falls back to the stored Wayland identity. XWayland's own connection has no `ClientState`, which under this design reads as *unknown* — harmless, because no window resolves its PID through it, but the code has to say so rather than leave it to chance.
 
-*Trust:* `_NET_WM_PID` is set by the X11 client and is a value in *that client's* namespace; the compositor cannot verify it and does not try. The consequences of trusting it are the subject of `x11-window-owner-identity`, not of this change.
+*Trust:* `_NET_WM_PID` is set by the X11 client and is a value in *that client's* namespace; the compositor cannot verify it and does not try. It does normalize one value: smithay reports the property as it stands (`smithay-0.7.0/src/xwayland/xwm/surface.rs:767` stores any `CARDINAL`), so a client that writes `0` would otherwise put a `0` on the wire through the one source Decision 3 does not cover. A declared `0` is therefore reported as *no* process, like a window that declares none. The consequences of trusting it are the subject of `x11-window-owner-identity`, not of this change.
 
 ### 5. Ban only the accessor this change removes
 

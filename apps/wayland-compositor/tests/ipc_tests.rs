@@ -368,216 +368,10 @@ fn ipc_screenshot() {
 }
 
 // ─── Raw Wayland popup client fixture ───────────────────────────────────
-//
-// The egui test app cannot create xdg_popups (its menus render in-window), so
-// the popup tests speak the Wayland protocol directly: map a toplevel, then an
-// xdg_popup anchored inside it, and keep the connection alive while the test
-// queries `list_popups`.
+// Shared with `pidns_tests.rs`; see the module's own documentation.
 
-mod popup_client {
-    use std::os::fd::AsFd;
-    use std::os::unix::net::UnixStream;
-    use std::path::Path;
-    use std::time::{Duration, Instant};
-
-    use wayland_client::protocol::{wl_buffer, wl_compositor, wl_registry, wl_shm, wl_shm_pool, wl_surface};
-    use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle};
-    use wayland_protocols::xdg::shell::client::{xdg_popup, xdg_positioner, xdg_surface, xdg_toplevel, xdg_wm_base};
-
-    pub const TOPLEVEL_SIZE: (i32, i32) = (300, 200);
-    /// Anchor rect origin inside the toplevel; with a 1×1 rect and
-    /// bottom-right anchor/gravity the popup's top-left lands at +1/+1 of it.
-    pub const POPUP_ANCHOR: (i32, i32) = (30, 40);
-    pub const POPUP_OFFSET: (i32, i32) = (POPUP_ANCHOR.0 + 1, POPUP_ANCHOR.1 + 1);
-    pub const POPUP_SIZE: (i32, i32) = (100, 80);
-
-    #[derive(Clone, Copy)]
-    pub enum SurfaceRole {
-        Toplevel,
-        Popup,
-    }
-
-    #[derive(Default)]
-    pub struct State {
-        compositor: Option<wl_compositor::WlCompositor>,
-        shm: Option<wl_shm::WlShm>,
-        wm_base: Option<xdg_wm_base::XdgWmBase>,
-        toplevel_configured: bool,
-        popup_configured: bool,
-    }
-
-    impl Dispatch<wl_registry::WlRegistry, ()> for State {
-        fn event(
-            state: &mut Self,
-            registry: &wl_registry::WlRegistry,
-            event: wl_registry::Event,
-            (): &(),
-            _conn: &Connection,
-            qh: &QueueHandle<Self>,
-        ) {
-            if let wl_registry::Event::Global { name, interface, version } = event {
-                match interface.as_str() {
-                    "wl_compositor" => {
-                        state.compositor = Some(registry.bind(name, version.min(4), qh, ()));
-                    }
-                    "wl_shm" => {
-                        state.shm = Some(registry.bind(name, 1, qh, ()));
-                    }
-                    "xdg_wm_base" => {
-                        state.wm_base = Some(registry.bind(name, version.min(2), qh, ()));
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
-
-    impl Dispatch<xdg_wm_base::XdgWmBase, ()> for State {
-        fn event(
-            _state: &mut Self,
-            wm_base: &xdg_wm_base::XdgWmBase,
-            event: xdg_wm_base::Event,
-            (): &(),
-            _conn: &Connection,
-            _qh: &QueueHandle<Self>,
-        ) {
-            if let xdg_wm_base::Event::Ping { serial } = event {
-                wm_base.pong(serial);
-            }
-        }
-    }
-
-    impl Dispatch<xdg_surface::XdgSurface, SurfaceRole> for State {
-        fn event(
-            state: &mut Self,
-            surface: &xdg_surface::XdgSurface,
-            event: xdg_surface::Event,
-            role: &SurfaceRole,
-            _conn: &Connection,
-            _qh: &QueueHandle<Self>,
-        ) {
-            if let xdg_surface::Event::Configure { serial } = event {
-                surface.ack_configure(serial);
-                match role {
-                    SurfaceRole::Toplevel => state.toplevel_configured = true,
-                    SurfaceRole::Popup => state.popup_configured = true,
-                }
-            }
-        }
-    }
-
-    wayland_client::delegate_noop!(State: ignore wl_compositor::WlCompositor);
-    wayland_client::delegate_noop!(State: ignore wl_surface::WlSurface);
-    wayland_client::delegate_noop!(State: ignore wl_shm::WlShm);
-    wayland_client::delegate_noop!(State: ignore wl_shm_pool::WlShmPool);
-    wayland_client::delegate_noop!(State: ignore wl_buffer::WlBuffer);
-    wayland_client::delegate_noop!(State: ignore xdg_positioner::XdgPositioner);
-    wayland_client::delegate_noop!(State: ignore xdg_toplevel::XdgToplevel);
-    wayland_client::delegate_noop!(State: ignore xdg_popup::XdgPopup);
-
-    /// A connected client holding a mapped toplevel and one mapped popup.
-    /// Dropping it closes the connection (and thereby dismisses everything).
-    pub struct Fixture {
-        state: State,
-        queue: EventQueue<State>,
-        popup: xdg_popup::XdgPopup,
-        popup_xdg_surface: xdg_surface::XdgSurface,
-        popup_surface: wl_surface::WlSurface,
-    }
-
-    impl Fixture {
-        /// Destroy the popup and flush, so the compositor drops it from its
-        /// popup tree while toplevel and connection stay alive.
-        pub fn dismiss_popup(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-            self.popup.destroy();
-            self.popup_xdg_surface.destroy();
-            self.popup_surface.destroy();
-            self.queue.roundtrip(&mut self.state)?;
-            Ok(())
-        }
-    }
-
-    fn create_buffer(
-        shm: &wl_shm::WlShm,
-        qh: &QueueHandle<State>,
-        (width, height): (i32, i32),
-    ) -> Result<wl_buffer::WlBuffer, Box<dyn std::error::Error>> {
-        let stride = width * 4;
-        let size = stride * height;
-        let file = tempfile::tempfile()?;
-        file.set_len(u64::try_from(size)?)?;
-        let pool = shm.create_pool(file.as_fd(), size, qh, ());
-        Ok(pool.create_buffer(0, width, height, stride, wl_shm::Format::Xrgb8888, qh, ()))
-    }
-
-    fn dispatch_until(
-        queue: &mut EventQueue<State>,
-        state: &mut State,
-        what: &str,
-        cond: impl Fn(&State) -> bool,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while !cond(state) {
-            if Instant::now() > deadline {
-                return Err(format!("timed out waiting for {what}").into());
-            }
-            queue.blocking_dispatch(state)?;
-        }
-        Ok(())
-    }
-
-    /// Connect to the compositor socket, map a [`TOPLEVEL_SIZE`] toplevel and
-    /// a [`POPUP_SIZE`] popup at [`POPUP_OFFSET`] inside it.
-    pub fn open_toplevel_with_popup(
-        runtime_dir: &Path,
-        socket_name: &str,
-        app_id: &str,
-    ) -> Result<Fixture, Box<dyn std::error::Error>> {
-        let stream = UnixStream::connect(runtime_dir.join(socket_name))?;
-        let conn = Connection::from_socket(stream)?;
-        let mut queue = conn.new_event_queue();
-        let qh = queue.handle();
-        let display = conn.display();
-        let _registry = display.get_registry(&qh, ());
-
-        let mut state = State::default();
-        queue.roundtrip(&mut state)?;
-        let (Some(compositor), Some(shm), Some(wm_base)) =
-            (state.compositor.clone(), state.shm.clone(), state.wm_base.clone())
-        else {
-            return Err("compositor did not advertise wl_compositor/wl_shm/xdg_wm_base".into());
-        };
-
-        // Map the toplevel: initial commit → configure/ack → buffer commit.
-        let surface = compositor.create_surface(&qh, ());
-        let xdg = wm_base.get_xdg_surface(&surface, &qh, SurfaceRole::Toplevel);
-        let toplevel = xdg.get_toplevel(&qh, ());
-        toplevel.set_app_id(app_id.into());
-        toplevel.set_title("Popup Fixture".into());
-        surface.commit();
-        dispatch_until(&mut queue, &mut state, "toplevel configure", |s| s.toplevel_configured)?;
-        surface.attach(Some(&create_buffer(&shm, &qh, TOPLEVEL_SIZE)?), 0, 0);
-        surface.commit();
-        queue.roundtrip(&mut state)?;
-
-        // Map the popup the same way, anchored bottom-right of a 1×1 rect.
-        let positioner = wm_base.create_positioner(&qh, ());
-        positioner.set_size(POPUP_SIZE.0, POPUP_SIZE.1);
-        positioner.set_anchor_rect(POPUP_ANCHOR.0, POPUP_ANCHOR.1, 1, 1);
-        positioner.set_anchor(xdg_positioner::Anchor::BottomRight);
-        positioner.set_gravity(xdg_positioner::Gravity::BottomRight);
-        let popup_surface = compositor.create_surface(&qh, ());
-        let popup_xdg = wm_base.get_xdg_surface(&popup_surface, &qh, SurfaceRole::Popup);
-        let popup = popup_xdg.get_popup(Some(&xdg), &positioner, &qh, ());
-        popup_surface.commit();
-        dispatch_until(&mut queue, &mut state, "popup configure", |s| s.popup_configured)?;
-        popup_surface.attach(Some(&create_buffer(&shm, &qh, POPUP_SIZE)?), 0, 0);
-        popup_surface.commit();
-        queue.roundtrip(&mut state)?;
-
-        Ok(Fixture { state, queue, popup, popup_xdg_surface: popup_xdg, popup_surface })
-    }
-}
+#[path = "shared/popup_client.rs"]
+mod popup_client;
 
 /// Helper: poll `list_popups` until `count` popups are reported, or time out.
 fn wait_for_popups(socket_path: &PathBuf, count: usize, timeout: Duration) -> Option<Value> {
@@ -1285,4 +1079,331 @@ fn ipc_focus_window_brings_back_minimized_window_maximized() {
     let _ = app.kill();
     let _ = app.wait();
     shutdown_compositor(&socket_path, child);
+}
+
+// ─── window_at_point and the caller's own windows ────────────────────────
+//
+// No PID namespace is needed here: the default lane already *is* the topology
+// the exclusion is about — this test process owns a Wayland window and is the
+// control-socket caller, so the compositor resolves both sides to one process.
+
+/// `app_id` of the window this test process owns.
+const AT_POINT_OWN_APP_ID: &str = "test.atpoint.own";
+/// `app_id` of the window owned by a separate process.
+const AT_POINT_OTHER_APP_ID: &str = "test.atpoint.other";
+
+/// Environment variables through which the parent hands the child its request.
+const CHILD_SOCKET_ENV: &str = "PLATYNUI_TEST_AT_POINT_SOCKET";
+const CHILD_POINT_ENV: &str = "PLATYNUI_TEST_AT_POINT_POINT";
+const CHILD_OUTPUT_ENV: &str = "PLATYNUI_TEST_AT_POINT_OUTPUT";
+
+/// Content rectangle (`x`, `y`, `width`, `height`) of a window entry.
+fn content_rect(window: &Value) -> (i64, i64, i64, i64) {
+    let field = |name: &str| window[name].as_i64().unwrap_or_else(|| panic!("missing {name}: {window}"));
+    (field("content_x"), field("content_y"), field("content_width"), field("content_height"))
+}
+
+/// Look up a window entry by `app_id` in a fresh `list_windows` response.
+fn window_by_app_id(socket_path: &PathBuf, app_id: &str) -> Option<Value> {
+    let response = send_command(socket_path, r#"{"command": "list_windows"}"#).ok()?;
+    let value: Value = serde_json::from_str(&response).ok()?;
+    value["windows"].as_array()?.iter().find(|window| window["app_id"].as_str() == Some(app_id)).cloned()
+}
+
+/// Send a command that must succeed, and return the parsed response.
+fn command_ok(socket_path: &PathBuf, request: &str) -> Value {
+    let response =
+        send_command(socket_path, request).unwrap_or_else(|err| panic!("`{request}` could not be sent: {err}"));
+    let value: Value = serde_json::from_str(&response).unwrap_or_else(|err| panic!("`{request}` → {response}: {err}"));
+    assert_eq!(value["status"].as_str(), Some("ok"), "`{request}` failed: {response}");
+    value
+}
+
+fn move_window_to(socket_path: &PathBuf, window: &Value, x: i64, y: i64) {
+    let window_id = window["window_id"].as_u64().expect("missing window_id");
+    command_ok(socket_path, &format!(r#"{{"command":"move_window","window_id":{window_id},"x":{x},"y":{y}}}"#));
+}
+
+fn resize_window_to(socket_path: &PathBuf, window: &Value, width: i64, height: i64) {
+    let window_id = window["window_id"].as_u64().expect("missing window_id");
+    command_ok(
+        socket_path,
+        &format!(r#"{{"command":"resize_window","window_id":{window_id},"width":{width},"height":{height}}}"#),
+    );
+}
+
+/// Raise a window to the front (and focus it), like an activation request.
+fn raise_window(socket_path: &PathBuf, window: &Value) {
+    let window_id = window["window_id"].as_u64().expect("missing window_id");
+    command_ok(socket_path, &format!(r#"{{"command":"focus_window","window_id":{window_id}}}"#));
+}
+
+fn at_point(socket_path: &PathBuf, (x, y): (i64, i64)) -> Value {
+    command_ok(socket_path, &format!(r#"{{"command":"window_at_point","x":{x},"y":{y}}}"#))
+}
+
+/// Ask `window_at_point` from a *different* process, by re-executing this test
+/// binary as a child that runs the helper test below. All that matters is that
+/// the request arrives on a connection whose peer is not this process.
+fn at_point_from_another_process(socket_path: &PathBuf, (x, y): (i64, i64)) -> Value {
+    let output = tempfile::NamedTempFile::new().expect("cannot create the child's response file");
+    let binary = std::env::current_exe().expect("the test binary must have a path");
+    let status = Command::new(binary)
+        .args(["--exact", "window_at_point_from_another_process", "--include-ignored", "--nocapture"])
+        .env(CHILD_SOCKET_ENV, socket_path)
+        .env(CHILD_POINT_ENV, format!("{x},{y}"))
+        .env(CHILD_OUTPUT_ENV, output.path())
+        .status()
+        .expect("cannot re-execute the test binary as a child");
+    assert!(status.success(), "the child process failed: {status}");
+
+    let response = std::fs::read_to_string(output.path()).expect("the child wrote no response");
+    serde_json::from_str(&response).unwrap_or_else(|err| panic!("the child's response is not JSON: {response}: {err}"))
+}
+
+/// Helper process for [`ipc_window_at_point_skips_the_callers_own_window`]:
+/// asks `window_at_point` over a window this process does not own.
+///
+/// `#[ignore]`d, because it is not a test of its own — the parent re-executes
+/// this binary with `--include-ignored --exact`. A run that forces ignored tests
+/// finds no request in the environment and returns.
+#[test]
+#[ignore = "helper process, driven by ipc_window_at_point_skips_the_callers_own_window"]
+fn window_at_point_from_another_process() {
+    let (Ok(socket), Ok(point), Ok(output)) =
+        (std::env::var(CHILD_SOCKET_ENV), std::env::var(CHILD_POINT_ENV), std::env::var(CHILD_OUTPUT_ENV))
+    else {
+        eprintln!("helper process: no request in the environment — it is driven by its parent test");
+        return;
+    };
+
+    let (x, y) = point.split_once(',').expect("the point must be given as `x,y`");
+    let response = send_command(&PathBuf::from(socket), &format!(r#"{{"command":"window_at_point","x":{x},"y":{y}}}"#))
+        .expect("the helper could not query window_at_point");
+    std::fs::write(output, response).expect("the helper could not write its response");
+}
+
+#[test]
+fn ipc_window_at_point_skips_the_callers_own_window() {
+    let Some((child, socket_name)) = start_compositor("at_point_own") else {
+        return;
+    };
+    let Some(socket_path) = wait_for_socket(&socket_name, Duration::from_secs(10)) else {
+        eprintln!("skipping: control socket did not appear");
+        return;
+    };
+
+    // This process's own window, mapped from this process's own connection.
+    let runtime_dir = PathBuf::from(std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string()));
+    let fixture = match popup_client::open_toplevel_with_popup(&runtime_dir, &socket_name, AT_POINT_OWN_APP_ID) {
+        Ok(fixture) => fixture,
+        Err(err) => {
+            eprintln!("skipping: popup client could not connect/map: {err}");
+            shutdown_compositor(&socket_path, child);
+            return;
+        }
+    };
+
+    // A window of another process, over the same area.
+    let Some(mut app) = start_test_app(&socket_name, AT_POINT_OTHER_APP_ID, "At Point Window", 30) else {
+        drop(fixture);
+        shutdown_compositor(&socket_path, child);
+        return;
+    };
+    if wait_for_windows(&socket_path, 2, Duration::from_secs(15)).is_none() {
+        eprintln!("skipping: the two windows did not both appear in the compositor");
+        let _ = app.kill();
+        drop(fixture);
+        shutdown_compositor(&socket_path, child);
+        return;
+    }
+
+    // Lay the two windows out so they overlap and each keeps a private area,
+    // with this process's own window in front of the other one.
+    let own = window_by_app_id(&socket_path, AT_POINT_OWN_APP_ID).expect("own window must be listed");
+    let other = window_by_app_id(&socket_path, AT_POINT_OTHER_APP_ID).expect("the other window must be listed");
+    resize_window_to(&socket_path, &other, 400, 300);
+    move_window_to(&socket_path, &other, 300, 200);
+    move_window_to(&socket_path, &own, 100, 100);
+    raise_window(&socket_path, &own);
+    std::thread::sleep(Duration::from_millis(300));
+
+    let own = window_by_app_id(&socket_path, AT_POINT_OWN_APP_ID).expect("own window must still be listed");
+    let other = window_by_app_id(&socket_path, AT_POINT_OTHER_APP_ID).expect("the other window must still be listed");
+    let (ox, oy, ow, oh) = content_rect(&own);
+    let (tx, ty, tw, th) = content_rect(&other);
+    assert!(
+        ox < tx && oy < ty && tx < ox + ow && ty < oy + oh && ox + ow < tx + tw && oy + oh < ty + th,
+        "the layout must overlap and leave each window a private area: own={own} other={other}"
+    );
+    let overlap = ((tx + ox + ow) / 2, (ty + oy + oh) / 2);
+    let own_only = (i64::midpoint(ox, tx), i64::midpoint(oy, ty));
+    let other_only = ((ox + ow + tx + tw) / 2, (oy + oh + ty + th) / 2);
+
+    // Over the overlap our own window is frontmost, so the answer is the window
+    // behind it — never the window of the process that asked.
+    let overlap_hit = at_point(&socket_path, overlap);
+    assert_eq!(
+        overlap_hit["window"]["app_id"].as_str(),
+        Some(AT_POINT_OTHER_APP_ID),
+        "the caller's own window must be skipped for the one behind it: {overlap_hit}"
+    );
+
+    // The reported `id` is still the window's index in the listing: the stack
+    // walk derives that index itself, where the old single-hit lookup searched
+    // for the window it had been handed.
+    let listing = command_ok(&socket_path, r#"{"command": "list_windows"}"#);
+    let expected_index = listing["windows"]
+        .as_array()
+        .expect("list_windows must carry a windows array")
+        .iter()
+        .position(|window| window["app_id"].as_str() == Some(AT_POINT_OTHER_APP_ID))
+        .expect("the other process's window must be listed");
+    assert_eq!(
+        overlap_hit["window"]["id"].as_u64(),
+        Some(u64::try_from(expected_index).expect("an index fits u64")),
+        "window_at_point must report the window's index in the listing: {overlap_hit}"
+    );
+
+    // Where only our own window is, there is nothing left to report.
+    let response = at_point(&socket_path, own_only);
+    assert!(
+        response["window"].is_null(),
+        "only the caller's own window is at {own_only:?}, so nothing may be reported: {response}"
+    );
+
+    // Nothing is excluded for the wrong reason.
+    let response = at_point(&socket_path, other_only);
+    assert_eq!(
+        response["window"]["app_id"].as_str(),
+        Some(AT_POINT_OTHER_APP_ID),
+        "a point over the other process's window alone must report it: {response}"
+    );
+
+    // The caller is the reference, not the owner of the frontmost window: the
+    // same point answers differently for a process that owns nothing there.
+    let response = at_point_from_another_process(&socket_path, overlap);
+    assert_eq!(
+        response["window"]["app_id"].as_str(),
+        Some(AT_POINT_OWN_APP_ID),
+        "another process must be given the frontmost window at {overlap:?}: {response}"
+    );
+
+    // The exclusion is the point lookup's alone — the listings keep reporting
+    // the caller's own window, with the process id the compositor established.
+    let listed = window_by_app_id(&socket_path, AT_POINT_OWN_APP_ID).expect("own window must still be listed");
+    assert_eq!(listed["pid"].as_u64(), Some(u64::from(std::process::id())), "own window's pid: {listed}");
+    let by_app_id =
+        command_ok(&socket_path, &format!(r#"{{"command":"get_window","app_id":"{AT_POINT_OWN_APP_ID}"}}"#));
+    assert_eq!(by_app_id["window"]["app_id"].as_str(), Some(AT_POINT_OWN_APP_ID), "get_window: {by_app_id}");
+    let popups = command_ok(&socket_path, r#"{"command": "list_popups"}"#);
+    assert_eq!(
+        popups["popups"][0]["pid"].as_u64(),
+        Some(u64::from(std::process::id())),
+        "the caller's own popup must stay listed: {popups}"
+    );
+
+    drop(fixture);
+    let _ = app.kill();
+    let _ = app.wait();
+    shutdown_compositor(&socket_path, child);
+}
+
+/// The two error answers the `window_at_point` documentation promises: a missing
+/// coordinate is the command's own error, a coordinate that is not a number
+/// fails request parsing like any other malformed request.
+#[test]
+fn ipc_window_at_point_rejects_bad_coordinates() {
+    let Some((child, socket_name)) = start_compositor("at_point_errors") else {
+        return;
+    };
+    let Some(socket_path) = wait_for_socket(&socket_name, Duration::from_secs(10)) else {
+        eprintln!("skipping: control socket did not appear");
+        return;
+    };
+
+    let missing = send_command(&socket_path, r#"{"command":"window_at_point","x":10.0}"#)
+        .expect("failed to send window_at_point without y");
+    assert!(missing.contains("window_at_point requires x and y"), "unexpected response: {missing}");
+
+    let not_a_number = send_command(&socket_path, r#"{"command":"window_at_point","x":"abc","y":10.0}"#)
+        .expect("failed to send window_at_point with a non-numeric x");
+    assert!(not_a_number.contains("invalid JSON"), "unexpected response: {not_a_number}");
+
+    shutdown_compositor(&socket_path, child);
+}
+
+/// The compositor states once per client, at a diagnostic level, which process it
+/// established for that client — and never again while serving requests, which is
+/// what keeps the log readable when every window operation lists windows.
+///
+/// The compositor logs into a file rather than a pipe: at `--log-level debug` a
+/// pipe could fill and block it before the test reads anything.
+#[test]
+fn ipc_client_process_is_logged_once_at_debug() {
+    let log = tempfile::NamedTempFile::new().expect("cannot create a log file");
+    let socket_name = format!("platynui-test-clientlog-{}", std::process::id());
+    let binary = env!("CARGO_BIN_EXE_platynui-wayland-compositor");
+    let Ok(child) = Command::new(binary)
+        .args(["--backend", test_backend(), "--socket-name", &socket_name, "--timeout", "30"])
+        .args(["--log-level", "debug"])
+        .env("LIBGL_ALWAYS_SOFTWARE", "1")
+        .stdout(std::process::Stdio::from(log.reopen().expect("log file must be reopenable")))
+        .stderr(std::process::Stdio::from(log.reopen().expect("log file must be reopenable")))
+        .spawn()
+    else {
+        eprintln!("skipping: cannot start compositor");
+        return;
+    };
+    let mut child = child;
+
+    let Some(socket_path) = wait_for_socket(&socket_name, Duration::from_secs(10)) else {
+        eprintln!("skipping: control socket did not appear");
+        let _ = child.kill();
+        let _ = child.wait();
+        return;
+    };
+
+    let runtime_dir = PathBuf::from(std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string()));
+    let fixture = match popup_client::open_toplevel_with_popup(&runtime_dir, &socket_name, "test.clientlog") {
+        Ok(fixture) => fixture,
+        Err(err) => {
+            eprintln!("skipping: popup client could not connect/map: {err}");
+            let _ = send_command(&socket_path, r#"{"command": "shutdown"}"#);
+            let _ = child.wait();
+            return;
+        }
+    };
+
+    // Ask several times: identity is established when the connection is accepted,
+    // so serving requests must not add lines.
+    if wait_for_windows(&socket_path, 1, Duration::from_secs(10)).is_none() {
+        eprintln!("skipping: fixture toplevel did not appear");
+        drop(fixture);
+        let _ = send_command(&socket_path, r#"{"command": "shutdown"}"#);
+        let _ = child.wait();
+        return;
+    }
+    for _ in 0..3 {
+        let _ = send_command(&socket_path, r#"{"command": "list_windows"}"#);
+    }
+
+    drop(fixture);
+    let _ = send_command(&socket_path, r#"{"command": "shutdown"}"#);
+    let _ = child.wait();
+
+    let captured = std::fs::read_to_string(log.path()).expect("the compositor's log must be readable");
+    let identified: Vec<&str> =
+        captured.lines().filter(|line| line.contains("Wayland client process identified")).collect();
+    assert_eq!(identified.len(), 1, "expected exactly one line for the one client\n--- compositor log ---\n{captured}");
+    assert!(
+        identified[0].contains(&format!("pid={}", std::process::id())),
+        "the line must name this process: {}",
+        identified[0]
+    );
+    assert!(identified[0].contains("DEBUG"), "the identified case belongs at a diagnostic level: {}", identified[0]);
+    assert!(
+        !captured.contains("could not identify the client's process"),
+        "a client in the compositor's own namespace must not warn\n--- compositor log ---\n{captured}"
+    );
 }

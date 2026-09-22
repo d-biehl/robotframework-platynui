@@ -265,6 +265,14 @@ test:
 test-crate crate:
     cargo nextest run -p {{ crate }} --no-fail-fast
 
+# Unprivileged user namespaces are a HARD prerequisite — a missing one fails the
+# run rather than silently skipping the coverage. Deliberately not part of
+# `just test`: the test is `#[ignore]`d because not every machine allows them
+# (AppArmor blocks them on stock Ubuntu 24.04).
+# Run the compositor's PID-namespace checks (a client the compositor cannot see)
+test-compositor-pidns:
+    cargo nextest run -p platynui-wayland-compositor --run-ignored ignored-only -E 'binary(pidns_tests)'
+
 # Run Python tests (builds native package with mock-provider first)
 test-python: build-native-mock
     uv run pytest -v --tb=short --maxfail=3

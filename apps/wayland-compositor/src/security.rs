@@ -82,32 +82,38 @@ impl SecurityPolicy {
 
     /// Check whether a Wayland client is allowed to use privileged protocols.
     ///
-    /// Uses the client's PID (from credentials) to look up the process name
-    /// in `/proc/{pid}/comm` and checks it against the policy whitelist.
-    /// If the policy is `AllowAll`, returns `true` immediately.
-    /// Under a restrictive policy, denies access by default (fail-closed).
+    /// Reads the identity the compositor established when it accepted the
+    /// client's connection ([`crate::client::ClientState`]), so a client whose
+    /// process cannot be identified reaches a decision instead of ending the
+    /// session.
     #[must_use]
-    pub fn is_client_allowed(
-        &self,
-        client: &smithay::reexports::wayland_server::Client,
-        display_handle: &smithay::reexports::wayland_server::DisplayHandle,
-    ) -> bool {
+    pub fn is_client_allowed(&self, client: &smithay::reexports::wayland_server::Client) -> bool {
+        self.allows_process(client.get_data::<crate::client::ClientState>().and_then(|data| data.peer_process))
+    }
+
+    /// Whether a client belonging to `pid` may use privileged protocols.
+    ///
+    /// Looks the process name up in `/proc/{pid}/comm` and checks it against the
+    /// whitelist. A permissive policy allows everyone; a restrictive one denies
+    /// by default (fail-closed), and therefore denies a client whose process
+    /// could not be identified — there is no name to check.
+    ///
+    /// Split out from [`Self::is_client_allowed`] so the decision is testable
+    /// without a Wayland client.
+    #[must_use]
+    pub fn allows_process(&self, pid: Option<u32>) -> bool {
         if !self.is_restrictive() {
             return true;
         }
 
-        // Under a restrictive policy, we deny by default.
-        // Look up the client's PID → process name as a best-effort app_id check.
-        if let Ok(creds) = client.get_credentials(display_handle)
-            && let Ok(cmdline) = std::fs::read_to_string(format!("/proc/{}/comm", creds.pid))
+        if let Some(pid) = pid
+            && let Ok(comm) = std::fs::read_to_string(format!("/proc/{pid}/comm"))
+            && self.is_allowed(comm.trim())
         {
-            let process_name = cmdline.trim();
-            if self.is_allowed(process_name) {
-                return true;
-            }
+            return true;
         }
 
-        tracing::debug!("client denied by security policy (no matching app_id)");
+        tracing::debug!(?pid, "client denied by security policy (no matching app_id)");
         false
     }
 
@@ -129,5 +135,36 @@ impl SecurityPolicy {
         }
 
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Under a restrictive policy there is no process name to check, so the
+    /// fail-closed default applies — and it is reached without the compositor
+    /// having to ask an accessor that cannot express "unidentifiable".
+    #[test]
+    fn a_restrictive_policy_denies_a_client_it_cannot_identify() {
+        assert!(!SecurityPolicy::from_whitelist("allowed-app").allows_process(None));
+    }
+
+    /// A permissive policy judges nobody, identified or not.
+    #[test]
+    fn a_permissive_policy_allows_a_client_it_cannot_identify() {
+        assert!(SecurityPolicy::allow_all().allows_process(None));
+    }
+
+    /// The identified branch, so the restrictive case is known to deny by name
+    /// rather than to deny everything: this process is allowed exactly when the
+    /// whitelist carries the name behind its own process id.
+    #[test]
+    fn an_identified_client_is_judged_by_the_name_behind_its_process_id() {
+        let own = std::process::id();
+        let comm = std::fs::read_to_string(format!("/proc/{own}/comm")).expect("Linux /proc is available in tests");
+
+        assert!(SecurityPolicy::from_whitelist(comm.trim()).allows_process(Some(own)));
+        assert!(!SecurityPolicy::from_whitelist("not-the-name-of-this-process").allows_process(Some(own)));
     }
 }

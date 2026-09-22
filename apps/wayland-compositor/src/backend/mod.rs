@@ -202,7 +202,11 @@ pub fn register_wayland_sources(
 
     // Accept new client connections
     handle.insert_source(listening_socket, |client_stream, (), state| {
-        if let Err(err) = state.display_handle.insert_client(client_stream, Arc::new(ClientState::default())) {
+        // Establish who the peer is while we still hold the socket: afterwards
+        // the fd belongs to wayland-backend, whose accessor panics for a peer it
+        // cannot represent.
+        let client_data = ClientState::accepted(&client_stream);
+        if let Err(err) = state.display_handle.insert_client(client_stream, Arc::new(client_data)) {
             tracing::warn!(%err, "failed to insert new client");
         }
     })?;

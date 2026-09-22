@@ -42,4 +42,5 @@ multiple_crate_versions = "allow"
 nursery = { level = "allow", priority = -1 }
 complexity = { level = "warn", priority = -1 }
 disallowed_types = "deny"
+disallowed_methods = "deny"
 non_std_lazy_statics = "deny"
