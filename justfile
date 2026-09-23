@@ -273,6 +273,17 @@ test-crate crate:
 test-compositor-pidns:
     cargo nextest run -p platynui-wayland-compositor --run-ignored ignored-only -E 'binary(pidns_tests)'
 
+# `unshare` with unprivileged user namespaces, control over the next PID inside
+# them (/proc/sys/kernel/ns_last_pid) and the selected bus daemon are HARD
+# prerequisites — a missing one fails the run rather than silently skipping the
+# coverage; dbus-broker additionally needs a user session. Local only and
+# deliberately not part of `just test`. Covering both implementations means one
+# run each: `just test-atspi-pidns dbus-daemon`, `just test-atspi-pidns dbus-broker`.
+# Run the AT-SPI process-identity checks across PID namespaces (DAEMON: dbus-daemon | dbus-broker)
+[linux]
+test-atspi-pidns DAEMON:
+    PLATYNUI_PIDNS_DAEMON={{ DAEMON }} cargo nextest run -p platynui-provider-atspi --lib --run-ignored ignored-only -E 'test(/^pidns_harness::/)' --no-capture
+
 # Run Python tests (builds native package with mock-provider first)
 test-python: build-native-mock
     uv run pytest -v --tb=short --maxfail=3

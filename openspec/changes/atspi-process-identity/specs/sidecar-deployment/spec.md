@@ -156,7 +156,7 @@ An application node SHALL report as its process ID the number the application's 
 
 The process-ID attribute of an application node (`@ProcessId` on `app:Application`) is the application's identity. It SHALL report the process ID as the application's own environment knows it: the process ID the accessibility bus daemon reports for that application's connection. It SHALL be reported whether or not that number is valid in the runtime's own namespace. It SHALL be **absent** when the daemon cannot tell — it omits the process ID, reports `0`, answers that the process ID is unknown, or the lookup fails — and it SHALL NEVER be `0`.
 
-Every attribute read from the local process table — process name, executable path, command line, user name, start time, architecture — SHALL be read only through a process ID valid in the runtime's own namespace, and SHALL be **absent** when the application has none there. The provider SHALL NOT read the local process table with a number valid only in another namespace, and SHALL NOT guess.
+Every attribute read from the local process table — process name, executable path, command line, user name, start time — SHALL be read only through a process ID valid in the runtime's own namespace, and SHALL be **absent** when the application has none there. The provider SHALL NOT read the local process table with a number valid only in another namespace, and SHALL NOT guess.
 
 A locally valid process ID is a precondition for those attributes, not a guarantee of them: each process-table attribute SHALL be reported only when its value was actually read for that process, and SHALL be absent otherwise. In particular, an attribute the provider cannot determine SHALL NOT be answered with a substituted value — an empty string, a placeholder, or a value that describes the automation host instead of the application; a plausible wrong answer is worse than a missing one, because nothing distinguishes it from a real one. The presence of the process-ID attribute SHALL NOT imply the presence of the process-table attributes.
 
@@ -186,9 +186,9 @@ The identifier a consumer reads from an application node SHALL be the value of i
 #### Scenario: An attribute that cannot be determined is absent, not guessed
 
 - **GIVEN** an application whose process the provider cannot read
-- **WHEN** its process-table attributes are read, including the architecture attribute
+- **WHEN** its process-table attributes are read
 - **THEN** every such attribute SHALL be absent, and none SHALL report a placeholder or a value taken from the automation host instead of the application
-- **NOTE** Real provider only. Measured today: the architecture attribute falls back to the architecture the runtime was built for, so an application the runtime cannot even see is reported as `x64` — indistinguishable from a real answer, and wrong outright on a container of another architecture.
+- **NOTE** Real provider only. Measured before this change: the architecture attribute fell back to the architecture the runtime was built for, so an application the runtime could not even see was reported as `x64` — indistinguishable from a real answer, and wrong outright on a container of another architecture. The provider no longer reports an architecture at all (design D7).
 
 #### Scenario: A local process ID does not promise process-table attributes
 

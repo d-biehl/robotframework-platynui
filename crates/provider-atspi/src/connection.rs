@@ -40,10 +40,48 @@ pub fn connect_a11y_bus() -> Result<AccessibilityConnection, AtspiError> {
     Ok(conn)
 }
 
+/// Connect to the accessibility bus at an explicit address.
+///
+/// Every failure names the address it tried. In a sidecar deployment the bus
+/// address is redirected into another container, and a socket that is not
+/// shared, or a uid that does not match, otherwise surfaces as a bare I/O error —
+/// and one level up, where the runtime logs a failing provider and carries on, as
+/// an empty tree that looks like anything else.
 fn connect_address(address: &str) -> Result<AccessibilityConnection, AtspiError> {
-    let addr: Address =
-        address.parse().map_err(|err| AtspiError::ConnectionFailed(format!("invalid bus address: {err}")))?;
+    let addr: Address = address
+        .parse()
+        .map_err(|err| AtspiError::ConnectionFailed(format!("invalid accessibility bus address `{address}`: {err}")))?;
     block_on_timeout_connect(AccessibilityConnection::from_address(addr))
-        .ok_or_else(|| AtspiError::timeout("a11y bus connect"))?
-        .map_err(|err| AtspiError::ConnectionFailed(err.to_string()))
+        .ok_or_else(|| {
+            AtspiError::ConnectionFailed(format!("timed out connecting to the accessibility bus at `{address}`"))
+        })?
+        .map_err(|err| {
+            AtspiError::ConnectionFailed(format!("cannot connect to the accessibility bus at `{address}`: {err}"))
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A bus socket nobody listens on — the shape of a sidecar whose bus socket
+    /// was never shared into the runtime's container.
+    fn unreachable_bus() -> (std::path::PathBuf, String) {
+        let path = std::env::temp_dir().join(format!("platynui-no-a11y-bus-{}", std::process::id()));
+        let address = format!("unix:path={}", path.display());
+        (path, address)
+    }
+
+    #[test]
+    fn an_unreachable_bus_names_the_address_it_tried() {
+        let (path, address) = unreachable_bus();
+        let err = connect_address(&address).expect_err("nothing listens on that socket");
+        assert!(err.to_string().contains(&path.display().to_string()), "the error must name the bus: {err}");
+    }
+
+    #[test]
+    fn a_malformed_address_is_named_too() {
+        let err = connect_address("not-a-bus-address").expect_err("that is no D-Bus address");
+        assert!(err.to_string().contains("not-a-bus-address"), "the error must name the address: {err}");
+    }
 }

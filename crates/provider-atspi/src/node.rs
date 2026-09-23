@@ -1,3 +1,4 @@
+use crate::identity::PeerIdentity;
 use atspi_common::{Action as AtspiAction, CoordType, Interface, InterfaceSet, ObjectRefOwned, Role, State, StateSet};
 use atspi_connection::AccessibilityConnection;
 use atspi_proxies::accessible::AccessibleProxy;
@@ -76,8 +77,6 @@ pub struct AtspiNode {
     pub(crate) cached_name: ClearableCell<Option<String>>,
     /// Cached child count (from AT-SPI `ChildCount` property).
     pub(crate) cached_child_count: ClearableCell<Option<i32>>,
-    /// Cached process ID resolved from D-Bus connection credentials.
-    cached_process_id: ClearableCell<Option<u32>>,
     /// Registry of event-discovered transient popups (see `popups.rs`),
     /// consulted during [`UiNode::children`] to graft popups under their owner.
     /// `None` when popup surfacing is disabled; propagated to every descendant
@@ -110,7 +109,6 @@ impl AtspiNode {
             interfaces: ClearableCell::new(),
             cached_name: ClearableCell::new(),
             cached_child_count: ClearableCell::new(),
-            cached_process_id: ClearableCell::new(),
         });
         let arc: Arc<dyn UiNode> = node.clone();
         let _ = node.self_weak.set(Arc::downgrade(&arc));
@@ -217,18 +215,26 @@ impl AtspiNode {
         self.parent_is_application && matches!(self.role(), "PopupMenu" | "Menu" | "ToolTip")
     }
 
-    /// Resolve the Unix process ID of the application owning this node's
-    /// D-Bus bus name.  The result is cached in `cached_process_id`.
+    /// What the bus daemon told us about the process owning this node's bus
+    /// name. Asked through the connection's identity state, which remembers
+    /// only definitive answers — so a lookup that timed out is asked again
+    /// rather than frozen for the node's lifetime.
+    fn resolve_peer(&self) -> PeerIdentity {
+        match self.obj.name_as_str() {
+            Some(bus_name) => crate::identity::peer_of(self.conn.connection(), bus_name),
+            None => PeerIdentity::unknown(),
+        }
+    }
+
+    /// The process ID the daemon reported for this node's application.
     fn resolve_process_id(&self) -> Option<u32> {
-        self.cached_process_id.get_or_init(|| {
-            let bus_name = self.obj.name_as_str()?;
-            let conn = self.conn.connection();
-            block_on_timeout_call(async {
-                let dbus = zbus::fdo::DBusProxy::new(conn).await.ok()?;
-                dbus.get_connection_unix_process_id(zbus::names::BusName::try_from(bus_name).ok()?).await.ok()
-            })
-            .flatten()
-        })
+        self.resolve_peer().number
+    }
+
+    /// What this node reports about its process: nothing unless it is an
+    /// application.
+    fn process_attributes(&self) -> ProcessAttributes {
+        if self.is_application() { ProcessAttributes::from(self.resolve_peer()) } else { ProcessAttributes::default() }
     }
 
     fn focusable(&self) -> bool {
@@ -260,12 +266,10 @@ impl UiNode for AtspiNode {
     }
 
     fn id(&self) -> Option<String> {
-        // For Application nodes, prefer the process ID as a stable
-        // identifier since accessible-id is typically empty.
-        if self.is_application()
-            && let Some(pid) = self.resolve_process_id()
-        {
-            return Some(pid.to_string());
+        // For Application nodes the process ID is the stable identifier, since
+        // the accessible-id is typically empty.
+        if self.is_application() {
+            return application_id(self.resolve_process_id(), || resolve_id(self.conn.as_ref(), &self.obj));
         }
         resolve_id(self.conn.as_ref(), &self.obj)
     }
@@ -341,6 +345,19 @@ impl UiNode for AtspiNode {
         Box::new(AttrsIter::new(self, rid_str))
     }
 
+    /// A named lookup reads only what it names. The `app:*` block decides
+    /// presence by reading (see [`app_attribute`]), so going through the iterator
+    /// would read all five values for every name listed after them — or not
+    /// present at all — only to throw them away.
+    fn attribute(&self, namespace: Namespace, name: &str) -> Option<Arc<dyn UiAttribute>> {
+        if let Some(kind) = AppAttr::named(namespace, name) {
+            return app_attribute(kind, self.process_attributes().process_table?);
+        }
+        let mut attrs = AttrsIter::new(self, self.runtime_id().as_str().to_string());
+        attrs.process.process_table = None;
+        attrs.find(|attribute| attribute.namespace() == namespace && attribute.name() == name)
+    }
+
     fn supported_patterns(&self) -> Vec<PatternName> {
         let mut patterns = Vec::new();
         if self.focusable() {
@@ -407,7 +424,6 @@ impl UiNode for AtspiNode {
         self.interfaces.clear();
         self.cached_name.clear();
         self.cached_child_count.clear();
-        self.cached_process_id.clear();
     }
 }
 
@@ -899,8 +915,8 @@ struct AttrsIter {
     /// Shared lazy-resolution context for standard attributes.
     /// D-Bus calls are deferred until `.value()` and cached via `OnceLock`.
     ctx: Arc<LazyNodeData>,
-    /// Cached process ID (only set for Application nodes).
-    process_id: Option<u32>,
+    /// Process-derived attributes (only set for Application nodes).
+    process: ProcessAttributes,
     /// Whether this node is a real platform top-level window
     /// (direct child of an `Application` accessible).
     is_window_surface: bool,
@@ -1042,7 +1058,7 @@ impl AttrsIter {
             }
         }
 
-        let process_id = if node.is_application() { node.resolve_process_id() } else { None };
+        let process = node.process_attributes();
 
         let is_window_surface = node.is_window_surface();
 
@@ -1054,7 +1070,7 @@ impl AttrsIter {
             supports_text,
             role,
             ctx,
-            process_id,
+            process,
             is_window_surface,
             native_props,
             native_idx: 0,
@@ -1172,14 +1188,12 @@ impl Iterator for AttrsIter {
                         None
                     }
                 }
-                13 => self.process_id.map(|pid| Arc::new(ProcessIdAttr { pid }) as Arc<dyn UiAttribute>),
-                14 => self.process_id.map(|pid| Arc::new(AppProcessNameAttr { pid }) as Arc<dyn UiAttribute>),
-                15 => self.process_id.map(|pid| Arc::new(AppExecutablePathAttr { pid }) as Arc<dyn UiAttribute>),
-                16 => self.process_id.map(|pid| Arc::new(AppCommandLineAttr { pid }) as Arc<dyn UiAttribute>),
-                17 => self.process_id.map(|pid| Arc::new(AppUserNameAttr { pid }) as Arc<dyn UiAttribute>),
-                18 => self.process_id.map(|pid| Arc::new(AppStartTimeAttr { pid }) as Arc<dyn UiAttribute>),
-                19 => self.process_id.map(|pid| Arc::new(AppArchitectureAttr { pid }) as Arc<dyn UiAttribute>),
-                20 => {
+                13 => self.process.process_id.map(|pid| Arc::new(ProcessIdAttr { pid }) as Arc<dyn UiAttribute>),
+                14..=18 => self
+                    .process
+                    .process_table
+                    .and_then(|pid| app_attribute(AppAttr::ALL[usize::from(self.idx - 14)], pid)),
+                19 => {
                     if self.is_window_surface {
                         Some(Arc::new(LazyStdAttr {
                             namespace: self.namespace,
@@ -1190,7 +1204,7 @@ impl Iterator for AttrsIter {
                         None
                     }
                 }
-                21 => {
+                20 => {
                     if self.is_window_surface {
                         Some(Arc::new(LazyStdAttr {
                             namespace: self.namespace,
@@ -1201,7 +1215,7 @@ impl Iterator for AttrsIter {
                         None
                     }
                 }
-                22 => {
+                21 => {
                     if self.supports_text {
                         Some(Arc::new(LazyStdAttr {
                             namespace: self.namespace,
@@ -1212,11 +1226,11 @@ impl Iterator for AttrsIter {
                         None
                     }
                 }
-                23..=25 => {
+                22..=24 => {
                     if self.is_window_surface {
                         let kind = match self.idx {
-                            23 => StdAttrKind::IsMinimized,
-                            24 => StdAttrKind::IsMaximized,
+                            22 => StdAttrKind::IsMinimized,
+                            23 => StdAttrKind::IsMaximized,
                             _ => StdAttrKind::IsTopmost,
                         };
                         Some(Arc::new(LazyStdAttr { namespace: self.namespace, kind, ctx: self.ctx.clone() }))
@@ -1244,7 +1258,7 @@ impl Iterator for AttrsIter {
             match item {
                 Some(attr) => return Some(attr),
                 None => {
-                    if self.idx > 26 {
+                    if self.idx > 25 {
                         return None;
                     }
                     continue;
@@ -1403,12 +1417,7 @@ impl LazyNodeData {
     /// memoizes the whole result).
     fn resolve_process_id(&self) -> Option<u32> {
         let bus_name = self.obj.name_as_str()?;
-        let conn = self.conn.connection();
-        block_on_timeout_call(async {
-            let dbus = zbus::fdo::DBusProxy::new(conn).await.ok()?;
-            dbus.get_connection_unix_process_id(zbus::names::BusName::try_from(bus_name).ok()?).await.ok()
-        })
-        .flatten()
+        crate::identity::peer_of(self.conn.connection(), bus_name).number
     }
 
     /// Compute absolute screen extents by adding our parent-relative
@@ -1711,117 +1720,117 @@ impl UiAttribute for ProcessIdAttr {
 }
 
 // ---------------------------------------------------------------------------
-// Application-specific attribute types (app:* namespace)
+// Process-derived attributes of an application node
 //
-// These mirror the Windows UIA Application node attributes, reading
-// process metadata from the Linux `/proc` filesystem.
+// `@ProcessId` reports the number the bus daemon gave for the application's
+// connection. The five `app:*` attributes read the local process table — only
+// through a number valid in the runtime's namespace, and only as far as it
+// could actually be read. There is no architecture among them: Linux keeps none
+// per process, and the only source left would be the executable's ELF header.
 // ---------------------------------------------------------------------------
 
-struct AppProcessNameAttr {
-    pid: u32,
+/// What an application node reports about its process, from what the bus daemon
+/// said about its connection (design D3, D7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct ProcessAttributes {
+    /// `@ProcessId`: the number the application's own environment knows it by,
+    /// reported whether or not it is valid in the runtime's namespace.
+    process_id: Option<u32>,
+    /// The number the `app:*` block is read with — present only under local
+    /// numbering, so the local process table is never read with a number from
+    /// another namespace.
+    process_table: Option<u32>,
 }
 
-impl UiAttribute for AppProcessNameAttr {
+impl From<PeerIdentity> for ProcessAttributes {
+    fn from(peer: PeerIdentity) -> Self {
+        Self { process_id: peer.number, process_table: peer.local_number }
+    }
+}
+
+/// The node identifier of an application: its process ID in decimal when it has
+/// one, otherwise the toolkit's accessible-id — asked for only then. Never `"0"`.
+pub(crate) fn application_id(
+    process_id: Option<u32>,
+    accessible_id: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    match process_id.filter(|pid| *pid > 0) {
+        Some(pid) => Some(pid.to_string()),
+        None => accessible_id(),
+    }
+}
+
+/// The five `app:*` attributes read from the local process table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AppAttr {
+    ProcessName,
+    ExecutablePath,
+    CommandLine,
+    UserName,
+    StartTime,
+}
+
+impl AppAttr {
+    /// In the order the attribute iterator emits them.
+    const ALL: [Self; 5] =
+        [Self::ProcessName, Self::ExecutablePath, Self::CommandLine, Self::UserName, Self::StartTime];
+
+    /// The process-table attribute `namespace`/`name` names, if it names one.
+    fn named(namespace: Namespace, name: &str) -> Option<Self> {
+        if namespace != Namespace::App {
+            return None;
+        }
+        Self::ALL.into_iter().find(|kind| kind.name() == name)
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::ProcessName => application::PROCESS_NAME,
+            Self::ExecutablePath => application::EXECUTABLE_PATH,
+            Self::CommandLine => application::COMMAND_LINE,
+            Self::UserName => application::USER_NAME,
+            Self::StartTime => application::START_TIME,
+        }
+    }
+
+    fn read(self, pid: u32) -> Option<String> {
+        match self {
+            Self::ProcessName => crate::process::query_process_name(pid),
+            Self::ExecutablePath => crate::process::query_executable_path(pid),
+            Self::CommandLine => crate::process::query_command_line(pid),
+            Self::UserName => crate::process::query_user_name(pid),
+            Self::StartTime => crate::process::query_start_time(pid),
+        }
+    }
+}
+
+/// A process-table attribute, present only when its value could be read.
+///
+/// Presence is decided here, when the attribute is enumerated, rather than at
+/// `value()` time: a value that cannot be read is no attribute at all, never an
+/// empty string, a null or `"unknown"` that nothing could tell from a real one.
+fn app_attribute(kind: AppAttr, pid: u32) -> Option<Arc<dyn UiAttribute>> {
+    let value = kind.read(pid)?;
+    Some(Arc::new(AppValueAttr { name: kind.name(), value }))
+}
+
+/// A process-table value that was actually read.
+struct AppValueAttr {
+    name: &'static str,
+    value: String,
+}
+
+impl UiAttribute for AppValueAttr {
     fn namespace(&self) -> Namespace {
         Namespace::App
     }
 
     fn name(&self) -> &str {
-        application::PROCESS_NAME
+        self.name
     }
 
     fn value(&self) -> UiValue {
-        crate::process::query_process_name(self.pid).map(UiValue::from).unwrap_or(UiValue::from(""))
-    }
-}
-
-struct AppExecutablePathAttr {
-    pid: u32,
-}
-
-impl UiAttribute for AppExecutablePathAttr {
-    fn namespace(&self) -> Namespace {
-        Namespace::App
-    }
-
-    fn name(&self) -> &str {
-        application::EXECUTABLE_PATH
-    }
-
-    fn value(&self) -> UiValue {
-        crate::process::query_executable_path(self.pid).map(UiValue::from).unwrap_or(UiValue::from(""))
-    }
-}
-
-struct AppCommandLineAttr {
-    pid: u32,
-}
-
-impl UiAttribute for AppCommandLineAttr {
-    fn namespace(&self) -> Namespace {
-        Namespace::App
-    }
-
-    fn name(&self) -> &str {
-        application::COMMAND_LINE
-    }
-
-    fn value(&self) -> UiValue {
-        crate::process::query_command_line(self.pid).map(UiValue::from).unwrap_or(UiValue::Null)
-    }
-}
-
-struct AppUserNameAttr {
-    pid: u32,
-}
-
-impl UiAttribute for AppUserNameAttr {
-    fn namespace(&self) -> Namespace {
-        Namespace::App
-    }
-
-    fn name(&self) -> &str {
-        application::USER_NAME
-    }
-
-    fn value(&self) -> UiValue {
-        crate::process::query_user_name(self.pid).map(UiValue::from).unwrap_or(UiValue::from(""))
-    }
-}
-
-struct AppStartTimeAttr {
-    pid: u32,
-}
-
-impl UiAttribute for AppStartTimeAttr {
-    fn namespace(&self) -> Namespace {
-        Namespace::App
-    }
-
-    fn name(&self) -> &str {
-        application::START_TIME
-    }
-
-    fn value(&self) -> UiValue {
-        crate::process::query_start_time(self.pid).map(UiValue::from).unwrap_or(UiValue::from(""))
-    }
-}
-
-struct AppArchitectureAttr {
-    pid: u32,
-}
-
-impl UiAttribute for AppArchitectureAttr {
-    fn namespace(&self) -> Namespace {
-        Namespace::App
-    }
-
-    fn name(&self) -> &str {
-        application::ARCHITECTURE
-    }
-
-    fn value(&self) -> UiValue {
-        crate::process::query_architecture(self.pid).map(UiValue::from).unwrap_or(UiValue::from("unknown"))
+        UiValue::from(self.value.clone())
     }
 }
 
@@ -2128,6 +2137,112 @@ impl LazyNativeAttr {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::identity::{Answer, ConnectionIdentity};
+
+    // ---- process-derived attributes of an application node ----
+
+    /// No process has this number: Linux caps `pid_max` at 2^22.
+    const NO_SUCH_PROCESS: u32 = u32::MAX;
+    const OURS: u32 = 4242;
+    const APP: u32 = 17;
+
+    /// What a peer looks like once the daemon answered `for_us` about our own
+    /// connection and `for_app` about the application's.
+    fn peer_under(for_us: Answer, for_app: Answer) -> PeerIdentity {
+        let identity = ConnectionIdentity::new(OURS, ":1.1".to_string());
+        identity.record_numbering(for_us);
+        identity.record_peer(":1.9", for_app)
+    }
+
+    /// Our own connection numbered as we number ourselves: local numbering.
+    const LOCAL: Answer = Answer::Definitive(Some(OURS));
+    /// A daemon that cannot see us: no identity.
+    const BLIND: Answer = Answer::Definitive(None);
+
+    /// Every shape a daemon answers in when it cannot tell an application's
+    /// process — the three measured ones and a call that did not complete.
+    /// "Omitted" and "`UnixProcessIdUnknown`" reach this layer alike, as a
+    /// definitive `None` (see `identity::classify_error`).
+    const CANNOT_TELL: [Answer; 3] = [Answer::Definitive(Some(0)), Answer::Definitive(None), Answer::Transient];
+
+    // Spec: *An attribute that cannot be determined is absent, not guessed* —
+    // the attribute-layer half of task 2.5.
+    #[test]
+    fn a_process_table_value_that_cannot_be_read_is_no_attribute() {
+        for kind in AppAttr::ALL {
+            assert!(
+                app_attribute(kind, NO_SUCH_PROCESS).is_none(),
+                "{kind:?} must be absent for an unreadable process, not a stand-in"
+            );
+        }
+    }
+
+    // Task 2.6: the attribute split, as a pure choice over the daemon's number
+    // and the connection's verdict.
+    #[test]
+    fn the_number_is_reported_although_it_is_not_locally_valid() {
+        let reported = ProcessAttributes::from(peer_under(BLIND, Answer::Definitive(Some(APP))));
+        assert_eq!(reported.process_id, Some(APP));
+    }
+
+    #[test]
+    fn no_process_id_and_never_zero_when_the_daemon_cannot_tell() {
+        for for_us in [LOCAL, BLIND] {
+            for for_app in CANNOT_TELL {
+                let reported = ProcessAttributes::from(peer_under(for_us, for_app));
+                assert_eq!(reported.process_id, None, "{for_us:?} / {for_app:?}");
+                assert_eq!(reported.process_table, None, "{for_us:?} / {for_app:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn no_process_table_under_no_identity_although_the_process_id_is_reported() {
+        let reported = ProcessAttributes::from(peer_under(BLIND, Answer::Definitive(Some(APP))));
+        assert_eq!(reported.process_id, Some(APP));
+        assert_eq!(reported.process_table, None, "nothing may read /proc with a foreign number");
+    }
+
+    #[test]
+    fn both_open_under_local_numbering() {
+        let reported = ProcessAttributes::from(peer_under(LOCAL, Answer::Definitive(Some(APP))));
+        assert_eq!(reported.process_id, Some(APP));
+        assert_eq!(reported.process_table, Some(APP));
+    }
+
+    // Task 2.7: the node identifier of an application.
+    #[test]
+    fn an_application_id_is_its_process_id_when_there_is_one() {
+        assert_eq!(application_id(Some(APP), || panic!("must not ask for the accessible-id")), Some(APP.to_string()));
+    }
+
+    #[test]
+    fn without_a_process_id_an_application_id_is_the_accessible_id_or_nothing() {
+        assert_eq!(application_id(None, || Some("accessible".to_string())), Some("accessible".to_string()));
+        assert_eq!(application_id(None, || None), None);
+    }
+
+    #[test]
+    fn an_application_id_is_never_zero() {
+        assert_eq!(application_id(Some(0), || None), None);
+        for for_us in [LOCAL, BLIND] {
+            for for_app in CANNOT_TELL {
+                let process_id = ProcessAttributes::from(peer_under(for_us, for_app)).process_id;
+                assert_ne!(application_id(process_id, || None), Some("0".to_string()), "{for_us:?} / {for_app:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_named_lookup_reads_the_process_table_only_for_the_app_attribute_it_names() {
+        for kind in AppAttr::ALL {
+            assert_eq!(AppAttr::named(Namespace::App, kind.name()), Some(kind));
+            assert_eq!(AppAttr::named(Namespace::Control, kind.name()), None, "another namespace reads nothing");
+        }
+        // `@ProcessId` comes from the daemon, not from the process table.
+        assert_eq!(AppAttr::named(Namespace::App, application::PROCESS_ID), None);
+        assert_eq!(AppAttr::named(Namespace::Control, "IsActive"), None);
+    }
 
     // ---- normalize_value ----
 

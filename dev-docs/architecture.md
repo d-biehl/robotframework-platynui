@@ -504,7 +504,7 @@ The paired reader is `TextContent` (`Text`); `Clearable` follows the same princi
 | CommandLine | QueryProcessCommandLine (NtQueryInformationProcess) | /proc/PID/cmdline | — |
 | UserName | Process token → LookupAccountSid | /proc/PID/status Uid → getpwuid | — |
 | StartTime | GetProcessTimes → ISO 8601 | /proc/PID/stat field 22 (ticks → ISO 8601) | — |
-| Architecture | IsWow64Process2 / PE header | ELF e_machine from /proc/PID/exe | — |
+| Architecture | IsWow64Process2 / PE header | — (Linux keeps no architecture per process) | — |
 
 ## 7. Provider Infrastructure
 

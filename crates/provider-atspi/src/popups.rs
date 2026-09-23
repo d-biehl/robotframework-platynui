@@ -27,7 +27,6 @@
 //! making blocking proxy calls on the connection whose stream is being awaited
 //! deadlocks the stream (the bug `atspi_focus_watch` originally had).
 
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -38,7 +37,6 @@ use atspi_connection::AccessibilityConnection;
 use futures_lite::StreamExt;
 use tracing::{debug, trace};
 
-use crate::SELF_PID;
 use crate::connection::connect_a11y_bus_with;
 use crate::error::AtspiError;
 use crate::node::{AtspiNode, accessible_proxy};
@@ -251,9 +249,9 @@ async fn with_timeout<T>(future: impl std::future::Future<Output = T>) -> Option
 }
 
 async fn worker_loop(events: AccessibilityConnection, query: AccessibilityConnection, registry: Arc<PopupRegistry>) {
-    // PID per application bus name; stable for a connection's lifetime, so one
-    // D-Bus lookup per application suffices for the own-process filter.
-    let mut pid_cache: HashMap<String, Option<u32>> = HashMap::new();
+    // Identity per bus connection, shared with the rest of the crate: one
+    // lookup per application, remembered only when the daemon answered.
+    let identity = crate::identity::for_connection(query.connection());
     let stream = events.event_stream();
     let mut stream = std::pin::pin!(stream);
     debug!("popup watcher: event stream running");
@@ -264,7 +262,7 @@ async fn worker_loop(events: AccessibilityConnection, query: AccessibilityConnec
                 // A popup opening announces itself with showing=true (Qt); the
                 // owner is one `parent()` hop away (verified: PopupMenu → Application).
                 State::Showing if ev.enabled => {
-                    on_popup_candidate(&query, &registry, &mut pid_cache, ev.item, None).await;
+                    on_popup_candidate(&query, &registry, identity.as_deref(), ev.item, None).await;
                 }
                 State::Showing => registry.remove(&ev.item),
                 State::Defunct if ev.enabled => registry.remove(&ev.item),
@@ -275,7 +273,7 @@ async fn worker_loop(events: AccessibilityConnection, query: AccessibilityConnec
                 // widget without actually listing them in its GetChildren; the
                 // event source IS the owner, no parent() hop needed.
                 Operation::Insert => {
-                    on_popup_candidate(&query, &registry, &mut pid_cache, ev.child, Some(ev.item)).await;
+                    on_popup_candidate(&query, &registry, identity.as_deref(), ev.child, Some(ev.item)).await;
                 }
                 Operation::Delete => registry.remove(&ev.child),
             },
@@ -283,6 +281,7 @@ async fn worker_loop(events: AccessibilityConnection, query: AccessibilityConnec
         }
     }
     debug!("popup watcher: event stream ended");
+    crate::identity::forget(query.connection());
 }
 
 /// Decide whether an announced accessible is a transient popup worth grafting,
@@ -292,7 +291,7 @@ async fn worker_loop(events: AccessibilityConnection, query: AccessibilityConnec
 async fn on_popup_candidate(
     query: &AccessibilityConnection,
     registry: &Arc<PopupRegistry>,
-    pid_cache: &mut HashMap<String, Option<u32>>,
+    identity: Option<&crate::identity::ConnectionIdentity>,
     popup: ObjectRefOwned,
     owner_hint: Option<ObjectRefOwned>,
 ) {
@@ -303,16 +302,26 @@ async fn on_popup_candidate(
         return;
     };
 
-    // Own-process filter, consistent with the SELF_PID skip in get_nodes.
-    let pid = match pid_cache.get(&bus_name) {
-        Some(pid) => *pid,
-        None => {
-            let resolved = resolve_pid(query, &bus_name).await;
-            pid_cache.insert(bus_name.clone(), resolved);
-            resolved
+    // Own-process filter, the same decision the registry walk applies. The
+    // worker cannot block — it runs inside `zbus::block_on` — so it asks the
+    // daemon itself and hands the answer to the shared identity state.
+    let peer = match identity {
+        Some(identity) => {
+            if identity.known_numbering().is_none() {
+                let answer = ask_process_id(query, identity.own_name()).await;
+                identity.record_numbering(answer);
+            }
+            match identity.known_peer(&bus_name) {
+                Some(peer) => peer,
+                None => {
+                    let answer = ask_process_id(query, &bus_name).await;
+                    identity.record_peer(&bus_name, answer)
+                }
+            }
         }
+        None => crate::identity::PeerIdentity::unknown(),
     };
-    if pid == Some(*SELF_PID) {
+    if peer.is_own {
         return;
     }
 
@@ -359,15 +368,24 @@ async fn on_popup_candidate(
     registry.insert(popup, owner);
 }
 
-/// Unix PID of the application owning `bus_name`, via the bus daemon.
-async fn resolve_pid(query: &AccessibilityConnection, bus_name: &str) -> Option<u32> {
+/// Ask the bus daemon for the process ID behind `bus_name`, in the worker's own
+/// async idiom. The classification of the answer lives in `identity`.
+async fn ask_process_id(query: &AccessibilityConnection, bus_name: &str) -> crate::identity::Answer {
+    use crate::identity::Answer;
+    let Ok(name) = zbus::names::BusName::try_from(bus_name) else {
+        return Answer::Definitive(None);
+    };
     let conn = query.connection();
-    with_timeout(async {
-        let dbus = zbus::fdo::DBusProxy::new(conn).await.ok()?;
-        dbus.get_connection_unix_process_id(zbus::names::BusName::try_from(bus_name).ok()?).await.ok()
+    let replied = with_timeout(async {
+        let dbus = zbus::fdo::DBusProxy::new(conn).await?;
+        dbus.get_connection_credentials(name).await
     })
-    .await
-    .flatten()
+    .await;
+    match replied {
+        Some(Ok(credentials)) => Answer::Definitive(credentials.process_id()),
+        Some(Err(err)) => crate::identity::classify_error(&err),
+        None => Answer::Transient,
+    }
 }
 
 #[cfg(test)]

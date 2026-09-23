@@ -124,7 +124,7 @@ Idea: allow external processes to act as UI tree providers via a JSON-RPC-like p
   - [x] `app:CommandLine` — read `/proc/PID/cmdline` (NUL-separated → space-joined)
   - [x] `app:UserName` — `/proc/PID/status` Uid → `/etc/passwd` lookup
   - [x] `app:StartTime` — `/proc/PID/stat` field 22 (starttime in ticks) → ISO 8601
-  - [x] `app:Architecture` — ELF header (`e_machine`) from `/proc/PID/exe`
+  - [x] ~~`app:Architecture`~~ — dropped on Linux: the kernel keeps no architecture per process, and parsing the ELF header was not worth it (`atspi-process-identity`)
 - [ ] **AT-SPI2 events**: `subscribe_events` implementation (D-Bus signal handling)
 - [ ] **AT-SPI2 tree verification**: confirm Application → Window → Control/Item structure
 - [ ] **Smoke tests**: desktop bounds, ActivationPoint, visibility/enable flags under X11
@@ -441,7 +441,7 @@ Deep analysis of the XPath crate revealed the following issues to address:
 ## 7. Quality & Process
 
 - [ ] Contract tests for providers & devices (pattern-specific attributes, desktop coordinates, RuntimeId sources)
-- [ ] Application node attribute parity: all providers should emit the same `app:*` metadata set (ProcessId already done everywhere; ProcessName/ExecutablePath/CommandLine/UserName/StartTime/Architecture implemented on Windows UIA and AT-SPI2; Mock pending)
+- [ ] Application node attribute parity: all providers should emit the same `app:*` metadata set (ProcessId already done everywhere; ProcessName/ExecutablePath/CommandLine/UserName/StartTime implemented on Windows UIA and AT-SPI2, Architecture on Windows UIA and the Java providers but not on AT-SPI2; Mock pending)
 - [x] Rename `application::NAME` → `application::PROCESS_NAME` (`"Name"` → `"ProcessName"`) — see §8.5 for rationale. Implemented for Windows UIA and AT-SPI2; Application nodes now emit both `control:Name` (display name) and `app:ProcessName` (executable stem). Mock pending.
 - [ ] Release/versioning strategy (SemVer per crate? Workspace version?)
 - [ ] UiNode `Id` tests: core contract tests, provider smoke tests (UIA, AT-SPI, macOS)
@@ -731,7 +731,7 @@ Complete checklists from all work areas, including completed items for historica
 - [x] AT-SPI2 provider: D-Bus integration, RuntimeId, role mapping, streaming attributes
 - [x] AT-SPI2: component-gated attributes, Focusable pattern
 - [x] AT-SPI2: native interface attributes
-- [x] AT-SPI2: Application node attributes (Name, ExecutablePath, CommandLine, UserName, StartTime, Architecture via `/proc/PID/`)
+- [x] AT-SPI2: Application node attributes (Name, ExecutablePath, CommandLine, UserName, StartTime via `/proc/PID/`; Architecture later dropped)
 - [ ] AT-SPI2: tree structure verification
 - [ ] AT-SPI2 supplementary tests
 - [ ] Wayland mediation crate planning

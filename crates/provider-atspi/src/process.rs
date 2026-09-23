@@ -134,58 +134,20 @@ pub fn query_start_time(pid: u32) -> Option<String> {
     })
 }
 
-/// Return the process architecture by reading the ELF header of the
-/// executable.
-///
-/// Falls back to the system architecture if the ELF header cannot be
-/// read (e.g. insufficient permissions or non-ELF binary).
-pub fn query_architecture(pid: u32) -> Option<String> {
-    // Try reading the ELF header from the exe path obtained via sysinfo.
-    if let Some(exe_path) = query_executable_path(pid)
-        && let Some(arch) = read_elf_architecture(&exe_path)
-    {
-        return Some(arch);
-    }
-    // Fallback: compile-time system architecture.
-    Some(normalize_arch(std::env::consts::ARCH).to_string())
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// Read the `e_machine` field from an ELF file header.
-fn read_elf_architecture(path: &str) -> Option<String> {
-    use std::io::Read;
-    let mut file = std::fs::File::open(path).ok()?;
-    let mut header = [0u8; 20]; // bytes 0..4 (magic) + bytes 18..20 (e_machine)
-    file.read_exact(&mut header).ok()?;
+    /// No process has this number: Linux caps `pid_max` at 2^22.
+    const NO_SUCH_PROCESS: u32 = u32::MAX;
 
-    // Verify ELF magic: 0x7f 'E' 'L' 'F'
-    if header[0..4] != [0x7f, b'E', b'L', b'F'] {
-        return None;
-    }
-    // e_machine is at offset 18 in both 32-bit and 64-bit ELF headers.
-    let e_machine = u16::from_le_bytes([header[18], header[19]]);
-    Some(elf_machine_to_string(e_machine))
-}
-/// Map ELF `e_machine` to a human-readable architecture string.
-fn elf_machine_to_string(machine: u16) -> String {
-    match machine {
-        0x03 => "x86",
-        0x3E => "x64",
-        0x28 => "arm",
-        0xB7 => "arm64",
-        0xF3 => "riscv",
-        _ => "unknown",
-    }
-    .to_string()
-}
-
-/// Normalize a CPU architecture name to our canonical format.
-fn normalize_arch(arch: &str) -> &str {
-    match arch {
-        "x86_64" | "amd64" => "x64",
-        "x86" | "i386" | "i686" => "x86",
-        "aarch64" => "arm64",
-        "arm" | "armv7l" => "arm",
-        "riscv64" => "riscv",
-        other => other,
+    /// Spec: *An attribute that cannot be determined is absent, not guessed*.
+    #[test]
+    fn every_process_table_value_of_an_unreadable_process_is_absent() {
+        assert_eq!(query_process_name(NO_SUCH_PROCESS), None);
+        assert_eq!(query_executable_path(NO_SUCH_PROCESS), None);
+        assert_eq!(query_command_line(NO_SUCH_PROCESS), None);
+        assert_eq!(query_user_name(NO_SUCH_PROCESS), None);
+        assert_eq!(query_start_time(NO_SUCH_PROCESS), None);
     }
 }

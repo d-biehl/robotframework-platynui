@@ -11,7 +11,10 @@ pub(crate) mod clearable_cell;
 pub(crate) mod error;
 
 mod connection;
+mod identity;
 mod node;
+#[cfg(test)]
+mod pidns_harness;
 mod popups;
 mod process;
 mod timeout;
@@ -35,9 +38,6 @@ use tracing::{debug, info, trace, warn};
 use zbus::proxy::CacheProperties;
 
 use crate::timeout::{block_on_timeout_call, block_on_timeout_init};
-
-/// Cache current process ID once; stable for the entire process lifetime.
-static SELF_PID: LazyLock<u32> = LazyLock::new(std::process::id);
 
 pub const PROVIDER_ID: &str = "atspi";
 pub const PROVIDER_NAME: &str = "AT-SPI2";
@@ -172,6 +172,11 @@ impl UiTreeProvider for AtspiProvider {
         if let Some(mut watcher) = self.popup_watcher.lock().expect("popup watcher mutex poisoned").take() {
             watcher.stop();
         }
+        // The watcher's worker forgot its own connection as it exited; this one
+        // is the provider's, and nothing else in the process is touched.
+        if let Some(conn) = self.conn.get() {
+            identity::forget(conn.connection());
+        }
         self.conn.clear();
     }
 
@@ -207,19 +212,11 @@ impl UiTreeProvider for AtspiProvider {
             let app_bus = child.name_as_str().unwrap_or("<unknown>").to_string();
             let app_start = std::time::Instant::now();
 
-            // Resolve the PID of this application's D-Bus connection
-            // and skip it when it belongs to our own process.
-            let app_pid: Option<u32> = {
-                let bus_name = child.name_as_str()?;
-                let conn_inner = conn.connection().clone();
-                block_on_timeout_call(async {
-                    let dbus = zbus::fdo::DBusProxy::new(&conn_inner).await.ok()?;
-                    dbus.get_connection_unix_process_id(zbus::names::BusName::try_from(bus_name).ok()?).await.ok()
-                })
-                .flatten()
-            };
-            if app_pid == Some(*SELF_PID) {
-                debug!(app = %app_bus, pid = *SELF_PID, "skipped own process");
+            // Classify this application's D-Bus connection and skip it when it
+            // is our own process.
+            let peer = identity::peer_of(conn.connection(), child.name_as_str()?);
+            if peer.is_own {
+                debug!(app = %app_bus, pid = ?peer.number, "skipped own process");
                 return None;
             }
 
@@ -312,11 +309,12 @@ impl UiTreeProvider for AtspiProvider {
             debug!(?point, "window_at_point returned a window without a PID; cannot correlate to AT-SPI");
             return Ok(None);
         };
-        // Never resolve the host process's own UI (consistent with get_nodes,
-        // which skips SELF_PID). A picker over its own window picks nothing.
-        if pid == *SELF_PID {
-            return Ok(None);
-        }
+        // Ownership is not decided here. The window system already skipped a
+        // window of the asking process — the X11 window manager and the
+        // PlatynUI compositor both do, from their own view of both sides — and
+        // `pid` is a number the window's client reported in *its* namespace,
+        // which says nothing about ours. Comparing it with our own PID could only
+        // undo that decision, and under a PID collision it did.
 
         let conn = self.connection()?;
         let Some(app_obj) = application_for_pid(&conn, pid) else {
@@ -336,7 +334,19 @@ impl UiTreeProvider for AtspiProvider {
 
 /// Resolve the AT-SPI application accessible whose D-Bus connection belongs to
 /// `target_pid`, by enumerating the registry's application children.
+///
+/// `target_pid` is the number the window system reports for the window's owner,
+/// and it is compared with the number the bus daemon reports for each
+/// application — never with our own, and never through the connection's
+/// verdict. Both are values in the application's namespace under the supported
+/// topology, so the comparison stays within one namespace even where neither is
+/// valid in ours; requiring a locally valid number here would stop resolving the
+/// co-located application of a sidecar deployment. A side with no number never
+/// matches, and `0` is no number.
 fn application_for_pid(conn: &Arc<AccessibilityConnection>, target_pid: u32) -> Option<ObjectRefOwned> {
+    if target_pid == 0 {
+        return None;
+    }
     let proxy = block_on_timeout_init(
         AccessibleProxy::builder(conn.connection())
             .cache_properties(CacheProperties::No)
@@ -360,12 +370,9 @@ fn application_for_pid(conn: &Arc<AccessibilityConnection>, target_pid: u32) -> 
         let Some(bus_name) = child.name_as_str().map(str::to_owned) else {
             continue;
         };
-        let conn_inner = conn.connection().clone();
-        let app_pid = block_on_timeout_call(async move {
-            let dbus = zbus::fdo::DBusProxy::new(&conn_inner).await.ok()?;
-            dbus.get_connection_unix_process_id(zbus::names::BusName::try_from(bus_name.as_str()).ok()?).await.ok()
-        })
-        .flatten();
+        // The daemon's number for this application, never `0`, and absent when
+        // it cannot tell — so an application it cannot see matches nothing.
+        let app_pid = identity::peer_of(conn.connection(), &bus_name).number;
         if app_pid != Some(target_pid) {
             continue;
         }
@@ -603,6 +610,59 @@ platynui_core::register_provider!(&ATSPI_FACTORY);
 mod tests {
     use super::*;
     use platynui_core::config::{ConfigMap, RuntimeConfig};
+    use platynui_core::ui::{Namespace, PatternName, RuntimeId, UiAttribute};
+    use std::sync::Weak;
+
+    /// Stands in for the runtime's desktop node. `get_nodes` needs one to be
+    /// called at all; the test is about what happens before it is touched.
+    struct DesktopStub(RuntimeId);
+
+    impl UiNode for DesktopStub {
+        fn namespace(&self) -> Namespace {
+            Namespace::Control
+        }
+        fn role(&self) -> &str {
+            "Desktop"
+        }
+        fn name(&self) -> String {
+            String::new()
+        }
+        fn runtime_id(&self) -> &RuntimeId {
+            &self.0
+        }
+        fn parent(&self) -> Option<Weak<dyn UiNode>> {
+            None
+        }
+        fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
+            Box::new(std::iter::empty())
+        }
+        fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
+            Box::new(std::iter::empty())
+        }
+        fn supported_patterns(&self) -> Vec<PatternName> {
+            Vec::new()
+        }
+        fn invalidate(&self) {}
+    }
+
+    /// Spec: *An unreachable accessibility bus is reported, not mistaken for an
+    /// empty bus*. The provider must surface the failure, naming the bus, rather
+    /// than enumerate nothing — which the runtime could not tell from a bus with
+    /// no applications on it.
+    #[test]
+    fn an_unreachable_bus_is_an_error_naming_it_not_an_empty_tree() {
+        let path = std::env::temp_dir().join(format!("platynui-no-a11y-bus-provider-{}", std::process::id()));
+        let address = format!("unix:path={}", path.display());
+        let providers = ConfigMap::new()
+            .with("atspi", ConfigMap::new().with("bus_address", address.as_str()).with("surface_popups", false));
+        let provider = AtspiFactory.build(&RuntimeConfig::new(ConfigMap::new(), providers));
+        let desktop: Arc<dyn UiNode> = Arc::new(DesktopStub(RuntimeId::from("desktop")));
+
+        let Err(err) = provider.get_nodes(desktop) else {
+            panic!("an unreachable bus must not enumerate as an empty tree");
+        };
+        assert!(err.to_string().contains(&path.display().to_string()), "the error must name the bus: {err}");
+    }
 
     #[test]
     fn factory_reads_configured_bus_address() {
