@@ -56,8 +56,17 @@ The result is that a surfaced popup and its items are reachable by every top-dow
 
 #### Scenario: The provider's own process popups are not surfaced
 
-- **WHEN** the popup belongs to the PlatynUI process itself (e.g. the Inspector's own menus)
-- **THEN** it SHALL NOT be surfaced, consistent with the existing own-process filtering
+- **GIVEN** the provider has established its own process identity on the bus connection the watcher uses (see `sidecar-deployment`)
+- **WHEN** a popup belongs to the PlatynUI process itself (e.g. the Inspector's own menus)
+- **THEN** it SHALL NOT be surfaced, consistent with own-process filtering during enumeration
+- **NOTE** Verifiable only against a real toolkit, not the mock.
+
+#### Scenario: Popups from other processes are surfaced even when identity is unavailable
+
+- **GIVEN** the bus daemon cannot tell the provider which connection is its own, so no own-process identity could be established
+- **WHEN** a popup belongs to a process the provider cannot classify
+- **THEN** it SHALL be surfaced, and popups of the PlatynUI process itself MAY be surfaced as well
+- **NOTE** Verifiable only against a real toolkit in a deployment where the daemon cannot resolve the provider's connection, not the mock. Surfacing our own popups is the accepted loss; discarding a foreign application's popup as "ours" is not, because nothing in the tree would then reveal the menu exists.
 
 ### Requirement: Event consumption does not block synchronous tree access
 
