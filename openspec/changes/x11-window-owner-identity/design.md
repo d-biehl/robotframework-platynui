@@ -74,44 +74,64 @@ the X server's lifetime — a property the answer to "who does this server think
 
 ## Decisions
 
-### 1. Ask the server about our own connection, keep comparing `_NET_WM_PID` per window
+### 1. Two witnesses: the window's reported PID and the server's attribution
 
-The runtime queries `QueryClientIds` **once per connection** for its *own* client and
-compares the answer with `std::process::id()`. The per-window test stays what it is today
-(`_NET_WM_PID` vs. our PID) and is simply disabled when the comparison is not meaningful.
+A window is the runtime's own only when two witnesses agree:
+- It reports our PID in `_NET_WM_PID`.
+- The X server attributes it to the same process as our own connection.
 
-*Alternative — per-window XRes (not chosen).* Asking the server who owns each candidate
-window and comparing that with the server's view of us is strictly more authoritative: it
-needs no client cooperation, it is immune to a window claiming a foreign PID, and it also
-covers override-redirect popups, which usually carry no `_NET_WM_PID` at all (`:432`, the
-reason `fallback_pid` exists). It costs one round trip per candidate window inside a loop
-the Inspector's live picker runs continuously, whereas the chosen design costs one round
-trip per connection. Recorded here because it is the natural upgrade path if the picker ever
-needs ownership for windows without `_NET_WM_PID`; it is not part of this change.
+The server's attribution is `QueryClientIds` with `LocalClientPID`. It is asked **once per
+connection** for our own client, and **per window** only for a window that already reports
+our PID. Both answers are numbers in the server's namespace, so they compare wherever the
+server runs, even where it cannot see us and answers `0` for both.
+
+| Deployment | Our connection | Our window | Another window reporting our PID |
+|---|---|---|---|
+| One namespace (every desktop) | our PID | our PID → skipped | its own PID → resolved |
+| Runtime in a child namespace (a container on the host's display) | our host PID | our host PID → skipped | the application's PID → resolved |
+| Server that cannot see the runtime (WSLg) | `0` | `0` → skipped | — (applications share our namespace, so none reports our PID) |
+| Sidecar (server with the application, runtime in a sibling) | `0` | — | the application's PID → resolved |
+
+*Alternative — "foreign never skips" (the first implementation, rejected in review).* Decide
+once whether our numbering is the server's, and skip by `_NET_WM_PID` only where it is. That
+was right for the sidecar. But wherever the server numbers the runtime differently while the
+applications share the runtime's namespace, it stopped skipping the runtime's own window, and
+the picker selected the Inspector itself: WSLg, which `dev-docs/inspector.md` documents, a
+container on the host's display, and trusted `ssh -X`.
+
+*Alternative — per-window XRes alone.* Compare the server's attribution of every candidate
+window with its view of us, without `_NET_WM_PID`. It fails where the server sees neither
+side (WSLg: `0` for every window) and under `ssh -X`, where every forwarded window is the
+ssh process. `_NET_WM_PID` is the witness that tells apart processes the server cannot
+separate. Asking it first also keeps the per-window round trip to the rare window that
+reports our PID.
 
 *Alternative — drop the self-skip entirely (not chosen).* It exists for a real reason: the
 Inspector picks over its own window and overlay on an ordinary desktop. Removing it would
 regress the normal case to fix the exotic one.
 
-### 2. Three outcomes, one of them deliberately conservative
+### 2. What the server's answer about our connection means, and what is logged
 
-| Server's answer about our own connection | Decision | Behaviour |
+| Server's answer about our own connection | Logged mode | Rule |
 |---|---|---|
-| a PID equal to `std::process::id()` | **verified** | skip windows whose `_NET_WM_PID` equals our PID (today's behaviour) |
-| a different PID, `0`, or no value in the reply | **foreign** | never skip by PID |
-| extension absent, too old, or the request/reply fails | **unknown** | today's behaviour, plus one warning per connection |
+| a PID equal to `std::process::id()` | **verified** | two witnesses; on a desktop the second always agrees |
+| a different PID, `0`, or no value in the reply | **foreign** | two witnesses; this is where the second one decides |
+| extension absent, too old, or the request/reply fails | **unknown** | the reported PID alone, as before, plus one warning per connection |
 
-The split between *foreign* and *unknown* is the point: a mismatch is positive evidence that
-our numbering is not the server's, while a missing extension is no evidence at all, and
-silently weakening the picker on an old X server would be the wrong default. The warning
-makes the weaker guarantee visible — the same discipline `atspi-process-identity` applies to
-its own identity decision.
+A window whose owner the server cannot be asked about, even though it answered about us, is
+not skipped: the second witness is missing, and the spec forbids guessing. Only a server
+that cannot be asked at all keeps the reported PID alone. The split between *foreign* and
+*unknown* stays the point: a server that can answer settles ownership, while a missing
+extension is no evidence at all, and silently weakening the picker on an old X server would
+be the wrong default.
 
-**Not measured:** what an X server actually returns for a client connected from a sibling
-PID namespace (a translated `0`, an unrelated number, or an empty `value` list — and, over
-TCP, no `LocalClientPID` at all, the client not being local). The table is written so that
-all of those land in *foreign*; only an exact match enables the skip. The namespace test in
-`tasks.md` records which one it really is.
+**Measured** (task 4.4, Xvfb 21.1.24). A client in a sibling PID namespace gets
+`LocalClientPID = 0`: the server translates the peer's credentials into its own namespace and
+finds nothing. A client in a *child* namespace of the server's gets its PID as the server sees
+it, which differs from the client's `getpid()`. `crates/platform-linux-x11/tests/pidns_tests.rs`
+builds the child-namespace, WSLg and sidecar rows of the table in §1 with real namespaces, and
+the one-namespace row's own window. The unit table covers every cell, including another
+window that reports our PID on a desktop.
 
 ### 3. Which XID names "our own connection"
 
@@ -120,9 +140,9 @@ the server masks it with `resource_id_mask`. Our own range is `setup().resource_
 available without a round trip and without creating a window. Prior art uses a window XID
 (smithay asks about someone else's window), which is the same mechanism.
 
-*Assumed, not yet verified against a running server:* that `resource_id_base` alone is
-accepted as a client spec (rather than requiring an XID actually allocated). The first task
-verifies it and falls back to a throwaway window ID from `generate_id()` if not.
+**Verified** (task 1.2, Xvfb 21.1.24): `resource_id_base` alone is accepted as a client
+spec. `QueryClientIds` answers it with the same `LocalClientPID` as for an XID taken from
+`generate_id()`, so no throwaway allocation is needed.
 
 ### 4. The decision is cached on the window-manager instance, not process-globally
 
@@ -201,10 +221,9 @@ element*. The compositor-side exclusion is therefore part of the same decision a
 has no such gap: the window manager here already skips and resolves the window *behind*, which
 is why this change only has to fix *how* ownership is established.
 
-*What it means for this change.* Nothing in its substance moves — the XRes gate, the three
-modes and the cache are what they were. What changes is the stake: the window manager's answer
-is now final, so a wrong *foreign* verdict exposes our own window to the picker and a wrong
-*verified* verdict hides an application's. That is the argument for the conservative *unknown*
+*What it means for this change.* The window manager's answer is now final: a window wrongly
+attributed to us is hidden from the picker, and our own window wrongly attributed elsewhere is
+exposed to it. That is the argument for the conservative *unknown*
 branch (decision 2), for the whole table being unit-tested (decision 5), and for task 4.3, the
 guard that an ordinary desktop still skips its own window. The remaining work at the seam is
 observation, not implementation: `tasks.md` 5.1 runs `element-at-point` under a collision and
@@ -212,27 +231,29 @@ records that the button now resolves.
 
 ## Risks / Trade-offs
 
-- **[Own UI becomes pickable where the numbering differs]** → In the *foreign* branch the
-  runtime no longer excludes its own windows by PID, and since the provider-side guard is gone
-  (decision 7) nothing downstream catches it either. Measured deployments of that branch are
-  headless sidecars with no windows on the target display, so there is nothing to pick.
-  Mitigation if it ever matters: decision 1's per-window XRes alternative, which identifies
-  own windows without any client-reported number.
+- **[A three-namespace deployment can still collide]** → The runtime, the X server and an
+  application each in a separate PID namespace, with the server seeing neither: both of the
+  server's answers are `0`, and an application reusing the runtime's number is skipped. That
+  topology is outside `sidecar-deployment`'s supported one, which puts the display server and
+  the application in one namespace.
+- **[`ssh -X` attributes every forwarded window to the ssh process]** → The second witness
+  agrees for every forwarded window, but the first one still tells them apart: the remote
+  processes share one namespace, so only the runtime's own window reports its PID.
 - **[This decision is now load-bearing on its own]** → With no second filter behind it, a
-  wrong *verified* verdict would hide an application's window from the picker and a wrong
-  *foreign* verdict would expose ours. → The decision has exactly three inputs and is a pure
-  function, all six cells of it are unit-tested (decision 5, task 2.1), and task 4.3 keeps the
-  ordinary-desktop behaviour under test. No error path may reach `window_at_point`: every
-  failure resolves to *unknown*, which is today's behaviour plus a warning.
+  wrong attribution would hide an application's window from the picker or expose ours. → The rule is a pure function of the reported PID and the
+  server's two answers, every deployment in decision 1 is unit-tested and built in the
+  namespace harness, and task 4.3 keeps the ordinary-desktop behaviour under test. No error
+  path may reach `window_at_point`: every failure falls back to the reported PID alone, which is
+  today's behaviour.
 - **[An X server without X-Resource 1.2 keeps the unverified comparison]** → The *unknown*
   branch is today's behaviour, so this is not a regression; the one warning per connection
-  makes it visible. Xvfb and Xorg both ship the extension, but this is unverified for the
-  Xvfb build used in the lanes and for XWayland under `apps/wayland-compositor`; the first
-  task checks both.
-- **[Two extra round trips on a connection's first hit-test]** → `QueryVersion` plus
-  `QueryClientIds`, taken lazily by decision 4's per-instance cell the first time
-  `window_at_point` runs, and never again on that connection; every later pick costs what it
-  costs today, and a runtime that never hit-tests never asks. Any error resolves to *unknown*
+  makes it visible. Every server this crate meets offers the extension (task 1.1): the lanes'
+  Xvfb, Xephyr, and Xwayland both under `xwayland-satellite` and under `apps/wayland-compositor`.
+- **[Extra round trips]** → `QueryVersion` plus `QueryClientIds` on a connection's first
+  hit-test, taken lazily by decision 4's per-instance cell and never again on that connection,
+  plus one `QueryClientIds` for a window that reports our PID. That is our own window, so a
+  pick over anything else costs what it costs today, and a runtime that never hit-tests never
+  asks. Any error resolves to *unknown*
   rather than propagating. A reply that never comes is not a new failure mode: `x11rb` has no
   per-request timeout, and a server that stops answering this request stops answering every
   other request on the connection too — only the connect itself is bounded
@@ -294,8 +315,8 @@ compositor half of it belongs to `fix-compositor-foreign-pidns-clients`.
    `_NET_WM_PID` and today inherit the managed window's PID (`:562`). That inheritance is
    fine for correlation but means popup ownership is never independently known. Deferrable:
    it changes no requirement in this delta.
-2. **Is the `unshare`-based harness sufficient for the X11 reproduction**, or does the local
-   test need the podman pod the evidence was produced in? The measurements suggest `unshare`
-   suffices (the collision needs only a second PID namespace and a controllable
-   `_NET_WM_PID`), but it has not been built for X11 yet. `evaluate-pidns-tests-in-ci` owns
-   the CI-side answer either way.
+2. **Is the `unshare`-based harness sufficient for the X11 reproduction?** Answered: yes.
+   `crates/platform-linux-x11/tests/pidns_tests.rs` reproduces the collision with `unshare`
+   alone, with `Xvfb` and the probe in sibling PID namespaces, and task 5.1 reproduced the
+   measured sidecar end to end the same way. `evaluate-pidns-tests-in-ci` still owns the
+   CI-side answer.

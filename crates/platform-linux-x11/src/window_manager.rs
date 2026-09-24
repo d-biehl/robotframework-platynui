@@ -17,8 +17,9 @@ use platynui_core::ui::{Namespace, UiNode};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
-use tracing::{debug, trace, warn};
+use tracing::{debug, info, trace, warn};
 use x11rb::connection::Connection;
+use x11rb::protocol::res::{ClientIdMask, ClientIdSpec, ClientIdValue, ConnectionExt as _};
 use x11rb::protocol::xproto::{
     Atom, AtomEnum, ClientMessageEvent, ConfigureWindowAux, ConnectionExt, EventMask, MapState, Window,
 };
@@ -415,16 +416,158 @@ fn pid_from_attr(node: &dyn UiNode) -> Option<u32> {
 }
 
 // ---------------------------------------------------------------------------
+//  Own-window ownership
+// ---------------------------------------------------------------------------
+//
+// The hit-test skips the runtime's own windows so the picker never resolves its
+// own UI. A window says which process it belongs to through `_NET_WM_PID`, a
+// number the client writes from its own `getpid()` — a number in the client's
+// PID namespace — while `std::process::id()` is one in ours. Where the two
+// namespaces differ, an unrelated application can carry our number.
+//
+// So a window counts as ours only when two witnesses agree: it reports our
+// PID, and the X server attributes it to the same process as our own
+// connection. The server's attribution is X-Resource's `LocalClientPID`,
+// derived from each connection's socket credentials rather than reported by a
+// client, and both answers are numbers in the server's namespace, so they
+// compare wherever the server runs. See `sidecar-deployment` for the
+// deployment in which the namespaces differ.
+
+/// What the X server says about the process behind a connection — our own, or
+/// the one that created a window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ServerView {
+    /// The server named a process ID — `0` for a client in a PID namespace it
+    /// cannot see.
+    Reported(u32),
+    /// The server answered, but with no process ID.
+    Silent,
+    /// The server could not be asked: no X-Resource 1.2, or the request failed.
+    Unavailable,
+}
+
+/// How a connection's own-window check is backed, as the log states it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OwnershipMode {
+    /// The server numbers us as we do.
+    Verified,
+    /// The server numbers us differently or not at all, so a window reporting
+    /// our PID is ours only if the server attributes it to our process.
+    Foreign,
+    /// The server could not be asked; a window reporting our PID is skipped
+    /// unverified, as before.
+    Unknown,
+}
+
+fn ownership_mode(view: ServerView, own_pid: u32) -> OwnershipMode {
+    match view {
+        ServerView::Reported(pid) if pid != 0 && pid == own_pid => OwnershipMode::Verified,
+        ServerView::Reported(_) | ServerView::Silent => OwnershipMode::Foreign,
+        ServerView::Unavailable => OwnershipMode::Unknown,
+    }
+}
+
+/// Whether the hit-test skips a window as the runtime's own.
+///
+/// The window must report our PID, and the server must attribute it to the
+/// same process as our own connection (`ours`). `window_owner` asks the server
+/// about the window, and is called only when the first witness holds. A server
+/// that cannot be asked at all leaves the reported PID alone to decide, as
+/// before; a window the server cannot name an owner for is not ours. A window
+/// without a reported PID is never ours.
+fn skips_as_own(
+    ours: ServerView,
+    own_pid: u32,
+    window_pid: Option<u32>,
+    window_owner: impl FnOnce() -> ServerView,
+) -> bool {
+    if window_pid != Some(own_pid) {
+        return false;
+    }
+    if ours == ServerView::Unavailable {
+        return true;
+    }
+    match window_owner() {
+        ServerView::Unavailable => false,
+        owner => owner == ours,
+    }
+}
+
+/// The server's view from a `QueryClientIds` reply: its first `LocalClientPID`.
+fn server_view_from_ids(ids: &[ClientIdValue]) -> ServerView {
+    ids.iter().find_map(|id| id.value.first().copied()).map_or(ServerView::Silent, ServerView::Reported)
+}
+
+/// Ask the X server which process owns the client behind `xid`. Any XID of a
+/// client's resource range names that client. Every failure is `Unavailable`,
+/// never an error for the hit-test.
+fn query_client_view(conn: &RustConnection, xid: u32) -> ServerView {
+    let spec = ClientIdSpec { client: xid, mask: ClientIdMask::LOCAL_CLIENT_PID };
+    match conn.res_query_client_ids(&[spec]).ok().and_then(|cookie| cookie.reply().ok()) {
+        Some(reply) => server_view_from_ids(&reply.ids),
+        None => ServerView::Unavailable,
+    }
+}
+
+/// Ask the X server about our own connection, named by the base of our
+/// resource range, which needs no allocation.
+fn query_own_view(conn: &RustConnection) -> ServerView {
+    let supports_client_ids = conn
+        .res_query_version(1, 2)
+        .ok()
+        .and_then(|cookie| cookie.reply().ok())
+        .is_some_and(|version| (version.server_major, version.server_minor) >= (1, 2));
+    if !supports_client_ids {
+        return ServerView::Unavailable;
+    }
+    query_client_view(conn, conn.setup().resource_id_base)
+}
+
+/// The server's view of our own connection, asked on first use and logged
+/// once. It lives on the window manager, not beside the process-global atom
+/// cache: a second runtime may connect to another display whose answer differs.
+#[derive(Default)]
+struct OwnershipCell(OnceLock<ServerView>);
+
+impl OwnershipCell {
+    fn get_or_decide(&self, own_pid: u32, display_name: &str, query: impl FnOnce() -> ServerView) -> ServerView {
+        *self.0.get_or_init(|| {
+            let view = query();
+            let mode = ownership_mode(view, own_pid);
+            match mode {
+                OwnershipMode::Unknown => warn!(
+                    display = %display_name,
+                    own_pid,
+                    "X11 own-window exclusion is unverified on this display: the X server cannot report \
+                     which process owns a connection (X-Resource 1.2), so a window reporting our PID is \
+                     skipped as before",
+                ),
+                OwnershipMode::Verified | OwnershipMode::Foreign => info!(
+                    display = %display_name,
+                    own_pid,
+                    server_view = ?view,
+                    ?mode,
+                    "X11 own-window identification decided",
+                ),
+            }
+            view
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
 //  WindowManager implementation
 // ---------------------------------------------------------------------------
 
 pub struct X11EwmhWindowManager {
     conn: Arc<X11Connection>,
+    /// The X server's view of this connection's process, for the own-window check.
+    ownership: OwnershipCell,
 }
 
 impl X11EwmhWindowManager {
     pub fn new(conn: Arc<X11Connection>) -> Self {
-        Self { conn }
+        Self { conn, ownership: OwnershipCell::default() }
     }
 
     /// Topmost viewable override-redirect *popup* (menu/combo/tooltip) covering
@@ -434,7 +577,8 @@ impl X11EwmhWindowManager {
         &self,
         point: Point,
         pid_atom: Atom,
-        self_pid: u32,
+        ours: ServerView,
+        own_pid: u32,
         fallback_pid: Option<u32>,
     ) -> Option<WindowHit> {
         let conn = &self.conn.conn;
@@ -456,7 +600,7 @@ impl X11EwmhWindowManager {
                 continue;
             }
             let pid = get_window_pid(conn, win, pid_atom).or(fallback_pid);
-            if pid == Some(self_pid) {
+            if skips_as_own(ours, own_pid, pid, || query_client_view(conn, win)) {
                 continue;
             }
             return Some(WindowHit { id: WindowId::new(u64::from(win)), pid, bounds: rect });
@@ -495,8 +639,16 @@ impl X11EwmhWindowManager {
 
     /// Frontmost managed (WM-reparented) window covering `point`, from
     /// `_NET_CLIENT_LIST_STACKING` (bottom-to-top → probe topmost-first),
-    /// skipping our own process so the picker never resolves its own UI.
-    fn managed_window_at(&self, point: Point, stacking_atom: Atom, pid_atom: Atom, self_pid: u32) -> Option<WindowHit> {
+    /// skipping a window this connection identifies as ours so the picker never
+    /// resolves its own UI.
+    fn managed_window_at(
+        &self,
+        point: Point,
+        stacking_atom: Atom,
+        pid_atom: Atom,
+        ours: ServerView,
+        own_pid: u32,
+    ) -> Option<WindowHit> {
         let stacking = get_client_list(&self.conn.conn, self.conn.root, stacking_atom).ok()?;
         for &win in stacking.iter().rev() {
             let Ok(rect) = client_rect(&self.conn, win) else { continue };
@@ -504,7 +656,7 @@ impl X11EwmhWindowManager {
                 continue;
             }
             let pid = get_window_pid(&self.conn.conn, win, pid_atom);
-            if pid == Some(self_pid) {
+            if skips_as_own(ours, own_pid, pid, || query_client_view(&self.conn.conn, win)) {
                 continue;
             }
             return Some(WindowHit { id: WindowId::new(u64::from(win)), pid, bounds: rect });
@@ -545,10 +697,11 @@ impl WindowManager for X11EwmhWindowManager {
             let atoms = atoms(&self.conn)?;
             (atoms.net_client_list_stacking, atoms.net_wm_pid)
         };
-        let self_pid = std::process::id();
+        let own_pid = std::process::id();
+        let ours = self.ownership.get_or_decide(own_pid, &self.conn.display, || query_own_view(&self.conn.conn));
 
         // Managed (WM-reparented) window at the point, from EWMH stacking.
-        let managed = self.managed_window_at(point, stacking_atom, pid_atom, self_pid);
+        let managed = self.managed_window_at(point, stacking_atom, pid_atom, ours, own_pid);
 
         // Override-redirect popups (menus, combo dropdowns, tooltips) bypass the
         // window manager and are absent from `_NET_CLIENT_LIST_STACKING`, yet
@@ -559,7 +712,7 @@ impl WindowManager for X11EwmhWindowManager {
         // carry no `_NET_WM_PID`, so fall back to the managed window's pid — the
         // menu belongs to that application.
         if let Some(hit) =
-            self.popup_window_at(point, pid_atom, self_pid, managed.as_ref().and_then(|managed| managed.pid))
+            self.popup_window_at(point, pid_atom, ours, own_pid, managed.as_ref().and_then(|managed| managed.pid))
         {
             trace!(xid = hit.id.raw(), ?point, "window_at_point resolved (popup)");
             return Ok(Some(hit));
@@ -833,5 +986,132 @@ mod tests {
         let atoms = test_atoms();
         assert!(decode_window_state(&[atoms.net_wm_state_above], false, &atoms).topmost);
         assert!(!decode_window_state(&[], false, &atoms).topmost);
+    }
+
+    // ── Own-window ownership (spec: Hit-test excludes the host process's own UI) ──
+
+    const OURS: u32 = 4242;
+    const SOMEBODY_ELSE: u32 = 7;
+    /// The runtime's PID as a server in an ancestor namespace numbers it.
+    const OURS_ON_THE_HOST: u32 = 90_001;
+    /// An application's PID as the server numbers it.
+    const APP_ON_THE_SERVER: u32 = 50;
+
+    fn skips(ours: ServerView, window_pid: Option<u32>, owner: ServerView) -> bool {
+        skips_as_own(ours, OURS, window_pid, || owner)
+    }
+
+    #[test]
+    fn an_ordinary_desktop_skips_only_the_runtimes_own_window() {
+        let ours = ServerView::Reported(OURS);
+        assert!(skips(ours, Some(OURS), ServerView::Reported(OURS)));
+        assert!(!skips(ours, Some(SOMEBODY_ELSE), ServerView::Reported(SOMEBODY_ELSE)));
+        // Another process's window that claims our number.
+        assert!(!skips(ours, Some(OURS), ServerView::Reported(SOMEBODY_ELSE)));
+    }
+
+    #[test]
+    fn an_application_reusing_our_pid_is_resolved_when_the_server_attributes_it_elsewhere() {
+        // The sidecar: the server cannot see us, but sees the application.
+        assert!(!skips(ServerView::Reported(0), Some(OURS), ServerView::Reported(APP_ON_THE_SERVER)));
+        // A child namespace of the server's: an application on the host reuses
+        // our in-namespace number.
+        assert!(!skips(ServerView::Reported(OURS_ON_THE_HOST), Some(OURS), ServerView::Reported(APP_ON_THE_SERVER)));
+        // A window reporting another number, wherever the server runs.
+        for ours in [ServerView::Reported(0), ServerView::Reported(OURS_ON_THE_HOST), ServerView::Silent] {
+            assert!(!skips(ours, Some(SOMEBODY_ELSE), ours), "{ours:?}");
+        }
+    }
+
+    #[test]
+    fn our_own_window_is_skipped_where_the_server_numbers_us_differently() {
+        // A server that sees neither us nor our window (WSLg, a sibling namespace).
+        assert!(skips(ServerView::Reported(0), Some(OURS), ServerView::Reported(0)));
+        // A server in an ancestor namespace (a container on the host's display).
+        assert!(skips(ServerView::Reported(OURS_ON_THE_HOST), Some(OURS), ServerView::Reported(OURS_ON_THE_HOST)));
+        // A server that reports no process for any client (a TCP connection).
+        assert!(skips(ServerView::Silent, Some(OURS), ServerView::Silent));
+    }
+
+    #[test]
+    fn a_server_that_cannot_be_asked_keeps_the_previous_comparison() {
+        let never =
+            || -> ServerView { panic!("the server is not asked about a window when it cannot be asked at all") };
+        assert!(skips_as_own(ServerView::Unavailable, OURS, Some(OURS), never));
+        assert!(!skips_as_own(ServerView::Unavailable, OURS, Some(SOMEBODY_ELSE), never));
+    }
+
+    #[test]
+    fn a_window_whose_owner_cannot_be_named_is_not_ours() {
+        // The second witness is missing, and nothing is excluded on a guess.
+        assert!(!skips(ServerView::Reported(0), Some(OURS), ServerView::Unavailable));
+        assert!(!skips(ServerView::Reported(OURS), Some(OURS), ServerView::Unavailable));
+    }
+
+    #[test]
+    fn a_window_without_a_reported_pid_is_never_skipped() {
+        // Override-redirect popups often carry no _NET_WM_PID; "no number" is
+        // never a match, whatever the server says.
+        for ours in [ServerView::Reported(OURS), ServerView::Reported(0), ServerView::Silent, ServerView::Unavailable] {
+            assert!(!skips(ours, None, ours), "{ours:?}");
+        }
+    }
+
+    #[test]
+    fn the_server_is_asked_about_a_window_only_when_it_reports_our_pid() {
+        let asked = std::cell::Cell::new(0);
+        let owner = || {
+            asked.set(asked.get() + 1);
+            ServerView::Reported(0)
+        };
+        skips_as_own(ServerView::Reported(0), OURS, Some(SOMEBODY_ELSE), owner);
+        skips_as_own(ServerView::Reported(0), OURS, None, owner);
+        assert_eq!(asked.get(), 0);
+        skips_as_own(ServerView::Reported(0), OURS, Some(OURS), owner);
+        assert_eq!(asked.get(), 1);
+    }
+
+    #[test]
+    fn the_logged_mode_names_how_the_check_is_backed() {
+        assert_eq!(ownership_mode(ServerView::Reported(OURS), OURS), OwnershipMode::Verified);
+        assert_eq!(ownership_mode(ServerView::Reported(OURS_ON_THE_HOST), OURS), OwnershipMode::Foreign);
+        assert_eq!(ownership_mode(ServerView::Reported(0), OURS), OwnershipMode::Foreign);
+        assert_eq!(ownership_mode(ServerView::Silent, OURS), OwnershipMode::Foreign);
+        assert_eq!(ownership_mode(ServerView::Unavailable, OURS), OwnershipMode::Unknown);
+        // Defensive: a zero on both sides is no identity.
+        assert_eq!(ownership_mode(ServerView::Reported(0), 0), OwnershipMode::Foreign);
+    }
+
+    #[test]
+    fn the_server_view_is_the_first_local_client_pid_of_the_reply() {
+        use x11rb::protocol::res::{ClientIdMask, ClientIdSpec, ClientIdValue};
+        let value = |pids: &[u32]| ClientIdValue {
+            spec: ClientIdSpec { client: 0x0020_0000, mask: ClientIdMask::LOCAL_CLIENT_PID },
+            value: pids.to_vec(),
+        };
+        assert_eq!(server_view_from_ids(&[value(&[OURS])]), ServerView::Reported(OURS));
+        assert_eq!(server_view_from_ids(&[value(&[0])]), ServerView::Reported(0));
+        assert_eq!(server_view_from_ids(&[value(&[])]), ServerView::Silent);
+        assert_eq!(server_view_from_ids(&[]), ServerView::Silent);
+    }
+
+    #[test]
+    fn the_server_is_asked_about_our_own_connection_once_per_connection() {
+        let cell = OwnershipCell::default();
+        let queries = std::cell::Cell::new(0);
+        let query = || {
+            queries.set(queries.get() + 1);
+            ServerView::Reported(OURS)
+        };
+        for _ in 0..3 {
+            assert_eq!(cell.get_or_decide(OURS, ":test", query), ServerView::Reported(OURS));
+        }
+        assert_eq!(queries.get(), 1, "the server is asked once per connection");
+
+        // A second window manager — another runtime, possibly another display —
+        // decides for itself.
+        let other = OwnershipCell::default();
+        assert_eq!(other.get_or_decide(OURS, ":other", || ServerView::Unavailable), ServerView::Unavailable);
+        assert_eq!(cell.get_or_decide(OURS, ":test", || ServerView::Unavailable), ServerView::Reported(OURS));
     }
 }

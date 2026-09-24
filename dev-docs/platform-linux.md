@@ -201,3 +201,17 @@ The harness has hard prerequisites: unprivileged user namespaces, control over t
 - The AT-SPI provider exposes `IsMinimized`, `IsMaximized` and `IsTopmost` on top-level windows from this state, next to `IsActive`; each read asks the window manager again, and a window that cannot be resolved reads `false`.
 - WindowSurface pattern on Frame/Window/Dialog roles: `activate()`, `close()`, `accepts_user_input()`.
 - `IsTopmost` via EWMH, `AcceptsUserInput` via AT-SPI State.
+
+**Own windows in the hit-test.** Resolving the element at a point skips the runtime's own windows, so the Inspector's live picker never selects itself and resolves the window behind instead. A window reports its owner through `_NET_WM_PID`, a number the client writes from its own PID namespace, so an unrelated application in another namespace can carry the runtime's number. A window therefore counts as the runtime's own only when two witnesses agree:
+
+- It reports the runtime's PID.
+- The X server attributes it to the same process as the runtime's own connection.
+
+The server's attribution is X-Resource's `LocalClientPID`, which the server derives from socket credentials (see [`java-toolkits.md`](java-toolkits.md), *Window → process*). Both of its answers are numbers in the server's namespace, so they compare wherever the server runs. The server is asked about the runtime's own connection once per connection, and about a window only when that window reports the runtime's PID.
+
+- **An ordinary desktop, or a runtime in a container on the host's display**: the runtime's own window is skipped, and another window that reuses its number is resolved.
+- **WSLg**, where the server cannot see the runtime or its applications: the server answers `0` for both, so the reported PID decides.
+- **The sidecar**, where the server sits with the application: the application's window is resolved even when it reports the runtime's number.
+- **A server without X-Resource 1.2**: the reported PID alone decides, as before, and the log warns once that the exclusion is unverified on that display.
+
+The log states once per connection what the server said about the runtime. This verdict is the only own-window exclusion in the hit-test: the AT-SPI provider does not re-derive ownership from the window's reported PID. The local checks for these cases run with `just test-x11-pidns`.

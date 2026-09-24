@@ -25,10 +25,11 @@ survives that fix, because it happens one layer below, in the window manager.
 - The X11 window manager asks the **display server** who owns our own X connection —
   X-Resource v1.2 `QueryClientIds` with the `LocalClientPID` mask — and decides **once per
   connection** whether a local-PID comparison means anything on this display:
-  - server's view of our own connection **equals** `std::process::id()` → keep skipping a
-    window whose `_NET_WM_PID` equals our PID (today's behaviour, now justified);
-  - server's view **differs**, is absent, or is `0` → **do not skip by PID**; a foreign
-    window that merely reuses our number is resolved normally;
+  - a window counts as ours only when two witnesses agree: its `_NET_WM_PID` equals our PID,
+    **and** the server attributes the window to the same process as our own connection. The
+    server is asked about a window only when it reports our PID. A foreign window that merely
+    reuses our number is resolved normally, and our own window is still skipped where the
+    server numbers us differently (WSLg, a container on the host's display);
   - X-Resource **unavailable** (extension missing, query or reply fails) → today's
     behaviour, with a one-time warning naming the display, so a silent loss of the check
     is visible in the log.
@@ -67,8 +68,9 @@ this change references it instead of restating it.
 
 - `element-at-point`: the requirement *Hit-test excludes the host process's own UI* changes
   from "own UI is what reports our PID" to "own UI is what the display server attributes to
-  our own connection". Where the runtime cannot establish that its PID numbering is the
-  display server's, hit-test SHALL NOT exclude a window by PID at all. A new scenario covers
+  our own connection". On X11 a window is excluded only when it reports our PID and the
+  server attributes it to our own connection's process; a window the server attributes
+  elsewhere is resolved, whatever PID it reports. A new scenario covers
   an application whose PID number equals the runtime's being resolved normally. The rewritten
   requirement also stops treating the provider as a second line of defence: the window system
   decides ownership and the provider does not re-derive it, which is what

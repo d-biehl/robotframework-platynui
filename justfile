@@ -284,6 +284,14 @@ test-compositor-pidns:
 test-atspi-pidns DAEMON:
     PLATYNUI_PIDNS_DAEMON={{ DAEMON }} cargo nextest run -p platynui-provider-atspi --lib --run-ignored ignored-only -E 'test(/^pidns_harness::/)' --no-capture
 
+# `unshare` with unprivileged user namespaces and `Xvfb` are HARD prerequisites —
+# a missing one fails the run rather than silently skipping the coverage. Local
+# only and deliberately not part of `just test`.
+# Run the X11 hit-test's own-window checks across PID namespaces
+[linux]
+test-x11-pidns:
+    cargo nextest run -p platynui-platform-linux-x11 --run-ignored ignored-only -E 'binary(pidns_tests)' --no-capture
+
 # Run Python tests (builds native package with mock-provider first)
 test-python: build-native-mock
     uv run pytest -v --tb=short --maxfail=3

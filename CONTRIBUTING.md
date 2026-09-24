@@ -138,6 +138,14 @@ Linux cross-target recipes:
 
 The default cross targets can be overridden with `PLATYNUI_WINDOWS_TARGET` and `PLATYNUI_MACOS_ARM_TARGET`.
 
+PID-namespace checks cover the deployment in which PlatynUI and the application run in different PID namespaces (see `dev-docs/platform-linux.md`). They are `#[ignore]`d, local only, and not part of `just test`. Each needs `unshare` with unprivileged user namespaces, and a missing prerequisite fails the run with a message naming it instead of skipping:
+
+| Goal | Recipe | Notes |
+|---|---|---|
+| Compositor | `just test-compositor-pidns` | A Wayland client whose process the compositor cannot see. |
+| AT-SPI process identity | `just test-atspi-pidns dbus-daemon` / `dbus-broker` | One run per bus implementation; dbus-broker also needs a user session. |
+| X11 own-window decision | `just test-x11-pidns` | Needs `Xvfb`. |
+
 Java agent recipes (see [`java/agent/README.md`](java/agent/README.md)):
 
 | Goal | Recipe | Notes |

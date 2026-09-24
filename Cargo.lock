@@ -3638,6 +3638,7 @@ version = "0.13.0-dev.2"
 dependencies = [
  "platynui-core",
  "tracing",
+ "tracing-subscriber",
  "x11rb 0.14.0",
 ]
 

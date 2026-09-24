@@ -21,6 +21,8 @@ use x11rb::rust_connection::RustConnection;
 pub struct X11Connection {
     pub conn: RustConnection,
     pub root: Window,
+    /// The display name this connection was opened on, for diagnostics.
+    pub display: String,
 }
 
 impl X11Connection {
@@ -35,7 +37,7 @@ impl X11Connection {
         })?;
         let root = conn.setup().roots[screen_num].root;
         tracing::info!(display = %disp, screen = screen_num, root, "X11 connection established");
-        Ok(Arc::new(X11Connection { conn, root }))
+        Ok(Arc::new(X11Connection { conn, root, display: disp }))
     }
 }
 

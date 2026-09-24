@@ -15,4 +15,7 @@ rust-version.workspace = true
 [dependencies]
 platynui-core = { path = "../core" }
 tracing = { version = "0.1", default-features = false, features = ["std"] }
-x11rb = { version = "0.14", features = ["xtest", "xfixes", "randr", "shape"] }
+x11rb = { version = "0.14", features = ["xtest", "xfixes", "randr", "shape", "res"] }
+
+[dev-dependencies]
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }

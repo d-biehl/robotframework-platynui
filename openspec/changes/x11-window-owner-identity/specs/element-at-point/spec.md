@@ -11,29 +11,33 @@ enumeration (which excludes the own process under the same condition — see
 an own-process window at the point SHALL be skipped so the window **behind** it is
 resolved; otherwise resolving a point over own-process UI SHALL return nothing rather than
 that UI. This prevents a point-based consumer (the Inspector live picker) from selecting
-its own window or overlay. Where the runtime cannot establish ownership at all, it SHALL
-NOT guess: the exclusion is dropped rather than applied to a number that means nothing,
-and the own UI may then be resolved like any other.
+its own window or overlay. Where the runtime cannot attribute a window to itself, it SHALL
+NOT guess: that window is resolved like any other rather than excluded on a number that
+means nothing. Where the window system cannot be asked at all, the previous exclusion stays
+and is reported, as described below.
 
 Where hit-test goes through a window manager — on Linux, the X11 window manager and the
 PlatynUI compositor — own UI SHALL be identified from the **window system's own view** of
 which client owns a window, compared against the window system's view of the runtime's own
-connection. A
-process identifier that a window reports about itself SHALL NOT by itself be treated as
-evidence of ownership: it is a number in the reporting client's process-identifier space,
-which is the runtime's space only while both live in the same process namespace. Before
-using such a reported identifier for the exclusion, the runtime SHALL establish — by asking
-the window system about its **own** connection — that the window system's view of the
-runtime carries the same identifier the runtime knows itself by.
+connection. A process identifier that a window reports about itself SHALL NOT by itself be
+treated as evidence of ownership: it is a number in the reporting client's
+process-identifier space, which is the runtime's space only while both live in the same
+process namespace. Under the PlatynUI compositor, windows report no identifier, and the
+compositor excludes the caller's own windows from the identities it established itself
+(`compositor-client-identity`).
 
-When that check shows the two spaces do not agree, or the window system reports nothing
-about the runtime's own connection, hit-test SHALL NOT exclude any window by comparing
-reported process identifiers; a foreign window that merely reuses the runtime's number
-SHALL be resolved like any other window. When the window system offers no way to ask about
-the runtime's own connection at all, hit-test SHALL keep the previous behaviour (excluding
-a window whose reported identifier equals the runtime's) and SHALL report once per
-connection that the exclusion is running unverified, so the weaker guarantee is visible in
-a normal run rather than silent.
+On X11, a window SHALL be excluded as the runtime's own only when two witnesses agree: it
+reports the identifier the runtime knows itself by, **and** the X server attributes it to
+the same process as the runtime's **own** connection. Both of the server's answers are
+values in its own numbering, so they compare wherever the server runs — in the runtime's
+process namespace, in an ancestor of it, or in one that cannot see the runtime at all. A
+window that reports the runtime's identifier while the server attributes it to another
+process, or while the server cannot say who owns that window, SHALL be resolved like any
+other window: a foreign window that merely reuses the runtime's number is not the
+runtime's. When the server offers no way to ask which process owns a connection at all,
+hit-test SHALL keep the previous behaviour (excluding a window whose reported identifier
+equals the runtime's) and SHALL report once per connection that the exclusion is running
+unverified, so the weaker guarantee is visible in a normal run rather than silent.
 
 On that path the window system's decision is the **only** own-UI exclusion in hit-test. Once
 a window has been resolved, the provider SHALL NOT exclude it again by re-deriving ownership
@@ -85,7 +89,7 @@ is the identity the compositor captured for each connection.
   window system's view of the runtime's own connection does **not** carry the identifier the
   runtime knows itself by
 - **AND** the application's window reports a process identifier numerically equal to the
-  runtime's own
+  runtime's own, while the window system attributes that window to the application's process
 - **AND** the accessibility bus daemon can resolve that application, so the window can be
   correlated to it at all — where it cannot, `sidecar-deployment`'s requirement
   *Correlating a native window to an application needs a process ID both sides can express*
@@ -100,16 +104,29 @@ is the identity the compositor captured for each connection.
   provider stops re-deriving ownership from the window's reported identifier, which
   `sidecar-deployment` requires of it.
 
-#### Scenario: The window system reports nothing about the runtime's own connection
+#### Scenario: On X11, the runtime's own window is skipped where the server numbers it differently
 
-- **GIVEN** the window system answers the question about the runtime's own connection with
-  no identifier, or with a placeholder value that identifies no process
-- **WHEN** hit-test is called with a point over any window, including one reporting the
-  runtime's own identifier
-- **THEN** hit-test SHALL NOT exclude a window by comparing reported process identifiers,
-  and SHALL resolve the topmost window at the point as usual
-- **NOTE** Verifiable only against a real display server that cannot see the runtime's
-  process, not the mock.
+- **GIVEN** an X server that does not number the runtime as the runtime numbers itself —
+  it cannot see the runtime's process at all (the server in a separate container, as under
+  WSLg), or it sees it under another number (the runtime in a container on the host's
+  display)
+- **AND** a window of the runtime reports the runtime's own identifier over another window
+- **WHEN** hit-test is called with a point over that window
+- **THEN** hit-test SHALL skip it and resolve the window behind, because the server
+  attributes it to the same process as the runtime's own connection
+- **NOTE** Verifiable only against a real display server with the runtime in a separate
+  process namespace, not the mock.
+
+#### Scenario: On X11, a window the server does not attribute to the runtime is never skipped
+
+- **GIVEN** an X server that does not number the runtime as the runtime numbers itself
+- **AND** a window reports the runtime's own identifier, while the server attributes it to
+  another process or cannot say who owns it
+- **WHEN** hit-test is called with a point over that window
+- **THEN** hit-test SHALL resolve that window as usual
+- **NOTE** Verifiable only against a real display server with the runtime in a separate
+  process namespace, not the mock. The runtime in a container on the host's display and a
+  host application reusing the runtime's in-container number is one such case.
 
 #### Scenario: The window system cannot be asked, so the previous behaviour is kept and reported
 
