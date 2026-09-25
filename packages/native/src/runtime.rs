@@ -608,7 +608,7 @@ impl PyAttribute {
     }
 }
 
-/// Holds an attribute that was fully evaluated during an XPath query.
+/// Holds an attribute that was fully evaluated during an `XPath` query.
 #[pyclass(module = "platynui_native", name = "EvaluatedAttribute")]
 pub struct PyEvaluatedAttribute {
     namespace: String,
@@ -682,7 +682,7 @@ impl PyEvaluatedAttribute {
 /// A :class:`Runtime` instance is responsible for
 ///
 /// - discovering the available platform providers (Windows UIA, AT-SPI, mock, …),
-/// - evaluating XPath queries into :class:`UiNode` objects or primitive values,
+/// - evaluating `XPath` queries into :class:`UiNode` objects or primitive values,
 /// - exposing helper APIs for pointer and keyboard input, and
 /// - exposing utilities such as focus, highlight overlays, and screenshots.
 ///
@@ -700,6 +700,8 @@ impl PyEvaluatedAttribute {
 ///         rt.bring_to_front(button)
 ///         rt.pointer_click()
 ///
+// The docstring is reST for Python: `Example::` opens a literal block, it is no Rust path.
+#[allow(clippy::doc_markdown)]
 #[pyclass(name = "Runtime", module = "platynui_native")]
 pub struct PyRuntime {
     inner: Mutex<runtime_rs::Runtime>,
@@ -779,7 +781,7 @@ impl PyRuntime {
         }
     }
 
-    /// Evaluates an XPath expression and returns all matching results as a list.
+    /// Evaluates an `XPath` expression and returns all matching results as a list.
     ///
     /// Items are converted into ``UiNode`` instances, ``EvaluatedAttribute``
     /// objects, or native Python values (``None``, ``bool``, ``int``, ``float``,
@@ -805,7 +807,7 @@ impl PyRuntime {
         Ok(out.into())
     }
 
-    /// Evaluates an XPath expression and returns the first match.
+    /// Evaluates an `XPath` expression and returns the first match.
     ///
     /// ``None`` is returned when the query produced no results. Items are converted
     /// in the same way as :py:meth:`Runtime.evaluate`.
@@ -830,7 +832,7 @@ impl PyRuntime {
         }
     }
 
-    /// Returns whether an XPath expression's top-level node selection is relative to the context node.
+    /// Returns whether an `XPath` expression's top-level node selection is relative to the context node.
     ///
     /// ``True`` for relative paths (``.//x``, ``child::x``) and the context item (``.``); ``False``
     /// for absolute paths (``/x``, ``//x``), filtered/parenthesized absolute paths (``(//x)[1]``)
@@ -838,6 +840,8 @@ impl PyRuntime {
     /// Compound forms (if/for/let, sequences) follow their produced branch. Parses only; it needs no
     /// backend and resolves nothing.
     #[pyo3(signature = (xpath), text_signature = "(xpath: str)")]
+    // Part of the Python `Runtime` instance API; it must stay an instance method.
+    #[allow(clippy::unused_self)]
     fn is_context_dependent(&self, xpath: &str) -> PyResult<bool> {
         runtime_rs::is_context_dependent(xpath).map_err(map_eval_err)
     }
@@ -859,7 +863,7 @@ impl PyRuntime {
         }
     }
 
-    /// Evaluates an XPath expression and returns a lazy iterator over the results.
+    /// Evaluates an `XPath` expression and returns a lazy iterator over the results.
     #[pyo3(signature = (xpath, node=None), text_signature = "(xpath: str, node: UiNode | None = None)")]
     fn evaluate_iter(
         &self,
@@ -979,7 +983,7 @@ impl PyRuntime {
 
     /// Returns the top-level window that contains ``node``.
     #[pyo3(signature = (node), text_signature = "(self, node)")]
-    fn top_level_window_for(&self, py: Python<'_>, node: PyRef<'_, PyNode>) -> PyResult<Option<Py<PyNode>>> {
+    fn top_level_window_for(&self, py: Python<'_>, node: &PyNode) -> PyResult<Option<Py<PyNode>>> {
         let runtime = self.runtime()?;
         match runtime.top_level_window_for(&node.inner) {
             Some(window) => Ok(Some(Py::new(py, PyNode { inner: window, owner: self.instance_id })?)),
@@ -1036,7 +1040,7 @@ impl PyRuntime {
         overrides: Option<PointerOverridesLike>,
     ) -> PyResult<()> {
         let p: Option<core_rs::types::Point> = point.map(|r| r.0);
-        let btn = button.map(|b| b.into());
+        let btn = button.map(std::convert::Into::into);
         let ov = overrides.map(Into::into);
         let runtime = self.runtime()?;
         runtime.pointer_click(p, btn, ov).map_err(map_pointer_err)?;
@@ -1053,7 +1057,7 @@ impl PyRuntime {
         overrides: Option<PointerOverridesLike>,
     ) -> PyResult<()> {
         let p: Option<core_rs::types::Point> = point.map(|r| r.0);
-        let btn = button.map(|b| b.into());
+        let btn = button.map(std::convert::Into::into);
         let ov = overrides.map(Into::into);
         let runtime = self.runtime()?;
         runtime.pointer_multi_click(p, btn, clicks, ov).map_err(map_pointer_err)?;
@@ -1071,7 +1075,7 @@ impl PyRuntime {
     ) -> PyResult<()> {
         let s: core_rs::types::Point = start.0;
         let e: core_rs::types::Point = end.0;
-        let btn = button.map(|b| b.into());
+        let btn = button.map(std::convert::Into::into);
         let ov = overrides.map(Into::into);
         let runtime = self.runtime()?;
         runtime.pointer_drag(s, e, btn, ov).map_err(map_pointer_err)?;
@@ -1087,7 +1091,7 @@ impl PyRuntime {
         overrides: Option<PointerOverridesLike>,
     ) -> PyResult<()> {
         let p = point.map(|r| r.0);
-        let btn = button.map(|b| b.into());
+        let btn = button.map(std::convert::Into::into);
         let ov = overrides.map(Into::into);
         let runtime = self.runtime()?;
         runtime.pointer_press(p, btn, ov).map_err(map_pointer_err)?;
@@ -1103,7 +1107,7 @@ impl PyRuntime {
         overrides: Option<PointerOverridesLike>,
     ) -> PyResult<()> {
         let p: Option<core_rs::types::Point> = point.map(|r| r.0);
-        let btn = button.map(|b| b.into());
+        let btn = button.map(std::convert::Into::into);
         let ov = overrides.map(Into::into);
         let runtime = self.runtime()?;
         runtime.pointer_release(p, btn, ov).map_err(map_pointer_err)?;
@@ -1177,7 +1181,7 @@ impl PyRuntime {
     }
 
     /// Sets focus to ``node``.
-    fn focus(&self, node: PyRef<'_, PyNode>) -> PyResult<()> {
+    fn focus(&self, node: &PyNode) -> PyResult<()> {
         let runtime = self.runtime()?;
         runtime.focus(&node.inner).map_err(map_focus_err)?;
         Ok(())
@@ -1188,11 +1192,11 @@ impl PyRuntime {
     /// When ``wait_ms`` is provided the call waits up to that many milliseconds
     /// for the window to become input ready if the platform reports readiness.
     #[pyo3(signature = (node, wait_ms=None), text_signature = "(self, node, wait_ms=None)")]
-    fn bring_to_front(&self, node: PyRef<'_, PyNode>, wait_ms: Option<f64>) -> PyResult<()> {
+    fn bring_to_front(&self, node: &PyNode, wait_ms: Option<f64>) -> PyResult<()> {
         let runtime = self.runtime()?;
         match wait_ms {
             Some(ms) => {
-                let dur = std::time::Duration::from_millis(ms.max(0.0) as u64);
+                let dur = duration_from_millis(ms);
                 runtime.bring_to_front_and_wait(&node.inner, dur).map_err(map_bring_err)?;
             }
             None => {
@@ -1208,14 +1212,14 @@ impl PyRuntime {
     ///
     /// ``rects`` may be a single :class:`Rect` or any iterable producing rectangles.
     #[pyo3(signature = (rects, duration_ms=None), text_signature = "(self, rects, duration_ms=None)")]
-    fn highlight(&self, rects: Bound<'_, PyAny>, duration_ms: Option<f64>) -> PyResult<()> {
+    fn highlight(&self, rects: &Bound<'_, PyAny>, duration_ms: Option<f64>) -> PyResult<()> {
         let mut all: Vec<platynui_core::types::Rect> = Vec::new();
         // Fast path: single Rect passed directly
         if let Ok(inp) = rects.extract::<RectInput>() {
             all.push(inp.0);
         } else {
             // Fallback: consume any iterable of Rects
-            let iter = PyIterator::from_object(&rects)?;
+            let iter = PyIterator::from_object(rects)?;
             for item in iter {
                 let any = item?;
                 if let Ok(inp) = any.extract::<RectInput>() {
@@ -1228,7 +1232,7 @@ impl PyRuntime {
         }
         let mut req = HighlightRequest::from_rects(all);
         if let Some(ms) = duration_ms {
-            req = req.with_duration(std::time::Duration::from_millis(ms as u64));
+            req = req.with_duration(duration_from_millis(ms));
         }
         let runtime = self.runtime()?;
         runtime.highlight(&req).map_err(map_platform_err)?;
@@ -1252,8 +1256,7 @@ impl PyRuntime {
         if !effective_mime.eq_ignore_ascii_case("image/png") {
             return Err(PyTypeError::new_err("unsupported mime_type; only 'image/png' is supported"));
         }
-        let request =
-            rect.map(|r| ScreenshotRequest::with_region(r.0)).unwrap_or_else(ScreenshotRequest::entire_display);
+        let request = rect.map_or_else(ScreenshotRequest::entire_display, |r| ScreenshotRequest::with_region(r.0));
         let runtime = self.runtime()?;
         let shot = runtime.screenshot(&request).map_err(map_platform_err)?;
         let encoded = encode_png(&shot)?;
@@ -1281,7 +1284,7 @@ fn ui_value_to_py(py: Python<'_>, value: &core_rs::ui::value::UiValue) -> PyResu
         }
         V::Object(map) => {
             let dict = PyDict::new(py);
-            for (k, v) in map.iter() {
+            for (k, v) in map {
                 dict.set_item(k, ui_value_to_py(py, v)?)?;
             }
             dict.into_pyobject(py)?.unbind().into_any()
@@ -1292,10 +1295,10 @@ fn ui_value_to_py(py: Python<'_>, value: &core_rs::ui::value::UiValue) -> PyResu
     })
 }
 
-/// Convert a runtime EvaluationItem into its Python representation.
-/// - Node      -> platynui_native.UiNode
-/// - Attribute -> platynui_native.EvaluatedAttribute
-/// - Value     -> native Python value via ui_value_to_py
+/// Convert a runtime `EvaluationItem` into its Python representation.
+/// - Node      -> `platynui_native.UiNode`
+/// - Attribute -> `platynui_native.EvaluatedAttribute`
+/// - Value     -> native Python value via `ui_value_to_py`
 fn evaluation_item_to_py(py: Python<'_>, item: &runtime_rs::EvaluationItem, owner_id: u64) -> PyResult<Py<PyAny>> {
     Ok(match item {
         runtime_rs::EvaluationItem::Node(n) => {
@@ -1315,7 +1318,7 @@ fn evaluation_item_to_py(py: Python<'_>, item: &runtime_rs::EvaluationItem, owne
 }
 
 fn rect_to_py(py: Python<'_>, r: &core_rs::types::Rect) -> PyResult<Py<PyAny>> {
-    Py::new(py, PyRect::from(*r)).map(|p| p.into_any())
+    Py::new(py, PyRect::from(*r)).map(pyo3::Py::into_any)
 }
 
 fn desktop_info_to_py(py: Python<'_>, info: &core_rs::platform::DesktopInfo) -> PyResult<Py<PyAny>> {
@@ -1391,13 +1394,14 @@ fn parse_runtime_config(config: &Bound<'_, PyDict>) -> core_rs::config::RuntimeC
 /// A missing bucket, or one whose value is not a dict, yields an empty map.
 fn config_section(config: &Bound<'_, PyDict>, key: &str) -> core_rs::config::ConfigMap {
     match config.get_item(key) {
-        Ok(Some(value)) => match value.cast::<PyDict>() {
-            Ok(dict) => pydict_to_config_map(dict),
-            Err(_) => {
+        Ok(Some(value)) => {
+            if let Ok(dict) = value.cast::<PyDict>() {
+                pydict_to_config_map(dict)
+            } else {
                 tracing::debug!(key, "runtime config: top-level section is not a dict; ignoring");
                 core_rs::config::ConfigMap::new()
             }
-        },
+        }
         _ => core_rs::config::ConfigMap::new(),
     }
 }
@@ -1413,9 +1417,10 @@ fn pydict_to_config_map(dict: &Bound<'_, PyDict>) -> core_rs::config::ConfigMap 
             tracing::debug!("runtime config: skipping non-string dict key");
             continue;
         };
-        match py_to_config_value(&value) {
-            Some(parsed) => map.insert(key, parsed),
-            None => tracing::debug!(key, "runtime config: skipping value of unsupported type"),
+        if let Some(parsed) = py_to_config_value(&value) {
+            map.insert(key, parsed);
+        } else {
+            tracing::debug!(key, "runtime config: skipping value of unsupported type");
         }
     }
     map
@@ -1474,27 +1479,41 @@ fn py_sequence_to_config_values<'py>(
 
 // ---------------- Error mapping ----------------
 
+// `map_err` callback; it receives the error by value.
+#[allow(clippy::needless_pass_by_value)]
 fn map_provider_err(err: core_rs::provider::ProviderError) -> PyErr {
     ProviderError::new_err(err.to_string())
 }
+// `map_err` callback; it receives the error by value.
+#[allow(clippy::needless_pass_by_value)]
 fn map_eval_err(err: runtime_rs::EvaluateError) -> PyErr {
     EvaluationError::new_err(err.to_string())
 }
+// `map_err` callback; it receives the error by value.
+#[allow(clippy::needless_pass_by_value)]
 fn map_pointer_err(err: runtime_rs::PointerError) -> PyErr {
     PointerError::new_err(err.to_string())
 }
+// `map_err` callback; it receives the error by value.
+#[allow(clippy::needless_pass_by_value)]
 fn map_keyboard_err(err: runtime_rs::runtime::KeyboardActionError) -> PyErr {
     KeyboardError::new_err(err.to_string())
 }
 
+// `map_err` callback; it receives the error by value.
+#[allow(clippy::needless_pass_by_value)]
 fn map_focus_err(err: runtime_rs::runtime::FocusError) -> PyErr {
     PatternError::new_err(err.to_string())
 }
 
+// `map_err` callback; it receives the error by value.
+#[allow(clippy::needless_pass_by_value)]
 fn map_platform_err(err: core_rs::platform::PlatformError) -> PyErr {
     ProviderError::new_err(err.to_string())
 }
 
+// `map_err` callback; it receives the error by value.
+#[allow(clippy::needless_pass_by_value)]
 fn map_bring_err(err: runtime_rs::runtime::BringToFrontError) -> PyErr {
     // Reuse PatternError for simplicity; include the runtime id and message
     PatternError::new_err(err.to_string())
@@ -1514,7 +1533,7 @@ fn pattern_name_from_arg(arg: &Bound<'_, PyAny>) -> PyResult<String> {
         let attr = ty.getattr("pattern_name").map_err(|_| {
             PyTypeError::new_err(format!(
                 "pattern type {} is missing the `pattern_name` class attribute",
-                ty.name().map(|n| n.to_string()).unwrap_or_else(|_| "<unknown>".to_string())
+                ty.name().map_or_else(|_| "<unknown>".to_string(), |n| n.to_string())
             ))
         })?;
         return attr.extract::<String>();
@@ -1525,29 +1544,31 @@ fn pattern_name_from_arg(arg: &Bound<'_, PyAny>) -> PyResult<String> {
 fn pattern_object(py: Python<'_>, node: &Arc<dyn core_rs::ui::UiNode>, pattern_name: &str) -> Option<Py<PyAny>> {
     match pattern_name {
         core_rs::ui::pattern_names::FOCUSABLE => {
-            Py::new(py, PyFocusable { node: node.clone() }).ok().map(|p| p.into_any())
+            Py::new(py, PyFocusable { node: node.clone() }).ok().map(pyo3::Py::into_any)
         }
         core_rs::ui::pattern_names::ACTIVATABLE => {
-            Py::new(py, PyActivatable { node: node.clone() }).ok().map(|p| p.into_any())
+            Py::new(py, PyActivatable { node: node.clone() }).ok().map(pyo3::Py::into_any)
         }
         core_rs::ui::pattern_names::MINIMIZABLE => {
-            Py::new(py, PyMinimizable { node: node.clone() }).ok().map(|p| p.into_any())
+            Py::new(py, PyMinimizable { node: node.clone() }).ok().map(pyo3::Py::into_any)
         }
         core_rs::ui::pattern_names::MAXIMIZABLE => {
-            Py::new(py, PyMaximizable { node: node.clone() }).ok().map(|p| p.into_any())
+            Py::new(py, PyMaximizable { node: node.clone() }).ok().map(pyo3::Py::into_any)
         }
         core_rs::ui::pattern_names::RESTORABLE => {
-            Py::new(py, PyRestorable { node: node.clone() }).ok().map(|p| p.into_any())
+            Py::new(py, PyRestorable { node: node.clone() }).ok().map(pyo3::Py::into_any)
         }
         core_rs::ui::pattern_names::CLOSEABLE => {
-            Py::new(py, PyCloseable { node: node.clone() }).ok().map(|p| p.into_any())
+            Py::new(py, PyCloseable { node: node.clone() }).ok().map(pyo3::Py::into_any)
         }
-        core_rs::ui::pattern_names::MOVABLE => Py::new(py, PyMovable { node: node.clone() }).ok().map(|p| p.into_any()),
+        core_rs::ui::pattern_names::MOVABLE => {
+            Py::new(py, PyMovable { node: node.clone() }).ok().map(pyo3::Py::into_any)
+        }
         core_rs::ui::pattern_names::RESIZABLE => {
-            Py::new(py, PyResizable { node: node.clone() }).ok().map(|p| p.into_any())
+            Py::new(py, PyResizable { node: node.clone() }).ok().map(pyo3::Py::into_any)
         }
         core_rs::ui::pattern_names::RESPONSIVE => {
-            Py::new(py, PyResponsive { node: node.clone() }).ok().map(|p| p.into_any())
+            Py::new(py, PyResponsive { node: node.clone() }).ok().map(pyo3::Py::into_any)
         }
         _ => None,
     }
@@ -1647,10 +1668,10 @@ pub enum RectLike<'py> {
 }
 
 impl From<RectLike<'_>> for core_rs::types::Rect {
-    fn from(v: RectLike<'_>) -> Self {
-        match v {
+    fn from(like: RectLike<'_>) -> Self {
+        match like {
             RectLike::Tuple((x, y, w, h)) => core_rs::types::Rect::new(x, y, w, h),
-            RectLike::Rect(r) => r.as_inner(),
+            RectLike::Rect(rect) => rect.as_inner(),
         }
     }
 }
@@ -1663,12 +1684,32 @@ fn dict_get<'py>(d: &Bound<'py, PyDict>, key: &str) -> Option<Bound<'py, PyAny>>
 
 // -------- Like helpers for Point/Rect (tuple/list/dict/instances) --------
 
+// Negative and NaN inputs become 0, huge ones saturate and the fraction is truncated;
+// that `as` behaviour is the intended conversion of Python millisecond values.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn duration_from_millis(ms: f64) -> std::time::Duration {
     std::time::Duration::from_millis(ms.max(0.0) as u64)
 }
 
+// Negative and NaN inputs become 0, huge ones saturate and the fraction is truncated;
+// that `as` behaviour is the intended conversion of Python microsecond values.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn duration_from_micros(us: f64) -> std::time::Duration {
     std::time::Duration::from_micros(us.max(0.0) as u64)
+}
+
+// Whole milliseconds as a Python float; durations beyond 2^53 ms (about 285,000 years)
+// round, which is irrelevant for input timings.
+#[allow(clippy::cast_precision_loss)]
+fn duration_as_millis_f64(duration: std::time::Duration) -> f64 {
+    duration.as_millis() as f64
+}
+
+// Whole microseconds as a Python float; durations beyond 2^53 us (about 285 years)
+// round, which is irrelevant for input timings.
+#[allow(clippy::cast_precision_loss)]
+fn duration_as_micros_f64(duration: std::time::Duration) -> f64 {
+    duration.as_micros() as f64
 }
 
 fn pointer_button_to_int(button: core_rs::platform::PointerButton) -> u16 {
@@ -1755,6 +1796,7 @@ fn ci_get<'py>(d: &Bound<'py, PyDict>, k: &str) -> Option<Bound<'py, PyAny>> {
     dict_get(d, k2.as_str())
 }
 
+#[derive(Clone, Copy)]
 pub struct PointInput(pub core_rs::types::Point);
 
 impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointInput {
@@ -1811,6 +1853,7 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for RectInput {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct SizeInput(pub core_rs::types::Size);
 
 impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for SizeInput {
@@ -1859,7 +1902,7 @@ impl From<PointerButtonLike> for core_rs::platform::PointerButton {
     }
 }
 
-#[derive(FromPyObject)]
+#[derive(Clone, Copy, FromPyObject)]
 pub enum ScrollLike {
     Tuple((f64, f64)),
 }
@@ -2018,13 +2061,15 @@ impl PyPointerOverrides {
     }
 
     /// Returns a readable representation for debugging.
+    // Python's `__repr__` protocol requires an instance method.
+    #[allow(clippy::unused_self)]
     fn __repr__(&self) -> String {
         "PointerOverrides(...)".to_string()
     }
 
     #[classmethod]
     /// Accepts any object recognised by the ``PointerOverridesLike`` helper and creates overrides.
-    fn from_like(_cls: &Bound<'_, PyType>, value: Bound<'_, PyAny>) -> PyResult<Self> {
+    fn from_like(_cls: &Bound<'_, PyType>, value: &Bound<'_, PyAny>) -> PyResult<Self> {
         let like = value.extract::<PointerOverridesLike>()?;
         Ok(Self { inner: like.into() })
     }
@@ -2036,8 +2081,8 @@ impl PyPointerOverrides {
         use core_rs::platform::PointOrigin as O;
         self.inner.origin.as_ref().and_then(|o| match o {
             O::Desktop => "desktop".into_pyobject(py).ok().map(|v| v.unbind().into_any()),
-            O::Absolute(p) => Py::new(py, PyPoint::from(*p)).ok().map(|v| v.into_any()),
-            O::Bounds(r) => Py::new(py, PyRect::from(*r)).ok().map(|v| v.into_any()),
+            O::Absolute(p) => Py::new(py, PyPoint::from(*p)).ok().map(pyo3::Py::into_any),
+            O::Bounds(r) => Py::new(py, PyRect::from(*r)).ok().map(pyo3::Py::into_any),
         })
     }
     #[getter]
@@ -2063,42 +2108,42 @@ impl PyPointerOverrides {
     #[getter]
     /// Returns the maximum duration, in milliseconds, of a pointer move.
     fn max_move_duration_ms(&self) -> Option<f64> {
-        self.inner.max_move_duration.map(|d| d.as_millis() as f64)
+        self.inner.max_move_duration.map(duration_as_millis_f64)
     }
     #[getter]
     /// Returns the microseconds spent per pixel when timing is based on distance.
     fn move_time_per_pixel_us(&self) -> Option<f64> {
-        self.inner.move_time_per_pixel.map(|d| d.as_micros() as f64)
+        self.inner.move_time_per_pixel.map(duration_as_micros_f64)
     }
     #[getter]
     /// Returns the delay after completing a pointer move in milliseconds.
     fn after_move_delay_ms(&self) -> Option<f64> {
-        self.inner.after_move_delay.map(|d| d.as_millis() as f64)
+        self.inner.after_move_delay.map(duration_as_millis_f64)
     }
     #[getter]
     /// Returns the delay applied after any pointer input action in milliseconds.
     fn after_input_delay_ms(&self) -> Option<f64> {
-        self.inner.after_input_delay.map(|d| d.as_millis() as f64)
+        self.inner.after_input_delay.map(duration_as_millis_f64)
     }
     #[getter]
     /// Returns the press/release delay in milliseconds when both happen together.
     fn press_release_delay_ms(&self) -> Option<f64> {
-        self.inner.press_release_delay.map(|d| d.as_millis() as f64)
+        self.inner.press_release_delay.map(duration_as_millis_f64)
     }
     #[getter]
     /// Returns the pause after completing a click, in milliseconds.
     fn after_click_delay_ms(&self) -> Option<f64> {
-        self.inner.after_click_delay.map(|d| d.as_millis() as f64)
+        self.inner.after_click_delay.map(duration_as_millis_f64)
     }
     #[getter]
     /// Returns the pause inserted before moving on to the next click.
     fn before_next_click_delay_ms(&self) -> Option<f64> {
-        self.inner.before_next_click_delay.map(|d| d.as_millis() as f64)
+        self.inner.before_next_click_delay.map(duration_as_millis_f64)
     }
     #[getter]
     /// Returns the time window used to group a sequence of clicks.
     fn multi_click_delay_ms(&self) -> Option<f64> {
-        self.inner.multi_click_delay.map(|d| d.as_millis() as f64)
+        self.inner.multi_click_delay.map(duration_as_millis_f64)
     }
     #[getter]
     /// Returns the overshoot ratio applied to pointer moves.
@@ -2138,7 +2183,7 @@ impl PyPointerOverrides {
     #[getter]
     /// Returns the timeout used when verifying pointer moves.
     fn ensure_move_timeout_ms(&self) -> Option<f64> {
-        self.inner.ensure_move_timeout.map(|d| d.as_millis() as f64)
+        self.inner.ensure_move_timeout.map(duration_as_millis_f64)
     }
     #[getter]
     /// Returns the scroll delta that is applied per scroll step when set.
@@ -2150,7 +2195,7 @@ impl PyPointerOverrides {
     #[getter]
     /// Returns the delay between scroll steps in milliseconds.
     fn scroll_delay_ms(&self) -> Option<f64> {
-        self.inner.scroll_delay.map(|d| d.as_millis() as f64)
+        self.inner.scroll_delay.map(duration_as_millis_f64)
     }
 }
 
@@ -2195,13 +2240,15 @@ impl PyKeyboardOverrides {
     }
 
     /// Returns a readable representation for debugging.
+    // Python's `__repr__` protocol requires an instance method.
+    #[allow(clippy::unused_self)]
     fn __repr__(&self) -> String {
         "KeyboardOverrides(...)".to_string()
     }
 
     #[classmethod]
     /// Accepts any object recognised by ``KeyboardOverridesLike`` and creates overrides.
-    fn from_like(_cls: &Bound<'_, PyType>, value: Bound<'_, PyAny>) -> PyResult<Self> {
+    fn from_like(_cls: &Bound<'_, PyType>, value: &Bound<'_, PyAny>) -> PyResult<Self> {
         let like = value.extract::<KeyboardOverridesLike>()?;
         Ok(Self { inner: like.into() })
     }
@@ -2210,37 +2257,37 @@ impl PyKeyboardOverrides {
     #[getter]
     /// Returns the delay between key press and release.
     fn press_delay_ms(&self) -> Option<f64> {
-        self.inner.press_delay.map(|d| d.as_millis() as f64)
+        self.inner.press_delay.map(duration_as_millis_f64)
     }
     #[getter]
     /// Returns the delay after releasing a key.
     fn release_delay_ms(&self) -> Option<f64> {
-        self.inner.release_delay.map(|d| d.as_millis() as f64)
+        self.inner.release_delay.map(duration_as_millis_f64)
     }
     #[getter]
     /// Returns the delay inserted between consecutive keys.
     fn between_keys_delay_ms(&self) -> Option<f64> {
-        self.inner.between_keys_delay.map(|d| d.as_millis() as f64)
+        self.inner.between_keys_delay.map(duration_as_millis_f64)
     }
     #[getter]
     /// Returns the delay between pressing keys in a chord.
     fn chord_press_delay_ms(&self) -> Option<f64> {
-        self.inner.chord_press_delay.map(|d| d.as_millis() as f64)
+        self.inner.chord_press_delay.map(duration_as_millis_f64)
     }
     #[getter]
     /// Returns the delay between releasing keys in a chord.
     fn chord_release_delay_ms(&self) -> Option<f64> {
-        self.inner.chord_release_delay.map(|d| d.as_millis() as f64)
+        self.inner.chord_release_delay.map(duration_as_millis_f64)
     }
     #[getter]
     /// Returns the pause applied after finishing a sequence.
     fn after_sequence_delay_ms(&self) -> Option<f64> {
-        self.inner.after_sequence_delay.map(|d| d.as_millis() as f64)
+        self.inner.after_sequence_delay.map(duration_as_millis_f64)
     }
     #[getter]
     /// Returns the pause applied after text input operations.
     fn after_text_delay_ms(&self) -> Option<f64> {
-        self.inner.after_text_delay.map(|d| d.as_millis() as f64)
+        self.inner.after_text_delay.map(duration_as_millis_f64)
     }
 }
 
@@ -2259,7 +2306,7 @@ impl PyPointerSettings {
         double_click_time_ms: Option<f64>,
         double_click_size: Option<SizeInput>,
         default_button: Option<PointerButtonLike>,
-    ) -> PyResult<Self> {
+    ) -> Self {
         let mut inner = runtime_rs::PointerSettings::default();
         if let Some(ms) = double_click_time_ms {
             inner.double_click_time = duration_from_millis(ms);
@@ -2270,7 +2317,7 @@ impl PyPointerSettings {
         if let Some(button) = default_button {
             inner.default_button = button.into();
         }
-        Ok(Self { inner })
+        Self { inner }
     }
 
     /// Returns a readable representation for debugging.
@@ -2284,7 +2331,7 @@ impl PyPointerSettings {
 
     #[classmethod]
     /// Accepts any object recognised by ``PointerSettingsLike`` and returns settings.
-    fn from_like(_cls: &Bound<'_, PyType>, value: Bound<'_, PyAny>) -> PyResult<Self> {
+    fn from_like(_cls: &Bound<'_, PyType>, value: &Bound<'_, PyAny>) -> PyResult<Self> {
         let like = value.extract::<PointerSettingsLike>()?;
         Ok(Self { inner: like.into() })
     }
@@ -2292,7 +2339,7 @@ impl PyPointerSettings {
     #[getter]
     /// Returns the double-click time in milliseconds.
     fn double_click_time_ms(&self) -> f64 {
-        self.inner.double_click_time.as_millis() as f64
+        duration_as_millis_f64(self.inner.double_click_time)
     }
 
     #[getter]
@@ -2372,7 +2419,7 @@ impl PyPointerProfile {
         scroll_step: Option<(f64, f64)>,
         scroll_delay_ms: Option<f64>,
         move_time_per_pixel_us: Option<f64>,
-    ) -> PyResult<Self> {
+    ) -> Self {
         let mut inner = runtime_rs::PointerProfile::named_default();
         if let Some(mode) = motion {
             inner.mode = mode.into();
@@ -2440,7 +2487,7 @@ impl PyPointerProfile {
         if let Some(us) = move_time_per_pixel_us {
             inner.move_time_per_pixel = duration_from_micros(us);
         }
-        Ok(Self { inner })
+        Self { inner }
     }
 
     /// Returns a readable representation for debugging.
@@ -2454,7 +2501,7 @@ impl PyPointerProfile {
 
     #[classmethod]
     /// Accepts any object recognised by ``PointerProfileLike`` and creates a profile.
-    fn from_like(_cls: &Bound<'_, PyType>, value: Bound<'_, PyAny>) -> PyResult<Self> {
+    fn from_like(_cls: &Bound<'_, PyType>, value: &Bound<'_, PyAny>) -> PyResult<Self> {
         let like = value.extract::<PointerProfileLike>()?;
         Ok(Self { inner: like.into() })
     }
@@ -2474,7 +2521,7 @@ impl PyPointerProfile {
     #[getter]
     /// Returns the maximum pointer move duration in milliseconds.
     fn max_move_duration_ms(&self) -> f64 {
-        self.inner.max_move_duration.as_millis() as f64
+        duration_as_millis_f64(self.inner.max_move_duration)
     }
 
     #[getter]
@@ -2522,37 +2569,37 @@ impl PyPointerProfile {
     #[getter]
     /// Returns the delay after finishing a pointer move, in milliseconds.
     fn after_move_delay_ms(&self) -> f64 {
-        self.inner.after_move_delay.as_millis() as f64
+        duration_as_millis_f64(self.inner.after_move_delay)
     }
 
     #[getter]
     /// Returns the delay after any pointer input, in milliseconds.
     fn after_input_delay_ms(&self) -> f64 {
-        self.inner.after_input_delay.as_millis() as f64
+        duration_as_millis_f64(self.inner.after_input_delay)
     }
 
     #[getter]
     /// Returns the delay between press and release actions, in milliseconds.
     fn press_release_delay_ms(&self) -> f64 {
-        self.inner.press_release_delay.as_millis() as f64
+        duration_as_millis_f64(self.inner.press_release_delay)
     }
 
     #[getter]
     /// Returns the pause after a click, in milliseconds.
     fn after_click_delay_ms(&self) -> f64 {
-        self.inner.after_click_delay.as_millis() as f64
+        duration_as_millis_f64(self.inner.after_click_delay)
     }
 
     #[getter]
     /// Returns the pause before the next click, in milliseconds.
     fn before_next_click_delay_ms(&self) -> f64 {
-        self.inner.before_next_click_delay.as_millis() as f64
+        duration_as_millis_f64(self.inner.before_next_click_delay)
     }
 
     #[getter]
     /// Returns the multi-click grouping timeout, in milliseconds.
     fn multi_click_delay_ms(&self) -> f64 {
-        self.inner.multi_click_delay.as_millis() as f64
+        duration_as_millis_f64(self.inner.multi_click_delay)
     }
 
     #[getter]
@@ -2570,7 +2617,7 @@ impl PyPointerProfile {
     #[getter]
     /// Returns the verification timeout, in milliseconds, for pointer moves.
     fn ensure_move_timeout_ms(&self) -> f64 {
-        self.inner.ensure_move_timeout.as_millis() as f64
+        duration_as_millis_f64(self.inner.ensure_move_timeout)
     }
 
     #[getter]
@@ -2582,13 +2629,13 @@ impl PyPointerProfile {
     #[getter]
     /// Returns the delay between scroll steps, in milliseconds.
     fn scroll_delay_ms(&self) -> f64 {
-        self.inner.scroll_delay.as_millis() as f64
+        duration_as_millis_f64(self.inner.scroll_delay)
     }
 
     #[getter]
     /// Returns the microseconds spent per pixel during pointer moves.
     fn move_time_per_pixel_us(&self) -> f64 {
-        self.inner.move_time_per_pixel.as_micros() as f64
+        duration_as_micros_f64(self.inner.move_time_per_pixel)
     }
 }
 
@@ -2652,13 +2699,15 @@ impl PyKeyboardProfile {
     }
 
     /// Returns a readable representation for debugging.
+    // Python's `__repr__` protocol requires an instance method.
+    #[allow(clippy::unused_self)]
     fn __repr__(&self) -> String {
         "KeyboardProfile(...)".to_string()
     }
 
     #[classmethod]
     /// Accepts any object recognised by ``KeyboardProfileLike`` and returns a profile.
-    fn from_like(_cls: &Bound<'_, PyType>, value: Bound<'_, PyAny>) -> PyResult<Self> {
+    fn from_like(_cls: &Bound<'_, PyType>, value: &Bound<'_, PyAny>) -> PyResult<Self> {
         let like = value.extract::<KeyboardProfileLike>()?;
         Ok(Self { inner: like.into() })
     }
@@ -2666,43 +2715,43 @@ impl PyKeyboardProfile {
     #[getter]
     /// Returns the key press duration in milliseconds.
     fn press_delay_ms(&self) -> f64 {
-        self.inner.press_delay.as_millis() as f64
+        duration_as_millis_f64(self.inner.press_delay)
     }
 
     #[getter]
     /// Returns the key release duration in milliseconds.
     fn release_delay_ms(&self) -> f64 {
-        self.inner.release_delay.as_millis() as f64
+        duration_as_millis_f64(self.inner.release_delay)
     }
 
     #[getter]
     /// Returns the delay between consecutive key strokes.
     fn between_keys_delay_ms(&self) -> f64 {
-        self.inner.between_keys_delay.as_millis() as f64
+        duration_as_millis_f64(self.inner.between_keys_delay)
     }
 
     #[getter]
     /// Returns the delay between pressing keys in a chord.
     fn chord_press_delay_ms(&self) -> f64 {
-        self.inner.chord_press_delay.as_millis() as f64
+        duration_as_millis_f64(self.inner.chord_press_delay)
     }
 
     #[getter]
     /// Returns the delay between releasing keys in a chord.
     fn chord_release_delay_ms(&self) -> f64 {
-        self.inner.chord_release_delay.as_millis() as f64
+        duration_as_millis_f64(self.inner.chord_release_delay)
     }
 
     #[getter]
     /// Returns the pause applied after a key sequence completes.
     fn after_sequence_delay_ms(&self) -> f64 {
-        self.inner.after_sequence_delay.as_millis() as f64
+        duration_as_millis_f64(self.inner.after_sequence_delay)
     }
 
     #[getter]
     /// Returns the pause after typing text content.
     fn after_text_delay_ms(&self) -> f64 {
-        self.inner.after_text_delay.as_millis() as f64
+        duration_as_millis_f64(self.inner.after_text_delay)
     }
 }
 
@@ -2789,22 +2838,22 @@ impl From<PointerOverridesInput> for runtime_rs::PointerOverrides {
             ov = ov.speed_factor(v);
         }
         if let Some(ms) = s.after_move_delay_ms {
-            ov = ov.after_move_delay(std::time::Duration::from_millis(ms as u64));
+            ov = ov.after_move_delay(duration_from_millis(ms));
         }
         if let Some(ms) = s.after_input_delay_ms {
-            ov = ov.after_input_delay(std::time::Duration::from_millis(ms as u64));
+            ov = ov.after_input_delay(duration_from_millis(ms));
         }
         if let Some(ms) = s.press_release_delay_ms {
-            ov = ov.press_release_delay(std::time::Duration::from_millis(ms as u64));
+            ov = ov.press_release_delay(duration_from_millis(ms));
         }
         if let Some(ms) = s.after_click_delay_ms {
-            ov = ov.after_click_delay(std::time::Duration::from_millis(ms as u64));
+            ov = ov.after_click_delay(duration_from_millis(ms));
         }
         if let Some(ms) = s.before_next_click_delay_ms {
-            ov = ov.before_next_click_delay(std::time::Duration::from_millis(ms as u64));
+            ov = ov.before_next_click_delay(duration_from_millis(ms));
         }
         if let Some(ms) = s.multi_click_delay_ms {
-            ov = ov.multi_click_delay(std::time::Duration::from_millis(ms as u64));
+            ov = ov.multi_click_delay(duration_from_millis(ms));
         }
         if let Some(ratio) = s.overshoot_ratio {
             ov = ov.overshoot_ratio(ratio);
@@ -2828,19 +2877,19 @@ impl From<PointerOverridesInput> for runtime_rs::PointerOverrides {
             ov = ov.ensure_move_threshold(v);
         }
         if let Some(ms) = s.ensure_move_timeout_ms {
-            ov = ov.ensure_move_timeout(std::time::Duration::from_millis(ms as u64));
+            ov = ov.ensure_move_timeout(duration_from_millis(ms));
         }
         if let Some((h, v)) = s.scroll_step {
             ov = ov.scroll_step(core_rs::platform::ScrollDelta::new(h, v));
         }
         if let Some(ms) = s.scroll_delay_ms {
-            ov = ov.scroll_delay(std::time::Duration::from_millis(ms as u64));
+            ov = ov.scroll_delay(duration_from_millis(ms));
         }
         if let Some(ms) = s.max_move_duration_ms {
-            ov = ov.move_duration(std::time::Duration::from_millis(ms as u64));
+            ov = ov.move_duration(duration_from_millis(ms));
         }
         if let Some(us) = s.move_time_per_pixel_us {
-            ov = ov.move_time_per_pixel(std::time::Duration::from_micros(us as u64));
+            ov = ov.move_time_per_pixel(duration_from_micros(us));
         }
         if let Some(ap) = s.acceleration_profile {
             ov = ov.acceleration_profile(ap.into());
@@ -3077,6 +3126,8 @@ impl From<PointerProfileLike<'_>> for runtime_rs::PointerProfile {
     }
 }
 
+// Field names mirror the Python keyword/dict keys (`*_delay_ms`) one to one.
+#[allow(clippy::struct_field_names)]
 #[derive(Default)]
 pub struct KeyboardProfileInput {
     pub press_delay_ms: Option<f64>,
@@ -3180,8 +3231,8 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for OriginInput {
 }
 
 impl From<OriginInput> for core_rs::platform::PointOrigin {
-    fn from(o: OriginInput) -> Self {
-        match o {
+    fn from(origin: OriginInput) -> Self {
+        match origin {
             OriginInput::Desktop => Self::Desktop,
             OriginInput::Absolute((x, y)) => Self::Absolute(core_rs::types::Point::new(x, y)),
             OriginInput::Bounds((x, y, w, h)) => Self::Bounds(core_rs::types::Rect::new(x, y, w, h)),
@@ -3189,6 +3240,8 @@ impl From<OriginInput> for core_rs::platform::PointOrigin {
     }
 }
 
+// Field names mirror the Python keyword/dict keys (`*_delay_ms`) one to one.
+#[allow(clippy::struct_field_names)]
 pub struct KeyboardOverridesInput {
     pub press_delay_ms: Option<f64>,
     pub release_delay_ms: Option<f64>,
@@ -3221,25 +3274,25 @@ impl From<KeyboardOverridesInput> for core_rs::platform::KeyboardOverrides {
         use core_rs::platform::KeyboardOverrides as KO;
         let mut ov = KO::new();
         if let Some(ms) = s.press_delay_ms {
-            ov = ov.press_delay(std::time::Duration::from_millis(ms as u64));
+            ov = ov.press_delay(duration_from_millis(ms));
         }
         if let Some(ms) = s.release_delay_ms {
-            ov = ov.release_delay(std::time::Duration::from_millis(ms as u64));
+            ov = ov.release_delay(duration_from_millis(ms));
         }
         if let Some(ms) = s.between_keys_delay_ms {
-            ov = ov.between_keys_delay(std::time::Duration::from_millis(ms as u64));
+            ov = ov.between_keys_delay(duration_from_millis(ms));
         }
         if let Some(ms) = s.chord_press_delay_ms {
-            ov = ov.chord_press_delay(std::time::Duration::from_millis(ms as u64));
+            ov = ov.chord_press_delay(duration_from_millis(ms));
         }
         if let Some(ms) = s.chord_release_delay_ms {
-            ov = ov.chord_release_delay(std::time::Duration::from_millis(ms as u64));
+            ov = ov.chord_release_delay(duration_from_millis(ms));
         }
         if let Some(ms) = s.after_sequence_delay_ms {
-            ov = ov.after_sequence_delay(std::time::Duration::from_millis(ms as u64));
+            ov = ov.after_sequence_delay(duration_from_millis(ms));
         }
         if let Some(ms) = s.after_text_delay_ms {
-            ov = ov.after_text_delay(std::time::Duration::from_millis(ms as u64));
+            ov = ov.after_text_delay(duration_from_millis(ms));
         }
         ov
     }

@@ -46,3 +46,6 @@ platynui-provider-atspi = { path = "../../crates/provider-atspi" }
 [target.'cfg(target_os = "macos")'.dependencies]
 platynui-platform-macos = { path = "../../crates/platform-macos" }
 platynui-provider-macos-ax = { path = "../../crates/provider-macos-ax" }
+
+[lints]
+workspace = true

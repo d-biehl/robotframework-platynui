@@ -41,6 +41,8 @@ impl PyPoint {
         (self.inner.x(), self.inner.y())
     }
     /// Returns ``2`` so the point can be treated like a sequence.
+    // Python's `__len__` protocol requires an instance method.
+    #[allow(clippy::unused_self)]
     fn __len__(&self) -> usize {
         2
     }
@@ -79,12 +81,12 @@ impl PyPoint {
         Self { inner: self.inner - other.inner }
     }
     /// Compares two points for equality.
-    fn __eq__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
-        if let Some(p) = point_from_any(other) { Ok(self.inner == p) } else { Ok(false) }
+    fn __eq__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> bool {
+        point_from_any(other).is_some_and(|p| self.inner == p)
     }
     /// Returns ``False`` when two points are equal.
-    fn __ne__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
-        self.__eq__(other).map(|eq| !eq)
+    fn __ne__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> bool {
+        !self.__eq__(other)
     }
     #[classmethod]
     #[pyo3(text_signature = "(value)")]
@@ -101,11 +103,11 @@ impl PyPoint {
         format!("Point({}, {})", self.inner.x(), self.inner.y())
     }
     /// Returns a hash compatible with the tuple representation.
-    fn __hash__(&self) -> PyResult<isize> {
+    fn __hash__(&self) -> u64 {
         let mut s = DefaultHasher::new();
         self.inner.x().to_bits().hash(&mut s);
         self.inner.y().to_bits().hash(&mut s);
-        Ok(s.finish() as isize)
+        s.finish()
     }
 }
 
@@ -150,6 +152,8 @@ impl PySize {
         (self.inner.width(), self.inner.height())
     }
     /// Returns ``2`` so the size behaves like a sequence.
+    // Python's `__len__` protocol requires an instance method.
+    #[allow(clippy::unused_self)]
     fn __len__(&self) -> usize {
         2
     }
@@ -192,12 +196,12 @@ impl PySize {
         Self { inner: self.inner / scalar }
     }
     /// Compares two sizes for equality.
-    fn __eq__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
-        if let Some(s) = size_from_any(other) { Ok(self.inner == s) } else { Ok(false) }
+    fn __eq__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> bool {
+        size_from_any(other).is_some_and(|s| self.inner == s)
     }
     /// Returns ``False`` when two sizes are equal.
-    fn __ne__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
-        self.__eq__(other).map(|eq| !eq)
+    fn __ne__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> bool {
+        !self.__eq__(other)
     }
     #[classmethod]
     #[pyo3(text_signature = "(value)")]
@@ -214,11 +218,11 @@ impl PySize {
         format!("Size({}, {})", self.inner.width(), self.inner.height())
     }
     /// Returns a hash compatible with the tuple representation.
-    fn __hash__(&self) -> PyResult<isize> {
+    fn __hash__(&self) -> u64 {
         let mut s = DefaultHasher::new();
         self.inner.width().to_bits().hash(&mut s);
         self.inner.height().to_bits().hash(&mut s);
-        Ok(s.finish() as isize)
+        s.finish()
     }
 }
 
@@ -279,6 +283,8 @@ impl PyRect {
         (self.inner.x(), self.inner.y(), self.inner.width(), self.inner.height())
     }
     /// Returns ``4`` so the rectangle behaves like a sequence.
+    // Python's `__len__` protocol requires an instance method.
+    #[allow(clippy::unused_self)]
     fn __len__(&self) -> usize {
         4
     }
@@ -365,12 +371,12 @@ impl PyRect {
         PyRect { inner: self.inner - point.inner }
     }
     /// Compares two rectangles for equality.
-    fn __eq__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
-        if let Some(r) = rect_from_any(other) { Ok(self.inner == r) } else { Ok(false) }
+    fn __eq__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> bool {
+        rect_from_any(other).is_some_and(|r| self.inner == r)
     }
     /// Returns ``False`` when two rectangles are equal.
-    fn __ne__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
-        self.__eq__(other).map(|eq| !eq)
+    fn __ne__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> bool {
+        !self.__eq__(other)
     }
     #[classmethod]
     #[pyo3(text_signature = "(value)")]
@@ -387,13 +393,13 @@ impl PyRect {
         format!("Rect({}, {}, {}, {})", self.inner.x(), self.inner.y(), self.inner.width(), self.inner.height())
     }
     /// Returns a hash compatible with the tuple representation.
-    fn __hash__(&self) -> PyResult<isize> {
+    fn __hash__(&self) -> u64 {
         let mut s = DefaultHasher::new();
         self.inner.x().to_bits().hash(&mut s);
         self.inner.y().to_bits().hash(&mut s);
         self.inner.width().to_bits().hash(&mut s);
         self.inner.height().to_bits().hash(&mut s);
-        Ok(s.finish() as isize)
+        s.finish()
     }
 }
 
@@ -443,10 +449,10 @@ macro_rules! define_id {
             fn __ne__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
                 self.__eq__(other).map(|eq| !eq)
             }
-            fn __hash__(&self) -> PyResult<isize> {
+            fn __hash__(&self) -> u64 {
                 let mut s = DefaultHasher::new();
                 self.inner.as_str().hash(&mut s);
-                Ok(s.finish() as isize)
+                s.finish()
             }
         }
     };
@@ -468,6 +474,8 @@ pub struct PyNamespace {
     inner: core_rs::ui::namespace::Namespace,
 }
 
+// pyo3 methods cannot take `self` by value; `&self` is the receiver pyo3 dictates.
+#[allow(clippy::trivially_copy_pass_by_ref)]
 #[pymethods]
 impl PyNamespace {
     #[allow(non_snake_case)]
@@ -503,16 +511,16 @@ impl PyNamespace {
     fn __str__(&self) -> &'static str {
         self.inner.as_str()
     }
-    fn __eq__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
-        if let Ok(o) = other.extract::<PyRef<PyNamespace>>() { Ok(self.inner == o.inner) } else { Ok(false) }
+    fn __eq__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> bool {
+        other.extract::<PyRef<PyNamespace>>().is_ok_and(|o| self.inner == o.inner)
     }
-    fn __ne__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> PyResult<bool> {
-        self.__eq__(other).map(|eq| !eq)
+    fn __ne__(&self, other: &Bound<'_, pyo3::types::PyAny>) -> bool {
+        !self.__eq__(other)
     }
-    fn __hash__(&self) -> PyResult<isize> {
+    fn __hash__(&self) -> u64 {
         let mut s = DefaultHasher::new();
         self.inner.as_str().hash(&mut s);
-        Ok(s.finish() as isize)
+        s.finish()
     }
 }
 

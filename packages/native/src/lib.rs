@@ -1,3 +1,7 @@
+// `platynui_link_providers!` links the real OS platform/provider crates only outside tests and
+// the `mock-provider` feature; referencing them here would register them in those builds.
+#![cfg_attr(any(test, feature = "mock-provider"), allow(unused_crate_dependencies))]
+
 use pyo3::prelude::*;
 
 use platynui_link::platynui_link_providers;
