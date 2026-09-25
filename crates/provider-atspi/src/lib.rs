@@ -11,6 +11,7 @@ pub(crate) mod clearable_cell;
 pub(crate) mod error;
 
 mod connection;
+mod extents;
 mod identity;
 mod node;
 #[cfg(test)]
@@ -22,6 +23,7 @@ mod timeout;
 use crate::clearable_cell::ClearableCell;
 use crate::connection::connect_a11y_bus_with;
 use crate::error::AtspiError;
+use crate::extents::InjectedWindowManager;
 use crate::node::AtspiNode;
 use crate::popups::{PopupRegistry, PopupWatcher, popup_is_live};
 use atspi_common::{ObjectRefOwned, Role};
@@ -87,7 +89,7 @@ pub struct AtspiProvider {
     /// top-level window node so window operations target this runtime's session
     /// instead of a process-global. Empty until injected (e.g. when the
     /// provider is used without a runtime).
-    window_manager: ClearableCell<Arc<dyn WindowManager>>,
+    window_manager: ClearableCell<InjectedWindowManager>,
     /// Event-driven popup surfacing (`providers.atspi.surface_popups`, default
     /// on). Off = pure top-down traversal, the pre-event behaviour.
     surface_popups: bool,
@@ -161,7 +163,7 @@ impl UiTreeProvider for AtspiProvider {
     fn set_window_manager(&self, window_manager: Arc<dyn WindowManager>) {
         // Set-once (first-writer-wins via ClearableCell); the runtime calls
         // this exactly once after building its platform bundle.
-        self.window_manager.set(window_manager);
+        self.window_manager.set(InjectedWindowManager::new(window_manager));
     }
 
     fn shutdown(&self) {
@@ -407,7 +409,7 @@ fn application_for_pid(conn: &Arc<AccessibilityConnection>, target_pid: u32) -> 
 /// reached; a node budget guards against pathological trees.
 fn descend_to_point(
     conn: &Arc<AccessibilityConnection>,
-    window_manager: &Option<Arc<dyn WindowManager>>,
+    window_manager: &Option<InjectedWindowManager>,
     popups: &Option<Arc<PopupRegistry>>,
     app_node: Arc<dyn UiNode>,
     app_obj: ObjectRefOwned,
@@ -443,7 +445,7 @@ fn descend_to_point(
 /// resolves the menu rather than the widget beneath it.
 fn popup_at_point(
     conn: &Arc<AccessibilityConnection>,
-    window_manager: &Option<Arc<dyn WindowManager>>,
+    window_manager: &Option<InjectedWindowManager>,
     popups: &Option<Arc<PopupRegistry>>,
     app_node: &Arc<dyn UiNode>,
     app_obj: &ObjectRefOwned,
@@ -493,7 +495,7 @@ struct SubtreeHit {
 /// popup, which the window manager does not expose as a client).
 fn frame_for_window(
     conn: &Arc<AccessibilityConnection>,
-    window_manager: &Option<Arc<dyn WindowManager>>,
+    window_manager: &Option<InjectedWindowManager>,
     popups: &Option<Arc<PopupRegistry>>,
     app_node: &Arc<dyn UiNode>,
     app_obj: &ObjectRefOwned,
@@ -524,7 +526,7 @@ fn frame_for_window(
 /// decremented per visited node and stops the search at zero.
 fn search_subtree(
     conn: &Arc<AccessibilityConnection>,
-    window_manager: &Option<Arc<dyn WindowManager>>,
+    window_manager: &Option<InjectedWindowManager>,
     popups: &Option<Arc<PopupRegistry>>,
     node: &Arc<dyn UiNode>,
     obj: &ObjectRefOwned,

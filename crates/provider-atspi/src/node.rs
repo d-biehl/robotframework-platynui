@@ -14,7 +14,7 @@ use atspi_proxies::table::TableProxy;
 use atspi_proxies::table_cell::TableCellProxy;
 use atspi_proxies::text::TextProxy;
 use atspi_proxies::value::ValueProxy;
-use platynui_core::platform::{WindowId, WindowManager, WindowState};
+use platynui_core::platform::{WindowId, WindowState};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::attribute_names::{
     activation_target, application, common, element, focusable, maximizable, minimizable, text_content,
@@ -33,6 +33,7 @@ use zbus::proxy::CacheProperties;
 
 use crate::clearable_cell::ClearableCell;
 use crate::error::AtspiError;
+use crate::extents::{self, ExtentSources, InjectedWindowManager, Substitutions, TopLevelKey, WindowManagerFailure};
 use crate::popups::{PopupRegistry, popup_is_live};
 use crate::timeout::block_on_timeout_call;
 
@@ -53,7 +54,7 @@ pub struct AtspiNode {
     /// operations then report [`AtspiError::NoWindowManager`] instead of
     /// panicking. Propagated unchanged to every descendant node, exactly like
     /// `conn`.
-    window_manager: Option<Arc<dyn WindowManager>>,
+    window_manager: Option<InjectedWindowManager>,
     obj: ObjectRefOwned,
     parent: Mutex<Option<Weak<dyn UiNode>>>,
     /// Whether the parent is an `Application` accessible.  Resolved at
@@ -89,7 +90,7 @@ impl AtspiNode {
         conn: Arc<AccessibilityConnection>,
         obj: ObjectRefOwned,
         parent: Option<&Arc<dyn UiNode>>,
-        window_manager: Option<Arc<dyn WindowManager>>,
+        window_manager: Option<InjectedWindowManager>,
         popups: Option<Arc<PopupRegistry>>,
     ) -> Arc<Self> {
         let parent_is_application = parent.map(|p| p.namespace() == Namespace::App).unwrap_or(false);
@@ -530,7 +531,7 @@ fn grab_focus(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Result<()
 /// Shared resolver for AT-SPI window-surface sub-patterns.
 ///
 /// Holds a single [`Weak`] reference to the owning [`UiNode`] and delegates
-/// all operations to the per-runtime [`WindowManager`] injected into that node.
+/// all operations to the per-runtime window manager injected into that node.
 /// Wrapped by [`make_window_pattern`] into the eight orthogonal sub-pattern
 /// actions.
 struct AtspiWindowSurface {
@@ -539,12 +540,12 @@ struct AtspiWindowSurface {
     obj: ObjectRefOwned,
     /// Per-runtime window manager cloned from the owning node; `None` yields
     /// [`AtspiError::NoWindowManager`] from [`AtspiWindowSurface::resolve`].
-    window_manager: Option<Arc<dyn WindowManager>>,
+    window_manager: Option<InjectedWindowManager>,
 }
 
 impl AtspiWindowSurface {
     /// Upgrade the weak node reference and resolve the window manager + window ID.
-    fn resolve(&self) -> Result<(Arc<dyn WindowManager>, WindowId), AtspiError> {
+    fn resolve(&self) -> Result<(InjectedWindowManager, WindowId), AtspiError> {
         let node = self.node.upgrade().ok_or(AtspiError::NodeDropped)?;
         let wm = self.window_manager.clone().ok_or(AtspiError::NoWindowManager)?;
         let wid = wm.resolve_window(node.as_ref()).map_err(|e| AtspiError::dbus("resolve_window", e))?;
@@ -1281,7 +1282,7 @@ struct LazyNodeData {
     /// Per-runtime window manager cloned from the owning node; `None` when no
     /// runtime-injected window manager is present, in which case
     /// window-manager-backed attributes resolve to their fallback values.
-    window_manager: Option<Arc<dyn WindowManager>>,
+    window_manager: Option<InjectedWindowManager>,
     /// Whether this node is a real platform top-level window.  Cached at
     /// construction so the answer is robust against the parent `Weak` (on
     /// the owning `AtspiNode`) becoming dangling later.
@@ -1309,7 +1310,7 @@ impl LazyNodeData {
         owner: Option<Weak<dyn UiNode>>,
         is_real_toplevel: bool,
         is_transient_popup: bool,
-        window_manager: Option<Arc<dyn WindowManager>>,
+        window_manager: Option<InjectedWindowManager>,
     ) -> Self {
         Self {
             conn,
@@ -1347,59 +1348,8 @@ impl LazyNodeData {
             .clone()
     }
 
-    /// Returns `true` if this node is a real platform top-level window
-    /// (direct child of an accessible exposing the AT-SPI `Application`
-    /// interface).  See [`AtspiNode::is_window_surface`] for the rationale.
-    fn is_real_toplevel(&self) -> bool {
-        self.is_real_toplevel
-    }
-
     fn resolve_extents(&self) -> Option<Rect> {
-        *self.extents.get_or_init(|| {
-            // Step 1: real platform top-level → WM bounds.
-            if self.is_real_toplevel()
-                && let Some(bounds) = self.resolve_window_manager_bounds()
-            {
-                return Some(bounds);
-            }
-
-            // Step 2: walk up via CoordType::Parent.  We deliberately do
-            // **not** use CoordType::Window: at least Qt's AT-SPI bridge
-            // treats embedded surfaces (QMdiSubWindow, popup widgets …) as
-            // window boundaries, so window-relative extents for everything
-            // underneath are reported relative to that embedded surface
-            // rather than the real toolkit top-level window — which makes
-            // window-relative coordinates unsafe to combine with the
-            // top-level's WM bounds.  Parent-relative coordinates are
-            // unambiguous, so we sum them up the parent chain instead.
-            if let Some(rect) = self.resolve_extents_via_parent_chain() {
-                return Some(rect);
-            }
-
-            // Fallback: Screen extents (works on X11 where AT-SPI reports
-            // real screen coordinates; on Wayland clients return 0,0).
-            let screen_extents = component_proxy(&self.conn, &self.obj).and_then(|proxy| {
-                block_on_timeout_call(proxy.get_extents(CoordType::Screen))
-                    .and_then(|r| r.ok())
-                    .map(|(x, y, w, h)| Rect::new(x as f64, y as f64, w as f64, h as f64))
-            });
-
-            // Step 3 (grafted popups only): the window manager's popup
-            // geometry. On Wayland the Screen extents above are client-local
-            // — only their size is trustworthy — while the PlatynUI
-            // compositor knows every popup's real global rect. Match the two
-            // by process and size. Backends without the popup query (X11,
-            // Windows, mock) answer "unavailable", keeping the extents
-            // fallback authoritative there.
-            if self.is_transient_popup
-                && let Some(extents) = &screen_extents
-                && let Some(rect) = self.resolve_popup_bounds_via_window_manager((extents.width(), extents.height()))
-            {
-                return Some(rect);
-            }
-
-            screen_extents
-        })
+        *self.extents.get_or_init(|| extents::resolve_extents(self))
     }
 
     /// Ask the window manager for the popup rects of this node's process and
@@ -1447,7 +1397,7 @@ impl LazyNodeData {
     }
 
     /// Resolve the window manager and window ID for this node.
-    fn resolve_window(&self) -> Option<(Arc<dyn WindowManager>, WindowId)> {
+    fn resolve_window(&self) -> Option<(InjectedWindowManager, WindowId)> {
         let node = self.owner.as_ref()?.upgrade()?;
         let wm = self.window_manager.clone()?;
         let wid = wm.resolve_window(node.as_ref()).ok()?;
@@ -1457,12 +1407,6 @@ impl LazyNodeData {
     /// Resolve the toolkit identifier for the application owning this node.
     fn resolve_toolkit(&self) -> Option<String> {
         resolve_toolkit_name(&self.conn, &self.obj)
-    }
-
-    /// Ask the registered [`WindowManager`] for the bounds of this window.
-    fn resolve_window_manager_bounds(&self) -> Option<Rect> {
-        let (wm, wid) = self.resolve_window()?;
-        wm.bounds(wid, self.resolve_toolkit().as_deref()).ok()
     }
 
     fn resolve_name(&self) -> &str {
@@ -1478,7 +1422,7 @@ impl LazyNodeData {
     }
 
     /// Check if this window is the currently active (foreground) window via
-    /// the registered [`WindowManager`].  Returns `None` when the
+    /// the registered window manager.  Returns `None` when the
     /// window ID cannot be resolved (e.g. no provider registered, or the node
     /// is not a top-level window).
     fn resolve_is_active_window(&self) -> Option<bool> {
@@ -1487,11 +1431,60 @@ impl LazyNodeData {
     }
 
     /// Read this window's minimized/maximized/topmost state from the registered
-    /// [`WindowManager`]. Returns `None` when the window cannot be resolved or
+    /// window manager. Returns `None` when the window cannot be resolved or
     /// the window manager cannot report its state.
     fn resolve_window_state(&self) -> Option<WindowState> {
         let (wm, wid) = self.resolve_window()?;
         wm.state(wid).inspect_err(|err| debug!(%err, window = %wid, "window state unavailable")).ok()
+    }
+}
+
+impl ExtentSources for LazyNodeData {
+    /// Whether this node is a real platform top-level window (direct child of
+    /// an accessible exposing the AT-SPI `Application` interface). See
+    /// [`AtspiNode::is_window_surface`] for the rationale.
+    fn is_real_toplevel(&self) -> bool {
+        self.is_real_toplevel
+    }
+
+    fn is_transient_popup(&self) -> bool {
+        self.is_transient_popup
+    }
+
+    /// Ask the registered window manager for the bounds of this window.
+    fn window_manager_bounds(&self) -> Option<Result<Rect, WindowManagerFailure>> {
+        let node = self.owner.as_ref()?.upgrade()?;
+        let wm = self.window_manager.as_ref()?;
+        Some(extents::window_manager_bounds(&**wm, node.as_ref(), || self.resolve_toolkit()))
+    }
+
+    fn substitutions(&self) -> Option<(&Substitutions, TopLevelKey)> {
+        let wm = self.window_manager.as_ref()?;
+        let key = TopLevelKey { bus_name: self.obj.name_as_str()?.to_owned(), path: self.obj.path_as_str().to_owned() };
+        Some((wm.substitutions(), key))
+    }
+
+    fn describe(&self) -> String {
+        match self.owner.as_ref().and_then(Weak::upgrade) {
+            Some(node) => format!("{} {:?}", node.role(), node.name()),
+            None => "a dropped top-level window".to_owned(),
+        }
+    }
+
+    fn parent_chain_extents(&self) -> Option<Rect> {
+        self.resolve_extents_via_parent_chain()
+    }
+
+    fn screen_extents(&self) -> Option<Rect> {
+        component_proxy(&self.conn, &self.obj).and_then(|proxy| {
+            block_on_timeout_call(proxy.get_extents(CoordType::Screen))
+                .and_then(|r| r.ok())
+                .map(|(x, y, w, h)| Rect::new(x as f64, y as f64, w as f64, h as f64))
+        })
+    }
+
+    fn popup_bounds(&self, size: (f64, f64)) -> Option<Rect> {
+        self.resolve_popup_bounds_via_window_manager(size)
     }
 }
 
