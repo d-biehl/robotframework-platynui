@@ -292,6 +292,19 @@ test-atspi-pidns DAEMON:
 test-x11-pidns:
     cargo nextest run -p platynui-platform-linux-x11 --run-ignored ignored-only -E 'binary(pidns_tests)' --no-capture
 
+# `unshare` with unprivileged user namespaces (on distributions that restrict
+# them, e.g. stock Ubuntu 24.04: `sudo sysctl -w
+# kernel.apparmor_restrict_unprivileged_userns=0`), `dbus-run-session` and the
+# AT-SPI binaries are HARD prerequisites — a missing one fails the run rather
+# than silently skipping the coverage. Drives scripts/wayland-sidecar-harness.sh.
+# Local only and deliberately not part of `just test`.
+# Run the Wayland compositor identification checks from a sibling PID namespace
+[linux]
+test-wayland-pidns:
+    cargo build -p platynui-wayland-compositor -p platynui-wayland-compositor-ctl -p platynui-test-app-egui
+    cargo build -p platynui-cli --bin platynui-cli-rs
+    cargo nextest run -p platynui-platform-linux-wayland --run-ignored ignored-only -E 'binary(pidns_tests)' --no-capture
+
 # Run Python tests (builds native package with mock-provider first)
 test-python: build-native-mock
     uv run pytest -v --tb=short --maxfail=3

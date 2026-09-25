@@ -683,7 +683,16 @@ AT-SPI provides no direct attribute indicating whether an application uses Wayla
 └────────────┴──────────────┴───────────┴───────────┘
 ```
 
-**Runtime detection:** On `initialize()`, the crate probes the compositor for supported protocols via `wl_registry`, checks for an EIS socket, and detects the compositor type (via `SO_PEERCRED` on the Wayland socket). Based on the results, it selects the best backend for each capability using a priority chain per compositor type:
+**Runtime detection:** On `initialize()`, the crate identifies the compositor, probes it for supported protocols via `wl_registry` and checks for an EIS socket. Based on the results, it selects the best backend for each capability using a priority chain per compositor type (below).
+
+The compositor identification is decided once per initialization and every capability gate reads it. It must not depend on the compositor's process being visible to the runtime: in a sidecar deployment the runtime runs in another PID namespace than the compositor, the kernel reports the Wayland socket's peer as process `0`, and nothing under `/proc` names the compositor. The evidence is therefore weighed in this order:
+
+1. **Control-socket handshake.** The backend sends one `status` request over the compositor's control socket (`PLATYNUI_CONTROL_SOCKET`, else `$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY.control`) with a short timeout of its own. The PlatynUI compositor answers with `"compositor": "platynui"` (see `apps/wayland-compositor/docs/ipc-protocol.md`). Because window management, screenshots, highlighting and popup geometry all run over that socket, an identification by handshake is also proof that those capabilities can work. An answer without the marker, a missing path, a refused connection or a timeout decides nothing and leaves the decision to the next step.
+2. **Session environment.** `XDG_CURRENT_DESKTOP=platynui` (set by `scripts/startcompositor.sh`) marks a PlatynUI session. A session identified only this way, whose control socket does not answer, is still PlatynUI: every capability that needs the socket fails with an error naming the socket path instead of falling back to foreign-compositor behaviour.
+3. **Peer process.** `SO_PEERCRED` on the Wayland socket plus `/proc/<pid>/exe` name the compositor binary. This is how Mutter, KWin, sway and Hyprland are told apart when no desktop variable says so, and it still identifies a PlatynUI compositor started with `--no-control-socket` when its process is visible. A peer that is not visible is "no evidence", never "not PlatynUI".
+4. **Desktop heuristic.** `XDG_CURRENT_DESKTOP` naming GNOME, KDE/Plasma, Hyprland or sway.
+
+A session with none of this evidence is reported as unrecognised, and the capabilities that need a supported compositor refuse by name. Each initialization logs one identification record — the compositor, the deciding mechanism, the control-socket path with the handshake outcome, the desktop value and the peer-credential outcome — so that a degraded identification shows up in the log rather than only as wrong coordinates. When the compositor that answered on the control socket reports a different Wayland socket than the client's `WAYLAND_DISPLAY`, the backend logs a warning but keeps the identification, because in a sidecar the two sides may mount the same socket at different paths.
 
 | Compositor Type | Backend Priority |
 |---|---|
@@ -717,7 +726,7 @@ This would allow a single platform registration that handles both X11 and Waylan
 
 | Component | Implementation | Status |
 |---|---|---|
-| `PlatformModule` | `wayland-client` connection, protocol negotiation via `wl_registry`, compositor type detection via `SO_PEERCRED` | ✅ Done |
+| `PlatformModule` | `wayland-client` connection, protocol negotiation via `wl_registry`, compositor identification by control-socket handshake with the session environment and peer credentials as fallbacks (§14.1) | ✅ Done |
 | `DesktopInfoProvider` | `wl_output` + `zxdg_output_manager_v1` enumeration, physical pixel positioning, D-Bus enrichment (Mutter/KWin metadata) | ✅ Done |
 | `PointerDevice` + `KeyboardDevice` (libei) | `reis` 0.6 crate, direct EIS socket + XDG Portal `RemoteDesktop.ConnectToEIS()` — input path for Mutter + KWin | ✅ Done |
 | `PointerDevice` + `KeyboardDevice` (wlr) | `zwlr_virtual_pointer_v1` + `zwp_virtual_keyboard_v1` with compositor seat keymap, local XKB state for modifier tracking — input path for wlroots-based compositors | ✅ Done |

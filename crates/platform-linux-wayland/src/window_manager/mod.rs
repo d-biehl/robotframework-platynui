@@ -6,7 +6,7 @@ use platynui_core::platform::{PlatformError, WindowHit, WindowId, WindowManager,
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::UiNode;
 
-use crate::capabilities::CompositorType;
+use crate::capabilities::{CompositorType, unsupported_compositor};
 
 trait CompositorBackend: Send + Sync {
     fn name(&self) -> &'static str;
@@ -99,13 +99,35 @@ impl WindowManager for WaylandWindowManager {
 fn backend() -> Result<&'static dyn CompositorBackend, PlatformError> {
     match crate::connection::compositor_type() {
         Some(CompositorType::PlatynUi) => Ok(&PLATYNUI_IPC_BACKEND),
-        Some(other) => Err(PlatformError::CapabilityUnavailable {
-            capability: "Wayland window manager",
-            details: Some(format!("no backend implemented yet for compositor {other}")),
-        }),
+        other @ Some(_) => Err(unsupported_compositor("Wayland window manager", other)),
         None => Err(PlatformError::InitializationFailed {
             component: "Wayland window manager",
             details: Some("platform-linux-wayland is not initialized".into()),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression anchor: without a detected compositor, every operation is an
+    /// error, never a value.
+    #[test]
+    fn every_operation_fails_without_a_detected_compositor() {
+        let wm = WaylandWindowManager;
+        let id = WindowId::new(1);
+        assert!(wm.bounds(id, None).is_err());
+        assert!(wm.is_active(id).is_err());
+        assert!(wm.state(id).is_err());
+        assert!(wm.activate(id).is_err());
+        assert!(wm.close(id).is_err());
+        assert!(wm.minimize(id).is_err());
+        assert!(wm.maximize(id).is_err());
+        assert!(wm.restore(id).is_err());
+        assert!(wm.move_to(id, Point::new(0.0, 0.0)).is_err());
+        assert!(wm.resize(id, Size::new(10.0, 10.0)).is_err());
+        assert!(wm.window_at_point(Point::new(0.0, 0.0)).is_err());
+        assert!(wm.popups(1).is_err());
     }
 }

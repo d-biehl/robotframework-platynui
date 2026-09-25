@@ -11,8 +11,11 @@
 //! # Compositor Detection
 //!
 //! When [`create_wayland_bundle`] runs, the crate identifies the running
-//! compositor via `SO_PEERCRED` on the Wayland socket and selects appropriate
-//! backends (EIS vs Portal for input, Layer-Shell vs D-Bus for highlights, etc.).
+//! compositor — by a handshake over the `PlatynUI` compositor's control socket,
+//! with the session environment and the Wayland socket's peer process as
+//! fallbacks, so the identification holds when the compositor's process is not
+//! visible (see [`capabilities`]) — and selects appropriate backends (EIS vs
+//! Portal for input, Layer-Shell vs D-Bus for highlights, etc.).
 
 #[cfg(target_os = "linux")]
 pub mod capabilities;
@@ -59,8 +62,8 @@ pub mod screenshot;
 /// Build a per-runtime Wayland [`PlatformBundle`](platynui_core::platform::PlatformBundle)
 /// for the session described by `config`.
 ///
-/// Connects to the compositor (`$WAYLAND_DISPLAY`), detects the compositor type
-/// via `SO_PEERCRED`, enumerates and enriches outputs, starts the background
+/// Connects to the compositor (`$WAYLAND_DISPLAY`), identifies the compositor
+/// (see [`capabilities`]), enumerates and enriches outputs, starts the background
 /// output-monitoring event loop, and selects an input backend — the same setup
 /// the former `WaylandModule::initialize` performed — then returns the six
 /// Wayland devices.
@@ -111,7 +114,7 @@ pub fn create_wayland_bundle(
     info!(?compositor, output_count = outputs.len(), "Wayland platform bundle created");
 
     crate::desktop::set_outputs(outputs);
-    crate::connection::set_global_and_start(conn, compositor, session);
+    crate::connection::set_global_and_start(conn, session);
     crate::input::initialize(compositor);
 
     // The six devices are unit structs that read the process-global session

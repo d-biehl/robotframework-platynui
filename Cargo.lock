@@ -3617,6 +3617,7 @@ name = "platynui-platform-linux-wayland"
 version = "0.13.0-dev.2"
 dependencies = [
  "enumflags2",
+ "nix",
  "platynui-core",
  "platynui-xkb-util",
  "png 0.18.1",

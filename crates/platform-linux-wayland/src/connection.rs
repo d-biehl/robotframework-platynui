@@ -23,7 +23,7 @@ use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle, globals::Glo
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1::ZxdgOutputManagerV1;
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_v1::{self, ZxdgOutputV1};
 
-use crate::capabilities::CompositorType;
+use crate::capabilities::{CompositorType, Identification};
 use crate::desktop::OutputInfo;
 
 // ---------------------------------------------------------------------------
@@ -213,12 +213,13 @@ pub(crate) struct WaylandSession {
     // GlobalList must stay alive so that the WlRegistry proxy (and its
     // dispatch mapping) remains valid for ongoing Global/GlobalRemove events.
     globals: wayland_client::globals::GlobalList,
+    identification: Identification,
 }
 
 /// Process-global Wayland state populated during
 /// [`create_wayland_bundle`](crate::create_wayland_bundle).
 struct WaylandGlobal {
-    compositor: CompositorType,
+    identification: Identification,
     shutdown: Arc<AtomicBool>,
     event_thread: JoinHandle<()>,
 }
@@ -227,7 +228,13 @@ static GLOBAL: Mutex<Option<WaylandGlobal>> = Mutex::new(None);
 
 /// Return the compositor type detected during platform initialization.
 pub(crate) fn compositor_type() -> Option<CompositorType> {
-    GLOBAL.lock().expect("wayland global mutex poisoned").as_ref().map(|global| global.compositor)
+    GLOBAL.lock().expect("wayland global mutex poisoned").as_ref().map(|global| global.identification.compositor)
+}
+
+/// The control socket the initialization handshake asked, and its outcome —
+/// for a refusal that has to be traceable to the identification record.
+pub(crate) fn control_channel() -> Option<String> {
+    GLOBAL.lock().expect("wayland global mutex poisoned").as_ref().map(|global| global.identification.control_channel())
 }
 
 /// Connect to the Wayland display server, detect the compositor, and
@@ -247,7 +254,8 @@ pub(crate) fn connect_and_enumerate()
         details: Some(e.to_string()),
     })?;
 
-    let compositor = crate::capabilities::detect_compositor(&conn);
+    let identification = crate::capabilities::detect_compositor(&conn);
+    let compositor = identification.compositor;
 
     let (globals, mut eq) = wayland_client::globals::registry_queue_init::<RegistryState>(&conn).map_err(|e| {
         PlatformError::InitializationFailed { component: "Wayland registry", details: Some(e.to_string()) }
@@ -304,7 +312,7 @@ pub(crate) fn connect_and_enumerate()
     outputs.sort_by_key(|o| (o.effective_x(), o.effective_y()));
     debug!(count = outputs.len(), "outputs enumerated");
 
-    let session = WaylandSession { event_queue: eq, state, globals };
+    let session = WaylandSession { event_queue: eq, state, globals, identification };
 
     Ok((conn, compositor, outputs, session))
 }
@@ -320,7 +328,7 @@ pub(crate) fn connect_and_enumerate()
 ///
 /// Panics if the internal mutex is poisoned or if the dispatch thread
 /// cannot be spawned.
-pub(crate) fn set_global_and_start(conn: Connection, compositor: CompositorType, mut session: WaylandSession) {
+pub(crate) fn set_global_and_start(conn: Connection, mut session: WaylandSession) {
     if let Some(previous) = {
         let mut guard = GLOBAL.lock().expect("wayland global mutex poisoned");
         guard.take()
@@ -333,6 +341,7 @@ pub(crate) fn set_global_and_start(conn: Connection, compositor: CompositorType,
 
     // Enable live output rebuilds now that initial setup is complete.
     session.state.live = true;
+    let session_identification = session.identification;
 
     // Move conn into the thread — Connection is Arc-based, so the display
     // stays open as long as the thread runs.
@@ -342,7 +351,7 @@ pub(crate) fn set_global_and_start(conn: Connection, compositor: CompositorType,
         .expect("failed to spawn Wayland event loop thread");
 
     let mut guard = GLOBAL.lock().expect("wayland global mutex poisoned");
-    *guard = Some(WaylandGlobal { compositor, shutdown, event_thread });
+    *guard = Some(WaylandGlobal { identification: session_identification, shutdown, event_thread });
 }
 
 /// Signal the event loop to stop and clear global state.
@@ -366,7 +375,7 @@ fn stop_global(global: WaylandGlobal) {
 
     match global.event_thread.join() {
         Ok(()) => {
-            debug!(?global.compositor, "Wayland event loop joined");
+            debug!(?global.identification.compositor, "Wayland event loop joined");
         }
         Err(payload) => {
             let panic_message = if let Some(message) = payload.downcast_ref::<&str>() {
@@ -376,7 +385,11 @@ fn stop_global(global: WaylandGlobal) {
             } else {
                 "unknown panic payload"
             };
-            warn!(?global.compositor, panic_message, "Wayland event loop thread panicked during shutdown");
+            warn!(
+                ?global.identification.compositor,
+                panic_message,
+                "Wayland event loop thread panicked during shutdown"
+            );
         }
     }
 }
@@ -476,5 +489,5 @@ fn dispatch_loop(
 pub fn compositor() -> CompositorType {
     let guard = GLOBAL.lock().expect("wayland global mutex poisoned");
     let g = guard.as_ref().expect("Wayland platform not initialized — call initialize() first");
-    g.compositor
+    g.identification.compositor
 }

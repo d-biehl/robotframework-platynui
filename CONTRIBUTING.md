@@ -145,6 +145,7 @@ PID-namespace checks cover the deployment in which PlatynUI and the application 
 | Compositor | `just test-compositor-pidns` | A Wayland client whose process the compositor cannot see. |
 | AT-SPI process identity | `just test-atspi-pidns dbus-daemon` / `dbus-broker` | One run per bus implementation; dbus-broker also needs a user session. |
 | X11 own-window decision | `just test-x11-pidns` | Needs `Xvfb`. |
+| Wayland compositor identification | `just test-wayland-pidns` | The CLI in a sibling namespace of the compositor, through `scripts/wayland-sidecar-harness.sh`. Needs `dbus-run-session` and the AT-SPI binaries. |
 
 Java agent recipes (see [`java/agent/README.md`](java/agent/README.md)):
 

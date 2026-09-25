@@ -19,8 +19,15 @@ disallowed-types = [
 # panics inside `wayland-backend`, aborting the whole session. The compositor
 # establishes a client's identity itself when it accepts the connection
 # (`apps/wayland-compositor/src/client.rs`).
+#
+# `socket_peercred` is the same read on the client side: it returns a `UCred`
+# whose `pid` is a non-zero `Pid`, so the process id 0 the kernel reports for a
+# peer in a foreign PID namespace breaks that invariant — undefined behaviour,
+# not an error. Read SO_PEERCRED through `nix::sys::socket::getsockopt` with
+# `sockopt::PeerCredentials`, whose credentials can carry 0.
 disallowed-methods = [
     { path = "wayland_server::Client::get_credentials", reason = "panics for a peer in a foreign PID namespace; use the identity captured in ClientState" },
+    { path = "rustix::net::sockopt::socket_peercred", reason = "UCred.pid is a non-zero Pid, so a peer in a foreign PID namespace (pid 0) is undefined behaviour; use nix getsockopt(sockopt::PeerCredentials)" },
 ]
 
 # --- Function signature limits ---

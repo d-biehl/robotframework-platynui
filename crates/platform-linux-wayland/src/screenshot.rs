@@ -19,7 +19,7 @@
 use platynui_core::platform::{PixelFormat, PlatformError, Screenshot, ScreenshotProvider, ScreenshotRequest};
 use platynui_core::types::Rect;
 
-use crate::capabilities::CompositorType;
+use crate::capabilities::{CompositorType, unsupported_compositor};
 use crate::control_ipc;
 
 pub struct WaylandScreenshot;
@@ -29,10 +29,12 @@ impl ScreenshotProvider for WaylandScreenshot {
         // Only our own compositor serves screenshots over the control socket. Gate on the
         // detected compositor rather than the socket's presence (a foreign compositor never
         // creates it; a forwarded/orphaned one would be a false positive) — same check as
-        // highlight and window_manager.
+        // highlight and window_manager. Phase 1b (see `dev-docs/platform-linux-wayland.md` §5) will
+        // replace this refusal with `ext-image-copy-capture-v1`, `wlr-screencopy` or the
+        // `xdg-desktop-portal` Screenshot, selected per compositor.
         let compositor = crate::connection::compositor_type();
         if compositor != Some(CompositorType::PlatynUi) {
-            return Err(unsupported_compositor(compositor));
+            return Err(unsupported_compositor("Wayland screenshot", compositor));
         }
 
         let response =
@@ -60,19 +62,6 @@ impl ScreenshotProvider for WaylandScreenshot {
             }
             None => Ok(Screenshot::new(full_w, full_h, PixelFormat::Rgba8, pixels)),
         }
-    }
-}
-
-/// The error returned when asked to screenshot a compositor we don't support yet. Phase 1b (see
-/// `dev-docs/platform-linux-wayland.md` §5) will replace this with `ext-image-copy-capture-v1`,
-/// `wlr-screencopy` or the `xdg-desktop-portal` Screenshot, selected per compositor.
-fn unsupported_compositor(compositor: Option<CompositorType>) -> PlatformError {
-    let which = compositor.map_or_else(|| "an undetected Wayland compositor".to_string(), |c| c.to_string());
-    PlatformError::CapabilityUnavailable {
-        capability: "Wayland screenshot",
-        details: Some(format!(
-            "not implemented for {which}; only the PlatynUI compositor (control socket) is supported so far"
-        )),
     }
 }
 
@@ -209,5 +198,6 @@ mod tests {
         let request = ScreenshotRequest::with_region(Rect::new(0.0, 0.0, 8.0, 8.0));
         let err = WaylandScreenshot.capture(&request).unwrap_err();
         assert!(matches!(err, PlatformError::CapabilityUnavailable { capability: "Wayland screenshot", .. }));
+        assert!(err.to_string().contains("undetected Wayland compositor"), "names the compositor: {err}");
     }
 }

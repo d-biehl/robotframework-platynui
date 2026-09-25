@@ -22,7 +22,11 @@ wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 wayland-protocols-misc = { version = "0.3", features = ["client"] }
 reis = "0.7"
 enumflags2 = "0.7"
-rustix = { version = "1", features = ["event", "fs", "net", "system"] }
+rustix = { version = "1", features = ["event", "fs", "system"] }
+# SO_PEERCRED of the Wayland socket: rustix's `UCred.pid` is a non-zero `Pid`
+# and cannot represent the `0` the kernel reports for a peer in a PID namespace
+# we cannot see; nix's credentials carry it, without an `unsafe` block.
+nix = { version = "0.31", default-features = false, features = ["socket"] }
 serde_json = "1"
 png = "0.18"
 zbus = { version = "5", features = ["blocking-api"] }
