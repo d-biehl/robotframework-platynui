@@ -39,6 +39,7 @@
 //!   forced onto the application's in-namespace PID.
 
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -369,14 +370,16 @@ enum Daemon {
 
 impl Daemon {
     fn from_env() -> Self {
-        match std::env::var(DAEMON_ENV).as_deref() {
-            Ok("dbus-daemon") => Self::DbusDaemon,
-            Ok("dbus-broker") => Self::DbusBroker,
-            Ok(other) => panic!("unknown bus daemon `{other}`: {DAEMON_ENV} takes `dbus-daemon` or `dbus-broker`"),
-            Err(_) => panic!(
+        let Ok(daemon) = std::env::var(DAEMON_ENV) else {
+            panic!(
                 "prerequisite missing: {DAEMON_ENV} names the bus daemon this run uses — run the harness through \
                  `just test-atspi-pidns dbus-daemon` or `just test-atspi-pidns dbus-broker`"
-            ),
+            )
+        };
+        match daemon.as_str() {
+            "dbus-daemon" => Self::DbusDaemon,
+            "dbus-broker" => Self::DbusBroker,
+            other => panic!("unknown bus daemon `{other}`: {DAEMON_ENV} takes `dbus-daemon` or `dbus-broker`"),
         }
     }
 
@@ -532,10 +535,10 @@ fn wait_for_record(dir: &Path, name: &str, namespaces: &[&Namespace]) -> HashMap
     let deadline = Instant::now() + Duration::from_secs(30);
     while !path.exists() {
         if Instant::now() > deadline {
-            let logs: String = namespaces
-                .iter()
-                .map(|namespace| format!("--- namespace {} ---\n{}\n", namespace.label, namespace.log()))
-                .collect();
+            let mut logs = String::new();
+            for namespace in namespaces {
+                let _ = writeln!(logs, "--- namespace {} ---\n{}", namespace.label, namespace.log());
+            }
             panic!("`{name}` never appeared in {}\n{logs}", dir.display());
         }
         std::thread::sleep(Duration::from_millis(50));
@@ -560,7 +563,10 @@ fn stop(dir: &Path) {
 
 /// Write `key=value` lines, through a rename so a reader never sees half a file.
 fn write_record(path: &Path, fields: &[(String, String)]) {
-    let text: String = fields.iter().map(|(key, value)| format!("{key}={value}\n")).collect();
+    let mut text = String::new();
+    for (key, value) in fields {
+        let _ = writeln!(text, "{key}={value}");
+    }
     let partial = path.with_extension("partial");
     std::fs::write(&partial, text).expect("the topology directory is writable");
     std::fs::rename(&partial, path).expect("a rename within one directory succeeds");

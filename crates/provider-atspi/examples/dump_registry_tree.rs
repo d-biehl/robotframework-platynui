@@ -1,13 +1,15 @@
+#![allow(unused_crate_dependencies)]
+
 //! Raw AT-SPI tree inspector: dump the accessibility tree straight from the
 //! registry root over our own atspi stack, with **no provider logic** — no
-//! `window_at_point`, no SELF_PID / empty-app filtering, no caching. Pure
+//! `window_at_point`, no `SELF_PID` / empty-app filtering, no caching. Pure
 //! `Accessible.GetChildren` recursion, so it shows exactly what the toolkits
 //! publish on the bus. A small, maintained alternative to Accerciser for
 //! debugging what is (or isn't) exposed — e.g. confirming that a given popup or
 //! widget actually reaches AT-SPI.
 //!
 //! Run inside a session whose `AT_SPI_BUS_ADDRESS` points at the a11y bus:
-//!   cargo run -p platynui-provider-atspi --example dump_registry_tree
+//!   `cargo run -p platynui-provider-atspi --example dump_registry_tree`
 
 use atspi_connection::AccessibilityConnection;
 use atspi_proxies::accessible::AccessibleProxy;
@@ -56,7 +58,7 @@ async fn run() {
         let Some(proxy) = build_proxy(conn, &dest, &path).await else {
             continue;
         };
-        let role = proxy.get_role().await.map(|r| format!("{r:?}")).unwrap_or_else(|_| "?".to_owned());
+        let role = proxy.get_role().await.map_or_else(|_| "?".to_owned(), |r| format!("{r:?}"));
         let name = proxy.name().await.unwrap_or_default();
         println!("{:indent$}{role} '{name}'  [{dest} {path}]", "", indent = depth * 2);
         if let Ok(children) = proxy.get_children().await {

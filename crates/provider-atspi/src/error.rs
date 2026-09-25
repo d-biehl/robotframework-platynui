@@ -61,7 +61,7 @@ pub enum AtspiError {
 impl AtspiError {
     /// Create a [`DBus`](AtspiError::DBus) variant from a context string and
     /// any error that implements [`ToString`].
-    pub fn dbus(context: &'static str, err: impl ToString) -> Self {
+    pub fn dbus(context: &'static str, err: &impl ToString) -> Self {
         Self::DBus { context, message: err.to_string() }
     }
 

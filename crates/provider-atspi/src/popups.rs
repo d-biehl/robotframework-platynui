@@ -177,7 +177,7 @@ pub(crate) fn popup_is_live(conn: &AccessibilityConnection, popup: &ObjectRefOwn
         return false;
     };
     block_on_timeout_call(proxy.get_state())
-        .and_then(|result| result.ok())
+        .and_then(std::result::Result::ok)
         .is_some_and(|state| state.contains(State::Showing))
 }
 
@@ -311,12 +311,11 @@ async fn on_popup_candidate(
                 let answer = ask_process_id(query, identity.own_name()).await;
                 identity.record_numbering(answer);
             }
-            match identity.known_peer(&bus_name) {
-                Some(peer) => peer,
-                None => {
-                    let answer = ask_process_id(query, &bus_name).await;
-                    identity.record_peer(&bus_name, answer)
-                }
+            if let Some(peer) = identity.known_peer(&bus_name) {
+                peer
+            } else {
+                let answer = ask_process_id(query, &bus_name).await;
+                identity.record_peer(&bus_name, answer)
             }
         }
         None => crate::identity::PeerIdentity::unknown(),

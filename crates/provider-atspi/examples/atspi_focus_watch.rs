@@ -1,3 +1,5 @@
+#![allow(unused_crate_dependencies)]
+
 //! `atspi_focus_watch` — behave like a screen reader: register for AT-SPI events
 //! and print each one with its source's role/name and full **parent chain** up to
 //! the application root.
@@ -11,7 +13,7 @@
 //! popup into our own tree.
 //!
 //! Run inside a session whose `AT_SPI_BUS_ADDRESS` points at the a11y bus:
-//!   cargo run -p platynui-provider-atspi --example atspi_focus_watch
+//!   `cargo run -p platynui-provider-atspi --example atspi_focus_watch`
 //! It streams until killed.
 
 use std::io::Write;
@@ -46,7 +48,7 @@ async fn build<'a>(conn: &'a zbus::Connection, dest: &str, path: &str) -> Option
 async fn label(conn: &zbus::Connection, dest: &str, path: &str) -> String {
     match build(conn, dest, path).await {
         Some(p) => {
-            let role = p.get_role().await.map(|r| format!("{r:?}")).unwrap_or_else(|_| "?".to_owned());
+            let role = p.get_role().await.map_or_else(|_| "?".to_owned(), |r| format!("{r:?}"));
             let name = p.name().await.unwrap_or_default();
             format!("{role} '{name}'")
         }
@@ -159,7 +161,7 @@ async fn run() {
             _ => continue,
         };
         let obj = ev.object_ref();
-        let dest = obj.name().map(|n| n.to_string()).unwrap_or_default();
+        let dest = obj.name().map(std::string::ToString::to_string).unwrap_or_default();
         let path = obj.path().to_string();
         let src_chain = chain(qconn, &dest, &path).await;
         let child_chain = match &child {

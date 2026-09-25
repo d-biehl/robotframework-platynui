@@ -101,7 +101,7 @@ fn resolve_username(uid: u32) -> Option<String> {
         // a pointer to receive the result. All pointers are valid for the
         // duration of the call.
         let rc = unsafe {
-            libc::getpwuid_r(uid, pwd.as_mut_ptr(), buf.as_mut_ptr().cast::<libc::c_char>(), buf_size, &mut result)
+            libc::getpwuid_r(uid, pwd.as_mut_ptr(), buf.as_mut_ptr().cast::<libc::c_char>(), buf_size, &raw mut result)
         };
 
         if rc == libc::ERANGE {

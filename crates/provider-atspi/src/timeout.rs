@@ -61,14 +61,13 @@ pub(crate) fn block_on_timeout<F: Future>(future: F, timeout: Duration) -> Optio
             std::task::Poll::Pending => {
                 let elapsed = start.elapsed();
                 if elapsed >= timeout {
-                    warn!(
-                        elapsed_ms = elapsed.as_millis() as u64,
-                        timeout_ms = timeout.as_millis() as u64,
-                        "D-Bus call timed out",
-                    );
+                    // Call timeouts are seconds; their milliseconds fit in u64.
+                    #[allow(clippy::cast_possible_truncation)]
+                    let (elapsed_ms, timeout_ms) = (elapsed.as_millis() as u64, timeout.as_millis() as u64);
+                    warn!(elapsed_ms, timeout_ms, "D-Bus call timed out");
                     return None;
                 }
-                std::thread::park_timeout(timeout - elapsed);
+                std::thread::park_timeout(timeout.checked_sub(elapsed).unwrap());
             }
         }
     }

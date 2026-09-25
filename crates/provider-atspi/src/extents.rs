@@ -328,7 +328,7 @@ mod tests {
         fn namespace(&self) -> Namespace {
             Namespace::Control
         }
-        fn role(&self) -> &str {
+        fn role(&self) -> &'static str {
             "Frame"
         }
         fn name(&self) -> String {
@@ -510,7 +510,7 @@ mod tests {
     #[test]
     fn each_failing_top_level_gets_its_own_warning() {
         let (_, wm) = StubWindowManager::injected(Failing::Lookup);
-        let (_, log) = logged(|| {
+        let ((), log) = logged(|| {
             resolve_extents(&Node::top_level("/org/a11y/atspi/accessible/1", &wm));
             resolve_extents(&Node::top_level("/org/a11y/atspi/accessible/2", &wm));
         });
@@ -524,7 +524,7 @@ mod tests {
     fn a_second_runtime_reports_its_own_substitutions() {
         let (_, first) = StubWindowManager::injected(Failing::Lookup);
         let (_, second) = StubWindowManager::injected(Failing::Lookup);
-        let (_, log) = logged(|| {
+        let ((), log) = logged(|| {
             resolve_extents(&Node::top_level("/org/a11y/atspi/accessible/1", &first));
             resolve_extents(&Node::top_level("/org/a11y/atspi/accessible/1", &second));
         });

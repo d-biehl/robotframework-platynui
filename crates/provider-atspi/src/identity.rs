@@ -278,18 +278,19 @@ impl Credentials for BusDaemon<'_> {
 pub(crate) fn classify_error(err: &zbus::fdo::Error) -> Answer {
     use zbus::fdo::Error as Fdo;
     match err {
-        // The call itself did not complete, however it was reported — or the
-        // daemon ran out of memory or hit a quota, which a later call may not.
+        // A reply carrying an error name we do not model is still a reply.
+        Fdo::ZBus(zbus::Error::MethodError(..)) => Answer::Definitive(None),
+        // The call itself did not complete, however it was reported (any other
+        // zbus-level failure included) — or the daemon ran out of memory or hit
+        // a quota, which a later call may not.
         Fdo::NoReply(_)
         | Fdo::IOError(_)
         | Fdo::Timeout(_)
         | Fdo::TimedOut(_)
         | Fdo::Disconnected(_)
         | Fdo::NoMemory(_)
-        | Fdo::LimitsExceeded(_) => Answer::Transient,
-        // A reply carrying an error name we do not model is still a reply.
-        Fdo::ZBus(zbus::Error::MethodError(..)) => Answer::Definitive(None),
-        Fdo::ZBus(_) => Answer::Transient,
+        | Fdo::LimitsExceeded(_)
+        | Fdo::ZBus(_) => Answer::Transient,
         // Every other D-Bus error is a reply: the daemon knows nothing about that
         // name, or declines to say. Asking again says the same.
         _ => Answer::Definitive(None),
