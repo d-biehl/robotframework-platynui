@@ -302,7 +302,9 @@ impl UiNode for AtspiNode {
             .accessible()
             .and_then(|proxy| block_on_timeout_call(proxy.get_children()).and_then(std::result::Result::ok))
         else {
-            warn!(bus = %parent_bus, path = %parent_path, "children: get_children failed or timed out");
+            // A node that vanished between enumeration and this call is normal in a
+            // live tree; a call that timed out has already warned in `block_on_timeout`.
+            debug!(bus = %parent_bus, path = %parent_path, "children: get_children failed or timed out");
             return Box::new(std::iter::empty());
         };
 
