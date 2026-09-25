@@ -19,12 +19,20 @@ pub enum UiaError {
 }
 
 impl UiaError {
+    // Public constructor of the exported `error` module; taking a reference would
+    // change its signature for downstream callers.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn api(context: &'static str, err: impl ToString) -> Self {
         Self::Api { context, message: err.to_string() }
     }
 }
 
 /// Helper to map `windows` API errors into `UiaError` with a static context string.
+///
+/// # Errors
+///
+/// Returns [`UiaError::Api`] carrying `context` and the error's message when
+/// `result` is an `Err`; an `Ok` value is passed through unchanged.
 pub fn uia_api<T>(context: &'static str, result: windows::core::Result<T>) -> Result<T, UiaError> {
     result.map_err(|e| UiaError::api(context, e))
 }

@@ -1,3 +1,6 @@
+// COM FFI module: nearly every UIA call it makes is `unsafe` by signature.
+#![allow(unsafe_code)]
+
 use std::sync::Arc;
 
 // Windows UIAutomation provider: registers the UIA technology and streams root
@@ -17,7 +20,7 @@ pub const PROVIDER_ID: &str = "windows-uia";
 pub const PROVIDER_NAME: &str = "Windows UIAutomation";
 pub static TECHNOLOGY: LazyLock<TechnologyId> = LazyLock::new(|| TechnologyId::from("UIAutomation"));
 // Cache current process id once for the entire module; stable for process lifetime.
-static SELF_PID: LazyLock<i32> = LazyLock::new(|| std::process::id() as i32);
+static SELF_PID: LazyLock<i32> = LazyLock::new(|| std::process::id().cast_signed());
 
 // The provider enumerates the desktop's top-level windows via `EnumWindows`
 // rather than the UIA RawView `TreeWalker`. Navigating the raw sibling chain
@@ -66,14 +69,16 @@ fn window_is_ready(hwnd: windows::Win32::Foundation::HWND) -> bool {
     use windows::Win32::UI::WindowsAndMessaging::{SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_GETOBJECT};
     use windows::core::Interface;
 
+    // `OBJID_CLIENT` is what the MSAA bridge queries.
+    const OBJID_CLIENT: isize = -4;
+
     // Fast path: a native UIA provider never needs the MSAA bridge.
     if unsafe { UiaHasServerSideProvider(hwnd) }.as_bool() {
         return true;
     }
 
     // Fallback for MSAA-only windows: keep them, but only if they answer a
-    // bounded WM_GETOBJECT probe. `OBJID_CLIENT` is what the MSAA bridge queries.
-    const OBJID_CLIENT: isize = -4;
+    // bounded WM_GETOBJECT probe.
     let mut cookie: usize = 0;
     let sent = unsafe {
         SendMessageTimeoutW(
@@ -145,7 +150,7 @@ fn window_has_area(hwnd: windows::Win32::Foundation::HWND) -> bool {
 
 /// Whether `hwnd` is a real top-level window worth surfacing from the general
 /// `EnumWindows` population: on-screen (see [`is_visible_uncloaked`]) and not a
-/// non-activating helper/overlay window (`WS_EX_NOACTIVATE` — ConPTY console,
+/// non-activating helper/overlay window (`WS_EX_NOACTIVATE` — `ConPTY` console,
 /// winit event target, Narrator helper, ...). The `WS_EX_NOACTIVATE` heuristic
 /// excludes *unknown* helper windows; it is deliberately **not** applied to the
 /// curated immersive shell classes (see [`immersive_shell_windows`]), which are
@@ -333,7 +338,7 @@ impl Iterator for ElementAndAppIter {
 
 unsafe impl Send for ElementAndAppIter {}
 
-/// Factory for the UIAutomation provider.
+/// Factory for the `UIAutomation` provider.
 pub struct WindowsUiaFactory;
 
 impl UiTreeProviderFactory for WindowsUiaFactory {
@@ -350,14 +355,14 @@ impl UiTreeProviderFactory for WindowsUiaFactory {
     }
 
     fn create(&self, config: &RuntimeConfig) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
-        Ok(Arc::new(self.build(config)))
+        Ok(Arc::new(Self::build(config)))
     }
 }
 
 impl WindowsUiaFactory {
     /// Build a concrete provider from `config` — split out from `create` so
     /// the config wiring is unit-testable without a live UIA session.
-    fn build(&self, config: &RuntimeConfig) -> WindowsUiaProvider {
+    fn build(config: &RuntimeConfig) -> WindowsUiaProvider {
         // Kill switch for the window-claims cooperation (see
         // `platynui_core::platform::window_claims`): with `false`, windows
         // claimed by other providers (e.g. JAB) reappear as UIA shells.
@@ -367,7 +372,7 @@ impl WindowsUiaFactory {
     }
 }
 
-/// Windows UIAutomation provider.
+/// Windows `UIAutomation` provider.
 ///
 /// COM objects live in thread-local storage (see [`crate::com`]).  The
 /// `is_shutdown` flag prevents new queries after [`UiTreeProvider::shutdown`]
@@ -556,7 +561,7 @@ mod tests {
 
     #[test]
     fn honor_window_claims_defaults_to_true() {
-        let provider = WindowsUiaFactory.build(&RuntimeConfig::default());
+        let provider = WindowsUiaFactory::build(&RuntimeConfig::default());
         assert!(provider.honor_window_claims);
     }
 
@@ -564,7 +569,7 @@ mod tests {
     fn honor_window_claims_can_be_disabled() {
         let providers = ConfigMap::new().with(PROVIDER_ID, ConfigMap::new().with("honor_window_claims", false));
         let config = RuntimeConfig::new(ConfigMap::new(), providers);
-        let provider = WindowsUiaFactory.build(&config);
+        let provider = WindowsUiaFactory::build(&config);
         assert!(!provider.honor_window_claims);
     }
 

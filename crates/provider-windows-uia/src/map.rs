@@ -1,4 +1,7 @@
 #![cfg(target_os = "windows")]
+// COM/Win32 FFI module: nearly every call it makes is `unsafe` by signature.
+#![allow(unsafe_code)]
+
 use platynui_core::types::Point as UiPoint;
 use platynui_core::types::Rect;
 use platynui_core::ui::UiValue;
@@ -27,14 +30,73 @@ use windows::Win32::System::Variant::{
     VT_ARRAY, VT_BOOL, VT_BSTR, VT_BYREF, VT_DATE, VT_DECIMAL, VT_EMPTY, VT_I2, VT_I4, VT_I8, VT_R4, VT_R8,
     VT_TYPEMASK, VT_UI2, VT_UI4, VT_UI8, VT_UNKNOWN,
 };
-use windows::Win32::UI::Accessibility::*;
+use windows::Win32::UI::Accessibility::{
+    IUIAutomationElement, IUIAutomationTextPattern, IUIAutomationValuePattern,
+    UIA_AnnotationAnnotationTypeIdPropertyId, UIA_AnnotationAnnotationTypeNamePropertyId,
+    UIA_AnnotationAuthorPropertyId, UIA_AnnotationDateTimePropertyId, UIA_AnnotationTargetPropertyId,
+    UIA_AppBarControlTypeId, UIA_ButtonControlTypeId, UIA_CalendarControlTypeId, UIA_CheckBoxControlTypeId,
+    UIA_ComboBoxControlTypeId, UIA_CustomControlTypeId, UIA_DataGridControlTypeId, UIA_DataItemControlTypeId,
+    UIA_DockDockPositionPropertyId, UIA_DocumentControlTypeId, UIA_DragDropEffectPropertyId,
+    UIA_DragDropEffectsPropertyId, UIA_DragGrabbedItemsPropertyId, UIA_DragIsGrabbedPropertyId,
+    UIA_DropTargetDropTargetEffectPropertyId, UIA_DropTargetDropTargetEffectsPropertyId, UIA_EditControlTypeId,
+    UIA_ExpandCollapseExpandCollapseStatePropertyId, UIA_FullDescriptionPropertyId, UIA_GridColumnCountPropertyId,
+    UIA_GridItemColumnPropertyId, UIA_GridItemColumnSpanPropertyId, UIA_GridItemContainingGridPropertyId,
+    UIA_GridItemRowPropertyId, UIA_GridItemRowSpanPropertyId, UIA_GridRowCountPropertyId, UIA_GroupControlTypeId,
+    UIA_HeaderControlTypeId, UIA_HeaderItemControlTypeId, UIA_HyperlinkControlTypeId, UIA_ImageControlTypeId,
+    UIA_IsAnnotationPatternAvailablePropertyId, UIA_IsDockPatternAvailablePropertyId,
+    UIA_IsDragPatternAvailablePropertyId, UIA_IsDropTargetPatternAvailablePropertyId,
+    UIA_IsExpandCollapsePatternAvailablePropertyId, UIA_IsGridItemPatternAvailablePropertyId,
+    UIA_IsGridPatternAvailablePropertyId, UIA_IsKeyboardFocusablePropertyId,
+    UIA_IsLegacyIAccessiblePatternAvailablePropertyId, UIA_IsMultipleViewPatternAvailablePropertyId,
+    UIA_IsRangeValuePatternAvailablePropertyId, UIA_IsScrollPatternAvailablePropertyId,
+    UIA_IsSelectionItemPatternAvailablePropertyId, UIA_IsSelectionPattern2AvailablePropertyId,
+    UIA_IsSelectionPatternAvailablePropertyId, UIA_IsSpreadsheetItemPatternAvailablePropertyId,
+    UIA_IsStylesPatternAvailablePropertyId, UIA_IsTableItemPatternAvailablePropertyId,
+    UIA_IsTablePatternAvailablePropertyId, UIA_IsTextPatternAvailablePropertyId,
+    UIA_IsTogglePatternAvailablePropertyId, UIA_IsTransformPattern2AvailablePropertyId,
+    UIA_IsTransformPatternAvailablePropertyId, UIA_IsValuePatternAvailablePropertyId,
+    UIA_IsWindowPatternAvailablePropertyId, UIA_LegacyIAccessibleChildIdPropertyId,
+    UIA_LegacyIAccessibleDefaultActionPropertyId, UIA_LegacyIAccessibleDescriptionPropertyId,
+    UIA_LegacyIAccessibleHelpPropertyId, UIA_LegacyIAccessibleKeyboardShortcutPropertyId,
+    UIA_LegacyIAccessibleNamePropertyId, UIA_LegacyIAccessibleRolePropertyId, UIA_LegacyIAccessibleSelectionPropertyId,
+    UIA_LegacyIAccessibleStatePropertyId, UIA_LegacyIAccessibleValuePropertyId, UIA_ListControlTypeId,
+    UIA_ListItemControlTypeId, UIA_MenuBarControlTypeId, UIA_MenuControlTypeId, UIA_MenuItemControlTypeId,
+    UIA_MultipleViewCurrentViewPropertyId, UIA_MultipleViewSupportedViewsPropertyId, UIA_PATTERN_ID, UIA_PROPERTY_ID,
+    UIA_PaneControlTypeId, UIA_ProgressBarControlTypeId, UIA_RadioButtonControlTypeId,
+    UIA_RangeValueIsReadOnlyPropertyId, UIA_RangeValueLargeChangePropertyId, UIA_RangeValueMaximumPropertyId,
+    UIA_RangeValueMinimumPropertyId, UIA_RangeValueSmallChangePropertyId, UIA_RangeValueValuePropertyId,
+    UIA_ScrollBarControlTypeId, UIA_ScrollHorizontalScrollPercentPropertyId, UIA_ScrollHorizontalViewSizePropertyId,
+    UIA_ScrollHorizontallyScrollablePropertyId, UIA_ScrollVerticalScrollPercentPropertyId,
+    UIA_ScrollVerticalViewSizePropertyId, UIA_ScrollVerticallyScrollablePropertyId,
+    UIA_Selection2CurrentSelectedItemPropertyId, UIA_Selection2FirstSelectedItemPropertyId,
+    UIA_Selection2ItemCountPropertyId, UIA_Selection2LastSelectedItemPropertyId,
+    UIA_SelectionCanSelectMultiplePropertyId, UIA_SelectionIsSelectionRequiredPropertyId,
+    UIA_SelectionItemIsSelectedPropertyId, UIA_SelectionItemSelectionContainerPropertyId,
+    UIA_SelectionSelectionPropertyId, UIA_SemanticZoomControlTypeId, UIA_SeparatorControlTypeId,
+    UIA_SliderControlTypeId, UIA_SpinnerControlTypeId, UIA_SplitButtonControlTypeId,
+    UIA_SpreadsheetItemAnnotationObjectsPropertyId, UIA_SpreadsheetItemAnnotationTypesPropertyId,
+    UIA_SpreadsheetItemFormulaPropertyId, UIA_StatusBarControlTypeId, UIA_StylesExtendedPropertiesPropertyId,
+    UIA_StylesFillColorPropertyId, UIA_StylesFillPatternColorPropertyId, UIA_StylesFillPatternStylePropertyId,
+    UIA_StylesShapePropertyId, UIA_StylesStyleIdPropertyId, UIA_StylesStyleNamePropertyId, UIA_TabControlTypeId,
+    UIA_TabItemControlTypeId, UIA_TableColumnHeadersPropertyId, UIA_TableControlTypeId,
+    UIA_TableItemColumnHeaderItemsPropertyId, UIA_TableItemRowHeaderItemsPropertyId, UIA_TableRowHeadersPropertyId,
+    UIA_TableRowOrColumnMajorPropertyId, UIA_TextControlTypeId, UIA_TextPatternId, UIA_ThumbControlTypeId,
+    UIA_TitleBarControlTypeId, UIA_ToggleToggleStatePropertyId, UIA_ToolBarControlTypeId, UIA_ToolTipControlTypeId,
+    UIA_Transform2CanZoomPropertyId, UIA_Transform2ZoomLevelPropertyId, UIA_Transform2ZoomMaximumPropertyId,
+    UIA_Transform2ZoomMinimumPropertyId, UIA_TransformCanMovePropertyId, UIA_TransformCanResizePropertyId,
+    UIA_TransformCanRotatePropertyId, UIA_TreeControlTypeId, UIA_TreeItemControlTypeId, UIA_ValueIsReadOnlyPropertyId,
+    UIA_ValuePatternId, UIA_ValueValuePropertyId, UIA_WindowCanMaximizePropertyId, UIA_WindowCanMinimizePropertyId,
+    UIA_WindowControlTypeId, UIA_WindowIsModalPropertyId, UIA_WindowIsTopmostPropertyId,
+    UIA_WindowWindowInteractionStatePropertyId, UIA_WindowWindowVisualStatePropertyId,
+    UiaGetReservedMixedAttributeValue, UiaGetReservedNotSupportedValue,
+};
 use windows::core::BSTR;
 use windows::core::Interface;
 use windows::core::PWSTR;
 
 // Use VARENUM constants from the windows crate instead of redefining magic numbers
 
-/// Maps UIA ControlType IDs to PlatynUI role names.
+/// Maps UIA `ControlType` IDs to `PlatynUI` role names.
 /// Namespace wird an anderer Stelle bestimmt (IsControlElement/IsContentElement),
 /// daher liefert diese Funktion nur die Role.
 pub fn control_type_to_role(control_type: i32) -> &'static str {
@@ -111,10 +173,10 @@ pub fn get_bounding_rect(elem: &IUIAutomationElement) -> Result<Rect, crate::err
         let r =
             crate::error::uia_api("IUIAutomationElement::CurrentBoundingRectangle", elem.CurrentBoundingRectangle())?;
 
-        let left = r.left as f64;
-        let top = r.top as f64;
-        let width = (r.right - r.left).max(0) as f64;
-        let height = (r.bottom - r.top).max(0) as f64;
+        let left = f64::from(r.left);
+        let top = f64::from(r.top);
+        let width = f64::from((r.right - r.left).max(0));
+        let height = f64::from((r.bottom - r.top).max(0));
         Ok(Rect::new(left, top, width, height))
     }
 }
@@ -124,18 +186,18 @@ pub fn get_clickable_point(elem: &IUIAutomationElement) -> Result<UiPoint, crate
         let mut pt = POINT { x: 0, y: 0 };
 
         let got_clickable =
-            crate::error::uia_api("IUIAutomationElement::GetClickablePoint", elem.GetClickablePoint(&mut pt))?;
+            crate::error::uia_api("IUIAutomationElement::GetClickablePoint", elem.GetClickablePoint(&raw mut pt))?;
 
         // Check if a clickable point was actually found
         if got_clickable.as_bool() {
-            Ok(UiPoint::new(pt.x as f64, pt.y as f64))
+            Ok(UiPoint::new(f64::from(pt.x), f64::from(pt.y)))
         } else {
             Err(crate::error::UiaError::NoClickablePoint)
         }
     }
 }
 
-/// Internal helper: returns the hex-dotted RuntimeId body without any scheme/prefix.
+/// Internal helper: returns the hex-dotted `RuntimeId` body without any scheme/prefix.
 fn runtime_id_hex_body(elem: &IUIAutomationElement) -> Result<String, crate::error::UiaError> {
     use windows::Win32::System::Ole::{
         SafeArrayAccessData, SafeArrayGetLBound, SafeArrayGetUBound, SafeArrayUnaccessData,
@@ -147,12 +209,15 @@ fn runtime_id_hex_body(elem: &IUIAutomationElement) -> Result<String, crate::err
         }
         let lb = crate::error::uia_api("SafeArrayGetLBound", SafeArrayGetLBound(psa, 1))?;
         let ub = crate::error::uia_api("SafeArrayGetUBound", SafeArrayGetUBound(psa, 1))?;
+        // SAFEARRAY bounds satisfy ub >= lb - 1 (an empty array has ub == lb - 1), so
+        // the element count is never negative.
+        #[allow(clippy::cast_sign_loss)]
         let count = (ub - lb + 1) as usize;
         let mut data: *mut i32 = std::ptr::null_mut();
-        crate::error::uia_api("SafeArrayAccessData", SafeArrayAccessData(psa, &mut data as *mut _ as *mut _))?;
+        crate::error::uia_api("SafeArrayAccessData", SafeArrayAccessData(psa, (&raw mut data).cast()))?;
         let slice = std::slice::from_raw_parts(data, count);
         // Keep formatting identical to legacy behavior to avoid breaking changes.
-        let body = slice.iter().map(|v| format!("{:x}", v)).collect::<Vec<_>>().join(".");
+        let body = slice.iter().map(|v| format!("{v:x}")).collect::<Vec<_>>().join(".");
         crate::error::uia_api("SafeArrayUnaccessData", SafeArrayUnaccessData(psa))?;
         Ok(body)
     }
@@ -160,16 +225,16 @@ fn runtime_id_hex_body(elem: &IUIAutomationElement) -> Result<String, crate::err
 
 // Note: legacy unscoped formatter removed; use `format_scoped_runtime_id` instead.
 
-/// Scope for composing unique, view-aware RuntimeId URIs within our combined trees.
+/// Scope for composing unique, view-aware `RuntimeId` URIs within our combined trees.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UiaIdScope {
-    /// Desktop TopLevel view
+    /// Desktop `TopLevel` view
     Desktop,
     /// Application-grouped view; disambiguate by process id
     App { pid: i32 },
 }
 
-/// Compose a scoped RuntimeId URI that stays unique across multiple views in our trees.
+/// Compose a scoped `RuntimeId` URI that stays unique across multiple views in our trees.
 /// Examples:
 ///  - Desktop: `uia://desktop/<rid>`
 ///  - App:     `uia://app/<pid>/<rid>`
@@ -179,15 +244,16 @@ pub fn format_scoped_runtime_id(
 ) -> Result<String, crate::error::UiaError> {
     let body = runtime_id_hex_body(elem)?;
     let s = match scope {
-        UiaIdScope::Desktop => format!("uia://desktop/{}", body),
-        UiaIdScope::App { pid } => format!("uia://app/{}/{}", pid, body),
+        UiaIdScope::Desktop => format!("uia://desktop/{body}"),
+        UiaIdScope::App { pid } => format!("uia://app/{pid}/{body}"),
     };
     Ok(s)
 }
 
 pub fn get_is_enabled(elem: &IUIAutomationElement) -> Result<bool, crate::error::UiaError> {
     unsafe {
-        crate::error::uia_api("IUIAutomationElement::CurrentIsEnabled", elem.CurrentIsEnabled()).map(|b| b.as_bool())
+        crate::error::uia_api("IUIAutomationElement::CurrentIsEnabled", elem.CurrentIsEnabled())
+            .map(windows::core::BOOL::as_bool)
     }
 }
 
@@ -206,9 +272,11 @@ pub fn open_process_query(pid: i32) -> Option<HANDLE> {
     unsafe {
         // Prefer broader rights to allow module queries (base module name), then fall back.
         let full = PROCESS_ACCESS_RIGHTS(PROCESS_QUERY_INFORMATION.0 | PROCESS_VM_READ.0);
-        OpenProcess(full, false, pid as u32)
+        // UIA reports the process id as i32, Win32 takes it as u32: same bits.
+        let pid = pid.cast_unsigned();
+        OpenProcess(full, false, pid)
             .ok()
-            .or_else(|| OpenProcess(PROCESS_ACCESS_RIGHTS(PROCESS_QUERY_LIMITED_INFORMATION.0), false, pid as u32).ok())
+            .or_else(|| OpenProcess(PROCESS_ACCESS_RIGHTS(PROCESS_QUERY_LIMITED_INFORMATION.0), false, pid).ok())
     }
 }
 
@@ -225,7 +293,7 @@ pub fn query_executable_path(handle: HANDLE) -> Option<String> {
                 handle,
                 windows::Win32::System::Threading::PROCESS_NAME_FORMAT(0),
                 PWSTR(buf.as_mut_ptr()),
-                &mut size,
+                &raw mut size,
             )
         };
         match res {
@@ -238,7 +306,7 @@ pub fn query_executable_path(handle: HANDLE) -> Option<String> {
                 let hr = e.code();
                 // Map common insufficient-buffer case: on Win32 APIs this usually means last-error
                 // is ERROR_INSUFFICIENT_BUFFER. Compare using raw value as a pragmatic fallback.
-                if hr.0 as u32 == ERROR_INSUFFICIENT_BUFFER.0 {
+                if hr.0.cast_unsigned() == ERROR_INSUFFICIENT_BUFFER.0 {
                     // If API updated 'size' with the required length, use it; otherwise double
                     let next = size.max(cap.saturating_mul(2)).min(max_cap);
                     if next <= cap || next > max_cap {
@@ -246,9 +314,8 @@ pub fn query_executable_path(handle: HANDLE) -> Option<String> {
                     }
                     cap = next;
                     continue;
-                } else {
-                    return None;
                 }
+                return None;
             }
         }
     }
@@ -274,9 +341,9 @@ pub fn query_process_command_line(handle: HANDLE) -> Option<String> {
             let status: NTSTATUS = NtQueryInformationProcess(
                 handle,
                 ProcessCommandLineInformation,
-                buf.as_mut_ptr() as *mut _,
+                buf.as_mut_ptr().cast(),
                 cap,
-                &mut ret_len as *mut u32,
+                &raw mut ret_len,
             );
             if status == STATUS_SUCCESS {
                 // Interpret start of buffer as UNICODE_STRING
@@ -286,11 +353,9 @@ pub fn query_process_command_line(handle: HANDLE) -> Option<String> {
                     max_length: u16,
                     buffer: *const u16,
                 }
-                let us_ptr = buf.as_ptr() as *const UnicodeString;
-                if us_ptr.is_null() {
-                    return None;
-                }
-                let us = &*us_ptr;
+                // A `Vec<u8>` does not guarantee the pointer alignment of
+                // UNICODE_STRING, so copy the header out with an unaligned read.
+                let us = std::ptr::read_unaligned(buf.as_ptr().cast::<UnicodeString>());
                 let len_bytes = us.length as usize;
                 if len_bytes == 0 || us.buffer.is_null() {
                     return None;
@@ -319,29 +384,31 @@ pub fn query_process_command_line(handle: HANDLE) -> Option<String> {
 pub fn query_process_username(handle: HANDLE) -> Option<String> {
     unsafe {
         let mut token = HANDLE::default();
-        if OpenProcessToken(handle, TOKEN_QUERY, &mut token).is_err() {
+        if OpenProcessToken(handle, TOKEN_QUERY, &raw mut token).is_err() {
             return None;
         }
         // Query size first
         let mut needed: u32 = 0;
-        let _ = GetTokenInformation(token, TokenUser, None, 0, &mut needed);
+        let _ = GetTokenInformation(token, TokenUser, None, 0, &raw mut needed);
         if needed == 0 {
             let _ = CloseHandle(token);
             return None;
         }
         let mut buf = vec![0u8; needed as usize];
-        if GetTokenInformation(token, TokenUser, Some(buf.as_mut_ptr() as *mut _), needed, &mut needed).is_err() {
+        if GetTokenInformation(token, TokenUser, Some(buf.as_mut_ptr().cast()), needed, &raw mut needed).is_err() {
             let _ = CloseHandle(token);
             return None;
         }
-        let tu: &TOKEN_USER = &*(buf.as_ptr() as *const TOKEN_USER);
+        // A `Vec<u8>` does not guarantee the pointer alignment of TOKEN_USER, so
+        // copy the header out with an unaligned read; its SID still points into `buf`.
+        let tu: TOKEN_USER = std::ptr::read_unaligned(buf.as_ptr().cast::<TOKEN_USER>());
         let sid = tu.User.Sid;
         // Lookup account name
         let mut name_len: u32 = 0;
         let mut domain_len: u32 = 0;
         let mut use_: SID_NAME_USE = SID_NAME_USE(0);
         // First call with None to query required buffer sizes
-        let _ = LookupAccountSidW(None, sid, None, &mut name_len, None, &mut domain_len, &mut use_);
+        let _ = LookupAccountSidW(None, sid, None, &raw mut name_len, None, &raw mut domain_len, &raw mut use_);
         if name_len == 0 {
             let _ = CloseHandle(token);
             return None;
@@ -352,10 +419,10 @@ pub fn query_process_username(handle: HANDLE) -> Option<String> {
             None,
             sid,
             Some(PWSTR(name_buf.as_mut_ptr())),
-            &mut name_len,
+            &raw mut name_len,
             if domain_len > 0 { Some(PWSTR(domain_buf.as_mut_ptr())) } else { None },
-            &mut domain_len,
-            &mut use_,
+            &raw mut domain_len,
+            &raw mut use_,
         )
         .is_err()
         {
@@ -366,7 +433,7 @@ pub fn query_process_username(handle: HANDLE) -> Option<String> {
         let domain =
             if domain_len > 0 { String::from_utf16_lossy(&domain_buf[..(domain_len as usize)]) } else { String::new() };
         let _ = CloseHandle(token);
-        if !domain.is_empty() { Some(format!("{}\\{}", domain, name)) } else { Some(name) }
+        if domain.is_empty() { Some(name) } else { Some(format!("{domain}\\{name}")) }
     }
 }
 
@@ -376,12 +443,12 @@ pub fn query_process_start_time_iso8601(handle: HANDLE) -> Option<String> {
         let mut exit: FILETIME = FILETIME::default();
         let mut kernel: FILETIME = FILETIME::default();
         let mut user: FILETIME = FILETIME::default();
-        if GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user).is_err() {
+        if GetProcessTimes(handle, &raw mut creation, &raw mut exit, &raw mut kernel, &raw mut user).is_err() {
             return None;
         }
         // Convert to SYSTEMTIME in UTC
         let mut st = windows::Win32::Foundation::SYSTEMTIME::default();
-        if FileTimeToSystemTime(&creation, &mut st).is_err() {
+        if FileTimeToSystemTime(&raw const creation, &raw mut st).is_err() {
             return None;
         }
         // Format as ISO 8601 UTC without timezone conversion
@@ -393,10 +460,10 @@ pub fn query_process_start_time_iso8601(handle: HANDLE) -> Option<String> {
     }
 }
 
-pub fn process_architecture(_handle: HANDLE) -> Option<String> {
+pub fn process_architecture(_handle: HANDLE) -> String {
     // Fallback: report native system architecture
     let mut info: SYSTEM_INFO = SYSTEM_INFO::default();
-    unsafe { GetNativeSystemInfo(&mut info) };
+    unsafe { GetNativeSystemInfo(&raw mut info) };
     let a: PROCESSOR_ARCHITECTURE = unsafe { info.Anonymous.Anonymous.wProcessorArchitecture };
     let sys_arch = match a {
         x if x == PROCESSOR_ARCHITECTURE_AMD64 => "x64",
@@ -404,7 +471,7 @@ pub fn process_architecture(_handle: HANDLE) -> Option<String> {
         x if x == PROCESSOR_ARCHITECTURE_INTEL => "x86",
         _ => "unknown",
     };
-    Some(sys_arch.to_string())
+    sys_arch.to_string()
 }
 
 pub fn process_architecture_from_path(path: &str) -> Option<String> {
@@ -442,7 +509,7 @@ pub fn process_architecture_from_path(path: &str) -> Option<String> {
 // get_activation_point and is_visible moved into attribute-level caching logic.
 
 /// Reads a single UIA property value from an element, handling COM fallback
-/// and UIA sentinel filtering (NotSupported / MixedAttribute).
+/// and UIA sentinel filtering (`NotSupported` / `MixedAttribute`).
 fn read_uia_property(elem: &IUIAutomationElement, id: UIA_PROPERTY_ID) -> Option<UiValue> {
     let mut var: VARIANT = match unsafe { elem.GetCurrentPropertyValueEx(id, true) } {
         Ok(v) => v,
@@ -478,7 +545,7 @@ fn read_uia_property(elem: &IUIAutomationElement, id: UIA_PROPERTY_ID) -> Option
         }
         if skip {
             unsafe {
-                let _ = VariantClear(&mut var);
+                let _ = VariantClear(&raw mut var);
             }
             return None;
         }
@@ -486,13 +553,13 @@ fn read_uia_property(elem: &IUIAutomationElement, id: UIA_PROPERTY_ID) -> Option
 
     let result = unsafe { variant_to_ui_value(&var) };
     unsafe {
-        let _ = VariantClear(&mut var);
+        let _ = VariantClear(&raw mut var);
     }
     result
 }
 
 /// Whether this element exposes readable text content for the canonical
-/// `control:Text` attribute (TextContent) — i.e. it supports the UIA
+/// `control:Text` attribute (`TextContent`) — i.e. it supports the UIA
 /// `TextPattern` or `ValuePattern`. Used to gate the attribute so it is
 /// absent (not empty) on elements with neither pattern. Never considers the
 /// accessible name.
@@ -511,7 +578,7 @@ fn is_pattern_available(elem: &IUIAutomationElement, id: UIA_PROPERTY_ID) -> boo
 /// This distinction is invisible through `IUIAutomationElement::CurrentIsKeyboardFocusable`,
 /// whose documented default value is `FALSE` — an unimplemented property and an
 /// explicit denial come back identically. Reading with `ignoreDefaultValue` set
-/// yields the NotSupported sentinel instead, which [`read_uia_property`] maps to
+/// yields the `NotSupported` sentinel instead, which [`read_uia_property`] maps to
 /// `None`. Measured: static `Text` labels report an explicit `false`, buttons and
 /// edits an explicit `true`, while an Electron window (VS Code, accessibility not
 /// switched on) and several plain Win32 panes supply nothing at all.
@@ -544,7 +611,7 @@ fn value_pattern_read_only(elem: &IUIAutomationElement) -> Option<bool> {
             .ok()
             .and_then(|unk| unk.cast::<IUIAutomationValuePattern>().ok())
     }?;
-    unsafe { pattern.CurrentIsReadOnly() }.map(|v| v.as_bool()).ok()
+    unsafe { pattern.CurrentIsReadOnly() }.map(windows::core::BOOL::as_bool).ok()
 }
 
 /// Resolves the read-only state from what the `ValuePattern` reported.
@@ -601,11 +668,173 @@ pub fn get_text_content(elem: &IUIAutomationElement) -> Option<String> {
 struct CategorizedCatalog {
     /// Base element properties — always queried for every element.
     base: Vec<(UIA_PROPERTY_ID, String)>,
-    /// Pattern-specific groups: (pattern_availability_property_id, properties).
+    /// Pattern-specific groups: (`pattern_availability_property_id`, properties).
     /// The availability ID is queried first; its properties are only read when
     /// the pattern is available.
     pattern_groups: Vec<(UIA_PROPERTY_ID, Vec<(UIA_PROPERTY_ID, String)>)>,
 }
+
+/// Pattern groups: (availability-check property, the pattern's property IDs).
+/// Property IDs that don't appear in any group are classified as base.
+const PATTERN_GROUPS: &[(UIA_PROPERTY_ID, &[UIA_PROPERTY_ID])] = &[
+    // --- Classic patterns (Windows 7+) ---
+    (UIA_IsDockPatternAvailablePropertyId, &[UIA_DockDockPositionPropertyId]),
+    (UIA_IsExpandCollapsePatternAvailablePropertyId, &[UIA_ExpandCollapseExpandCollapseStatePropertyId]),
+    (
+        UIA_IsGridItemPatternAvailablePropertyId,
+        &[
+            UIA_GridItemRowPropertyId,
+            UIA_GridItemColumnPropertyId,
+            UIA_GridItemRowSpanPropertyId,
+            UIA_GridItemColumnSpanPropertyId,
+            UIA_GridItemContainingGridPropertyId,
+        ],
+    ),
+    (UIA_IsGridPatternAvailablePropertyId, &[UIA_GridRowCountPropertyId, UIA_GridColumnCountPropertyId]),
+    // Invoke pattern has no properties.
+    (
+        UIA_IsMultipleViewPatternAvailablePropertyId,
+        &[UIA_MultipleViewCurrentViewPropertyId, UIA_MultipleViewSupportedViewsPropertyId],
+    ),
+    (
+        UIA_IsRangeValuePatternAvailablePropertyId,
+        &[
+            UIA_RangeValueValuePropertyId,
+            UIA_RangeValueIsReadOnlyPropertyId,
+            UIA_RangeValueMinimumPropertyId,
+            UIA_RangeValueMaximumPropertyId,
+            UIA_RangeValueLargeChangePropertyId,
+            UIA_RangeValueSmallChangePropertyId,
+        ],
+    ),
+    (
+        UIA_IsScrollPatternAvailablePropertyId,
+        &[
+            UIA_ScrollHorizontalScrollPercentPropertyId,
+            UIA_ScrollHorizontalViewSizePropertyId,
+            UIA_ScrollVerticalScrollPercentPropertyId,
+            UIA_ScrollVerticalViewSizePropertyId,
+            UIA_ScrollHorizontallyScrollablePropertyId,
+            UIA_ScrollVerticallyScrollablePropertyId,
+        ],
+    ),
+    // ScrollItem pattern has no properties.
+    (
+        UIA_IsSelectionItemPatternAvailablePropertyId,
+        &[UIA_SelectionItemIsSelectedPropertyId, UIA_SelectionItemSelectionContainerPropertyId],
+    ),
+    (
+        UIA_IsSelectionPatternAvailablePropertyId,
+        &[
+            UIA_SelectionSelectionPropertyId,
+            UIA_SelectionCanSelectMultiplePropertyId,
+            UIA_SelectionIsSelectionRequiredPropertyId,
+        ],
+    ),
+    (
+        UIA_IsTablePatternAvailablePropertyId,
+        &[UIA_TableRowHeadersPropertyId, UIA_TableColumnHeadersPropertyId, UIA_TableRowOrColumnMajorPropertyId],
+    ),
+    (
+        UIA_IsTableItemPatternAvailablePropertyId,
+        &[UIA_TableItemRowHeaderItemsPropertyId, UIA_TableItemColumnHeaderItemsPropertyId],
+    ),
+    // Text pattern has no simple property IDs (uses TextRange).
+    (UIA_IsTogglePatternAvailablePropertyId, &[UIA_ToggleToggleStatePropertyId]),
+    (
+        UIA_IsTransformPatternAvailablePropertyId,
+        &[UIA_TransformCanMovePropertyId, UIA_TransformCanResizePropertyId, UIA_TransformCanRotatePropertyId],
+    ),
+    (UIA_IsValuePatternAvailablePropertyId, &[UIA_ValueValuePropertyId, UIA_ValueIsReadOnlyPropertyId]),
+    (
+        UIA_IsWindowPatternAvailablePropertyId,
+        &[
+            UIA_WindowCanMaximizePropertyId,
+            UIA_WindowCanMinimizePropertyId,
+            UIA_WindowWindowVisualStatePropertyId,
+            UIA_WindowWindowInteractionStatePropertyId,
+            UIA_WindowIsModalPropertyId,
+            UIA_WindowIsTopmostPropertyId,
+        ],
+    ),
+    (
+        UIA_IsLegacyIAccessiblePatternAvailablePropertyId,
+        &[
+            UIA_LegacyIAccessibleChildIdPropertyId,
+            UIA_LegacyIAccessibleNamePropertyId,
+            UIA_LegacyIAccessibleValuePropertyId,
+            UIA_LegacyIAccessibleDescriptionPropertyId,
+            UIA_LegacyIAccessibleRolePropertyId,
+            UIA_LegacyIAccessibleStatePropertyId,
+            UIA_LegacyIAccessibleHelpPropertyId,
+            UIA_LegacyIAccessibleKeyboardShortcutPropertyId,
+            UIA_LegacyIAccessibleSelectionPropertyId,
+            UIA_LegacyIAccessibleDefaultActionPropertyId,
+        ],
+    ),
+    // --- Windows 8+ patterns ---
+    (
+        UIA_IsAnnotationPatternAvailablePropertyId,
+        &[
+            UIA_AnnotationAnnotationTypeIdPropertyId,
+            UIA_AnnotationAnnotationTypeNamePropertyId,
+            UIA_AnnotationAuthorPropertyId,
+            UIA_AnnotationDateTimePropertyId,
+            UIA_AnnotationTargetPropertyId,
+        ],
+    ),
+    (
+        UIA_IsDragPatternAvailablePropertyId,
+        &[
+            UIA_DragIsGrabbedPropertyId,
+            UIA_DragDropEffectPropertyId,
+            UIA_DragDropEffectsPropertyId,
+            UIA_DragGrabbedItemsPropertyId,
+        ],
+    ),
+    (
+        UIA_IsDropTargetPatternAvailablePropertyId,
+        &[UIA_DropTargetDropTargetEffectPropertyId, UIA_DropTargetDropTargetEffectsPropertyId],
+    ),
+    (
+        UIA_IsSpreadsheetItemPatternAvailablePropertyId,
+        &[
+            UIA_SpreadsheetItemFormulaPropertyId,
+            UIA_SpreadsheetItemAnnotationObjectsPropertyId,
+            UIA_SpreadsheetItemAnnotationTypesPropertyId,
+        ],
+    ),
+    (
+        UIA_IsStylesPatternAvailablePropertyId,
+        &[
+            UIA_StylesStyleIdPropertyId,
+            UIA_StylesStyleNamePropertyId,
+            UIA_StylesFillColorPropertyId,
+            UIA_StylesFillPatternStylePropertyId,
+            UIA_StylesShapePropertyId,
+            UIA_StylesFillPatternColorPropertyId,
+            UIA_StylesExtendedPropertiesPropertyId,
+        ],
+    ),
+    (
+        UIA_IsTransformPattern2AvailablePropertyId,
+        &[
+            UIA_Transform2CanZoomPropertyId,
+            UIA_Transform2ZoomLevelPropertyId,
+            UIA_Transform2ZoomMinimumPropertyId,
+            UIA_Transform2ZoomMaximumPropertyId,
+        ],
+    ),
+    (
+        UIA_IsSelectionPattern2AvailablePropertyId,
+        &[
+            UIA_Selection2FirstSelectedItemPropertyId,
+            UIA_Selection2LastSelectedItemPropertyId,
+            UIA_Selection2CurrentSelectedItemPropertyId,
+            UIA_Selection2ItemCountPropertyId,
+        ],
+    ),
+];
 
 /// Builds the categorized catalog once and returns a static reference.
 ///
@@ -617,167 +846,7 @@ fn categorized_catalog() -> &'static CategorizedCatalog {
     INSTANCE.get_or_init(|| {
         use std::collections::HashMap;
 
-        // Define pattern groups: (availability_check_id, pattern_property_ids).
-        // Property IDs that don't appear in any group are classified as base.
-        let groups: &[(UIA_PROPERTY_ID, &[UIA_PROPERTY_ID])] = &[
-            // --- Classic patterns (Windows 7+) ---
-            (UIA_IsDockPatternAvailablePropertyId, &[UIA_DockDockPositionPropertyId]),
-            (UIA_IsExpandCollapsePatternAvailablePropertyId, &[UIA_ExpandCollapseExpandCollapseStatePropertyId]),
-            (
-                UIA_IsGridItemPatternAvailablePropertyId,
-                &[
-                    UIA_GridItemRowPropertyId,
-                    UIA_GridItemColumnPropertyId,
-                    UIA_GridItemRowSpanPropertyId,
-                    UIA_GridItemColumnSpanPropertyId,
-                    UIA_GridItemContainingGridPropertyId,
-                ],
-            ),
-            (UIA_IsGridPatternAvailablePropertyId, &[UIA_GridRowCountPropertyId, UIA_GridColumnCountPropertyId]),
-            // Invoke pattern has no properties.
-            (
-                UIA_IsMultipleViewPatternAvailablePropertyId,
-                &[UIA_MultipleViewCurrentViewPropertyId, UIA_MultipleViewSupportedViewsPropertyId],
-            ),
-            (
-                UIA_IsRangeValuePatternAvailablePropertyId,
-                &[
-                    UIA_RangeValueValuePropertyId,
-                    UIA_RangeValueIsReadOnlyPropertyId,
-                    UIA_RangeValueMinimumPropertyId,
-                    UIA_RangeValueMaximumPropertyId,
-                    UIA_RangeValueLargeChangePropertyId,
-                    UIA_RangeValueSmallChangePropertyId,
-                ],
-            ),
-            (
-                UIA_IsScrollPatternAvailablePropertyId,
-                &[
-                    UIA_ScrollHorizontalScrollPercentPropertyId,
-                    UIA_ScrollHorizontalViewSizePropertyId,
-                    UIA_ScrollVerticalScrollPercentPropertyId,
-                    UIA_ScrollVerticalViewSizePropertyId,
-                    UIA_ScrollHorizontallyScrollablePropertyId,
-                    UIA_ScrollVerticallyScrollablePropertyId,
-                ],
-            ),
-            // ScrollItem pattern has no properties.
-            (
-                UIA_IsSelectionItemPatternAvailablePropertyId,
-                &[UIA_SelectionItemIsSelectedPropertyId, UIA_SelectionItemSelectionContainerPropertyId],
-            ),
-            (
-                UIA_IsSelectionPatternAvailablePropertyId,
-                &[
-                    UIA_SelectionSelectionPropertyId,
-                    UIA_SelectionCanSelectMultiplePropertyId,
-                    UIA_SelectionIsSelectionRequiredPropertyId,
-                ],
-            ),
-            (
-                UIA_IsTablePatternAvailablePropertyId,
-                &[UIA_TableRowHeadersPropertyId, UIA_TableColumnHeadersPropertyId, UIA_TableRowOrColumnMajorPropertyId],
-            ),
-            (
-                UIA_IsTableItemPatternAvailablePropertyId,
-                &[UIA_TableItemRowHeaderItemsPropertyId, UIA_TableItemColumnHeaderItemsPropertyId],
-            ),
-            // Text pattern has no simple property IDs (uses TextRange).
-            (UIA_IsTogglePatternAvailablePropertyId, &[UIA_ToggleToggleStatePropertyId]),
-            (
-                UIA_IsTransformPatternAvailablePropertyId,
-                &[UIA_TransformCanMovePropertyId, UIA_TransformCanResizePropertyId, UIA_TransformCanRotatePropertyId],
-            ),
-            (UIA_IsValuePatternAvailablePropertyId, &[UIA_ValueValuePropertyId, UIA_ValueIsReadOnlyPropertyId]),
-            (
-                UIA_IsWindowPatternAvailablePropertyId,
-                &[
-                    UIA_WindowCanMaximizePropertyId,
-                    UIA_WindowCanMinimizePropertyId,
-                    UIA_WindowWindowVisualStatePropertyId,
-                    UIA_WindowWindowInteractionStatePropertyId,
-                    UIA_WindowIsModalPropertyId,
-                    UIA_WindowIsTopmostPropertyId,
-                ],
-            ),
-            (
-                UIA_IsLegacyIAccessiblePatternAvailablePropertyId,
-                &[
-                    UIA_LegacyIAccessibleChildIdPropertyId,
-                    UIA_LegacyIAccessibleNamePropertyId,
-                    UIA_LegacyIAccessibleValuePropertyId,
-                    UIA_LegacyIAccessibleDescriptionPropertyId,
-                    UIA_LegacyIAccessibleRolePropertyId,
-                    UIA_LegacyIAccessibleStatePropertyId,
-                    UIA_LegacyIAccessibleHelpPropertyId,
-                    UIA_LegacyIAccessibleKeyboardShortcutPropertyId,
-                    UIA_LegacyIAccessibleSelectionPropertyId,
-                    UIA_LegacyIAccessibleDefaultActionPropertyId,
-                ],
-            ),
-            // --- Windows 8+ patterns ---
-            (
-                UIA_IsAnnotationPatternAvailablePropertyId,
-                &[
-                    UIA_AnnotationAnnotationTypeIdPropertyId,
-                    UIA_AnnotationAnnotationTypeNamePropertyId,
-                    UIA_AnnotationAuthorPropertyId,
-                    UIA_AnnotationDateTimePropertyId,
-                    UIA_AnnotationTargetPropertyId,
-                ],
-            ),
-            (
-                UIA_IsDragPatternAvailablePropertyId,
-                &[
-                    UIA_DragIsGrabbedPropertyId,
-                    UIA_DragDropEffectPropertyId,
-                    UIA_DragDropEffectsPropertyId,
-                    UIA_DragGrabbedItemsPropertyId,
-                ],
-            ),
-            (
-                UIA_IsDropTargetPatternAvailablePropertyId,
-                &[UIA_DropTargetDropTargetEffectPropertyId, UIA_DropTargetDropTargetEffectsPropertyId],
-            ),
-            (
-                UIA_IsSpreadsheetItemPatternAvailablePropertyId,
-                &[
-                    UIA_SpreadsheetItemFormulaPropertyId,
-                    UIA_SpreadsheetItemAnnotationObjectsPropertyId,
-                    UIA_SpreadsheetItemAnnotationTypesPropertyId,
-                ],
-            ),
-            (
-                UIA_IsStylesPatternAvailablePropertyId,
-                &[
-                    UIA_StylesStyleIdPropertyId,
-                    UIA_StylesStyleNamePropertyId,
-                    UIA_StylesFillColorPropertyId,
-                    UIA_StylesFillPatternStylePropertyId,
-                    UIA_StylesShapePropertyId,
-                    UIA_StylesFillPatternColorPropertyId,
-                    UIA_StylesExtendedPropertiesPropertyId,
-                ],
-            ),
-            (
-                UIA_IsTransformPattern2AvailablePropertyId,
-                &[
-                    UIA_Transform2CanZoomPropertyId,
-                    UIA_Transform2ZoomLevelPropertyId,
-                    UIA_Transform2ZoomMinimumPropertyId,
-                    UIA_Transform2ZoomMaximumPropertyId,
-                ],
-            ),
-            (
-                UIA_IsSelectionPattern2AvailablePropertyId,
-                &[
-                    UIA_Selection2FirstSelectedItemPropertyId,
-                    UIA_Selection2LastSelectedItemPropertyId,
-                    UIA_Selection2CurrentSelectedItemPropertyId,
-                    UIA_Selection2ItemCountPropertyId,
-                ],
-            ),
-        ];
+        let groups = PATTERN_GROUPS;
 
         // Build reverse map: property ID → group index
         let mut prop_to_group: HashMap<i32, usize> = HashMap::new();
@@ -891,6 +960,8 @@ pub fn get_native_property_by_name(elem: &IUIAutomationElement, prop_name: &str)
     read_uia_property(elem, *id).map(|v| (prop_name.to_string(), v))
 }
 
+// One dispatch arm per VARIANT element type, for arrays and scalars alike.
+#[allow(clippy::too_many_lines)]
 unsafe fn variant_to_ui_value(variant: &VARIANT) -> Option<UiValue> {
     let vt = unsafe { variant.Anonymous.Anonymous.vt.0 };
 
@@ -924,74 +995,75 @@ unsafe fn variant_to_ui_value(variant: &VARIANT) -> Option<UiValue> {
             match base {
                 x if x == VT_BSTR.0 => {
                     let mut b: BSTR = BSTR::new();
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut b as *mut _ as *mut _) }.is_ok() {
+                    if unsafe { SafeArrayGetElement(psa, &raw const i, (&raw mut b).cast()) }.is_ok() {
                         items.push(UiValue::from(b.to_string()));
                     }
                 }
                 x if x == VT_BOOL.0 => {
                     let mut v: VARIANT_BOOL = VARIANT_BOOL(0);
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }.is_ok() {
+                    if unsafe { SafeArrayGetElement(psa, &raw const i, (&raw mut v).cast()) }.is_ok() {
                         items.push(UiValue::from(v.as_bool()));
                     }
                 }
                 x if x == VT_I2.0 => {
                     let mut v: i16 = 0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }.is_ok() {
-                        items.push(UiValue::from(v as i64));
+                    if unsafe { SafeArrayGetElement(psa, &raw const i, (&raw mut v).cast()) }.is_ok() {
+                        items.push(UiValue::from(i64::from(v)));
                     }
                 }
                 x if x == VT_UI2.0 => {
                     let mut v: u16 = 0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }.is_ok() {
-                        items.push(UiValue::from(v as i64));
+                    if unsafe { SafeArrayGetElement(psa, &raw const i, (&raw mut v).cast()) }.is_ok() {
+                        items.push(UiValue::from(i64::from(v)));
                     }
                 }
                 x if x == VT_I4.0 => {
                     let mut v: i32 = 0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }.is_ok() {
-                        items.push(UiValue::from(v as i64));
+                    if unsafe { SafeArrayGetElement(psa, &raw const i, (&raw mut v).cast()) }.is_ok() {
+                        items.push(UiValue::from(i64::from(v)));
                     }
                 }
                 x if x == VT_UI4.0 => {
                     let mut v: u32 = 0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }.is_ok() {
-                        items.push(UiValue::from(v as i64));
+                    if unsafe { SafeArrayGetElement(psa, &raw const i, (&raw mut v).cast()) }.is_ok() {
+                        items.push(UiValue::from(i64::from(v)));
                     }
                 }
                 x if x == VT_I8.0 => {
                     let mut v: i64 = 0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }.is_ok() {
+                    if unsafe { SafeArrayGetElement(psa, &raw const i, (&raw mut v).cast()) }.is_ok() {
                         items.push(UiValue::from(v));
                     }
                 }
                 x if x == VT_UI8.0 => {
                     let mut v: u64 = 0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }.is_ok() {
-                        items.push(UiValue::from(v as i64));
+                    if unsafe { SafeArrayGetElement(psa, &raw const i, (&raw mut v).cast()) }.is_ok() {
+                        // UiValue has no unsigned integer; values above i64::MAX wrap, as before.
+                        items.push(UiValue::from(v.cast_signed()));
                     }
                 }
                 x if x == VT_R4.0 => {
                     let mut v: f32 = 0.0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }.is_ok() {
-                        items.push(UiValue::from(v as f64));
+                    if unsafe { SafeArrayGetElement(psa, &raw const i, (&raw mut v).cast()) }.is_ok() {
+                        items.push(UiValue::from(f64::from(v)));
                     }
                 }
                 x if x == VT_R8.0 => {
                     let mut v: f64 = 0.0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }.is_ok() {
+                    if unsafe { SafeArrayGetElement(psa, &raw const i, (&raw mut v).cast()) }.is_ok() {
                         items.push(UiValue::from(v));
                     }
                 }
                 x if x == VT_DATE.0 => {
                     let mut v: f64 = 0.0;
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut v as *mut _ as *mut _) }.is_ok() {
+                    if unsafe { SafeArrayGetElement(psa, &raw const i, (&raw mut v).cast()) }.is_ok() {
                         items.push(UiValue::from(v));
                     }
                 }
                 x if x == VT_DECIMAL.0 => {
                     let mut d: DECIMAL = unsafe { std::mem::zeroed() };
-                    if unsafe { SafeArrayGetElement(psa, &i as *const _, &mut d as *mut _ as *mut _) }.is_ok() {
-                        if let Ok(v) = unsafe { VarR8FromDec(&d) } {
+                    if unsafe { SafeArrayGetElement(psa, &raw const i, (&raw mut d).cast()) }.is_ok() {
+                        if let Ok(v) = unsafe { VarR8FromDec(&raw const d) } {
                             items.push(UiValue::from(v));
                         } else {
                             items.push(UiValue::from("DECIMAL(..)".to_string()));
@@ -1011,19 +1083,19 @@ unsafe fn variant_to_ui_value(variant: &VARIANT) -> Option<UiValue> {
         }
         x if x == VT_I2.0 => {
             let v = unsafe { variant.Anonymous.Anonymous.Anonymous.iVal };
-            Some(UiValue::from(v as i64))
+            Some(UiValue::from(i64::from(v)))
         }
         x if x == VT_I4.0 => {
             let v = unsafe { variant.Anonymous.Anonymous.Anonymous.lVal };
-            Some(UiValue::from(v as i64))
+            Some(UiValue::from(i64::from(v)))
         }
         x if x == VT_UI2.0 => {
             let v = unsafe { variant.Anonymous.Anonymous.Anonymous.uiVal };
-            Some(UiValue::from(v as i64))
+            Some(UiValue::from(i64::from(v)))
         }
         x if x == VT_UI4.0 => {
             let v = unsafe { variant.Anonymous.Anonymous.Anonymous.ulVal };
-            Some(UiValue::from(v as i64))
+            Some(UiValue::from(i64::from(v)))
         }
         x if x == VT_I8.0 => {
             let v = unsafe { variant.Anonymous.Anonymous.Anonymous.llVal };
@@ -1031,11 +1103,12 @@ unsafe fn variant_to_ui_value(variant: &VARIANT) -> Option<UiValue> {
         }
         x if x == VT_UI8.0 => {
             let v = unsafe { variant.Anonymous.Anonymous.Anonymous.ullVal };
-            Some(UiValue::from(v as i64))
+            // UiValue has no unsigned integer; values above i64::MAX wrap, as before.
+            Some(UiValue::from(v.cast_signed()))
         }
         x if x == VT_R4.0 => {
             let v = unsafe { variant.Anonymous.Anonymous.Anonymous.fltVal };
-            Some(UiValue::from(v as f64))
+            Some(UiValue::from(f64::from(v)))
         }
         x if x == VT_R8.0 => {
             let v = unsafe { variant.Anonymous.Anonymous.Anonymous.dblVal };

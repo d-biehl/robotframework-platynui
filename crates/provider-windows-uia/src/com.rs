@@ -2,10 +2,13 @@
 //!
 //! - `ensure_com_mta()` calls `CoInitializeEx(nullptr, COINIT_MULTITHREADED)` once per thread.
 //! - `uia()` returns a thread-local `IUIAutomation` instance (created once via `CoCreateInstance`).
-//! - `raw_walker()` returns a thread-local RawView `IUIAutomationTreeWalker`.
+//! - `raw_walker()` returns a thread-local `RawView` `IUIAutomationTreeWalker`.
 //!
 //! This avoids repeatedly creating COM objects and keeps all UIA calls on the
 //! same MTA thread when used from iterator code.
+
+// COM FFI module: every call it makes is `unsafe` by signature.
+#![allow(unsafe_code)]
 
 use std::cell::{Cell, RefCell};
 use std::sync::Mutex;
@@ -24,7 +27,7 @@ thread_local! {
 }
 
 // HRESULT for "cannot change thread mode after it is set".
-const RPC_E_CHANGED_MODE_HRESULT: i32 = 0x8001_0106u32 as i32;
+const RPC_E_CHANGED_MODE_HRESULT: i32 = 0x8001_0106u32.cast_signed();
 
 pub fn ensure_com_mta() {
     COM_INIT.with(|flag| {
@@ -74,7 +77,7 @@ fn create_uia_serialized() -> Result<IUIAutomation, crate::error::UiaError> {
     // Poisoning carries no broken invariant here: the flag only records whether
     // the library has been warmed up, so a panicking initializer just means the
     // next arrival retries.
-    let mut warmed_up = FIRST_INIT.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut warmed_up = FIRST_INIT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
 
     let created: IUIAutomation = unsafe {
         crate::error::uia_api(
@@ -113,8 +116,8 @@ pub fn raw_walker() -> Result<IUIAutomationTreeWalker, crate::error::UiaError> {
 }
 
 /// Returns a cached `IUIAutomationCacheRequest` pre-loaded with properties needed during tree
-/// traversal: ProcessId, ControlType, IsControlElement, IsContentElement, AutomationId,
-/// and RuntimeId. Using BuildCache walker methods with this request fetches all properties
+/// traversal: `ProcessId`, `ControlType`, `IsControlElement`, `IsContentElement`, `AutomationId`,
+/// and `RuntimeId`. Using `BuildCache` walker methods with this request fetches all properties
 /// in a single cross-process call per element rather than one call per property.
 /// Clears all thread-local COM singletons on the calling thread.
 ///

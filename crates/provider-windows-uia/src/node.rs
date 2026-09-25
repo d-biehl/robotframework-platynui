@@ -1,6 +1,9 @@
-//! Windows UIAutomation node wrapper and iterators (no provider-side caching).
+//! Windows `UIAutomation` node wrapper and iterators (no provider-side caching).
 //!
-//! UiaNode reflects the current UIA state; no heavy provider‑side caches.
+//! `UiaNode` reflects the current UIA state; no heavy provider‑side caches.
+
+// COM FFI module: nearly every UIA call it makes is `unsafe` by signature.
+#![allow(unsafe_code)]
 
 use std::sync::LazyLock;
 use std::sync::{Arc, Mutex, Weak};
@@ -24,7 +27,7 @@ use windows::Win32::UI::Accessibility::{
 };
 use windows::core::Interface;
 
-/// Thread-safe checker for WaitForInputIdle using process ID
+/// Thread-safe checker for `WaitForInputIdle` using process ID
 #[derive(Clone)]
 struct WaitForInputIdleChecker {
     pid: i32,
@@ -35,18 +38,16 @@ impl WaitForInputIdleChecker {
         Self { pid }
     }
 
-    fn check_input_idle(&self) -> Result<Option<bool>, PatternError> {
+    fn check_input_idle(&self) -> bool {
         if self.pid <= 0 {
-            return Ok(Some(false)); // Invalid process ID
+            return false; // Invalid process ID
         }
 
-        // Open process handle with query rights
-        let process_handle = match unsafe { OpenProcess(PROCESS_QUERY_INFORMATION, false, self.pid as u32) } {
-            Ok(handle) => handle,
-            Err(_) => {
-                // Process might not be accessible or doesn't exist anymore
-                return Ok(Some(false));
-            }
+        // Open process handle with query rights (the pid is positive, checked above)
+        let Ok(process_handle) = (unsafe { OpenProcess(PROCESS_QUERY_INFORMATION, false, self.pid.cast_unsigned()) })
+        else {
+            // Process might not be accessible or doesn't exist anymore
+            return false;
         };
 
         // Call WaitForInputIdle with a short timeout (100ms)
@@ -55,7 +56,7 @@ impl WaitForInputIdleChecker {
             let _ = CloseHandle(process_handle);
         };
 
-        if result == WAIT_OBJECT_0.0 { Ok(Some(true)) } else { Ok(Some(false)) }
+        result == WAIT_OBJECT_0.0
     }
 }
 
@@ -171,7 +172,7 @@ impl UiaNode {
         let _ = this.self_weak.set(Arc::downgrade(&arc));
     }
     fn as_ui_node(&self) -> Option<Arc<dyn UiNode>> {
-        self.self_weak.get().and_then(|w| w.upgrade())
+        self.self_weak.get().and_then(std::sync::Weak::upgrade)
     }
 
     /// Builds the App-scoped ancestor chain above `leaf` — a node resolved out
@@ -187,6 +188,8 @@ impl UiaNode {
     /// on any COM failure the chain simply ends early (reveal then no-ops rather
     /// than mis-selecting), and the depth is bounded.
     pub(crate) fn attach_ancestor_chain(leaf: &Arc<UiaNode>, pid: i32) {
+        const MAX_ANCESTORS: usize = 256;
+
         let Ok(uia) = crate::com::uia() else { return };
         let Ok(walker) = crate::com::raw_walker() else { return };
         let Ok(root) = (unsafe { uia.GetRootElement() }) else { return };
@@ -195,16 +198,12 @@ impl UiaNode {
         let mut child: Arc<UiaNode> = Arc::clone(leaf);
         let mut child_elem = leaf.elem.clone();
 
-        const MAX_ANCESTORS: usize = 256;
         for _ in 0..MAX_ANCESTORS {
-            let parent_elem = match unsafe { walker.GetParentElement(&child_elem) } {
-                Ok(parent) => parent,
-                Err(_) => break,
-            };
+            let Ok(parent_elem) = (unsafe { walker.GetParentElement(&child_elem) }) else { break };
             // Reached the desktop root: `child` is a top-level window. Stop and
             // cap it with the application node below (the tree groups an app's
             // windows under `app:Application`, not under the raw desktop root).
-            if unsafe { uia.CompareElements(&parent_elem, &root) }.map(|b| b.as_bool()).unwrap_or(false) {
+            if unsafe { uia.CompareElements(&parent_elem, &root) }.is_ok_and(windows::core::BOOL::as_bool) {
                 break;
             }
             let parent_node = UiaNode::from_elem_with_scope(parent_elem.clone(), scope);
@@ -225,14 +224,14 @@ impl UiaNode {
     pub(crate) fn populate_cached_properties(&self) {
         let elem = &self.elem;
         let _ = self.ns_cell.get_or_init(|| unsafe {
-            let is_control = elem.CachedIsControlElement().map(|b| b.as_bool()).unwrap_or(true);
+            let is_control = elem.CachedIsControlElement().map_or(true, windows::core::BOOL::as_bool);
             if is_control {
                 return Namespace::Control;
             }
-            let is_content = elem.CachedIsContentElement().map(|b| b.as_bool()).unwrap_or(false);
+            let is_content = elem.CachedIsContentElement().is_ok_and(windows::core::BOOL::as_bool);
             if is_content { Namespace::Item } else { Namespace::Control }
         });
-        let _ = self.ct_cell.get_or_init(|| unsafe { elem.CachedControlType().map(|value| value.0).unwrap_or(0) });
+        let _ = self.ct_cell.get_or_init(|| unsafe { elem.CachedControlType().map_or(0, |value| value.0) });
         let _ = self.id_cell.get_or_init(|| unsafe {
             match elem.CachedAutomationId() {
                 Ok(bstr) => {
@@ -244,11 +243,11 @@ impl UiaNode {
         });
     }
 
-    /// Cached check: does this element support WindowPattern or TransformPattern?
+    /// Cached check: does this element support `WindowPattern` or `TransformPattern`?
     /// Avoids repeated COM cross-process calls.
     fn has_window_surface(&self) -> bool {
         *self.has_window_surface.get_or_init(|| {
-            use windows::Win32::UI::Accessibility::*;
+            use windows::Win32::UI::Accessibility::{UIA_PATTERN_ID, UIA_TransformPatternId, UIA_WindowPatternId};
             unsafe {
                 let has_window = self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_WindowPatternId.0)).is_ok();
                 let has_transform = self.elem.GetCurrentPattern(UIA_PATTERN_ID(UIA_TransformPatternId.0)).is_ok();
@@ -352,11 +351,11 @@ impl UiaNode {
 impl UiNode for UiaNode {
     fn namespace(&self) -> Namespace {
         *self.ns_cell.get_or_init(|| unsafe {
-            let is_control = self.elem.CurrentIsControlElement().map(|b| b.as_bool()).unwrap_or(true);
+            let is_control = self.elem.CurrentIsControlElement().map_or(true, windows::core::BOOL::as_bool);
             if is_control {
                 return Namespace::Control;
             }
-            let is_content = self.elem.CurrentIsContentElement().map(|b| b.as_bool()).unwrap_or(false);
+            let is_content = self.elem.CurrentIsContentElement().is_ok_and(windows::core::BOOL::as_bool);
             if is_content { Namespace::Item } else { Namespace::Control }
         })
     }
@@ -411,7 +410,8 @@ impl UiNode for UiaNode {
         let has_ws = self.has_window_surface();
         let has_text = self.has_text_surface();
         Box::new(
-            AttrsIter::with_surfaces(self.elem.clone(), owner, rid_str, has_ws, has_text).chain(self.jvm_attributes()),
+            AttrsIter::with_surfaces(self.elem.clone(), owner.as_ref(), rid_str, has_ws, has_text)
+                .chain(self.jvm_attributes()),
         )
     }
 
@@ -519,8 +519,14 @@ impl UiNode for UiaNode {
         }
         out
     }
+    // One branch per supported pattern name, each building its action closure.
+    #[allow(clippy::too_many_lines)]
     fn pattern_by_name(&self, pattern: &PatternName) -> Option<Arc<dyn UiPattern>> {
-        use windows::Win32::UI::Accessibility::*;
+        use windows::Win32::UI::Accessibility::{
+            IUIAutomationTransformPattern, IUIAutomationVirtualizedItemPattern, IUIAutomationWindowPattern,
+            UIA_PATTERN_ID, UIA_TransformPatternId, UIA_WindowPatternId, WindowVisualState,
+            WindowVisualState_Maximized, WindowVisualState_Minimized, WindowVisualState_Normal,
+        };
         use windows::core::Interface;
         let pid = pattern.as_str();
         if pid == FocusableAction::static_pattern_name().as_str() && self.is_keyboard_focusable() {
@@ -688,8 +694,7 @@ impl UiNode for UiaNode {
                 let proc_pid = crate::map::get_process_id(&self.elem).unwrap_or(-1);
                 let input_checker = WaitForInputIdleChecker::new(proc_pid);
                 let action = ResponsiveAction::new(move || -> Result<Option<bool>, PatternError> {
-                    let idle_result = input_checker.check_input_idle()?;
-                    if Some(false) == idle_result {
+                    if !input_checker.check_input_idle() {
                         return Ok(Some(false));
                     }
                     Ok(None)
@@ -789,7 +794,7 @@ impl Iterator for ElementChildrenIter {
 }
 
 // Cache current process id once for the entire module; process id is stable for the process lifetime.
-static SELF_PID: LazyLock<i32> = LazyLock::new(|| std::process::id() as i32);
+static SELF_PID: LazyLock<i32> = LazyLock::new(|| std::process::id().cast_signed());
 
 struct RoleAttr {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
@@ -798,7 +803,7 @@ impl UiAttribute for RoleAttr {
     fn namespace(&self) -> Namespace {
         Namespace::Control
     }
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "Role"
     }
     fn value(&self) -> UiValue {
@@ -815,7 +820,7 @@ impl UiAttribute for NameAttr {
     fn namespace(&self) -> Namespace {
         Namespace::Control
     }
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "Name"
     }
     fn value(&self) -> UiValue {
@@ -832,7 +837,7 @@ impl UiAttribute for RuntimeIdAttr {
     fn namespace(&self) -> Namespace {
         Namespace::Control
     }
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "RuntimeId"
     }
     fn value(&self) -> UiValue {
@@ -849,7 +854,7 @@ impl UiAttribute for BoundsAttr {
     fn namespace(&self) -> Namespace {
         Namespace::Control
     }
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "Bounds"
     }
     fn value(&self) -> UiValue {
@@ -866,7 +871,7 @@ impl UiAttribute for IsEnabledAttr {
     fn namespace(&self) -> Namespace {
         Namespace::Control
     }
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "IsEnabled"
     }
     fn value(&self) -> UiValue {
@@ -883,7 +888,7 @@ impl UiAttribute for IsInViewAttr {
     fn namespace(&self) -> Namespace {
         Namespace::Control
     }
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "IsInView"
     }
     fn value(&self) -> UiValue {
@@ -900,7 +905,7 @@ impl UiAttribute for ActivationPointAttr {
     fn namespace(&self) -> Namespace {
         Namespace::Control
     }
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "ActivationPoint"
     }
     fn value(&self) -> UiValue {
@@ -921,7 +926,7 @@ impl UiAttribute for IsVisibleAttr {
     fn namespace(&self) -> Namespace {
         Namespace::Control
     }
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "IsVisible"
     }
     fn value(&self) -> UiValue {
@@ -954,12 +959,12 @@ impl AttrsIter {
     /// cross-process reads the node has already paid for.
     fn with_surfaces(
         elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
-        owner: Option<Arc<dyn UiNode>>,
+        owner: Option<&Arc<dyn UiNode>>,
         rid_str: String,
         has_window_surface: bool,
         has_text_surface: bool,
     ) -> Self {
-        let owner_weak = owner.as_ref().map(Arc::downgrade);
+        let owner_weak = owner.map(Arc::downgrade);
         Self {
             idx: 0,
             elem,
@@ -974,6 +979,8 @@ impl AttrsIter {
 }
 impl Iterator for AttrsIter {
     type Item = Arc<dyn UiAttribute>;
+    // One dispatch arm per standard attribute index, then the native stream.
+    #[allow(clippy::too_many_lines)]
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let elem = self.elem.clone();
@@ -982,7 +989,7 @@ impl Iterator for AttrsIter {
                 1 => Some(Arc::new(NameAttr { elem: elem.clone() }) as Arc<dyn UiAttribute>),
                 2 => {
                     // Only expose Id attribute when node.id() is present
-                    let present = self.owner.as_ref().and_then(|w| w.upgrade()).and_then(|n| n.id()).is_some();
+                    let present = self.owner.as_ref().and_then(std::sync::Weak::upgrade).and_then(|n| n.id()).is_some();
                     if present {
                         Some(Arc::new(IdAttr { owner: self.owner.clone() }) as Arc<dyn UiAttribute>)
                     } else {
@@ -992,7 +999,8 @@ impl Iterator for AttrsIter {
                 3 => {
                     // Only expose Description when node.description() is present
                     // (D2: non-empty `FullDescription`).
-                    let present = self.owner.as_ref().and_then(|w| w.upgrade()).and_then(|n| n.description()).is_some();
+                    let present =
+                        self.owner.as_ref().and_then(std::sync::Weak::upgrade).and_then(|n| n.description()).is_some();
                     if present {
                         Some(Arc::new(DescriptionAttr { owner: self.owner.clone() }) as Arc<dyn UiAttribute>)
                     } else {
@@ -1099,32 +1107,27 @@ impl Iterator for AttrsIter {
                 _ => None,
             };
             self.idx = self.idx.saturating_add(1);
-            match item {
-                Some(attr) => return Some(attr),
-                None => {
-                    if self.idx > NATIVE_ATTR_IDX && self.native_cache.is_some() {
-                        // Continue streaming native cache until exhausted
-                        if let Some(list) = self.native_cache.as_ref()
-                            && self.native_pos < list.len()
-                        {
-                            // compensate index bump and yield next from cache
-                            self.idx -= 1;
-                            let attr = list[self.native_pos].clone();
-                            self.native_pos += 1;
-                            return Some(attr);
-                        }
-                    }
-                    if self.idx > NATIVE_ATTR_IDX && self.native_cache.is_none() {
-                        // No native props at all
-                        return None;
-                    }
-                    if self.idx > NATIVE_ATTR_IDX
-                        && self.native_cache.as_ref().map(|v| self.native_pos >= v.len()).unwrap_or(false)
-                    {
-                        return None;
-                    }
-                    continue;
+            if let Some(attr) = item {
+                return Some(attr);
+            }
+            if self.idx > NATIVE_ATTR_IDX && self.native_cache.is_some() {
+                // Continue streaming native cache until exhausted
+                if let Some(list) = self.native_cache.as_ref()
+                    && self.native_pos < list.len()
+                {
+                    // compensate index bump and yield next from cache
+                    self.idx -= 1;
+                    let attr = list[self.native_pos].clone();
+                    self.native_pos += 1;
+                    return Some(attr);
                 }
+            }
+            if self.idx > NATIVE_ATTR_IDX && self.native_cache.is_none() {
+                // No native props at all
+                return None;
+            }
+            if self.idx > NATIVE_ATTR_IDX && self.native_cache.as_ref().is_some_and(|v| self.native_pos >= v.len()) {
+                return None;
             }
         }
     }
@@ -1138,7 +1141,7 @@ impl UiAttribute for IsFocusedAttr {
     fn namespace(&self) -> Namespace {
         Namespace::Control
     }
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "IsFocused"
     }
     fn value(&self) -> UiValue {
@@ -1169,7 +1172,7 @@ impl UiAttribute for TextAttr {
         text_content::TEXT
     }
     fn value(&self) -> UiValue {
-        crate::map::get_text_content(&self.elem).map(UiValue::from).unwrap_or(UiValue::Null)
+        crate::map::get_text_content(&self.elem).map_or(UiValue::Null, UiValue::from)
     }
 }
 unsafe impl Send for TextAttr {}
@@ -1230,7 +1233,7 @@ impl UiAttribute for SupportedPatternsAttr {
         let patterns = self
             .owner
             .as_ref()
-            .and_then(|weak| weak.upgrade())
+            .and_then(std::sync::Weak::upgrade)
             .map(|node| node.supported_patterns())
             .unwrap_or_default();
         supported_patterns_value(&patterns)
@@ -1327,7 +1330,7 @@ impl UiAttribute for AppProcessIdAttr {
         platynui_core::ui::attribute_names::application::PROCESS_ID
     }
     fn value(&self) -> UiValue {
-        UiValue::from(self.pid as i64)
+        UiValue::from(i64::from(self.pid))
     }
 }
 
@@ -1368,7 +1371,7 @@ impl UiAttribute for AppExecutablePathAttr {
     }
     fn value(&self) -> UiValue {
         if let Some(h) = crate::map::open_process_query(self.pid) {
-            let out = crate::map::query_executable_path(h).map(UiValue::from).unwrap_or(UiValue::from(""));
+            let out = crate::map::query_executable_path(h).map_or(UiValue::from(""), UiValue::from);
             unsafe {
                 let _ = CloseHandle(h);
             }
@@ -1390,7 +1393,7 @@ impl UiAttribute for AppCommandLineAttr {
     }
     fn value(&self) -> UiValue {
         if let Some(h) = crate::map::open_process_query(self.pid) {
-            let out = crate::map::query_process_command_line(h).map(UiValue::from).unwrap_or(UiValue::Null);
+            let out = crate::map::query_process_command_line(h).map_or(UiValue::Null, UiValue::from);
             unsafe {
                 let _ = CloseHandle(h);
             }
@@ -1412,7 +1415,7 @@ impl UiAttribute for AppUserNameAttr {
     }
     fn value(&self) -> UiValue {
         if let Some(h) = crate::map::open_process_query(self.pid) {
-            let out = crate::map::query_process_username(h).map(UiValue::from).unwrap_or(UiValue::from(""));
+            let out = crate::map::query_process_username(h).map_or(UiValue::from(""), UiValue::from);
             unsafe {
                 let _ = CloseHandle(h);
             }
@@ -1434,7 +1437,7 @@ impl UiAttribute for AppStartTimeAttr {
     }
     fn value(&self) -> UiValue {
         if let Some(h) = crate::map::open_process_query(self.pid) {
-            let out = crate::map::query_process_start_time_iso8601(h).map(UiValue::from).unwrap_or(UiValue::from(""));
+            let out = crate::map::query_process_start_time_iso8601(h).map_or(UiValue::from(""), UiValue::from);
             unsafe {
                 let _ = CloseHandle(h);
             }
@@ -1464,7 +1467,7 @@ impl UiAttribute for AppArchitectureAttr {
                 }
                 return UiValue::from(a);
             }
-            let out = crate::map::process_architecture(h).map(UiValue::from).unwrap_or(UiValue::from("unknown"));
+            let out = UiValue::from(crate::map::process_architecture(h));
             unsafe {
                 let _ = CloseHandle(h);
             }
@@ -1481,8 +1484,8 @@ struct AppAttrsIter {
     owner: Option<Weak<dyn UiNode>>,
 }
 impl AppAttrsIter {
-    fn new(pid: i32, rid: &str, owner: Option<Arc<dyn UiNode>>) -> Self {
-        Self { pid, rid: rid.to_owned(), idx: 0, owner: owner.as_ref().map(Arc::downgrade) }
+    fn new(pid: i32, rid: &str, owner: Option<&Arc<dyn UiNode>>) -> Self {
+        Self { pid, rid: rid.to_owned(), idx: 0, owner: owner.map(Arc::downgrade) }
     }
 }
 impl Iterator for AppAttrsIter {
@@ -1494,7 +1497,7 @@ impl Iterator for AppAttrsIter {
             2 => Some(Arc::new(AppRuntimeIdAttr { rid: self.rid.clone() }) as Arc<dyn UiAttribute>),
             // 3: optional developer Id (delegates to node.id())
             3 => {
-                let present = self.owner.as_ref().and_then(|w| w.upgrade()).and_then(|n| n.id()).is_some();
+                let present = self.owner.as_ref().and_then(std::sync::Weak::upgrade).and_then(|n| n.id()).is_some();
                 if present {
                     Some(Arc::new(IdAttr { owner: self.owner.clone() }) as Arc<dyn UiAttribute>)
                 } else {
@@ -1527,7 +1530,7 @@ impl UiAttribute for IsMinimizedAttr {
     fn namespace(&self) -> Namespace {
         Namespace::Control
     }
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "IsMinimized"
     }
     fn value(&self) -> UiValue {
@@ -1557,7 +1560,7 @@ impl UiAttribute for IsMaximizedAttr {
     fn namespace(&self) -> Namespace {
         Namespace::Control
     }
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "IsMaximized"
     }
     fn value(&self) -> UiValue {
@@ -1586,7 +1589,7 @@ impl UiAttribute for IsTopmostAttr {
     fn namespace(&self) -> Namespace {
         Namespace::Control
     }
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "IsTopmost"
     }
     fn value(&self) -> UiValue {
@@ -1615,7 +1618,7 @@ impl UiAttribute for IsActiveAttr {
     fn namespace(&self) -> Namespace {
         Namespace::Control
     }
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "IsActive"
     }
     fn value(&self) -> UiValue {
@@ -1643,7 +1646,7 @@ impl UiAttribute for IsModalAttr {
     fn namespace(&self) -> Namespace {
         Namespace::Control
     }
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "IsModal"
     }
     fn value(&self) -> UiValue {
@@ -1671,7 +1674,7 @@ impl UiAttribute for CanMoveAttr {
     fn namespace(&self) -> Namespace {
         Namespace::Control
     }
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "CanMove"
     }
     fn value(&self) -> UiValue {
@@ -1701,7 +1704,7 @@ impl UiAttribute for CanResizeAttr {
     fn namespace(&self) -> Namespace {
         Namespace::Control
     }
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "CanResize"
     }
     fn value(&self) -> UiValue {
@@ -1835,7 +1838,7 @@ impl UiNode for ApplicationNode {
     fn namespace(&self) -> Namespace {
         Namespace::App
     }
-    fn role(&self) -> &str {
+    fn role(&self) -> &'static str {
         "Application"
     }
     fn name(&self) -> String {
@@ -1870,7 +1873,7 @@ impl UiNode for ApplicationNode {
         }
     }
     fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
-        let parent = self.self_weak.get().and_then(|w| w.upgrade());
+        let parent = self.self_weak.get().and_then(std::sync::Weak::upgrade);
         Box::new(AppWindowIter::new(self.pid, parent, self.honor_window_claims, self.java_classifier.clone()))
     }
 
@@ -1880,8 +1883,8 @@ impl UiNode for ApplicationNode {
     }
 
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
-        let owner = self.self_weak.get().and_then(|w| w.upgrade());
-        Box::new(AppAttrsIter::new(self.pid, self.runtime_id().as_str(), owner))
+        let owner = self.self_weak.get().and_then(std::sync::Weak::upgrade);
+        Box::new(AppAttrsIter::new(self.pid, self.runtime_id().as_str(), owner.as_ref()))
     }
     fn supported_patterns(&self) -> Vec<PatternName> {
         Vec::new()
@@ -1889,6 +1892,8 @@ impl UiNode for ApplicationNode {
     fn invalidate(&self) {
         // No-op: children are resolved from UIA on demand.
     }
+    // Process ids are non-negative, so the widening cast keeps their order.
+    #[allow(clippy::cast_sign_loss)]
     fn doc_order_key(&self) -> Option<u64> {
         Some(self.pid as u64)
     }
@@ -1985,7 +1990,7 @@ mod attribute_surface_tests {
     ///
     /// Panics rather than skipping when UIA is unreachable: a skip would let
     /// every test in this module pass while checking nothing. The crate is
-    /// `cfg`-gated to Windows, where UIAutomationCore is part of the OS, so an
+    /// `cfg`-gated to Windows, where `UIAutomationCore` is part of the OS, so an
     /// unreachable desktop root is a genuine problem rather than an environment
     /// to tiptoe around.
     fn desktop_root_node() -> Arc<UiaNode> {
@@ -2005,7 +2010,7 @@ mod attribute_surface_tests {
 
     /// The guard for the dual attribute path: `attributes()` enumerates and
     /// `attribute()` matches by name, independently. Anything the enumeration
-    /// yields must be reachable through the single lookup too, or an XPath
+    /// yields must be reachable through the single lookup too, or an `XPath`
     /// predicate silently matches nothing while the Inspector shows the value.
     #[test]
     fn enumerated_control_attributes_are_resolvable_by_name() {
@@ -2077,7 +2082,7 @@ mod attribute_surface_tests {
     /// existing ones.
     #[test]
     fn application_node_carries_the_common_attributes() {
-        let app = ApplicationNode::orphan(std::process::id() as i32);
+        let app = ApplicationNode::orphan(std::process::id().cast_signed());
         let attributes: Vec<Arc<dyn UiAttribute>> = app.attributes().collect();
         let value = |name: &str| {
             attributes
