@@ -22,6 +22,9 @@ mock-provider = [
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py312"] }
 png = "0.18"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
+# Forwards native diagnostics to Python `logging` (src/log_bridge.rs); the
+# extension is the one place outside the binaries that installs a subscriber.
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "env-filter", "std"] }
 
 
 # Internal crates

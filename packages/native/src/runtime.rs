@@ -709,9 +709,38 @@ pub struct PyRuntime {
     instance_id: u64,
 }
 
+/// Exclusive access to a runtime for one Python-facing call. Dropping it
+/// releases the runtime lock and then delivers the native log records the call
+/// queued, so a Python log handler may call back into the same runtime.
+struct RuntimeAccess<'a> {
+    guard: Option<MutexGuard<'a, runtime_rs::Runtime>>,
+}
+
+impl std::ops::Deref for RuntimeAccess<'_> {
+    type Target = runtime_rs::Runtime;
+
+    fn deref(&self) -> &Self::Target {
+        self.guard.as_deref().expect("the runtime lock is held until the access is dropped")
+    }
+}
+
+impl std::ops::DerefMut for RuntimeAccess<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.guard.as_deref_mut().expect("the runtime lock is held until the access is dropped")
+    }
+}
+
+impl Drop for RuntimeAccess<'_> {
+    fn drop(&mut self) {
+        drop(self.guard.take());
+        crate::log_bridge::deliver_attached();
+    }
+}
+
 impl PyRuntime {
-    fn runtime(&self) -> PyResult<MutexGuard<'_, runtime_rs::Runtime>> {
-        self.inner.lock().map_err(|_| PyException::new_err("runtime mutex poisoned"))
+    fn runtime(&self) -> PyResult<RuntimeAccess<'_>> {
+        let guard = self.inner.lock().map_err(|_| PyException::new_err("runtime mutex poisoned"))?;
+        Ok(RuntimeAccess { guard: Some(guard) })
     }
 
     fn new_from(inner: runtime_rs::Runtime) -> Self {

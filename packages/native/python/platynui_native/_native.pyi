@@ -662,6 +662,25 @@ class KeyboardProfile:
     @property
     def after_text_delay_ms(self) -> float: ...
 
+# ===== Native logging =====
+
+def flush_logs() -> None:
+    """Deliver every queued native log record to Python ``logging`` now.
+
+    Records are otherwise delivered when a runtime call returns; call this after
+    working with nodes and patterns, whose calls do not deliver.
+    """
+
+def set_log_level(level: str | None = None) -> None:
+    """Set the level down to which PlatynUI's native modules produce log records.
+
+    ``None`` returns to the default, ``warn``. Accepts ``error``, ``warn``,
+    ``info``, ``debug`` and ``trace`` (case-insensitive). ``RUST_LOG`` in the
+    environment takes precedence; ``PLATYNUI_LOG_LEVEL`` applies when no level
+    is set. Third-party modules stay at ``warn`` unless the environment says
+    otherwise.
+    """
+
 # ===== Module exports =====
 
 __all__ = [
@@ -719,4 +738,6 @@ __all__ = [
     'UiAttribute',
     'UiNode',
     'UiValue',
+    'flush_logs',
+    'set_log_level',
 ]

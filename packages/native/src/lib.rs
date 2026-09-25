@@ -7,6 +7,7 @@ use pyo3::prelude::*;
 use platynui_link::platynui_link_providers;
 
 mod core;
+mod log_bridge;
 mod runtime;
 
 platynui_link_providers!();
@@ -20,6 +21,10 @@ fn _native(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Register all runtime types and functions directly in the main module
     runtime::register_types(py, m)?;
+
+    // Forward native diagnostics to Python `logging` from here on.
+    log_bridge::register(m)?;
+    log_bridge::install(py)?;
 
     Ok(())
 }

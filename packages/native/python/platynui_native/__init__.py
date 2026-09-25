@@ -45,6 +45,8 @@ from ._native import (
     TechnologyId,
     UiAttribute,
     UiNode,
+    flush_logs,
+    set_log_level,
 )
 
 # The pointer enums are built from Rust through the IntEnum functional API, which leaves them
@@ -288,4 +290,6 @@ __all__ = [
     'UiAttribute',
     'UiNode',
     'UiValue',
+    'flush_logs',
+    'set_log_level',
 ]
