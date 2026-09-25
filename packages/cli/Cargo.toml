@@ -12,3 +12,6 @@ platynui-cli = { path = "../../crates/cli" }
 [[bin]]
 name = "platynui-cli"
 path = "src/main.rs"
+
+[lints]
+workspace = true
