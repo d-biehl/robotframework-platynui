@@ -18,6 +18,9 @@ impl ScreenshotProvider for LinuxScreenshot {
         let root = self.conn.root;
 
         // Determine region: entire root if none specified
+        // X11 GetImage takes i16/u16 geometry; saturating the rounded region
+        // is the intended conversion.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let (x, y, w, h) = if let Some(r) = request.region {
             (r.x().round() as i16, r.y().round() as i16, r.width().round() as u16, r.height().round() as u16)
         } else {

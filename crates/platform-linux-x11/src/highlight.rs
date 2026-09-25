@@ -21,6 +21,7 @@ pub struct LinuxHighlightProvider {
 
 impl LinuxHighlightProvider {
     /// Spawn the overlay thread bound to `display`.
+    #[must_use]
     pub fn new(display: String) -> Self {
         Self { ctrl: OverlayThread::spawn(display) }
     }
@@ -85,13 +86,16 @@ struct OverlayThread;
 impl OverlayThread {
     fn spawn(display: String) -> OverlayController {
         let (tx, rx) = std::sync::mpsc::channel::<Command>();
-        let handle = thread::spawn(move || Self::run(rx, display));
+        let handle = thread::spawn(move || Self::run(&rx, &display));
         OverlayController { tx, handle: Some(handle) }
     }
 
-    fn run(rx: Receiver<Command>, display: String) {
+    // The overlay event loop: one arm per command, the Show arm drawing the
+    // frame windows inline.
+    #[allow(clippy::too_many_lines)]
+    fn run(rx: &Receiver<Command>, display: &str) {
         // Separate X11 connection in this thread, bound to the runtime's display.
-        let (conn, screen_num) = match connect_raw(&display) {
+        let (conn, screen_num) = match connect_raw(display) {
             Ok(v) => v,
             Err(err) => {
                 tracing::warn!(%err, "highlight thread: X11 connect failed");
@@ -106,14 +110,19 @@ impl OverlayThread {
             .alloc_color(screen.default_colormap, u16::MAX, 0, 0)
             .ok()
             .and_then(|c| c.reply().ok())
-            .map(|r| r.pixel)
-            .unwrap_or(0x00FF_0000); // fallback to 0xRRGGBB
+            .map_or(0x00FF_0000, |r| r.pixel); // fallback to 0xRRGGBB
 
         let mut deadline: Option<Instant> = None;
         let mut segments: Vec<Window> = Vec::new();
         loop {
             match rx.recv_timeout(Duration::from_millis(16)) {
                 Ok(Command::Show { rects, duration }) => {
+                    // Safety cap: avoid flooding the X server with hundreds
+                    // of tiny override_redirect windows (e.g. dashed edges
+                    // around full-screen bounds).  Fall back to solid edges
+                    // when the segment count exceeds a reasonable limit.
+                    const MAX_OVERLAY_WINDOWS: usize = 64;
+
                     if rects.is_empty() {
                         // Treat as clear
                         for w in &segments {
@@ -147,11 +156,6 @@ impl OverlayThread {
 
                     let frame_rects = frame_segments(&clamped_pairs, 3);
 
-                    // Safety cap: avoid flooding the X server with hundreds
-                    // of tiny override_redirect windows (e.g. dashed edges
-                    // around full-screen bounds).  Fall back to solid edges
-                    // when the segment count exceeds a reasonable limit.
-                    const MAX_OVERLAY_WINDOWS: usize = 64;
                     let frame_rects = if frame_rects.len() > MAX_OVERLAY_WINDOWS {
                         // Re-generate with solid edges only (4 windows).
                         let solid_pairs: Vec<(Rect, Rect)> = clamped_pairs.iter().map(|(_, c)| (*c, *c)).collect();
@@ -161,6 +165,9 @@ impl OverlayThread {
                     };
 
                     for (idx, r) in frame_rects.iter().enumerate() {
+                        // X11 rectangles are i16/u16; saturating the rounded
+                        // f64 geometry is the intended conversion.
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                         let rect = Rectangle {
                             x: r.x().round() as i16,
                             y: r.y().round() as i16,
@@ -285,8 +292,8 @@ fn intersect_rect(a: &Rect, b: &Rect) -> Option<Rect> {
 }
 
 fn expand_rect(r: &Rect, thickness: i32, gap: i32) -> Rect {
-    let t = thickness as f64;
-    let g = gap as f64;
+    let t = f64::from(thickness);
+    let g = f64::from(gap);
     Rect::new(r.x() - (t + g), r.y() - (t + g), r.width() + 2.0 * (t + g), r.height() + 2.0 * (t + g))
 }
 
@@ -320,7 +327,6 @@ fn frame_segments(pairs: &[(Rect, Rect)], thickness: i32) -> Vec<Rect> {
     const DASH_LEN: f64 = 8.0;
     const GAP_LEN: f64 = 4.0;
 
-    let mut result = Vec::new();
     fn push_hline(result: &mut Vec<Rect>, x_start: f64, x_end: f64, y: f64, t: f64, style: LineStyle) {
         if style == LineStyle::Solid {
             result.push(Rect::new(x_start, y, x_end - x_start, t));
@@ -346,8 +352,10 @@ fn frame_segments(pairs: &[(Rect, Rect)], thickness: i32) -> Vec<Rect> {
             y += DASH_LEN + GAP_LEN;
         }
     }
+
+    let mut result = Vec::new();
     for (expanded, clamped) in pairs {
-        let t = thickness as f64;
+        let t = f64::from(thickness);
         let x0 = clamped.x();
         let y0 = clamped.y();
         let w = clamped.width();

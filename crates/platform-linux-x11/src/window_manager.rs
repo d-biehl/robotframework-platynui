@@ -100,6 +100,13 @@ fn atoms(x11: &X11Connection) -> Result<std::sync::MutexGuard<'static, EwmhAtoms
 //  XID resolution helpers
 // ---------------------------------------------------------------------------
 
+/// The X11 window behind `id`. This window manager issues ids by widening a
+/// 32-bit XID, so the truncating cast returns exactly that XID.
+#[allow(clippy::cast_possible_truncation)]
+fn xid_of(id: WindowId) -> Window {
+    id.raw() as Window
+}
+
 fn get_client_list(conn: &RustConnection, root: Window, net_client_list: Atom) -> Result<Vec<Window>, PlatformError> {
     let reply = conn
         .get_property(false, root, net_client_list, AtomEnum::WINDOW, 0, u32::MAX)
@@ -112,7 +119,7 @@ fn get_client_list(conn: &RustConnection, root: Window, net_client_list: Atom) -
             operation: "read _NET_CLIENT_LIST reply",
             details: Some(e.to_string()),
         })?;
-    Ok(reply.value32().map(|iter| iter.collect()).unwrap_or_default())
+    Ok(reply.value32().map(Iterator::collect).unwrap_or_default())
 }
 
 fn get_window_pid(conn: &RustConnection, win: Window, net_wm_pid: Atom) -> Option<u32> {
@@ -262,8 +269,7 @@ fn client_rect(x11: &X11Connection, xid: Window) -> Result<Rect, PlatformError> 
             details: Some(e.to_string()),
         })?;
     let coords = x11.conn.translate_coordinates(xid, x11.root, 0, 0).ok().and_then(|c| c.reply().ok());
-    let (wx, wy) =
-        coords.map(|c| (f64::from(c.dst_x), f64::from(c.dst_y))).unwrap_or((f64::from(geom.x), f64::from(geom.y)));
+    let (wx, wy) = coords.map_or((f64::from(geom.x), f64::from(geom.y)), |c| (f64::from(c.dst_x), f64::from(c.dst_y)));
     Ok(Rect::new(wx, wy, f64::from(geom.width), f64::from(geom.height)))
 }
 
@@ -283,7 +289,7 @@ fn read_window_state(x11: &X11Connection, xid: Window, atoms: &EwmhAtoms) -> Res
             details: Some(e.to_string()),
         })?
         .value32()
-        .map(|iter| iter.collect())
+        .map(Iterator::collect)
         .unwrap_or_default();
     let iconic = x11
         .conn
@@ -363,7 +369,7 @@ fn flush(conn: &RustConnection) -> Result<(), PlatformError> {
 //  Node attribute extraction helpers
 // ---------------------------------------------------------------------------
 
-/// Extract the process ID from a UiNode by walking up to the Application
+/// Extract the process ID from a `UiNode` by walking up to the Application
 /// node and reading `ProcessId`.
 ///
 /// Application nodes are the canonical source of PID information across all
@@ -407,6 +413,8 @@ fn pid_from_attr(node: &dyn UiNode) -> Option<u32> {
     match attr.value() {
         platynui_core::ui::UiValue::Integer(v) => u32::try_from(v).ok(),
         platynui_core::ui::UiValue::Number(v) => {
+            // Saturating float-to-int: negatives and NaN become 0, rejected below.
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let rounded = v as u32;
             if rounded > 0 { Some(rounded) } else { None }
         }
@@ -689,7 +697,7 @@ impl WindowManager for X11EwmhWindowManager {
     }
 
     fn bounds(&self, id: WindowId, _toolkit_hint: Option<&str>) -> Result<Rect, PlatformError> {
-        client_rect(&self.conn, id.raw() as Window)
+        client_rect(&self.conn, xid_of(id))
     }
 
     fn window_at_point(&self, point: Point) -> Result<Option<WindowHit>, PlatformError> {
@@ -722,7 +730,7 @@ impl WindowManager for X11EwmhWindowManager {
     }
 
     fn is_active(&self, id: WindowId) -> Result<bool, PlatformError> {
-        let xid = id.raw() as Window;
+        let xid = xid_of(id);
         let atoms = atoms(&self.conn)?;
         let x11 = &self.conn;
         let reply = x11
@@ -743,11 +751,11 @@ impl WindowManager for X11EwmhWindowManager {
 
     fn state(&self, id: WindowId) -> Result<WindowState, PlatformError> {
         let atoms = atoms(&self.conn)?;
-        read_window_state(&self.conn, id.raw() as Window, &atoms)
+        read_window_state(&self.conn, xid_of(id), &atoms)
     }
 
     fn activate(&self, id: WindowId) -> Result<(), PlatformError> {
-        let xid = id.raw() as Window;
+        let xid = xid_of(id);
         debug!(xid, "EWMH activate");
         let atoms = atoms(&self.conn)?;
         let x11 = &self.conn;
@@ -767,7 +775,7 @@ impl WindowManager for X11EwmhWindowManager {
     }
 
     fn close(&self, id: WindowId) -> Result<(), PlatformError> {
-        let xid = id.raw() as Window;
+        let xid = xid_of(id);
         debug!(xid, "EWMH close");
         let atoms = atoms(&self.conn)?;
         let x11 = &self.conn;
@@ -776,7 +784,7 @@ impl WindowManager for X11EwmhWindowManager {
     }
 
     fn minimize(&self, id: WindowId) -> Result<(), PlatformError> {
-        let xid = id.raw() as Window;
+        let xid = xid_of(id);
         debug!(xid, "EWMH minimize (iconify)");
         let x11 = &self.conn;
         // XIconifyWindow equivalent: use ClientMessage WM_CHANGE_STATE with IconicState.
@@ -786,7 +794,7 @@ impl WindowManager for X11EwmhWindowManager {
     }
 
     fn maximize(&self, id: WindowId) -> Result<(), PlatformError> {
-        let xid = id.raw() as Window;
+        let xid = xid_of(id);
         debug!(xid, "EWMH maximize");
         let atoms = atoms(&self.conn)?;
         let x11 = &self.conn;
@@ -808,7 +816,7 @@ impl WindowManager for X11EwmhWindowManager {
     }
 
     fn restore(&self, id: WindowId) -> Result<(), PlatformError> {
-        let xid = id.raw() as Window;
+        let xid = xid_of(id);
         debug!(xid, "EWMH restore");
         let atoms = atoms(&self.conn)?;
         let x11 = &self.conn;
@@ -834,9 +842,11 @@ impl WindowManager for X11EwmhWindowManager {
     }
 
     fn move_to(&self, id: WindowId, position: Point) -> Result<(), PlatformError> {
-        let xid = id.raw() as Window;
+        let xid = xid_of(id);
         debug!(xid, x = position.x(), y = position.y(), "EWMH move_to");
         let x11 = &self.conn;
+        // X11 positions are i32; saturating float-to-int is the intended conversion.
+        #[allow(clippy::cast_possible_truncation)]
         let aux = ConfigureWindowAux::new().x(position.x() as i32).y(position.y() as i32);
         x11.conn.configure_window(xid, &aux).map_err(|e| PlatformError::OperationFailed {
             operation: "x11 configure_window move",
@@ -846,9 +856,11 @@ impl WindowManager for X11EwmhWindowManager {
     }
 
     fn resize(&self, id: WindowId, size: Size) -> Result<(), PlatformError> {
-        let xid = id.raw() as Window;
+        let xid = xid_of(id);
         debug!(xid, w = size.width(), h = size.height(), "EWMH resize");
         let x11 = &self.conn;
+        // X11 sizes are u32; saturating float-to-int is the intended conversion.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let aux = ConfigureWindowAux::new().width(size.width() as u32).height(size.height() as u32);
         x11.conn.configure_window(xid, &aux).map_err(|e| PlatformError::OperationFailed {
             operation: "x11 configure_window resize",
@@ -867,6 +879,12 @@ impl WindowManager for X11EwmhWindowManager {
 /// check cannot confirm WM presence (non-fatal).
 ///
 /// Called once from [`crate::create_x11_bundle`] on the runtime's connection.
+///
+/// # Errors
+///
+/// Returns [`PlatformError::OperationFailed`] when the EWMH atoms cannot be
+/// interned (or their cache lock is poisoned), or when the root window's
+/// `_NET_SUPPORTING_WM_CHECK` property cannot be requested or read.
 pub fn check_ewmh_wm_support(x11: &X11Connection) -> Result<bool, PlatformError> {
     let atoms = atoms(x11)?;
 
@@ -921,7 +939,7 @@ pub fn check_ewmh_wm_support(x11: &X11Connection) -> Result<bool, PlatformError>
         .get_property(false, x11.root, atoms.net_supported, AtomEnum::ATOM, 0, u32::MAX)
         .ok()
         .and_then(|c| c.reply().ok());
-    let supported_set: Vec<Atom> = supported_reply.and_then(|r| r.value32().map(|it| it.collect())).unwrap_or_default();
+    let supported_set: Vec<Atom> = supported_reply.and_then(|r| r.value32().map(Iterator::collect)).unwrap_or_default();
 
     let required = [
         ("_NET_CLIENT_LIST", atoms.net_client_list),

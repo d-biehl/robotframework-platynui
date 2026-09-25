@@ -22,9 +22,11 @@ impl PointerDevice for LinuxPointerDevice {
         Ok(Point::new(f64::from(reply.root_x), f64::from(reply.root_y)))
     }
 
+    // The value is clamped to the i16 range first, so the cast is exact.
+    #[allow(clippy::cast_possible_truncation)]
     fn move_to(&self, point: Point) -> Result<(), PlatformError> {
-        let x = point.x().round().clamp(i16::MIN as f64, i16::MAX as f64) as i16;
-        let y = point.y().round().clamp(i16::MIN as f64, i16::MAX as f64) as i16;
+        let x = point.x().round().clamp(f64::from(i16::MIN), f64::from(i16::MAX)) as i16;
+        let y = point.y().round().clamp(f64::from(i16::MIN), f64::from(i16::MAX)) as i16;
         // Use XTest motion (type 6 = MotionNotify) so injected moves and button events share the same path.
         xtest::fake_input(&self.conn.conn, 6, 0, 0, self.conn.root, x, y, 0).map_err(to_pf)?;
         self.conn.conn.flush().map_err(to_pf)
@@ -53,6 +55,8 @@ impl PointerDevice for LinuxPointerDevice {
     }
 }
 
+// Wheel steps from a rounded delta; saturating float-to-int is intended.
+#[allow(clippy::cast_possible_truncation)]
 fn steps(v: f64) -> i32 {
     if v == 0.0 { 0 } else { (v / 120.0).round() as i32 }
 }

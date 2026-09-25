@@ -28,6 +28,13 @@ pub struct X11Connection {
 impl X11Connection {
     /// Connect to `display` (falling back to `$DISPLAY` when `None`) and resolve
     /// the root window of its default screen.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlatformError::UnsupportedPlatform`] when `display` is `None`
+    /// and `DISPLAY` is not set, and [`PlatformError::InitializationFailed`]
+    /// when the connection fails or does not complete within the connect
+    /// timeout.
     pub fn connect(display: Option<&str>) -> Result<Arc<X11Connection>, PlatformError> {
         let disp = resolve_display(display)?;
         tracing::debug!(display = %disp, "establishing X11 connection");
@@ -67,11 +74,12 @@ pub fn connect_raw(disp_name: &str) -> Result<(RustConnection, usize), String> {
         let _ = tx.send(res);
     });
 
-    let timeout = Duration::from_millis(500);
+    let timeout_ms: u64 = 500;
+    let timeout = Duration::from_millis(timeout_ms);
     match rx.recv_timeout(timeout) {
         Ok(res) => res,
         Err(mpsc::RecvTimeoutError::Timeout) => {
-            tracing::warn!(display = disp_name, timeout_ms = timeout.as_millis() as u64, "X11 connect timed out");
+            tracing::warn!(display = disp_name, timeout_ms, "X11 connect timed out");
             Err("x11 connect timed out".to_string())
         }
         Err(mpsc::RecvTimeoutError::Disconnected) => Err("x11 connect worker exited".to_string()),

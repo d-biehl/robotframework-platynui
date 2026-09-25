@@ -1,4 +1,4 @@
-//! X11 based platform integration for PlatynUI on Unix systems.
+//! X11 based platform integration for `PlatynUI` on Unix systems.
 //!
 //! This crate wires Linux/X11 specific devices (pointer, keyboard, screenshot,
 //! highlight) plus desktop-info and window-manager helpers together into a
@@ -17,7 +17,7 @@
 //! (optional, graceful degradation). This surfaces configuration issues at
 //! bundle construction rather than lazily when a device is first used.
 //!
-//! **XInitThreads is NOT needed.** This crate uses `x11rb::RustConnection`
+//! **`XInitThreads` is NOT needed.** This crate uses `x11rb::RustConnection`
 //! (pure Rust, no libX11 C bindings); `RustConnection` is `Send + Sync` and
 //! serialises its own requests, so all devices share one connection without an
 //! extra `Mutex`.
@@ -39,6 +39,10 @@ mod x11util;
 
 #[cfg(target_os = "linux")]
 pub use x11util::X11Connection;
+
+// Only the integration tests (tests/pidns_tests.rs) use this dev-dependency.
+#[cfg(all(test, target_os = "linux"))]
+use tracing_subscriber as _;
 
 /// Build a per-runtime X11 [`PlatformBundle`](platynui_core::platform::PlatformBundle)
 /// for the session named by `config`.

@@ -1,4 +1,4 @@
-//! X11 keyboard device using XTest for key injection.
+//! X11 keyboard device using `XTest` for key injection.
 //!
 //! Key names are resolved from a static lookup table; keysyms are mapped to
 //! X11 keycodes via the current keyboard mapping ([`GetKeyboardMapping`]).
@@ -348,6 +348,8 @@ enum X11Key {
 // ---------------------------------------------------------------------------
 
 /// Snapshot of the X11 keyboard mapping, built from `GetKeyboardMapping`.
+// The shared `_keycode` suffix is X11 keymap vocabulary, not noise.
+#[allow(clippy::struct_field_names)]
 struct KeymapInfo {
     /// Keysyms per keycode (number of columns).
     keysyms_per_keycode: u8,
@@ -378,23 +380,23 @@ impl KeymapInfo {
         let mut map: HashMap<u32, (u8, u8)> = HashMap::with_capacity(keysyms.len() / 2);
         let mut spare = None;
 
-        for kc_offset in 0..u16::from(count) {
-            let kc = min_kc.wrapping_add(kc_offset as u8);
-            let base = kc_offset as usize * usize::from(kpk);
+        for kc_offset in 0..count {
+            let kc = min_kc.wrapping_add(kc_offset);
+            let base = usize::from(kc_offset) * usize::from(kpk);
             let mut all_empty = true;
 
             // Only inspect columns 0 (unmodified) and 1 (Shift) for the
             // reverse map.  Higher columns (Mode_switch/AltGr) are skipped
             // to keep the logic simple; characters only reachable via AltGr
             // fall through to the DynamicRemap path.
-            for col in 0..usize::from(kpk).min(2) {
-                let ks = keysyms[base + col];
+            for col in 0..kpk.min(2) {
+                let ks = keysyms[base + usize::from(col)];
                 if ks != 0 {
                     all_empty = false;
                     // First-keycode-wins: preserve the lowest keycode for
                     // each keysym so that standard keys take priority over
                     // duplicates on the numpad, etc.
-                    map.entry(ks).or_insert((kc, col as u8));
+                    map.entry(ks).or_insert((kc, col));
                 }
             }
 
@@ -505,31 +507,30 @@ fn char_to_keysym(ch: char) -> u32 {
     }
 }
 
-/// Check whether CapsLock is currently active by querying the X11 modifier
+/// Check whether `CapsLock` is currently active by querying the X11 modifier
 /// mask.
 fn is_caps_lock_on(x11: &X11Connection) -> bool {
     x11.conn
         .query_pointer(x11.root)
         .ok()
         .and_then(|c| c.reply().ok())
-        .map(|r| u32::from(r.mask) & u32::from(KeyButMask::LOCK) != 0)
-        .unwrap_or(false)
+        .is_some_and(|r| u32::from(r.mask) & u32::from(KeyButMask::LOCK) != 0)
 }
 
 /// Return the current modifier mask from `QueryPointer`.
 fn query_modifier_mask(x11: &X11Connection) -> u32 {
-    x11.conn.query_pointer(x11.root).ok().and_then(|c| c.reply().ok()).map(|r| u32::from(r.mask)).unwrap_or(0)
+    x11.conn.query_pointer(x11.root).ok().and_then(|c| c.reply().ok()).map_or(0, |r| u32::from(r.mask))
 }
 
 // ---------------------------------------------------------------------------
 //  XTest injection helpers
 // ---------------------------------------------------------------------------
 
-/// XTest event type codes.
+/// `XTest` event type codes.
 const XTEST_KEY_PRESS: u8 = 2;
 const XTEST_KEY_RELEASE: u8 = 3;
 
-/// Inject a raw key event via XTest.
+/// Inject a raw key event via `XTest`.
 fn inject_key(x11: &X11Connection, type_code: u8, keycode: u8, root: u32) -> Result<(), KeyboardError> {
     xtest::fake_input(&x11.conn, type_code, keycode, 0, root, 0, 0, 0).map_err(to_kb)?;
     x11.conn.flush().map_err(to_kb)?;
@@ -661,14 +662,14 @@ impl KeyboardDevice for LinuxKeyboardDevice {
         // 1) Named key lookup (case-insensitive)
         let upper = name.to_ascii_uppercase();
         if let Some(entry) = named_key_table().get(&upper) {
-            if let Some((kc, _col)) = keymap.find_keycode(entry.keysym) {
+            if let Some((kc, col)) = keymap.find_keycode(entry.keysym) {
                 return if entry.is_modifier {
                     trace!(name, keysym = entry.keysym, keycode = kc, "resolved modifier key");
                     Ok(KeyCode::new(X11KeyCode(X11Key::Modifier { keycode: kc })))
                 } else {
                     // Named non-modifier keys (ENTER, TAB, F1, etc.) do not
                     // require auto-shift — the keysym is directly at column 0.
-                    let shift = _col == 1;
+                    let shift = col == 1;
                     trace!(name, keysym = entry.keysym, keycode = kc, shift, "resolved named key");
                     Ok(KeyCode::new(X11KeyCode(X11Key::Direct { keycode: kc, shift_required: shift })))
                 };
@@ -781,7 +782,7 @@ fn collect_known_key_names() -> Vec<String> {
 impl LinuxKeyboardDevice {
     /// Resolve a single character to a `KeyCode`.
     ///
-    /// Accounts for CapsLock: when CapsLock is active and the character is
+    /// Accounts for `CapsLock`: when `CapsLock` is active and the character is
     /// ASCII-alphabetic, the shift requirement is inverted so the correct
     /// case is produced.
     fn resolve_char(x11: &X11Connection, ch: char, keymap: &KeymapInfo) -> Result<KeyCode, KeyboardError> {

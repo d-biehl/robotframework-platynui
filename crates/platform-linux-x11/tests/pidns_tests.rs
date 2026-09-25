@@ -18,7 +18,7 @@
 //!   hit-testing runtime in a sibling, the application's window reporting the
 //!   runtime's own in-namespace PID. The measured collision: the window must be
 //!   resolved.
-//! - **A server that cannot see the runtime** (WSLg's shape) — `Xvfb` in its own
+//! - **A server that cannot see the runtime** (`WSLg`'s shape) — `Xvfb` in its own
 //!   namespace, the runtime and its windows in a sibling: the runtime's own
 //!   window is skipped, the window behind resolved.
 //! - **A runtime in a child namespace** (a container on the host's display) —
@@ -43,6 +43,7 @@
 //! coverage, so a skip would read as a pass in the one run meant to exercise it.
 //! This follows `crates/java-agent/tests/live_fixture.rs`.
 
+use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -209,7 +210,7 @@ fn an_application_reusing_the_runtimes_pid_is_resolved() {
 }
 
 /// Spec: *The runtime's own window is skipped where the window system numbers it
-/// differently* — the server sees neither the runtime nor its windows (WSLg).
+/// differently* — the server sees neither the runtime nor its windows (`WSLg`).
 #[test]
 #[ignore = "needs unprivileged user namespaces and Xvfb; run with `just test-x11-pidns`"]
 fn the_runtimes_own_window_is_skipped_where_the_server_cannot_see_it() {
@@ -587,10 +588,11 @@ fn wait_for(path: &Path, what: &str, logs: &[&Path]) -> String {
             return content;
         }
         if Instant::now() > deadline {
-            let logs: String = logs
-                .iter()
-                .map(|log| format!("--- {} ---\n{}\n", log.display(), std::fs::read_to_string(log).unwrap_or_default()))
-                .collect();
+            let logs = logs.iter().fold(String::new(), |mut text, log| {
+                let content = std::fs::read_to_string(log).unwrap_or_default();
+                let _ = writeln!(text, "--- {} ---\n{content}", log.display());
+                text
+            });
             panic!("{what} never arrived at {}\n{logs}", path.display());
         }
         std::thread::sleep(Duration::from_millis(20));
