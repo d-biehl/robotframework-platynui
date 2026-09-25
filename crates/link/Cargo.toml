@@ -17,3 +17,6 @@ name = "platynui_link"
 path = "src/lib.rs"
 
 [dependencies]
+
+[lints]
+workspace = true
