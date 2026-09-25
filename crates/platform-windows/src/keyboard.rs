@@ -1,3 +1,6 @@
+// Win32 FFI module: nearly every call it makes is `unsafe` by signature.
+#![allow(unsafe_code)]
+
 use platynui_core::platform::{KeyCode, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent};
 
 use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -56,7 +59,9 @@ impl WindowsKeyboardDevice {
 
     fn send_vk(state: KeyState, vk: u16) -> Result<(), KeyboardError> {
         // Prefer sending VK; include scan code for better app compatibility
-        let sc = unsafe { MapVirtualKeyW(vk as u32, MAPVK_VK_TO_VSC) } as u16;
+        // MAPVK_VK_TO_VSC yields the scan code in the low word; `wScan` is a u16.
+        #[allow(clippy::cast_possible_truncation)]
+        let sc = unsafe { MapVirtualKeyW(u32::from(vk), MAPVK_VK_TO_VSC) } as u16;
         let mut flags: KEYBD_EVENT_FLAGS = match state {
             KeyState::Press => KEYBD_EVENT_FLAGS(0),
             KeyState::Release => KEYEVENTF_KEYUP,
@@ -70,6 +75,8 @@ impl WindowsKeyboardDevice {
                 ki: KEYBDINPUT { wVk: VIRTUAL_KEY(vk), wScan: sc, dwFlags: flags, time: 0, dwExtraInfo: 0 },
             },
         };
+        // `cbSize` takes the struct size as i32; INPUT is a few dozen bytes.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
         let sent = unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) };
         if sent == 0 { Err(KeyboardError::NotReady) } else { Ok(()) }
     }
@@ -85,16 +92,18 @@ impl WindowsKeyboardDevice {
                 ki: KEYBDINPUT { wVk: VIRTUAL_KEY(0), wScan: ch, dwFlags: flags, time: 0, dwExtraInfo: 0 },
             },
         };
+        // `cbSize` takes the struct size as i32; INPUT is a few dozen bytes.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
         let sent = unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) };
         if sent == 0 { Err(KeyboardError::NotReady) } else { Ok(()) }
     }
 
     fn current_capslock() -> bool {
-        unsafe { (GetKeyState(VK_CAPITAL.0 as i32) & 0x0001) != 0 }
+        unsafe { (GetKeyState(i32::from(VK_CAPITAL.0)) & 0x0001) != 0 }
     }
 
     fn is_key_down(vk: VIRTUAL_KEY) -> bool {
-        unsafe { (GetKeyState(vk.0 as i32) & (0x8000u16 as i16)) != 0 }
+        unsafe { (GetKeyState(i32::from(vk.0)) & 0x8000u16.cast_signed()) != 0 }
     }
 
     #[inline]
@@ -103,7 +112,7 @@ impl WindowsKeyboardDevice {
         unsafe {
             let res = VkKeyScanW(ch_u16);
             if res != -1i16 {
-                let vk = (res & 0xFF) as u16;
+                let vk = (res & 0xFF).cast_unsigned();
                 let shift = ((res >> 8) & 1) != 0;
                 let ctrl = ((res >> 9) & 1) != 0;
                 let alt = ((res >> 10) & 1) != 0;
@@ -130,12 +139,15 @@ impl KeyboardDevice for WindowsKeyboardDevice {
             // SAFETY: count() == 1 guarantees next() returns Some
             let ch_u16 = name.chars().next().unwrap_or_default() as u16;
             // CapsLock beeinflusst nur Buchstaben: invertiere SHIFT bei aktivem CapsLock
-            if ((ch_u16 as u8 as char).is_ascii_alphabetic()) && Self::current_capslock() {
+            // Tests only the low byte of the UTF-16 unit; that truncation is existing behaviour.
+            #[allow(clippy::cast_possible_truncation)]
+            let low_byte_is_ascii_letter = (ch_u16 as u8 as char).is_ascii_alphabetic();
+            if low_byte_is_ascii_letter && Self::current_capslock() {
                 // Use VkKeyScanW first, then flip shift bit
                 unsafe {
                     let res = VkKeyScanW(ch_u16);
                     if res != -1i16 {
-                        let vk = (res & 0xFF) as u16;
+                        let vk = (res & 0xFF).cast_unsigned();
                         let mut shift = ((res >> 8) & 1) != 0;
                         let ctrl = ((res >> 9) & 1) != 0;
                         let alt = ((res >> 10) & 1) != 0;
@@ -240,7 +252,36 @@ enum KeyName {
 }
 
 static VK_MAP: LazyLock<HashMap<String, KeyName>> = LazyLock::new(|| {
-    use windows::Win32::UI::Input::KeyboardAndMouse::*;
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        VIRTUAL_KEY, VK_ABNT_C1, VK_ABNT_C2, VK_ACCEPT, VK_ADD, VK_APPS, VK_ATTN, VK_BACK, VK_BROWSER_BACK,
+        VK_BROWSER_FAVORITES, VK_BROWSER_FORWARD, VK_BROWSER_HOME, VK_BROWSER_REFRESH, VK_BROWSER_SEARCH,
+        VK_BROWSER_STOP, VK_CANCEL, VK_CAPITAL, VK_CLEAR, VK_CONTROL, VK_CONVERT, VK_CRSEL, VK_DBE_ALPHANUMERIC,
+        VK_DBE_CODEINPUT, VK_DBE_DBCSCHAR, VK_DBE_DETERMINESTRING, VK_DBE_ENTERDLGCONVERSIONMODE,
+        VK_DBE_ENTERIMECONFIGMODE, VK_DBE_ENTERWORDREGISTERMODE, VK_DBE_FLUSHSTRING, VK_DBE_HIRAGANA, VK_DBE_KATAKANA,
+        VK_DBE_NOCODEINPUT, VK_DBE_NOROMAN, VK_DBE_ROMAN, VK_DBE_SBCSCHAR, VK_DECIMAL, VK_DELETE, VK_DIVIDE, VK_DOWN,
+        VK_END, VK_EREOF, VK_ESCAPE, VK_EXECUTE, VK_EXSEL, VK_F1, VK_F2, VK_F3, VK_F4, VK_F5, VK_F6, VK_F7, VK_F8,
+        VK_F9, VK_F10, VK_F11, VK_F12, VK_F13, VK_F14, VK_F15, VK_F16, VK_F17, VK_F18, VK_F19, VK_F20, VK_F21, VK_F22,
+        VK_F23, VK_F24, VK_FINAL, VK_GAMEPAD_A, VK_GAMEPAD_B, VK_GAMEPAD_DPAD_DOWN, VK_GAMEPAD_DPAD_LEFT,
+        VK_GAMEPAD_DPAD_RIGHT, VK_GAMEPAD_DPAD_UP, VK_GAMEPAD_LEFT_SHOULDER, VK_GAMEPAD_LEFT_THUMBSTICK_BUTTON,
+        VK_GAMEPAD_LEFT_THUMBSTICK_DOWN, VK_GAMEPAD_LEFT_THUMBSTICK_LEFT, VK_GAMEPAD_LEFT_THUMBSTICK_RIGHT,
+        VK_GAMEPAD_LEFT_THUMBSTICK_UP, VK_GAMEPAD_LEFT_TRIGGER, VK_GAMEPAD_MENU, VK_GAMEPAD_RIGHT_SHOULDER,
+        VK_GAMEPAD_RIGHT_THUMBSTICK_BUTTON, VK_GAMEPAD_RIGHT_THUMBSTICK_DOWN, VK_GAMEPAD_RIGHT_THUMBSTICK_LEFT,
+        VK_GAMEPAD_RIGHT_THUMBSTICK_RIGHT, VK_GAMEPAD_RIGHT_THUMBSTICK_UP, VK_GAMEPAD_RIGHT_TRIGGER, VK_GAMEPAD_VIEW,
+        VK_GAMEPAD_X, VK_GAMEPAD_Y, VK_HANGUL, VK_HANJA, VK_HELP, VK_HOME, VK_ICO_00, VK_ICO_HELP, VK_IME_OFF,
+        VK_IME_ON, VK_INSERT, VK_JUNJA, VK_KANA, VK_KANJI, VK_LAUNCH_APP1, VK_LAUNCH_APP2, VK_LAUNCH_MAIL,
+        VK_LAUNCH_MEDIA_SELECT, VK_LBUTTON, VK_LCONTROL, VK_LEFT, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MBUTTON,
+        VK_MEDIA_NEXT_TRACK, VK_MEDIA_PLAY_PAUSE, VK_MEDIA_PREV_TRACK, VK_MEDIA_STOP, VK_MENU, VK_MODECHANGE,
+        VK_MULTIPLY, VK_NAVIGATION_ACCEPT, VK_NAVIGATION_CANCEL, VK_NAVIGATION_DOWN, VK_NAVIGATION_LEFT,
+        VK_NAVIGATION_MENU, VK_NAVIGATION_RIGHT, VK_NAVIGATION_UP, VK_NAVIGATION_VIEW, VK_NEXT, VK_NONAME,
+        VK_NONCONVERT, VK_NUMLOCK, VK_NUMPAD0, VK_NUMPAD1, VK_NUMPAD2, VK_NUMPAD3, VK_NUMPAD4, VK_NUMPAD5, VK_NUMPAD6,
+        VK_NUMPAD7, VK_NUMPAD8, VK_NUMPAD9, VK_OEM_1, VK_OEM_2, VK_OEM_3, VK_OEM_4, VK_OEM_5, VK_OEM_6, VK_OEM_7,
+        VK_OEM_8, VK_OEM_102, VK_OEM_AX, VK_OEM_CLEAR, VK_OEM_COMMA, VK_OEM_FJ_JISHO, VK_OEM_FJ_LOYA,
+        VK_OEM_FJ_MASSHOU, VK_OEM_FJ_ROYA, VK_OEM_FJ_TOUROKU, VK_OEM_MINUS, VK_OEM_NEC_EQUAL, VK_OEM_PERIOD,
+        VK_OEM_PLUS, VK_PA1, VK_PACKET, VK_PAUSE, VK_PLAY, VK_PRINT, VK_PRIOR, VK_PROCESSKEY, VK_RBUTTON, VK_RCONTROL,
+        VK_RETURN, VK_RIGHT, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SCROLL, VK_SELECT, VK_SEPARATOR, VK_SHIFT, VK_SLEEP,
+        VK_SNAPSHOT, VK_SPACE, VK_SUBTRACT, VK_TAB, VK_UP, VK_VOLUME_DOWN, VK_VOLUME_MUTE, VK_VOLUME_UP, VK_XBUTTON1,
+        VK_XBUTTON2, VK_ZOOM,
+    };
     let mut m: HashMap<String, KeyName> = HashMap::new();
     // Insert only WITHOUT the VK_ prefix (we don't need VK_* names)
     macro_rules! ins {
@@ -572,7 +613,7 @@ static VK_MAP: LazyLock<HashMap<String, KeyName>> = LazyLock::new(|| {
 
     // Normalize keys to uppercase for lookups
     let mut upper_map: HashMap<String, KeyName> = HashMap::new();
-    for (k, v) in m.into_iter() {
+    for (k, v) in m {
         upper_map.insert(k.to_ascii_uppercase(), v);
     }
     upper_map
@@ -597,9 +638,8 @@ mod tests {
         let kc = dev.key_to_code("A").unwrap();
         let wk = kc.downcast_ref::<WinKeyCode>().unwrap();
         match wk.0 {
-            WinKey::Vk(vk) => assert_eq!(vk, 'A' as u16),
-            WinKey::CharMapped { vk, .. } => assert_eq!(vk, 'A' as u16),
-            other => panic!("expected Vk or CharMapped mapping for 'A', got {:?}", other),
+            WinKey::Vk(vk) | WinKey::CharMapped { vk, .. } => assert_eq!(vk, 'A' as u16),
+            other @ WinKey::Unicode(_) => panic!("expected Vk or CharMapped mapping for 'A', got {other:?}"),
         }
     }
 
@@ -611,7 +651,7 @@ mod tests {
         match wk.0 {
             WinKey::Unicode(code) => assert_eq!(code, 'ä' as u16),
             WinKey::CharMapped { .. } => {}
-            other => panic!("expected Unicode fallback or CharMapped for 'ä', got {:?}", other),
+            other @ WinKey::Vk(_) => panic!("expected Unicode fallback or CharMapped for 'ä', got {other:?}"),
         }
     }
 }

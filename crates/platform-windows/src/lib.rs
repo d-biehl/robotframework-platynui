@@ -1,4 +1,4 @@
-//! Windows specific platform integration for PlatynUI.
+//! Windows specific platform integration for `PlatynUI`.
 //!
 //! This crate wires native Windows device abstractions (pointer, keyboard,
 //! highlight, screenshot) plus desktop-info and window-manager helpers into a

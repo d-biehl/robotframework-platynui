@@ -18,6 +18,7 @@ pub(crate) fn ensure_dpi_awareness() -> Result<(), PlatformError> {
     DPI_AWARENESS.get_or_init(set_dpi_awareness).clone()
 }
 
+#[allow(unsafe_code)]
 fn set_dpi_awareness() -> Result<(), PlatformError> {
     unsafe {
         match SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) {

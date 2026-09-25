@@ -1,3 +1,6 @@
+// Win32 FFI module: nearly every call it makes is `unsafe` by signature.
+#![allow(unsafe_code)]
+
 use std::mem::size_of;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread::{self, JoinHandle};
@@ -90,13 +93,15 @@ struct OverlayThread;
 impl OverlayThread {
     fn spawn() -> OverlayController {
         let (tx, rx) = std::sync::mpsc::channel::<Command>();
-        let handle = thread::spawn(move || Self::run(rx));
+        let handle = thread::spawn(move || Self::run(&rx));
         OverlayController { tx, handle: Some(handle) }
     }
 
-    fn run(rx: Receiver<Command>) {
+    fn run(rx: &Receiver<Command>) {
         let class_name: Vec<u16> = "PlatynUI_Highlight\0".encode_utf16().collect();
         unsafe {
+            // MA_NOACTIVATE is the u32 constant 3, which fits in an isize LRESULT.
+            #[allow(clippy::cast_possible_wrap)]
             extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
                 // Make overlay fully click-through so it never blocks underlying UI interactions
                 if msg == WM_NCHITTEST {
@@ -114,7 +119,7 @@ impl OverlayThread {
                 lpszClassName: PCWSTR(class_name.as_ptr()),
                 ..Default::default()
             };
-            let _ = RegisterClassW(&wc);
+            let _ = RegisterClassW(&raw const wc);
         }
 
         let mut overlay = Overlay::new();
@@ -125,7 +130,7 @@ impl OverlayThread {
             // Pump any pending window messages to keep the overlay responsive
             unsafe {
                 let mut msg = MSG::default();
-                while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                while PeekMessageW(&raw mut msg, None, 0, 0, PM_REMOVE).as_bool() {
                     if msg.message == WM_TIMER {
                         // Handle timer elapsed: clear current overlay if this is our active timer
                         if current_timer_id != 0 && msg.wParam.0 == current_timer_id {
@@ -138,8 +143,8 @@ impl OverlayThread {
                             continue;
                         }
                     }
-                    let _ = TranslateMessage(&msg);
-                    DispatchMessageW(&msg);
+                    let _ = TranslateMessage(&raw const msg);
+                    DispatchMessageW(&raw const msg);
                 }
             }
 
@@ -158,7 +163,10 @@ impl OverlayThread {
                                 current_timer_id = 0;
                             }
                             if let Some(d) = duration {
-                                let ms = (d.as_millis().min(u128::from(u32::MAX)) as u32).max(1);
+                                let ms = u32::try_from(d.as_millis()).unwrap_or(u32::MAX).max(1);
+                                // The timer id only has to differ from the previous one; dropping the
+                                // high bits of the wrapping generation on 32-bit targets is harmless.
+                                #[allow(clippy::cast_possible_truncation)]
                                 let new_id = (generation as usize).max(1);
                                 // Use generation as timer id; ignore return value (non-zero indicates success)
                                 unsafe {
@@ -240,13 +248,13 @@ impl Overlay {
     }
 
     fn show(&mut self, rects: &[Rect]) {
+        const FRAME_THICKNESS: i32 = 3; // pixels
+        const FRAME_GAP: i32 = 1; // 1px gap between target and frame
+
         if rects.is_empty() {
             self.clear();
             return;
         }
-
-        const FRAME_THICKNESS: i32 = 3; // pixels
-        const FRAME_GAP: i32 = 1; // 1px gap between target and frame
 
         // Expand target rects to draw a frame around the area (1px gap).
         let expanded: Vec<Rect> = rects.iter().map(|r| expand_rect(r, FRAME_THICKNESS, FRAME_GAP)).collect();
@@ -265,8 +273,12 @@ impl Overlay {
 
         let union = union_rect(&clamped);
         let hwnd = self.ensure_window();
-        let width = union.width().max(1.0).round() as i32;
-        let height = union.height().max(1.0).round() as i32;
+        // Rounded desktop pixel sizes fit in i32; saturation on overflow is intended.
+        #[allow(clippy::cast_possible_truncation)]
+        let (width, height) = (union.width().max(1.0).round() as i32, union.height().max(1.0).round() as i32);
+        // Both are at least 1 (clamped above), so the sign cannot be lost.
+        #[allow(clippy::cast_sign_loss)]
+        let (width_px, height_px) = (width as usize, height as usize);
         unsafe {
             let screen_dc: HDC = GetDC(None);
             if screen_dc.0.is_null() {
@@ -281,19 +293,20 @@ impl Overlay {
 
             let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
             let bmi = BITMAPINFO::new(width, height);
-            let bitmap: HBITMAP = match CreateDIBSection(Some(mem_dc), &bmi.inner, DIB_RGB_COLORS, &mut bits, None, 0) {
-                Ok(bmp) => bmp,
-                Err(_) => {
-                    let _ = DeleteDC(mem_dc);
-                    let _ = ReleaseDC(None, screen_dc);
-                    return;
-                }
+            let bitmap: HBITMAP = if let Ok(bmp) =
+                CreateDIBSection(Some(mem_dc), &raw const bmi.inner, DIB_RGB_COLORS, &raw mut bits, None, 0)
+            {
+                bmp
+            } else {
+                let _ = DeleteDC(mem_dc);
+                let _ = ReleaseDC(None, screen_dc);
+                return;
             };
 
             let old = SelectObject(mem_dc, bitmap.into());
 
-            let buf_size = (width as usize) * (height as usize) * 4;
-            let slice = std::slice::from_raw_parts_mut(bits as *mut u8, buf_size);
+            let buf_size = width_px * height_px * 4;
+            let slice = std::slice::from_raw_parts_mut(bits.cast::<u8>(), buf_size);
             for b in slice.iter_mut() {
                 *b = 0;
             }
@@ -302,27 +315,31 @@ impl Overlay {
             for (idx, r) in clamped.iter().enumerate() {
                 let expanded = &expanded[idx];
                 let styles = edge_styles(expanded, r);
-                draw_frame(slice, width as usize, height as usize, r, &union, FRAME_THICKNESS, color, styles);
+                draw_frame(slice, width_px, height_px, r, &union, FRAME_THICKNESS, color, &styles);
             }
 
+            // AC_SRC_OVER (0) and AC_SRC_ALPHA (1) are u32 constants for u8 fields.
+            #[allow(clippy::cast_possible_truncation)]
             let blend = BLENDFUNCTION {
                 BlendOp: AC_SRC_OVER as u8,
                 BlendFlags: 0,
                 SourceConstantAlpha: 255,
                 AlphaFormat: AC_SRC_ALPHA as u8,
             };
+            // Rounded screen coordinates fit in i32; saturation on overflow is intended.
+            #[allow(clippy::cast_possible_truncation)]
             let dst = POINT { x: union.x().round() as i32, y: union.y().round() as i32 };
             let size = SIZE { cx: width, cy: height };
             let src = POINT { x: 0, y: 0 };
             let _ = UpdateLayeredWindow(
                 hwnd,
                 Some(screen_dc),
-                Some(&dst),
-                Some(&size),
+                Some(&raw const dst),
+                Some(&raw const size),
                 Some(mem_dc),
-                Some(&src),
+                Some(&raw const src),
                 COLORREF(0),
-                Some(&blend),
+                Some(&raw const blend),
                 ULW_ALPHA,
             );
 
@@ -360,7 +377,7 @@ fn union_rect(rects: &[Rect]) -> Rect {
 }
 
 fn expand_rect(rect: &Rect, thickness: i32, gap: i32) -> Rect {
-    let pad = (thickness + gap) as f64;
+    let pad = f64::from(thickness + gap);
     Rect::new(rect.x() - pad, rect.y() - pad, rect.width() + 2.0 * pad, rect.height() + 2.0 * pad)
 }
 
@@ -415,6 +432,9 @@ fn edge_styles(expanded: &Rect, clamped: &Rect) -> EdgeStyles {
     }
 }
 
+// Frame edges are rounded pixel offsets inside the overlay bitmap, so they fit in
+// i32; saturation on overflow is intended.
+#[allow(clippy::cast_possible_truncation)]
 fn draw_frame(
     buf: &mut [u8],
     width: usize,
@@ -423,12 +443,12 @@ fn draw_frame(
     origin: &Rect,
     thickness: i32,
     color: Rgba,
-    styles: EdgeStyles,
+    styles: &EdgeStyles,
 ) {
     let x0 = (rect.x() - origin.x()).round() as i32;
     let y0 = (rect.y() - origin.y()).round() as i32;
-    let x1 = (x0 as f64 + rect.width().round()) as i32 - 1;
-    let y1 = (y0 as f64 + rect.height().round()) as i32 - 1;
+    let x1 = (f64::from(x0) + rect.width().round()) as i32 - 1;
+    let y1 = (f64::from(y0) + rect.height().round()) as i32 - 1;
     let t = thickness.max(1);
 
     // Top
@@ -441,6 +461,9 @@ fn draw_frame(
     draw_vline(buf, width, height, x1 - (t - 1), y0, y1, t, color, styles.right);
 }
 
+// `width`/`height` come from the positive i32 bitmap size, so they fit in i32, and
+// `x`/`yy` are clamped to that range starting at 0 before they index the buffer.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 fn draw_hline(
     buf: &mut [u8],
     width: usize,
@@ -481,6 +504,9 @@ fn draw_hline(
     }
 }
 
+// `width`/`height` come from the positive i32 bitmap size, so they fit in i32, and
+// `xx`/`y` are clamped to that range starting at 0 before they index the buffer.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 fn draw_vline(
     buf: &mut [u8],
     width: usize,
@@ -521,11 +547,13 @@ fn draw_vline(
     }
 }
 
+// channel * alpha / 255 is at most 255 for u8 inputs, so the u16 -> u8 casts are lossless.
+#[allow(clippy::cast_possible_truncation)]
 fn blend_pixel(buf: &mut [u8], idx: usize, color: Rgba) {
-    let a = color.a as u16;
-    let r = (color.r as u16 * a / 255) as u8;
-    let g = (color.g as u16 * a / 255) as u8;
-    let b = (color.b as u16 * a / 255) as u8;
+    let a = u16::from(color.a);
+    let r = (u16::from(color.r) * a / 255) as u8;
+    let g = (u16::from(color.g) * a / 255) as u8;
+    let b = (u16::from(color.b) * a / 255) as u8;
     buf[idx] = b; // BGRA
     buf[idx + 1] = g;
     buf[idx + 2] = r;
@@ -541,6 +569,8 @@ struct BITMAPINFO {
 impl BITMAPINFO {
     fn new(width: i32, height: i32) -> Self {
         use windows::Win32::Graphics::Gdi::{BI_RGB, BITMAPINFOHEADER};
+        // `biSize` takes the struct size as u32; BITMAPINFOHEADER is 40 bytes.
+        #[allow(clippy::cast_possible_truncation)]
         let info = windows::Win32::Graphics::Gdi::BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
                 biSize: size_of::<BITMAPINFOHEADER>() as u32,
@@ -566,6 +596,8 @@ mod tests {
     use super::*;
     use platynui_core::types::Rect;
 
+    // Small integer inputs are exact in f64, so exact equality is what the test means.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn union_rect_computes_expected_bounds() {
         let r = union_rect(&[Rect::new(10.0, 10.0, 10.0, 10.0), Rect::new(15.0, 8.0, 5.0, 20.0)]);

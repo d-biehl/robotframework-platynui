@@ -6,14 +6,14 @@
 //! - **is-JVM**: `jvm.dll` loaded in the owning process, via
 //!   `CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pid)` +
 //!   `Module32FirstW/NextW` — robust against renamed/jpackage launchers
-//!   (HotSpot *and* OpenJ9 ship `jvm.dll`). Results are cached per PID with a
+//!   (`HotSpot` *and* `OpenJ9` ship `jvm.dll`). Results are cached per PID with a
 //!   short TTL so tree enumerations do not re-snapshot every process.
 //! - **toolkit**: the top-level window class (`GetClassNameW`) — `SunAwt*`,
 //!   `SWT_Window*`, `Glass*` prefixes.
 //! - **native accessibility**: only the free signal — the process-wide window
 //!   claim (the JAB provider claims exactly the windows `isJavaWindow`
 //!   acknowledged). No eager UIA probe, by design.
-//! - **agent present**: the PlatynUI agent's per-user handshake file for that
+//! - **agent present**: the `PlatynUI` agent's per-user handshake file for that
 //!   pid (`platynui-java-agent`). Probed only for windows already classified as
 //!   JVM, and it is one `stat` on one exact path — never a directory scan, and
 //!   never a connection. Reading the signal must not instrument anything; that
@@ -40,6 +40,7 @@ pub struct WindowsJavaClassifier {
 }
 
 impl WindowsJavaClassifier {
+    #[must_use]
     pub fn new() -> Self {
         Self { jvm_module_cache: Mutex::new(HashMap::new()) }
     }
@@ -93,7 +94,11 @@ fn window_class_name(window: WindowId) -> Result<Option<String>, PlatformError> 
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::GetClassNameW;
 
-    #[expect(clippy::cast_possible_wrap, reason = "HWND stores the raw bit pattern of the u64 handle")]
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        reason = "HWND stores the raw bit pattern of the u64 handle, which came from a pointer-sized HWND"
+    )]
     let hwnd = HWND(window.raw() as isize as *mut core::ffi::c_void);
     let mut buffer = [0u16; 256];
     // SAFETY: read-only query; `buffer` is a valid out-buffer of the given length.

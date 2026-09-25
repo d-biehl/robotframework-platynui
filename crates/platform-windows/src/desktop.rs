@@ -1,3 +1,6 @@
+// Win32 FFI module: nearly every call it makes is `unsafe` by signature.
+#![allow(unsafe_code)]
+
 use std::collections::HashMap;
 use std::env;
 use std::mem::size_of;
@@ -26,10 +29,10 @@ pub(crate) struct WindowsDesktopProvider;
 
 impl DesktopInfoProvider for WindowsDesktopProvider {
     fn desktop_info(&self) -> Result<DesktopInfo, PlatformError> {
-        let left = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) } as f64;
-        let top = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) } as f64;
-        let width = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN) } as f64;
-        let height = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN) } as f64;
+        let left = f64::from(unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) });
+        let top = f64::from(unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) });
+        let width = f64::from(unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN) });
+        let height = f64::from(unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN) });
 
         if width <= 0.0 || height <= 0.0 {
             return Err(PlatformError::CapabilityUnavailable {
@@ -54,6 +57,8 @@ impl DesktopInfoProvider for WindowsDesktopProvider {
 }
 
 unsafe fn enumerate_monitors() -> Result<Vec<MonitorInfo>, PlatformError> {
+    // `cbSize` takes the struct size as u32; MONITORINFO(EXW) are a few dozen bytes.
+    #[allow(clippy::cast_possible_truncation)]
     extern "system" fn enum_proc(
         hmonitor: windows::Win32::Graphics::Gdi::HMONITOR,
         _hdc: HDC,
@@ -68,11 +73,16 @@ unsafe fn enumerate_monitors() -> Result<Vec<MonitorInfo>, PlatformError> {
             };
             // Windows expects cbSize for MONITORINFO; using MONITORINFOEXW requires setting to its size
             infoex.monitorInfo.cbSize = size_of::<MONITORINFOEXW>() as u32;
-            if !GetMonitorInfoW(hmonitor, &mut infoex as *mut MONITORINFOEXW as *mut MONITORINFO).as_bool() {
+            if !GetMonitorInfoW(hmonitor, (&raw mut infoex).cast::<MONITORINFO>()).as_bool() {
                 return BOOL(1);
             }
             let r = infoex.monitorInfo.rcMonitor;
-            let bounds = Rect::new(r.left as f64, r.top as f64, (r.right - r.left) as f64, (r.bottom - r.top) as f64);
+            let bounds = Rect::new(
+                f64::from(r.left),
+                f64::from(r.top),
+                f64::from(r.right - r.left),
+                f64::from(r.bottom - r.top),
+            );
             let is_primary = (infoex.monitorInfo.dwFlags & 1) != 0; // MONITORINFOF_PRIMARY = 0x00000001
             let id = trim_wstr(&infoex.szDevice);
             let friendly_dc = FRIENDLY_NAMES.get_or_init(build_friendly_name_map).get(&id).cloned();
@@ -82,10 +92,10 @@ unsafe fn enumerate_monitors() -> Result<Vec<MonitorInfo>, PlatformError> {
             monitor.is_primary = is_primary;
             monitor.name = Some(friendly.unwrap_or(id));
             // Try to determine per-monitor scale factor via effective DPI
-            let mut dpix: u32 = 0;
-            let mut dpiy: u32 = 0;
-            if GetDpiForMonitor(hmonitor, MDT_EFFECTIVE_DPI, &mut dpix, &mut dpiy).is_ok() && dpix > 0 {
-                monitor.scale_factor = Some(dpix as f64 / 96.0);
+            let mut dpi_x: u32 = 0;
+            let mut dpi_y: u32 = 0;
+            if GetDpiForMonitor(hmonitor, MDT_EFFECTIVE_DPI, &raw mut dpi_x, &raw mut dpi_y).is_ok() && dpi_x > 0 {
+                monitor.scale_factor = Some(f64::from(dpi_x) / 96.0);
             }
             list.push(monitor);
             BOOL(1)
@@ -94,7 +104,7 @@ unsafe fn enumerate_monitors() -> Result<Vec<MonitorInfo>, PlatformError> {
 
     use windows::Win32::Graphics::Gdi::HDC;
     let mut list: Vec<MonitorInfo> = Vec::new();
-    let lparam = LPARAM(&mut list as *mut _ as isize);
+    let lparam = LPARAM(&raw mut list as isize);
     let ok = unsafe { EnumDisplayMonitors(None, None, Some(enum_proc), lparam) };
     if !ok.as_bool() {
         return Err(PlatformError::CapabilityUnavailable {
@@ -112,8 +122,10 @@ fn trim_wstr(buf: &[u16]) -> String {
 
 unsafe fn monitor_friendly_name(infoex: &MONITORINFOEXW) -> Option<String> {
     // Try to resolve a human-friendly monitor name via EnumDisplayDevicesW
+    // `cb` takes the struct size as u32; DISPLAY_DEVICEW is under 1 KiB.
+    #[allow(clippy::cast_possible_truncation)]
     let mut dd: DISPLAY_DEVICEW = DISPLAY_DEVICEW { cb: size_of::<DISPLAY_DEVICEW>() as u32, ..Default::default() };
-    let ok = unsafe { EnumDisplayDevicesW(windows::core::PCWSTR(infoex.szDevice.as_ptr()), 0, &mut dd, 0) };
+    let ok = unsafe { EnumDisplayDevicesW(windows::core::PCWSTR(infoex.szDevice.as_ptr()), 0, &raw mut dd, 0) };
     if ok.as_bool() {
         let s = trim_wstr(&dd.DeviceString);
         if !s.trim().is_empty() {
@@ -131,16 +143,18 @@ fn build_friendly_name_map() -> HashMap<String, String> {
     unsafe {
         let mut path_count: u32 = 0;
         let mut mode_count: u32 = 0;
-        if GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &mut path_count, &mut mode_count) != WIN32_ERROR(0) {
+        if GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &raw mut path_count, &raw mut mode_count)
+            != WIN32_ERROR(0)
+        {
             return map;
         }
         let mut paths = vec![DISPLAYCONFIG_PATH_INFO::default(); path_count as usize];
         let mut modes = vec![DISPLAYCONFIG_MODE_INFO::default(); mode_count as usize];
         if QueryDisplayConfig(
             QDC_ONLY_ACTIVE_PATHS,
-            &mut path_count,
+            &raw mut path_count,
             paths.as_mut_ptr(),
-            &mut mode_count,
+            &raw mut mode_count,
             modes.as_mut_ptr(),
             None,
         ) != WIN32_ERROR(0)
@@ -150,6 +164,8 @@ fn build_friendly_name_map() -> HashMap<String, String> {
         let paths = &paths[..path_count as usize];
         for p in paths {
             // Source device name (\\.\DISPLAYn)
+            // `size` takes the struct size as u32; the struct is under 1 KiB.
+            #[allow(clippy::cast_possible_truncation)]
             let mut src: DISPLAYCONFIG_SOURCE_DEVICE_NAME = DISPLAYCONFIG_SOURCE_DEVICE_NAME {
                 header: DISPLAYCONFIG_DEVICE_INFO_HEADER {
                     r#type: DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
@@ -159,12 +175,14 @@ fn build_friendly_name_map() -> HashMap<String, String> {
                 },
                 ..Default::default()
             };
-            if DisplayConfigGetDeviceInfo(&mut src.header) != 0 {
+            if DisplayConfigGetDeviceInfo(&raw mut src.header) != 0 {
                 continue;
             }
             let gdi_name = trim_wstr(&src.viewGdiDeviceName);
 
             // Target friendly name
+            // `size` takes the struct size as u32; the struct is under 1 KiB.
+            #[allow(clippy::cast_possible_truncation)]
             let mut tgt: DISPLAYCONFIG_TARGET_DEVICE_NAME = DISPLAYCONFIG_TARGET_DEVICE_NAME {
                 header: DISPLAYCONFIG_DEVICE_INFO_HEADER {
                     r#type: DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME,
@@ -174,7 +192,7 @@ fn build_friendly_name_map() -> HashMap<String, String> {
                 },
                 ..Default::default()
             };
-            if DisplayConfigGetDeviceInfo(&mut tgt.header) != 0 {
+            if DisplayConfigGetDeviceInfo(&raw mut tgt.header) != 0 {
                 continue;
             }
             let friendly = trim_wstr(&tgt.monitorFriendlyDeviceName);
@@ -192,7 +210,7 @@ fn os_version_string() -> String {
         let major = v & 0xFF;
         let minor = (v >> 8) & 0xFF;
         let build = if (v & 0x8000_0000) == 0 { (v >> 16) & 0xFFFF } else { 0 };
-        if build != 0 { format!("{}.{}.{}", major, minor, build) } else { format!("{}.{}", major, minor) }
+        if build != 0 { format!("{major}.{minor}.{build}") } else { format!("{major}.{minor}") }
     }
 }
 

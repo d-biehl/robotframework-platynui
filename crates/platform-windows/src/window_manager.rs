@@ -3,7 +3,7 @@
 //! Uses native HWND-based window management APIs and registers as a
 //! platform-level provider so any accessibility provider (or the runtime
 //! itself) can resolve and manage native windows without a direct dependency on
-//! UIAutomation patterns.
+//! `UIAutomation` patterns.
 //!
 //! ## Window resolution strategy
 //!
@@ -13,6 +13,9 @@
 //! 2. **PID fallback** — if the node carries `native:ProcessId` (e.g. via an
 //!    Application node), we enumerate top-level windows with `EnumWindows` and
 //!    match by PID.
+
+// Win32 FFI module: nearly every call it makes is `unsafe` by signature.
+#![allow(unsafe_code)]
 
 use platynui_core::platform::{PlatformError, WindowId, WindowManager, WindowState, WindowVisualState};
 use platynui_core::types::{Point, Rect, Size};
@@ -44,12 +47,15 @@ fn id_from_hwnd(hwnd: HWND) -> WindowId {
 //  Window resolution helpers
 // ---------------------------------------------------------------------------
 
-/// Extract the native window handle (HWND) directly from a UiNode.
+/// Extract the native window handle (HWND) directly from a `UiNode`.
 ///
 /// On Windows, UIA publishes property 30005 (`NativeWindowHandle`) which the
 /// provider exposes under `native:NativeWindowHandle`.
 fn extract_hwnd(node: &dyn UiNode) -> Option<HWND> {
     let attr = node.attribute(Namespace::Native, "NativeWindowHandle")?;
+    // The attribute carries the handle's bit pattern as a number; casting it back
+    // to the pointer-sized handle is the intended reinterpretation.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let raw = match attr.value() {
         UiValue::Integer(v) => v as usize,
         UiValue::Number(v) => v as usize,
@@ -61,7 +67,7 @@ fn extract_hwnd(node: &dyn UiNode) -> Option<HWND> {
     Some(HWND(raw as *mut core::ffi::c_void))
 }
 
-/// Extract the process ID from a UiNode by walking up to the Application
+/// Extract the process ID from a `UiNode` by walking up to the Application
 /// node and reading `ProcessId`.
 ///
 /// Application nodes are the canonical source of PID information across all
@@ -84,6 +90,8 @@ fn pid_from_attr(node: &dyn UiNode) -> Option<u32> {
     match attr.value() {
         UiValue::Integer(v) => u32::try_from(v).ok(),
         UiValue::Number(v) => {
+            // Saturating f64 -> u32 is intended: negative and NaN become 0 and are rejected below.
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let rounded = v as u32;
             if rounded > 0 { Some(rounded) } else { None }
         }
@@ -116,7 +124,7 @@ fn find_hwnd_for_pid(pid: u32) -> Result<HWND, PlatformError> {
     unsafe extern "system" fn callback(hwnd: HWND, lparam: LPARAM) -> windows::core::BOOL {
         let data = unsafe { &mut *(lparam.0 as *mut EnumData) };
         let mut win_pid: u32 = 0;
-        unsafe { GetWindowThreadProcessId(hwnd, Some(&mut win_pid)) };
+        unsafe { GetWindowThreadProcessId(hwnd, Some(&raw mut win_pid)) };
         if win_pid == data.target_pid && unsafe { IsWindowVisible(hwnd) }.as_bool() {
             data.result = Some(hwnd);
             return BOOL(0); // stop enumeration
@@ -172,7 +180,7 @@ impl WindowManager for Win32WindowManager {
     fn bounds(&self, id: WindowId, _toolkit_hint: Option<&str>) -> Result<Rect, PlatformError> {
         let hwnd = hwnd_from_id(id);
         let mut rect = RECT::default();
-        unsafe { GetWindowRect(hwnd, &mut rect) }
+        unsafe { GetWindowRect(hwnd, &raw mut rect) }
             .map_err(|e| PlatformError::OperationFailed { operation: "GetWindowRect", details: Some(e.to_string()) })?;
         Ok(Rect::new(
             f64::from(rect.left),
@@ -291,6 +299,8 @@ impl WindowManager for Win32WindowManager {
         Ok(())
     }
 
+    // Screen coordinates fit in i32; saturation on overflow is intended.
+    #[allow(clippy::cast_possible_truncation)]
     fn move_to(&self, id: WindowId, position: Point) -> Result<(), PlatformError> {
         let hwnd = hwnd_from_id(id);
         debug!(hwnd = hwnd.0 as usize, x = position.x(), y = position.y(), "Win32 move_to");
@@ -308,6 +318,8 @@ impl WindowManager for Win32WindowManager {
         .map_err(|e| PlatformError::OperationFailed { operation: "SetWindowPos move", details: Some(e.to_string()) })
     }
 
+    // Window sizes fit in i32; saturation on overflow is intended.
+    #[allow(clippy::cast_possible_truncation)]
     fn resize(&self, id: WindowId, size: Size) -> Result<(), PlatformError> {
         let hwnd = hwnd_from_id(id);
         debug!(hwnd = hwnd.0 as usize, w = size.width(), h = size.height(), "Win32 resize");

@@ -1,3 +1,6 @@
+// Win32 FFI module: nearly every call it makes is `unsafe` by signature.
+#![allow(unsafe_code)]
+
 use std::mem::size_of;
 use std::time::Duration;
 
@@ -18,16 +21,20 @@ pub(crate) struct WindowsPointerDevice;
 
 impl PointerDevice for WindowsPointerDevice {
     fn position(&self) -> Result<Point, PlatformError> {
+        // `cbSize` takes the struct size as u32; CURSORINFO is a few dozen bytes.
+        #[allow(clippy::cast_possible_truncation)]
         let mut info = CURSORINFO { cbSize: size_of::<CURSORINFO>() as u32, ..Default::default() };
-        unsafe { GetCursorInfo(&mut info) }.map_err(|err| win_error("GetCursorInfo", err))?;
-        Ok(Point::new(info.ptScreenPos.x as f64, info.ptScreenPos.y as f64))
+        unsafe { GetCursorInfo(&raw mut info) }.map_err(|err| win_error("GetCursorInfo", &err))?;
+        Ok(Point::new(f64::from(info.ptScreenPos.x), f64::from(info.ptScreenPos.y)))
     }
 
+    // Clamped to the i32 range first, so only the rounded value is cast; NaN maps to 0 as before.
+    #[allow(clippy::cast_possible_truncation)]
     fn move_to(&self, point: Point) -> Result<(), PlatformError> {
-        let x = point.x().round().clamp(i32::MIN as f64, i32::MAX as f64) as i32;
-        let y = point.y().round().clamp(i32::MIN as f64, i32::MAX as f64) as i32;
+        let x = point.x().round().clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32;
+        let y = point.y().round().clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32;
 
-        unsafe { SetCursorPos(x, y) }.map_err(|err| win_error("SetCursorPos", err))
+        unsafe { SetCursorPos(x, y) }.map_err(|err| win_error("SetCursorPos", &err))
     }
 
     fn press(&self, button: PointerButton) -> Result<(), PlatformError> {
@@ -61,7 +68,11 @@ impl PointerDevice for WindowsPointerDevice {
 
     fn double_click_time(&self) -> Result<Option<Duration>, PlatformError> {
         let value = unsafe { GetDoubleClickTime() };
-        if value == 0 { Err(last_error("GetDoubleClickTime")) } else { Ok(Some(Duration::from_millis(value as u64))) }
+        if value == 0 {
+            Err(last_error("GetDoubleClickTime"))
+        } else {
+            Ok(Some(Duration::from_millis(u64::from(value))))
+        }
     }
 
     fn double_click_size(&self) -> Result<Option<Size>, PlatformError> {
@@ -70,7 +81,7 @@ impl PointerDevice for WindowsPointerDevice {
         if width <= 0 || height <= 0 {
             Err(last_error("GetSystemMetrics(SM_C*DOUBLECLK)"))
         } else {
-            Ok(Some(Size::new(width as f64, height as f64)))
+            Ok(Some(Size::new(f64::from(width), f64::from(height))))
         }
     }
 }
@@ -81,6 +92,8 @@ fn send_mouse_input(flags: MOUSE_EVENT_FLAGS, data: u32, dx: i32, dy: i32) -> Re
         Anonymous: INPUT_0 { mi: MOUSEINPUT { dx, dy, mouseData: data, dwFlags: flags, time: 0, dwExtraInfo: 0 } },
     };
 
+    // `cbSize` takes the struct size as i32; INPUT is a few dozen bytes.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
     let sent = unsafe { SendInput(&[input], size_of::<INPUT>() as i32) };
     if sent == 0 {
         tracing::error!("SendInput failed for mouse event");
@@ -119,8 +132,11 @@ fn release_flags(button: PointerButton) -> Result<(MOUSE_EVENT_FLAGS, u32), Plat
 }
 
 fn scroll_data(delta: f64) -> u32 {
-    let value = delta.round().clamp(i32::MIN as f64, i32::MAX as f64) as i32;
-    value as u32
+    // Clamped to the i32 range first, so only the rounded value is cast; NaN maps to 0 as before.
+    #[allow(clippy::cast_possible_truncation)]
+    let value = delta.round().clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32;
+    // `mouseData` is a DWORD carrying the signed wheel delta as its bit pattern.
+    value.cast_unsigned()
 }
 
 fn last_error(context: &'static str) -> PlatformError {
@@ -128,7 +144,7 @@ fn last_error(context: &'static str) -> PlatformError {
     PlatformError::CapabilityUnavailable { capability: context, details: Some(format!("failed: {code:?}")) }
 }
 
-fn win_error(context: &'static str, err: Error) -> PlatformError {
+fn win_error(context: &'static str, err: &Error) -> PlatformError {
     PlatformError::CapabilityUnavailable { capability: context, details: Some(format!("failed: {err:?}")) }
 }
 
@@ -138,8 +154,8 @@ mod tests {
 
     #[test]
     fn scroll_cast_preserves_sign() {
-        assert_eq!(scroll_data(120.0) as i32, 120);
-        assert_eq!(scroll_data(-240.0) as i32, -240);
+        assert_eq!(scroll_data(120.0).cast_signed(), 120);
+        assert_eq!(scroll_data(-240.0).cast_signed(), -240);
     }
 
     #[test]

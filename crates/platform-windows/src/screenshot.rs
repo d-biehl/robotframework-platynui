@@ -12,6 +12,7 @@ use windows::Win32::Graphics::Gdi::{
 pub(crate) struct WindowsScreenshotProvider;
 
 impl ScreenshotProvider for WindowsScreenshotProvider {
+    #[allow(unsafe_code)]
     fn capture(&self, request: &ScreenshotRequest) -> Result<Screenshot, PlatformError> {
         let desktop = desktop_bounds()
             .ok_or(PlatformError::CapabilityUnavailable { capability: "desktop bounds", details: None })?;
@@ -23,10 +24,14 @@ impl ScreenshotProvider for WindowsScreenshotProvider {
             details: Some("outside desktop".into()),
         })?;
 
-        let left = region.x().floor() as i32;
-        let top = region.y().floor() as i32;
-        let width = region.width().ceil().max(1.0) as i32;
-        let height = region.height().ceil().max(1.0) as i32;
+        // Floored/ceiled desktop pixel values fit in i32; saturation on overflow is intended.
+        #[allow(clippy::cast_possible_truncation)]
+        let (left, top, width, height) = (
+            region.x().floor() as i32,
+            region.y().floor() as i32,
+            region.width().ceil().max(1.0) as i32,
+            region.height().ceil().max(1.0) as i32,
+        );
 
         unsafe {
             let screen_dc: HDC = GetDC(None);
@@ -45,6 +50,8 @@ impl ScreenshotProvider for WindowsScreenshotProvider {
                 });
             }
 
+            // `biSize` takes the struct size as u32; BITMAPINFOHEADER is 40 bytes.
+            #[allow(clippy::cast_possible_truncation)]
             let info: BITMAPINFO = BITMAPINFO {
                 bmiHeader: BITMAPINFOHEADER {
                     biSize: size_of::<BITMAPINFOHEADER>() as u32,
@@ -63,17 +70,18 @@ impl ScreenshotProvider for WindowsScreenshotProvider {
             };
 
             let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
-            let bitmap: HBITMAP = match CreateDIBSection(Some(mem_dc), &info, DIB_RGB_COLORS, &mut bits, None, 0) {
-                Ok(bmp) => bmp,
-                Err(e) => {
-                    let _ = DeleteDC(mem_dc);
-                    let _ = ReleaseDC(None, screen_dc);
-                    return Err(PlatformError::CapabilityUnavailable {
-                        capability: "CreateDIBSection",
-                        details: Some(format!("failed: {e:?}")),
-                    });
-                }
-            };
+            let bitmap: HBITMAP =
+                match CreateDIBSection(Some(mem_dc), &raw const info, DIB_RGB_COLORS, &raw mut bits, None, 0) {
+                    Ok(bmp) => bmp,
+                    Err(e) => {
+                        let _ = DeleteDC(mem_dc);
+                        let _ = ReleaseDC(None, screen_dc);
+                        return Err(PlatformError::CapabilityUnavailable {
+                            capability: "CreateDIBSection",
+                            details: Some(format!("failed: {e:?}")),
+                        });
+                    }
+                };
             let old = SelectObject(mem_dc, bitmap.into());
 
             // Copy from screen DC into memory DC
@@ -91,6 +99,8 @@ impl ScreenshotProvider for WindowsScreenshotProvider {
             }
 
             // Copy pixels from DIBSection memory
+            // `width`/`height` are at least 1 (clamped above), so the sign cannot be lost.
+            #[allow(clippy::cast_sign_loss)]
             let byte_count = (width as usize) * (height as usize) * 4;
             let mut pixels = vec![0u8; byte_count];
             std::ptr::copy_nonoverlapping(bits as *const u8, pixels.as_mut_ptr(), byte_count);
@@ -100,7 +110,10 @@ impl ScreenshotProvider for WindowsScreenshotProvider {
             let _ = DeleteDC(mem_dc);
             let _ = ReleaseDC(None, screen_dc);
 
-            Ok(Screenshot::new(width as u32, height as u32, PixelFormat::Bgra8, pixels))
+            // `width`/`height` are at least 1 (clamped above), so the sign cannot be lost.
+            #[allow(clippy::cast_sign_loss)]
+            let (width_px, height_px) = (width as u32, height as u32);
+            Ok(Screenshot::new(width_px, height_px, PixelFormat::Bgra8, pixels))
         }
     }
 }
