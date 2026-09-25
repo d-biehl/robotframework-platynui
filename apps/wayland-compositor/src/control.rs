@@ -42,8 +42,9 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::os::fd::AsFd;
+use std::os::unix::fs::MetadataExt as _;
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -240,14 +241,62 @@ pub fn control_socket_path(socket_name: &str) -> PathBuf {
     PathBuf::from(runtime_dir).join(format!("{socket_name}.control"))
 }
 
+/// The control socket's file on disk.
+///
+/// Dropping it removes the file, so the socket goes with the compositor instead
+/// of piling up in `$XDG_RUNTIME_DIR` under every run's socket name. It removes
+/// the file only while the path still names the socket this compositor bound:
+/// a compositor that has since taken the path over keeps its socket. While this
+/// compositor runs, its Wayland socket's lock keeps any other compositor with
+/// the same socket name from starting, so the check matters only when teardown
+/// releases that lock before this guard is dropped.
+#[derive(Debug)]
+pub struct ControlSocketFile {
+    path: PathBuf,
+    /// Device and inode of the socket file this compositor bound.
+    identity: (u64, u64),
+}
+
+impl ControlSocketFile {
+    /// Take charge of the socket file just bound at `path`.
+    fn bound(path: PathBuf) -> std::io::Result<Self> {
+        let metadata = std::fs::symlink_metadata(&path)?;
+        Ok(Self { path, identity: (metadata.dev(), metadata.ino()) })
+    }
+
+    /// Where the control socket is.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for ControlSocketFile {
+    fn drop(&mut self) {
+        let path = self.path.display();
+        match std::fs::symlink_metadata(&self.path) {
+            Ok(metadata) if (metadata.dev(), metadata.ino()) == self.identity => {
+                match std::fs::remove_file(&self.path) {
+                    Ok(()) => tracing::debug!(%path, "control socket removed"),
+                    Err(err) => tracing::warn!(%err, %path, "failed to remove the control socket"),
+                }
+            }
+            Ok(_) => tracing::debug!(%path, "control socket taken over by another compositor; leaving it"),
+            // Already gone: nothing to clean up.
+            Err(_) => {}
+        }
+    }
+}
+
 /// Set up the control socket as a calloop event source.
 ///
 /// Creates a Unix listener at the control socket path and registers it with
-/// the event loop to accept connections and process commands.
+/// the event loop to accept connections and process commands. The returned
+/// guard removes the socket file when it is dropped.
 pub fn setup_control_socket(
     loop_handle: &calloop::LoopHandle<'static, State>,
     socket_name: &str,
-) -> Result<PathBuf, Box<dyn std::error::Error>> {
+) -> Result<ControlSocketFile, Box<dyn std::error::Error>> {
     let path = control_socket_path(socket_name);
 
     if path.exists() {
@@ -255,6 +304,8 @@ pub fn setup_control_socket(
     }
 
     let listener = UnixListener::bind(&path)?;
+    // Taken right after the bind, so a failure below removes the file again.
+    let socket_file = ControlSocketFile::bound(path.clone())?;
     listener.set_nonblocking(true)?;
 
     tracing::info!(path = %path.display(), "control socket listening");
@@ -281,7 +332,7 @@ pub fn setup_control_socket(
         },
     )?;
 
-    Ok(path)
+    Ok(socket_file)
 }
 
 /// Register an accepted client stream as a non-blocking calloop event source.
@@ -1634,6 +1685,45 @@ fn base64_encode(data: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── The control socket's file: removed on exit, never a successor's ──
+
+    fn bind_control_socket(dir: &tempfile::TempDir) -> (PathBuf, UnixListener) {
+        let path = dir.path().join("wl-test.control");
+        let listener = UnixListener::bind(&path).expect("bind test socket");
+        (path, listener)
+    }
+
+    #[test]
+    fn the_control_socket_file_is_removed_with_its_guard() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let (path, _listener) = bind_control_socket(&dir);
+        drop(ControlSocketFile::bound(path.clone()).expect("guard"));
+        assert!(!path.exists(), "the control socket must be removed: {}", path.display());
+    }
+
+    #[test]
+    fn a_socket_bound_at_the_same_path_later_is_left_alone() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let (path, _first) = bind_control_socket(&dir);
+        let guard = ControlSocketFile::bound(path.clone()).expect("guard");
+        // A successor takes the path over. The old file is moved aside rather
+        // than removed, so the new socket cannot reuse its inode number.
+        std::fs::rename(&path, dir.path().join("moved-aside.control")).expect("move the first socket aside");
+        let _successor = UnixListener::bind(&path).expect("bind the successor");
+        drop(guard);
+        assert!(path.exists(), "an exiting compositor must not remove its successor's socket");
+    }
+
+    #[test]
+    fn a_control_socket_file_already_gone_is_not_an_error() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let (path, _listener) = bind_control_socket(&dir);
+        let guard = ControlSocketFile::bound(path.clone()).expect("guard");
+        std::fs::remove_file(&path).expect("remove the socket file");
+        drop(guard);
+        assert!(!path.exists());
+    }
 
     #[test]
     fn base64_encode_empty() {

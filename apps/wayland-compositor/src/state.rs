@@ -262,6 +262,8 @@ pub struct State {
     pub running: bool,
     /// Active backend name ("headless", "winit", or "drm") — for status reporting.
     pub backend_name: &'static str,
+    /// The control socket's file; removed when the compositor exits.
+    pub control_socket: Option<crate::control::ControlSocketFile>,
 
     // -- Security policy --
     pub security_policy: crate::security::SecurityPolicy,
@@ -603,6 +605,7 @@ impl State {
             timeout,
             running: true,
             backend_name: "unknown",
+            control_socket: None,
             print_env: false,
             ready_fd: None,
             security_policy,

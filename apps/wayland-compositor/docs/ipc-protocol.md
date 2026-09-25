@@ -18,8 +18,11 @@ Platform-Crate (`crates/platform-linux-wayland`).
 
 ## Socket Path
 
-The control socket is created by default when the compositor starts.
-Use `--no-control-socket` to disable it.
+The control socket is created by default when the compositor starts and
+removed when it exits. Use `--no-control-socket` to disable it.
+
+A compositor that is killed outright (`SIGKILL`) cannot remove its socket; the
+next compositor started with the same socket name replaces the stale file.
 
 **Convention:**
 

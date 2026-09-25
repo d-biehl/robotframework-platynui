@@ -497,6 +497,29 @@ fn ipc_shutdown() {
     // Wait for the compositor to actually exit
     let exit = child.wait().expect("failed to wait for child");
     assert!(exit.success(), "compositor did not exit cleanly: {exit}");
+
+    // The control socket goes with the compositor instead of piling up in
+    // XDG_RUNTIME_DIR under every run's unique socket name.
+    assert!(!socket_path.exists(), "the control socket must be removed on exit: {}", socket_path.display());
+}
+
+#[test]
+fn ipc_sigterm_removes_the_control_socket() {
+    let Some((mut child, socket_name)) = start_compositor("sigterm") else {
+        return;
+    };
+
+    let Some(socket_path) = wait_for_socket(&socket_name, Duration::from_secs(10)) else {
+        eprintln!("skipping: control socket did not appear");
+        return;
+    };
+
+    let kill = Command::new("kill").args(["-TERM", &child.id().to_string()]).status().expect("failed to run kill");
+    assert!(kill.success(), "kill -TERM failed: {kill}");
+
+    let exit = child.wait().expect("failed to wait for child");
+    assert!(exit.success(), "compositor did not exit cleanly on SIGTERM: {exit}");
+    assert!(!socket_path.exists(), "the control socket must be removed on exit: {}", socket_path.display());
 }
 
 // ─── Client helper functions ────────────────────────────────────────────

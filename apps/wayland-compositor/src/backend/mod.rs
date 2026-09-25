@@ -262,7 +262,10 @@ pub fn setup_services(
     // PLATYNUI_CONTROL_SOCKET is available for --print-env and child processes).
     if !args.no_control_socket {
         match crate::control::setup_control_socket(handle, &state.socket_name) {
-            Ok(control_path) => crate::environment::set_control_socket_env(&control_path),
+            Ok(control_socket) => {
+                crate::environment::set_control_socket_env(control_socket.path());
+                state.control_socket = Some(control_socket);
+            }
             Err(err) => tracing::warn!(%err, "failed to set up control socket"),
         }
     }
