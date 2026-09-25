@@ -11,11 +11,16 @@ use super::error::{BringToFrontError, FocusError};
 use super::{Runtime, default_sleep};
 
 impl Runtime {
+    /// Moves keyboard focus to `node` through its `Focusable` pattern.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FocusError::PatternMissing`] if `node` does not expose the `Focusable` pattern and
+    /// [`FocusError::ActionFailed`] if the focus action fails.
     pub fn focus(&self, node: &Arc<dyn UiNode>) -> Result<(), FocusError> {
         let runtime_id = node.runtime_id().as_str().to_owned();
-        let pattern = match node.pattern::<FocusableAction>() {
-            Some(pattern) => pattern,
-            None => return Err(FocusError::PatternMissing { runtime_id }),
+        let Some(pattern) = node.pattern::<FocusableAction>() else {
+            return Err(FocusError::PatternMissing { runtime_id });
         };
 
         if let Err(source) = pattern.focus() {
@@ -57,12 +62,14 @@ impl Runtime {
     /// Activation brings a minimized window back in the state it was minimized from and never
     /// un-maximizes a window, so bringing an element to the front does not move or resize its
     /// window. Returning a window to its normal state is the `Restorable` pattern's job.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BringToFrontError::PatternMissing`] if no window with the `Activatable` pattern is
+    /// found for `node` and [`BringToFrontError::ActionFailed`] if the activation fails.
     pub fn bring_to_front(&self, node: &Arc<dyn UiNode>) -> Result<(), BringToFrontError> {
-        let window = match self.top_level_window_for(node) {
-            Some(w) => w,
-            None => {
-                return Err(BringToFrontError::PatternMissing { runtime_id: node.runtime_id().as_str().to_owned() });
-            }
+        let Some(window) = self.top_level_window_for(node) else {
+            return Err(BringToFrontError::PatternMissing { runtime_id: node.runtime_id().as_str().to_owned() });
         };
         let rid = window.runtime_id().as_str().to_owned();
         let activatable = window
@@ -74,14 +81,17 @@ impl Runtime {
     /// Bring the window to the foreground and wait until it accepts user input, or until `timeout`.
     /// If the platform does not report input readiness (`accepts_user_input` returns `None`), this
     /// returns immediately after activating the window.
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors of [`Runtime::bring_to_front`], [`BringToFrontError::ActionFailed`] if
+    /// querying input readiness fails, and [`BringToFrontError::Timeout`] if the window does not
+    /// accept input within `timeout`.
     pub fn bring_to_front_and_wait(&self, node: &Arc<dyn UiNode>, timeout: Duration) -> Result<(), BringToFrontError> {
         self.bring_to_front(node)?;
 
-        let window = match self.top_level_window_for(node) {
-            Some(w) => w,
-            None => {
-                return Err(BringToFrontError::PatternMissing { runtime_id: node.runtime_id().as_str().to_owned() });
-            }
+        let Some(window) = self.top_level_window_for(node) else {
+            return Err(BringToFrontError::PatternMissing { runtime_id: node.runtime_id().as_str().to_owned() });
         };
         let rid = window.runtime_id().as_str().to_owned();
         let Some(responsive) = window.pattern::<ResponsiveAction>() else {
@@ -92,20 +102,25 @@ impl Runtime {
         let start = std::time::Instant::now();
         loop {
             match responsive.accepts_user_input() {
-                Ok(Some(true)) => return Ok(()),
+                // Ready, or the platform does not report input readiness.
+                Ok(Some(true) | None) => return Ok(()),
                 Ok(Some(false)) => {
                     if start.elapsed() >= timeout {
                         return Err(BringToFrontError::Timeout { runtime_id: rid, waited: timeout });
                     }
                     default_sleep(Duration::from_millis(20));
                 }
-                Ok(None) => return Ok(()),
                 Err(source) => return Err(BringToFrontError::ActionFailed { runtime_id: rid, source }),
             }
         }
     }
 
     /// Highlights the given regions using this runtime's platform highlight device.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlatformError::UnsupportedPlatform`] if the runtime has no platform backend, and
+    /// otherwise the error of the highlight device.
     pub fn highlight(&self, request: &HighlightRequest) -> Result<(), PlatformError> {
         match self.platform.as_ref() {
             Some(bundle) => bundle.highlight.highlight(request),
@@ -117,6 +132,11 @@ impl Runtime {
     }
 
     /// Clears an active highlight overlay if a platform is available.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlatformError::UnsupportedPlatform`] if the runtime has no platform backend, and
+    /// otherwise the error of the highlight device.
     pub fn clear_highlight(&self) -> Result<(), PlatformError> {
         match self.platform.as_ref() {
             Some(bundle) => bundle.highlight.clear(),
@@ -128,6 +148,11 @@ impl Runtime {
     }
 
     /// Captures a screenshot using this runtime's platform screenshot device.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlatformError::UnsupportedPlatform`] if the runtime has no platform backend, and
+    /// otherwise the error of the screenshot device.
     pub fn screenshot(&self, request: &ScreenshotRequest) -> Result<Screenshot, PlatformError> {
         match self.platform.as_ref() {
             Some(bundle) => bundle.screenshot.capture(request),
@@ -234,12 +259,11 @@ mod tests {
             .expect("runtime initializes with mock provider");
 
         let results = runtime.evaluate(None, "//control:Window[@Name='Settings']").expect("evaluate ok");
-        let window = match results.into_iter().find_map(|it| match it {
+        let Some(window) = results.into_iter().find_map(|it| match it {
             EvaluationItem::Node(n) => Some(n),
             _ => None,
-        }) {
-            Some(n) => n,
-            None => panic!("window not found"),
+        }) else {
+            panic!("window not found");
         };
 
         let pattern = window.pattern::<MinimizableAction>().expect("mock window exposes Minimizable");
@@ -310,12 +334,11 @@ mod tests {
     fn bring_to_front_reports_missing_pattern(rt_runtime_stub: Runtime) {
         let runtime = rt_runtime_stub;
         let results = runtime.evaluate(None, "//control:Button").expect("eval ok");
-        let panel = match results.into_iter().find_map(|it| match it {
+        let Some(panel) = results.into_iter().find_map(|it| match it {
             EvaluationItem::Node(n) => Some(n),
             _ => None,
-        }) {
-            Some(n) => n,
-            None => panic!("node not found"),
+        }) else {
+            panic!("node not found");
         };
         let err = runtime.bring_to_front(&panel).expect_err("should fail: no Activatable ancestor");
         match err {

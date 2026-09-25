@@ -43,6 +43,19 @@ pub struct KeyboardSequence {
 }
 
 impl KeyboardSequence {
+    /// Parses a keyboard sequence such as `Hello<Ctrl+A>`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KeyboardSequenceError::Parse`] if `input` does not match the sequence grammar,
+    /// [`KeyboardSequenceError::DanglingEscape`], [`KeyboardSequenceError::InvalidHexEscape`] or
+    /// [`KeyboardSequenceError::InvalidUnicodeEscape`] for a malformed escape, and
+    /// [`KeyboardSequenceError::EmptyKey`] for a shortcut with an empty key name.
+    ///
+    /// # Panics
+    ///
+    /// Does not panic in practice: the `expect` covers the grammar invariant that a successful
+    /// parse of the `sequence` rule always yields exactly one root pair.
     pub fn parse(input: &str) -> Result<Self, KeyboardSequenceError> {
         let mut pairs = KeyboardSequenceParser::parse(Rule::sequence, input)?;
         let sequence = pairs.next().expect("sequence root");
@@ -52,21 +65,29 @@ impl KeyboardSequence {
                 Rule::segment | Rule::shortcut | Rule::text => {
                     segments.push(parse_segment(pair)?);
                 }
-                Rule::EOI => {}
+                // `EOI` (and any other rule) carries no segment.
                 _ => {}
             }
         }
         Ok(Self { segments })
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.segments.is_empty()
     }
 
+    #[must_use]
     pub fn segments(&self) -> &[SequenceSegment] {
         &self.segments
     }
 
+    /// Maps every character and key name of the sequence to a device key code.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`KeyboardError`] from [`KeyboardDevice::key_to_code`] for the first character
+    /// or key name the device cannot map.
     pub fn resolve(&self, device: &dyn KeyboardDevice) -> Result<ResolvedKeyboardSequence, KeyboardError> {
         let mut resolved = Vec::with_capacity(self.segments.len());
         for segment in &self.segments {
@@ -131,14 +152,14 @@ impl ResolvedSegment {
     pub fn text_codes(&self) -> Option<&[KeyCode]> {
         match self {
             ResolvedSegment::Text(codes) => Some(codes.as_slice()),
-            _ => None,
+            ResolvedSegment::Shortcut(_) => None,
         }
     }
 
     pub fn shortcut_combinations(&self) -> Option<&[Vec<KeyCode>]> {
         match self {
             ResolvedSegment::Shortcut(groups) => Some(groups.as_slice()),
-            _ => None,
+            ResolvedSegment::Text(_) => None,
         }
     }
 }
@@ -196,7 +217,7 @@ fn decode_escapes(source: &str) -> Result<String, KeyboardSequenceError> {
         let next = chars.next().ok_or(KeyboardSequenceError::DanglingEscape)?;
         match next {
             'x' => {
-                let hi = chars.next().ok_or(KeyboardSequenceError::InvalidHexEscape { literal: String::from("") })?;
+                let hi = chars.next().ok_or(KeyboardSequenceError::InvalidHexEscape { literal: String::new() })?;
                 let lo = chars.next().ok_or(KeyboardSequenceError::InvalidHexEscape { literal: hi.to_string() })?;
                 let literal = format!("{hi}{lo}");
                 let value = u8::from_str_radix(&literal, 16)
@@ -213,7 +234,7 @@ fn decode_escapes(source: &str) -> Result<String, KeyboardSequenceError> {
                 }
                 let value = u16::from_str_radix(&digits, 16)
                     .map_err(|_| KeyboardSequenceError::InvalidUnicodeEscape { literal: digits.clone() })?;
-                let ch = char::from_u32(value as u32)
+                let ch = char::from_u32(u32::from(value))
                     .ok_or_else(|| KeyboardSequenceError::InvalidUnicodeEscape { literal: digits.clone() })?;
                 result.push(ch);
             }
@@ -259,7 +280,7 @@ mod tests {
                 assert_eq!(groups[0], vec![String::from("Ctrl"), String::from("Alt"), String::from("T"),]);
                 assert_eq!(groups[1], vec![String::from("Ctrl"), String::from("C")]);
             }
-            other => panic!("unexpected segment {other:?}"),
+            other @ SequenceSegment::Text(_) => panic!("unexpected segment {other:?}"),
         }
     }
 
@@ -274,7 +295,7 @@ mod tests {
                     vec![String::from("Ctrl"), String::from("<"), String::from("A"), String::from("B"),]
                 );
             }
-            _ => panic!("expected shortcut segment"),
+            SequenceSegment::Text(_) => panic!("expected shortcut segment"),
         }
     }
 
@@ -287,7 +308,7 @@ mod tests {
                 assert_eq!(groups.len(), 1);
                 assert_eq!(groups[0], vec![String::from("Ctrl"), String::from("#")]);
             }
-            _ => panic!("expected shortcut"),
+            SequenceSegment::Text(_) => panic!("expected shortcut"),
         }
     }
 
@@ -299,7 +320,7 @@ mod tests {
             SequenceSegment::Shortcut(groups) => {
                 assert_eq!(groups[0], vec![String::from("Ctrl"), String::from("Shift"), String::from(".")]);
             }
-            _ => panic!("expected shortcut"),
+            SequenceSegment::Text(_) => panic!("expected shortcut"),
         }
     }
 
@@ -330,14 +351,14 @@ mod tests {
             ResolvedSegment::Text(codes) => {
                 assert_eq!(codes.len(), 2);
             }
-            _ => panic!("expected text segment"),
+            ResolvedSegment::Shortcut(_) => panic!("expected text segment"),
         }
         match &resolved.segments()[1] {
             ResolvedSegment::Shortcut(groups) => {
                 assert_eq!(groups.len(), 1);
                 assert_eq!(groups[0].len(), 2);
             }
-            _ => panic!("expected shortcut"),
+            ResolvedSegment::Text(_) => panic!("expected shortcut"),
         }
     }
 
@@ -346,7 +367,7 @@ mod tests {
         let sequence = KeyboardSequence::parse("\\x41").unwrap();
         match &sequence.segments()[0] {
             SequenceSegment::Text(text) => assert_eq!(text, "A"),
-            _ => panic!("expected text"),
+            SequenceSegment::Shortcut(_) => panic!("expected text"),
         }
     }
 
@@ -355,7 +376,7 @@ mod tests {
         let sequence = KeyboardSequence::parse("\\u00E4").unwrap();
         match &sequence.segments()[0] {
             SequenceSegment::Text(text) => assert_eq!(text, "ä"),
-            _ => panic!("expected text"),
+            SequenceSegment::Shortcut(_) => panic!("expected text"),
         }
     }
 }

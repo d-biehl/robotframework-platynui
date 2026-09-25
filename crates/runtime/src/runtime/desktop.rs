@@ -48,11 +48,10 @@ impl DesktopNode {
         attributes.push(attr(namespace, attribute_names::element::IS_ENABLED, UiValue::from(true)));
         attributes.push(attr(namespace, attribute_names::element::IS_IN_VIEW, UiValue::from(true)));
 
-        attributes.push(attr(
-            namespace,
-            attribute_names::desktop::DISPLAY_COUNT,
-            UiValue::from(info.display_count() as i64),
-        ));
+        // The display count is a `Vec` length (at most `isize::MAX`), so it always fits in i64.
+        #[allow(clippy::cast_possible_wrap)]
+        let display_count = info.display_count() as i64;
+        attributes.push(attr(namespace, attribute_names::desktop::DISPLAY_COUNT, UiValue::from(display_count)));
         attributes.push(attr(namespace, attribute_names::desktop::OS_NAME, UiValue::from(info.os_name.clone())));
         attributes.push(attr(namespace, attribute_names::desktop::OS_VERSION, UiValue::from(info.os_version.clone())));
         attributes.push(attr(
@@ -85,7 +84,7 @@ impl UiNode for DesktopNode {
         Namespace::Control
     }
 
-    fn role(&self) -> &str {
+    fn role(&self) -> &'static str {
         "Desktop"
     }
 
@@ -138,8 +137,8 @@ impl UiNode for DesktopNode {
                 }
             }
         }
-        let parent = self.self_weak.get().and_then(|w| w.upgrade()).expect("desktop self weak set");
-        let providers = self.providers.to_vec();
+        let parent = self.self_weak.get().and_then(std::sync::Weak::upgrade).expect("desktop self weak set");
+        let providers = self.providers.clone();
         Box::new(DesktopChildrenIter { providers, idx: 0, parent, current: None })
     }
 

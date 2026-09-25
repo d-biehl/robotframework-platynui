@@ -6,7 +6,7 @@ use platynui_core::platform::{
 
 use crate::keyboard_sequence::{ResolvedKeyboardSequence, ResolvedSegment};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum KeyboardMode {
     Press,
     Release,

@@ -77,6 +77,12 @@ impl Runtime {
     ///
     /// Uses an empty [`RuntimeConfig`], so every backend falls back to the
     /// environment — today's behaviour.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`ProviderError`] of the first provider that fails to instantiate or to
+    /// subscribe to events, and [`ProviderError::InitializationFailed`] if the platform backend
+    /// cannot be selected or built, or its desktop information cannot be read.
     pub fn new() -> Result<Self, ProviderError> {
         let registry = ProviderRegistry::discover();
         Self::from_registry_with_config(registry, RuntimeConfig::default())
@@ -84,6 +90,12 @@ impl Runtime {
 
     /// Builds a Runtime that only includes providers with the given `ids`.
     /// This is useful for tests to restrict the active providers deterministically.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`ProviderError`] of the first provider that fails to instantiate or to
+    /// subscribe to events, and [`ProviderError::InitializationFailed`] if the platform backend
+    /// cannot be selected or built, or its desktop information cannot be read.
     pub fn new_with_provider_ids(ids: &[&str]) -> Result<Self, ProviderError> {
         let registry = ProviderRegistry::discover().filter_by_ids(ids);
         Self::from_registry_with_config(registry, RuntimeConfig::default())
@@ -91,6 +103,12 @@ impl Runtime {
 
     /// Builds a Runtime from an explicit list of provider factories.
     /// No inventory discovery is performed.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`ProviderError`] of the first provider that fails to instantiate or to
+    /// subscribe to events, and [`ProviderError::InitializationFailed`] if the platform backend
+    /// cannot be selected or built, or its desktop information cannot be read.
     pub fn new_with_factories(factories: &[&'static dyn UiTreeProviderFactory]) -> Result<Self, ProviderError> {
         let registry = ProviderRegistry::with_factories(factories);
         Self::from_registry_with_config(registry, RuntimeConfig::default())
@@ -98,6 +116,12 @@ impl Runtime {
 
     /// Discovers all registered providers and binds the runtime to the session
     /// described by `config` (platform backend selection + per-component settings).
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`ProviderError`] of the first provider that fails to instantiate or to
+    /// subscribe to events, and [`ProviderError::InitializationFailed`] if the platform backend
+    /// cannot be selected or built, or its desktop information cannot be read.
     pub fn new_with_config(config: RuntimeConfig) -> Result<Self, ProviderError> {
         let registry = ProviderRegistry::discover();
         Self::from_registry_with_config(registry, config)
@@ -105,6 +129,12 @@ impl Runtime {
 
     /// Builds a Runtime from an explicit list of provider factories bound to the
     /// session described by `config`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`ProviderError`] of the first provider that fails to instantiate or to
+    /// subscribe to events, and [`ProviderError::InitializationFailed`] if the platform backend
+    /// cannot be selected or built, or its desktop information cannot be read.
     pub fn new_with_factories_and_config(
         factories: &[&'static dyn UiTreeProviderFactory],
         config: RuntimeConfig,
@@ -142,7 +172,7 @@ impl Runtime {
         // Desktop info comes from the bundle when a platform is available, else a
         // fallback (headless / provider-only runtimes).
         let desktop = match &platform {
-            Some(bundle) => bundle.desktop_info.desktop_info().map_err(map_desktop_error)?,
+            Some(bundle) => bundle.desktop_info.desktop_info().map_err(|err| map_desktop_error(&err))?,
             None => fallback_desktop_info(),
         };
 
@@ -167,7 +197,7 @@ impl Runtime {
             )
         });
 
-        let providers_for_desktop: Vec<Arc<dyn UiTreeProvider>> = providers.to_vec();
+        let providers_for_desktop: Vec<Arc<dyn UiTreeProvider>> = providers.clone();
 
         let provider_count = providers.len();
         let runtime = Self {
@@ -192,7 +222,8 @@ impl Runtime {
         // Surface config sections that no registered backend / active provider
         // claimed — a portability aid (a dict may carry every OS's keys) and a
         // typo hint. Tolerant by design: unclaimed ids are ignored, not errors.
-        let registered_platform_ids: Vec<&str> = platform_factories().map(|factory| factory.id()).collect();
+        let registered_platform_ids: Vec<&str> =
+            platform_factories().map(platynui_core::platform::PlatformFactory::id).collect();
         for id in runtime.config.platform_component_ids() {
             if !registered_platform_ids.contains(&id) {
                 tracing::debug!(id, "config platform.<id> matched no registered platform backend");
@@ -311,7 +342,7 @@ fn select_platform(config: &RuntimeConfig) -> Result<Option<PlatformBundle>, Pro
     }
 }
 
-fn map_desktop_error(err: PlatformError) -> ProviderError {
+fn map_desktop_error(err: &PlatformError) -> ProviderError {
     ProviderError::InitializationFailed { provider: "desktop", details: Some(err.to_string()) }
 }
 

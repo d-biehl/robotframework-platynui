@@ -16,10 +16,21 @@ impl Runtime {
         EvaluateOptions::new(self.desktop_node())
     }
 
+    /// Evaluates `xpath` against `node` (or the desktop) and collects all results.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EvaluateError::XPath`] if `xpath` does not compile or its evaluation fails.
     pub fn evaluate(&self, node: Option<Arc<dyn UiNode>>, xpath: &str) -> Result<Vec<EvaluationItem>, EvaluateError> {
         evaluate(node, xpath, self.evaluate_options())
     }
 
+    /// Evaluates `xpath` against `node` (or the desktop) and returns a lazy iterator.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EvaluateError::XPath`] if `xpath` does not compile or the evaluation cannot
+    /// start. Errors raised while items are produced are yielded by the iterator.
     pub fn evaluate_iter(
         &self,
         node: Option<Arc<dyn UiNode>>,
@@ -28,6 +39,12 @@ impl Runtime {
         crate::xpath::evaluate_iter(node, xpath, self.evaluate_options())
     }
 
+    /// Evaluates `xpath` against `node` (or the desktop) and returns an owned lazy stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EvaluateError::XPath`] if `xpath` does not compile or the evaluation cannot
+    /// start. Errors raised while items are produced are yielded by the iterator.
     pub fn evaluate_iter_owned(
         &self,
         node: Option<Arc<dyn UiNode>>,
@@ -41,6 +58,11 @@ impl Runtime {
     /// The returned `EvaluationStream` is `!Send` — it must be iterated on the
     /// same thread that called this method. The `cancel_flag` is checked at each
     /// axis step; setting it to `true` causes the iterator to yield an error and stop.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EvaluateError::XPath`] if `xpath` does not compile or the evaluation cannot
+    /// start. Errors raised while items are produced are yielded by the iterator.
     pub fn evaluate_iter_owned_cancellable(
         &self,
         node: Option<Arc<dyn UiNode>>,
@@ -54,6 +76,12 @@ impl Runtime {
         )
     }
 
+    /// Evaluates `xpath` against `node` (or the desktop) and returns only the first result.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EvaluateError::XPath`] if `xpath` does not compile, the evaluation cannot
+    /// start, or producing the first item fails.
     pub fn evaluate_single(
         &self,
         node: Option<Arc<dyn UiNode>>,
@@ -67,6 +95,11 @@ impl Runtime {
         }
     }
 
+    /// Like [`Runtime::evaluate`], but reuses the XDM tree held in `cache`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EvaluateError::XPath`] if `xpath` does not compile or its evaluation fails.
     pub fn evaluate_cached(
         &self,
         node: Option<Arc<dyn UiNode>>,
@@ -80,10 +113,20 @@ impl Runtime {
         self.xpath_cache.lock().expect("xpath cache mutex poisoned").clone()
     }
 
+    /// Clears the runtime's shared `XPath` cache.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the cache mutex is poisoned (another thread panicked while holding it).
     pub fn clear_cache(&self) {
         self.xpath_cache.lock().expect("xpath cache mutex poisoned").clear();
     }
 
+    /// Like [`Runtime::evaluate`], but reuses the runtime's shared `XPath` cache.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EvaluateError::XPath`] if `xpath` does not compile or its evaluation fails.
     pub fn evaluate_runtime_cached(
         &self,
         node: Option<Arc<dyn UiNode>>,
@@ -93,6 +136,12 @@ impl Runtime {
         self.evaluate_cached(node, xpath, &cache)
     }
 
+    /// Like [`Runtime::evaluate_iter`], but reuses the XDM tree held in `cache`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EvaluateError::XPath`] if `xpath` does not compile or the evaluation cannot
+    /// start. Errors raised while items are produced are yielded by the iterator.
     pub fn evaluate_iter_cached(
         &self,
         node: Option<Arc<dyn UiNode>>,
@@ -102,6 +151,12 @@ impl Runtime {
         crate::xpath::evaluate_iter(node, xpath, self.evaluate_options().with_cache(cache.clone()))
     }
 
+    /// Like [`Runtime::evaluate_iter_owned`], but reuses the XDM tree held in `cache`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EvaluateError::XPath`] if `xpath` does not compile or the evaluation cannot
+    /// start. Errors raised while items are produced are yielded by the iterator.
     pub fn evaluate_iter_owned_cached(
         &self,
         node: Option<Arc<dyn UiNode>>,
@@ -111,6 +166,12 @@ impl Runtime {
         crate::xpath::EvaluationStream::new(node, xpath.to_string(), self.evaluate_options().with_cache(cache.clone()))
     }
 
+    /// Like [`Runtime::evaluate_iter_owned`], but reuses the runtime's shared `XPath` cache.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EvaluateError::XPath`] if `xpath` does not compile or the evaluation cannot
+    /// start. Errors raised while items are produced are yielded by the iterator.
     pub fn evaluate_iter_owned_runtime_cached(
         &self,
         node: Option<Arc<dyn UiNode>>,
@@ -120,6 +181,12 @@ impl Runtime {
         self.evaluate_iter_owned_cached(node, xpath, &cache)
     }
 
+    /// Like [`Runtime::evaluate_single`], but reuses the XDM tree held in `cache`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EvaluateError::XPath`] if `xpath` does not compile, the evaluation cannot
+    /// start, or producing the first item fails.
     pub fn evaluate_single_cached(
         &self,
         node: Option<Arc<dyn UiNode>>,
@@ -134,6 +201,12 @@ impl Runtime {
         }
     }
 
+    /// Like [`Runtime::evaluate_single`], but reuses the runtime's shared `XPath` cache.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EvaluateError::XPath`] if `xpath` does not compile, the evaluation cannot
+    /// start, or producing the first item fails.
     pub fn evaluate_single_runtime_cached(
         &self,
         node: Option<Arc<dyn UiNode>>,
@@ -180,10 +253,10 @@ mod tests {
         for item in res {
             if let EvaluationItem::Node(node) = item {
                 count += 1;
-                names.push(node.name().to_string());
+                names.push(node.name().clone());
             }
         }
-        assert!(count >= 3, "expected at least 3 nodes (1 window + 2 buttons), got {}", count);
+        assert!(count >= 3, "expected at least 3 nodes (1 window + 2 buttons), got {count}");
         assert!(names.iter().any(|n| n == "Operations Console"));
         assert!(names.iter().any(|n| n == "OK"));
         assert!(names.iter().any(|n| n == "Cancel"));

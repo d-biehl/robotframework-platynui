@@ -15,10 +15,20 @@ use super::error::KeyboardActionError;
 use super::{Runtime, default_sleep};
 
 impl Runtime {
+    /// Returns a copy of the current pointer settings.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the pointer settings lock is poisoned (another thread panicked while holding it).
     pub fn pointer_settings(&self) -> PointerSettings {
         self.pointer_settings.lock().expect("pointer_settings lock poisoned").clone()
     }
 
+    /// Replaces the pointer settings and applies them to the pointer engine.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the pointer settings lock or the pointer engine lock is poisoned.
     pub fn set_pointer_settings(&self, settings: PointerSettings) {
         {
             *self.pointer_settings.lock().expect("pointer_settings lock poisoned") = settings.clone();
@@ -28,10 +38,20 @@ impl Runtime {
         }
     }
 
+    /// Returns a copy of the current pointer profile.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the pointer profile lock is poisoned (another thread panicked while holding it).
     pub fn pointer_profile(&self) -> PointerProfile {
         self.pointer_profile.lock().expect("pointer_profile lock poisoned").clone()
     }
 
+    /// Replaces the pointer profile and applies it to the pointer engine.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the pointer profile lock or the pointer engine lock is poisoned.
     pub fn set_pointer_profile(&self, profile: PointerProfile) {
         {
             *self.pointer_profile.lock().expect("pointer_profile lock poisoned") = profile.clone();
@@ -41,6 +61,12 @@ impl Runtime {
         }
     }
 
+    /// Returns the current pointer position reported by the pointer device.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PointerError::MissingDevice`] if the runtime has no pointer device and
+    /// [`PointerError::Platform`] if the device cannot report its position.
     pub fn pointer_position(&self) -> Result<Point, PointerError> {
         let device = self.pointer_device()?;
         Ok(device.position()?)
@@ -53,6 +79,11 @@ impl Runtime {
     /// supports hit-testing but nothing is at the point;
     /// `Err(ProviderError::UnsupportedOperation { .. })` means no provider can
     /// hit-test at all, so callers can disable point-based features.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first provider error other than [`ProviderError::UnsupportedOperation`], or
+    /// [`ProviderError::UnsupportedOperation`] if no provider supports hit-testing.
     pub fn element_at_point(&self, point: Point) -> Result<Option<Arc<dyn UiNode>>, ProviderError> {
         let mut any_supported = false;
         for provider in self.providers() {
@@ -73,14 +104,36 @@ impl Runtime {
         }
     }
 
+    /// Returns a copy of the current keyboard profile.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the keyboard profile lock is poisoned (another thread panicked while holding it).
     pub fn keyboard_profile(&self) -> platynui_core::platform::KeyboardProfile {
         self.keyboard_profile.lock().expect("keyboard_profile lock poisoned").clone()
     }
 
+    /// Replaces the keyboard profile.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the keyboard profile lock is poisoned (another thread panicked while holding it).
     pub fn set_keyboard_profile(&self, profile: platynui_core::platform::KeyboardProfile) {
         *self.keyboard_profile.lock().expect("keyboard_profile lock poisoned") = profile;
     }
 
+    /// Moves the pointer to `point`.
+    ///
+    /// # Errors
+    ///
+    /// - [`PointerError::Poisoned`] if the pointer engine lock is poisoned.
+    /// - [`PointerError::MissingDevice`] if the runtime has no pointer device (no platform
+    ///   backend, or after shutdown).
+    /// - [`PointerError::Platform`] if the device rejects an action.
+    /// - [`PointerError::EnsureMove`] if the pointer does not reach a target position in time.
+    // Public API taking the overrides by value; changing the signature would break callers
+    // (CLI, Python bindings).
+    #[allow(clippy::needless_pass_by_value)]
     pub fn pointer_move_to(&self, point: Point, overrides: Option<PointerOverrides>) -> Result<Point, PointerError> {
         let bounds = self.desktop.info().bounds;
         let mut guard = self.pointer_engine.lock().map_err(|_| PointerError::Poisoned)?;
@@ -90,6 +143,18 @@ impl Runtime {
         engine.move_to(point, overrides_ref)
     }
 
+    /// Clicks `button` (or the default button) once, after moving to `target` if one is given.
+    ///
+    /// # Errors
+    ///
+    /// - [`PointerError::Poisoned`] if the pointer engine lock is poisoned.
+    /// - [`PointerError::MissingDevice`] if the runtime has no pointer device (no platform
+    ///   backend, or after shutdown).
+    /// - [`PointerError::Platform`] if the device rejects an action.
+    /// - [`PointerError::EnsureMove`] if the pointer does not reach a target position in time.
+    // Public API taking the overrides by value; changing the signature would break callers
+    // (CLI, Python bindings).
+    #[allow(clippy::needless_pass_by_value)]
     pub fn pointer_click(
         &self,
         target: Option<Point>,
@@ -104,6 +169,19 @@ impl Runtime {
         engine.click(target, button, overrides_ref)
     }
 
+    /// Clicks `button` (or the default button) `clicks` times, after moving to `target` if one is given.
+    ///
+    /// # Errors
+    ///
+    /// - [`PointerError::Poisoned`] if the pointer engine lock is poisoned.
+    /// - [`PointerError::MissingDevice`] if the runtime has no pointer device (no platform
+    ///   backend, or after shutdown).
+    /// - [`PointerError::Platform`] if the device rejects an action.
+    /// - [`PointerError::EnsureMove`] if the pointer does not reach a target position in time.
+    /// - [`PointerError::InvalidClickCount`] if `clicks` is zero.
+    // Public API taking the overrides by value; changing the signature would break callers
+    // (CLI, Python bindings).
+    #[allow(clippy::needless_pass_by_value)]
     pub fn pointer_multi_click(
         &self,
         target: Option<Point>,
@@ -119,6 +197,18 @@ impl Runtime {
         engine.multi_click(target, button, clicks, overrides_ref)
     }
 
+    /// Presses `button` (or the default button), after moving to `target` if one is given.
+    ///
+    /// # Errors
+    ///
+    /// - [`PointerError::Poisoned`] if the pointer engine lock is poisoned.
+    /// - [`PointerError::MissingDevice`] if the runtime has no pointer device (no platform
+    ///   backend, or after shutdown).
+    /// - [`PointerError::Platform`] if the device rejects an action.
+    /// - [`PointerError::EnsureMove`] if the pointer does not reach a target position in time.
+    // Public API taking the overrides by value; changing the signature would break callers
+    // (CLI, Python bindings).
+    #[allow(clippy::needless_pass_by_value)]
     pub fn pointer_press(
         &self,
         target: Option<Point>,
@@ -137,6 +227,18 @@ impl Runtime {
         engine.press(resolved_button, overrides_ref)
     }
 
+    /// Releases `button` (or the default button), after moving to `target` if one is given.
+    ///
+    /// # Errors
+    ///
+    /// - [`PointerError::Poisoned`] if the pointer engine lock is poisoned.
+    /// - [`PointerError::MissingDevice`] if the runtime has no pointer device (no platform
+    ///   backend, or after shutdown).
+    /// - [`PointerError::Platform`] if the device rejects an action.
+    /// - [`PointerError::EnsureMove`] if the pointer does not reach a target position in time.
+    // Public API taking the overrides by value; changing the signature would break callers
+    // (CLI, Python bindings).
+    #[allow(clippy::needless_pass_by_value)]
     pub fn pointer_release(
         &self,
         target: Option<Point>,
@@ -155,6 +257,17 @@ impl Runtime {
         engine.release(resolved_button, overrides_ref)
     }
 
+    /// Scrolls by `delta`.
+    ///
+    /// # Errors
+    ///
+    /// - [`PointerError::Poisoned`] if the pointer engine lock is poisoned.
+    /// - [`PointerError::MissingDevice`] if the runtime has no pointer device (no platform
+    ///   backend, or after shutdown).
+    /// - [`PointerError::Platform`] if the device rejects an action.
+    // Public API taking the overrides by value; changing the signature would break callers
+    // (CLI, Python bindings).
+    #[allow(clippy::needless_pass_by_value)]
     pub fn pointer_scroll(&self, delta: ScrollDelta, overrides: Option<PointerOverrides>) -> Result<(), PointerError> {
         let bounds = self.desktop.info().bounds;
         let mut guard = self.pointer_engine.lock().map_err(|_| PointerError::Poisoned)?;
@@ -164,6 +277,18 @@ impl Runtime {
         engine.scroll(delta, overrides_ref)
     }
 
+    /// Drags from `start` to `end` with `button` (or the default button) held down.
+    ///
+    /// # Errors
+    ///
+    /// - [`PointerError::Poisoned`] if the pointer engine lock is poisoned.
+    /// - [`PointerError::MissingDevice`] if the runtime has no pointer device (no platform
+    ///   backend, or after shutdown).
+    /// - [`PointerError::Platform`] if the device rejects an action.
+    /// - [`PointerError::EnsureMove`] if the pointer does not reach a target position in time.
+    // Public API taking the overrides by value; changing the signature would break callers
+    // (CLI, Python bindings).
+    #[allow(clippy::needless_pass_by_value)]
     pub fn pointer_drag(
         &self,
         start: Point,
@@ -179,6 +304,13 @@ impl Runtime {
         engine.drag(start, end, button, overrides_ref)
     }
 
+    /// Presses (and keeps pressed) the keys of `sequence`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KeyboardActionError::Sequence`] if `sequence` does not parse, and
+    /// [`KeyboardActionError::Keyboard`] if the runtime has no keyboard device, a key cannot be
+    /// mapped, or the device reports an error while sending the input.
     pub fn keyboard_press(
         &self,
         sequence: &str,
@@ -193,6 +325,13 @@ impl Runtime {
         Ok(())
     }
 
+    /// Releases the keys of `sequence`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KeyboardActionError::Sequence`] if `sequence` does not parse, and
+    /// [`KeyboardActionError::Keyboard`] if the runtime has no keyboard device, a key cannot be
+    /// mapped, or the device reports an error while sending the input.
     pub fn keyboard_release(
         &self,
         sequence: &str,
@@ -207,6 +346,13 @@ impl Runtime {
         Ok(())
     }
 
+    /// Types `sequence`: presses and releases each key in turn.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KeyboardActionError::Sequence`] if `sequence` does not parse, and
+    /// [`KeyboardActionError::Keyboard`] if the runtime has no keyboard device, a key cannot be
+    /// mapped, or the device reports an error while sending the input.
     pub fn keyboard_type(
         &self,
         sequence: &str,
@@ -222,6 +368,10 @@ impl Runtime {
     }
 
     /// Returns the list of known key names exposed by the active keyboard device.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KeyboardError::NotReady`] if the runtime has no keyboard device.
     pub fn keyboard_known_key_names(&self) -> Result<Vec<String>, KeyboardError> {
         let device = self.keyboard_device()?;
         Ok(device.known_key_names())

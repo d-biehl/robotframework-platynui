@@ -12,24 +12,48 @@ pub struct ProviderEventDispatcher {
 }
 
 impl ProviderEventDispatcher {
+    #[must_use]
     pub fn new() -> Self {
         Self { sinks: RwLock::new(Vec::new()) }
     }
 
+    /// Registers a sink that receives every subsequently dispatched event.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the sink list lock is poisoned (another thread panicked while holding it).
     pub fn register(&self, sink: Arc<dyn ProviderEventSink>) {
         self.sinks.write().expect("event sinks lock poisoned").push(sink);
     }
 
+    /// Forwards a clone of `event` to every registered sink.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the sink list lock is poisoned (another thread panicked while holding it).
+    // Public API taking the event by value like `ProviderEventListener::on_event`; changing it
+    // would break callers.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn dispatch(&self, event: ProviderEvent) {
         for sink in self.sinks.read().expect("event sinks lock poisoned").iter() {
             sink.dispatch(event.clone());
         }
     }
 
+    /// Returns the number of registered sinks.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the sink list lock is poisoned (another thread panicked while holding it).
     pub fn sink_count(&self) -> usize {
         self.sinks.read().expect("event sinks lock poisoned").len()
     }
 
+    /// Removes all registered sinks.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the sink list lock is poisoned (another thread panicked while holding it).
     pub fn shutdown(&self) {
         self.sinks.write().expect("event sinks lock poisoned").clear();
     }
@@ -61,7 +85,7 @@ mod tests {
         fn namespace(&self) -> Namespace {
             Namespace::Control
         }
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "Role"
         }
         fn value(&self) -> UiValue {
@@ -83,7 +107,7 @@ mod tests {
         fn namespace(&self) -> Namespace {
             Namespace::Control
         }
-        fn role(&self) -> &str {
+        fn role(&self) -> &'static str {
             "Button"
         }
         fn name(&self) -> String {

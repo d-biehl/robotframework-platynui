@@ -14,6 +14,11 @@ pub struct ProviderEntry {
 }
 
 impl ProviderEntry {
+    /// Creates a provider instance from this entry's factory.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`ProviderError`] reported by the factory's `create`.
     pub fn instantiate(&self, config: &RuntimeConfig) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
         self.factory.create(config)
     }
@@ -55,6 +60,12 @@ impl ProviderRegistry {
             .flat_map(move |indices| indices.iter().map(|&idx| &self.entries[idx]))
     }
 
+    /// Creates a provider instance for every entry, in registry order.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first [`ProviderError`] reported by an entry's factory; no further entries are
+    /// instantiated after it.
     pub fn instantiate_all(&self, config: &RuntimeConfig) -> Result<Vec<Arc<dyn UiTreeProvider>>, ProviderError> {
         tracing::debug!(count = self.entries.len(), "instantiating all providers");
         self.entries.iter().map(|entry| entry.instantiate(config)).collect()
@@ -78,6 +89,7 @@ impl ProviderRegistry {
 
     /// Returns a new registry that only includes providers with an `id` contained in `ids`.
     /// Order within a technology is preserved from discovery.
+    #[must_use]
     pub fn filter_by_ids(&self, ids: &[&str]) -> Self {
         if ids.is_empty() {
             // Keep current behavior if no filter specified
@@ -118,7 +130,7 @@ mod tests {
         fn namespace(&self) -> Namespace {
             Namespace::Control
         }
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "Role"
         }
         fn value(&self) -> UiValue {
@@ -139,7 +151,7 @@ mod tests {
         fn namespace(&self) -> Namespace {
             Namespace::Control
         }
-        fn role(&self) -> &str {
+        fn role(&self) -> &'static str {
             "Button"
         }
         fn name(&self) -> String {

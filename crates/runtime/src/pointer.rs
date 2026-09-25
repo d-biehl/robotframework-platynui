@@ -319,7 +319,7 @@ impl<'a> PointerEngine<'a> {
         EffectiveProfile::new(&self.profile, overrides, &self.settings)
     }
 
-    fn resolve_origin(&self, overrides: Option<&PointerOverrides>) -> PointOrigin {
+    fn resolve_origin(overrides: Option<&PointerOverrides>) -> PointOrigin {
         overrides.and_then(|o| o.origin.clone()).unwrap_or(PointOrigin::Desktop)
     }
 
@@ -341,8 +341,8 @@ impl<'a> PointerEngine<'a> {
 
     pub fn move_to(&mut self, point: Point, overrides: Option<&PointerOverrides>) -> Result<Point, PointerError> {
         let effective = self.effective_profile(overrides);
-        let origin = self.resolve_origin(overrides);
-        let target = self.resolve_point(point, &origin);
+        let origin = Self::resolve_origin(overrides);
+        let target = Self::resolve_point(point, &origin);
         let target = self.clamp_to_desktop(target);
         let start = self.interpolation_start()?;
         tracing::debug!(
@@ -451,6 +451,8 @@ impl<'a> PointerEngine<'a> {
         let mut emitted_x = 0.0;
         let mut emitted_y = 0.0;
         for index in 1..=steps {
+            // Step counts stay far below 2^52, so the conversions to f64 are exact.
+            #[allow(clippy::cast_precision_loss)]
             let fraction = index as f64 / steps as f64;
             let target_x = delta.horizontal * fraction;
             let target_y = delta.vertical * fraction;
@@ -472,10 +474,10 @@ impl<'a> PointerEngine<'a> {
         overrides: Option<&PointerOverrides>,
     ) -> Result<(), PointerError> {
         let effective = self.effective_profile(overrides);
-        let origin = self.resolve_origin(overrides);
+        let origin = Self::resolve_origin(overrides);
         let active_button = button.unwrap_or(self.settings.default_button);
-        let start_target = self.clamp_to_desktop(self.resolve_point(start, &origin));
-        let end_target = self.clamp_to_desktop(self.resolve_point(end, &origin));
+        let start_target = self.clamp_to_desktop(Self::resolve_point(start, &origin));
+        let end_target = self.clamp_to_desktop(Self::resolve_point(end, &origin));
         tracing::debug!(
             button = ?active_button,
             start_x = start_target.x(), start_y = start_target.y(),
@@ -506,7 +508,7 @@ impl<'a> PointerEngine<'a> {
         Ok(())
     }
 
-    fn resolve_point(&self, point: Point, origin: &PointOrigin) -> Point {
+    fn resolve_point(point: Point, origin: &PointOrigin) -> Point {
         match origin {
             PointOrigin::Desktop => point,
             PointOrigin::Bounds(rect) => Point::new(rect.x() + point.x(), rect.y() + point.y()),
@@ -527,7 +529,7 @@ impl<'a> PointerEngine<'a> {
     fn perform_move(&self, start: Point, target: Point, effective: &EffectiveProfile) -> Result<(), PointerError> {
         let profile = effective.profile();
         let distance = distance(start, target);
-        let total_duration = self.desired_move_duration(distance, effective);
+        let total_duration = Self::desired_move_duration(distance, effective);
 
         if matches!(profile.mode, PointerMotionMode::Direct) {
             let start = Instant::now();
@@ -535,7 +537,7 @@ impl<'a> PointerEngine<'a> {
             if !total_duration.is_zero() {
                 let elapsed = start.elapsed();
                 if total_duration > elapsed {
-                    self.sleep(total_duration - elapsed);
+                    self.sleep(total_duration.checked_sub(elapsed).unwrap());
                 }
             }
             return Ok(());
@@ -561,14 +563,14 @@ impl<'a> PointerEngine<'a> {
             let desired = total_duration.mul_f64(fraction);
             let elapsed = start_time.elapsed();
             if desired > elapsed {
-                self.sleep(desired - elapsed);
+                self.sleep(desired.checked_sub(elapsed).unwrap());
             }
         }
 
         Ok(())
     }
 
-    fn desired_move_duration(&self, distance: f64, effective: &EffectiveProfile) -> Duration {
+    fn desired_move_duration(distance: f64, effective: &EffectiveProfile) -> Duration {
         if distance <= f64::EPSILON {
             return Duration::ZERO;
         }
@@ -654,7 +656,7 @@ impl<'a> PointerEngine<'a> {
             };
 
             if !target_wait.is_zero() && elapsed < target_wait {
-                self.sleep(target_wait - elapsed);
+                self.sleep(target_wait.checked_sub(elapsed).unwrap());
             }
         }
     }
@@ -827,6 +829,8 @@ fn generate_path(start: Point, target: Point, profile: &PointerProfile) -> Vec<P
     }
 
     let steps_per_pixel = profile.steps_per_pixel.max(1.0);
+    // Rounded-up, non-negative step count; the saturating float-to-int conversion is intended.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let mut steps = (distance * steps_per_pixel).ceil() as usize;
     if steps == 0 {
         steps = 1;
@@ -845,6 +849,8 @@ fn generate_path(start: Point, target: Point, profile: &PointerProfile) -> Vec<P
 fn generate_linear_path(start: Point, target: Point, steps: usize) -> Vec<Point> {
     let mut path = Vec::with_capacity(steps);
     for index in 1..=steps {
+        // Step counts stay far below 2^52, so the conversions to f64 are exact.
+        #[allow(clippy::cast_precision_loss)]
         let t = index as f64 / steps as f64;
         let x = start.x() + (target.x() - start.x()) * t;
         let y = start.y() + (target.y() - start.y()) * t;
@@ -856,12 +862,14 @@ fn generate_linear_path(start: Point, target: Point, steps: usize) -> Vec<Point>
 fn generate_bezier_path(start: Point, target: Point, steps: usize, amplitude: f64) -> Vec<Point> {
     let direction = direction_vector(start, target);
     let perpendicular = (-direction.1, direction.0);
-    let mid_x = (start.x() + target.x()) / 2.0 + perpendicular.0 * amplitude;
-    let mid_y = (start.y() + target.y()) / 2.0 + perpendicular.1 * amplitude;
+    let mid_x = f64::midpoint(start.x(), target.x()) + perpendicular.0 * amplitude;
+    let mid_y = f64::midpoint(start.y(), target.y()) + perpendicular.1 * amplitude;
     let control = Point::new(mid_x, mid_y);
 
     let mut path = Vec::with_capacity(steps);
     for index in 1..=steps {
+        // Step counts stay far below 2^52, so the conversions to f64 are exact.
+        #[allow(clippy::cast_precision_loss)]
         let t = index as f64 / steps as f64;
         let one_minus_t = 1.0 - t;
         let x = one_minus_t * one_minus_t * start.x() + 2.0 * one_minus_t * t * control.x() + t * t * target.x();
@@ -893,6 +901,8 @@ fn generate_jitter_path(start: Point, target: Point, steps: usize, amplitude: f6
     let cycles = frequency.max(0.5);
     let mut path = Vec::with_capacity(steps);
     for index in 1..=steps {
+        // Step counts stay far below 2^52, so the conversions to f64 are exact.
+        #[allow(clippy::cast_precision_loss)]
         let t = index as f64 / steps as f64;
         let base_x = start.x() + (target.x() - start.x()) * t;
         let base_y = start.y() + (target.y() - start.y()) * t;
@@ -909,6 +919,8 @@ fn easing_fraction(acceleration: PointerAccelerationProfile, step_index: usize, 
     if steps == 0 {
         return 1.0;
     }
+    // Step counts stay far below 2^52, so the conversions to f64 are exact.
+    #[allow(clippy::cast_precision_loss)]
     let t = ((step_index + 1) as f64 / steps as f64).clamp(0.0, 1.0);
     match acceleration {
         PointerAccelerationProfile::Constant => t,
@@ -942,6 +954,9 @@ fn scroll_steps(delta: ScrollDelta, step: ScrollDelta) -> usize {
     horizontal_steps.max(vertical_steps)
 }
 
+// `ceil()` of an absolute value is a non-negative step count; the saturating float-to-int
+// conversion is intended.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn component_steps(value: f64, base: f64) -> usize {
     if value == 0.0 {
         0
@@ -1126,6 +1141,8 @@ mod tests {
         assert_eq!(steps.len(), 3, "expected 3 notch-sized steps, got {}", steps.len());
         let total: f64 = steps.iter().map(|delta| delta.horizontal).sum();
         assert!((total + 360.0).abs() < 1e-6, "steps must sum to the requested delta, got {total}");
+        // A zero vertical request is scaled by exact fractions of zero, so it stays exactly 0.0.
+        #[allow(clippy::float_cmp)]
         for delta in &steps {
             assert!((delta.horizontal.abs() - 120.0).abs() < 1e-6, "step not one notch: {}", delta.horizontal);
             assert_eq!(delta.vertical, 0.0);
@@ -1180,6 +1197,8 @@ mod tests {
             }
         };
 
+        // Mirrors `generate_path`: a rounded-up, non-negative step count.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let expected_steps =
             (distance(Point::new(0.0, 0.0), Point::new(4.0, 0.0)) * profile.steps_per_pixel).ceil() as usize;
         let max_move_duration = profile.max_move_duration;
@@ -1192,6 +1211,8 @@ mod tests {
         assert!(!recorded.is_empty());
         assert_eq!(device.moves.load(Ordering::SeqCst), expected_steps);
 
+        // A step count of a few units converts to f64 exactly.
+        #[allow(clippy::cast_precision_loss)]
         let expected_step = if expected_steps > 1 {
             Duration::from_secs_f64(max_move_duration.as_secs_f64() / expected_steps as f64)
         } else {
@@ -1432,8 +1453,10 @@ mod tests {
 
         engine.click(Some(Point::new(10.0, 10.0)), None, None).unwrap();
 
-        engine.last_click =
-            Some(ClickStamp { time: Instant::now() - Duration::from_millis(20), position: Point::new(10.0, 10.0) });
+        engine.last_click = Some(ClickStamp {
+            time: Instant::now().checked_sub(Duration::from_millis(20)).unwrap(),
+            position: Point::new(10.0, 10.0),
+        });
         sleeps.lock().unwrap().clear();
         engine.click(Some(Point::new(12.0, 10.0)), None, None).unwrap();
         let recorded = sleeps.lock().unwrap().clone();
@@ -1442,8 +1465,10 @@ mod tests {
         assert_duration_approx(enforced, Duration::from_millis(80));
         assert!(engine.last_click.is_some());
 
-        engine.last_click =
-            Some(ClickStamp { time: Instant::now() - Duration::from_millis(400), position: Point::new(12.0, 10.0) });
+        engine.last_click = Some(ClickStamp {
+            time: Instant::now().checked_sub(Duration::from_millis(400)).unwrap(),
+            position: Point::new(12.0, 10.0),
+        });
         sleeps.lock().unwrap().clear();
         engine.click(Some(Point::new(14.0, 10.0)), None, None).unwrap();
         let recorded = sleeps.lock().unwrap().clone();
@@ -1479,8 +1504,10 @@ mod tests {
         let mut engine =
             PointerEngine::new(device.clone(), Rect::new(-4000.0, -2000.0, 8000.0, 4000.0), settings, profile, &sleep);
 
-        engine.last_click =
-            Some(ClickStamp { time: Instant::now() - Duration::from_millis(20), position: Point::new(0.0, 0.0) });
+        engine.last_click = Some(ClickStamp {
+            time: Instant::now().checked_sub(Duration::from_millis(20)).unwrap(),
+            position: Point::new(0.0, 0.0),
+        });
 
         engine.click(Some(Point::new(200.0, 0.0)), None, None).unwrap();
 
@@ -1596,7 +1623,7 @@ mod tests {
         engine.move_to(Point::new(4.0, 0.0), None).unwrap();
         let increments = mock_sleep_increments(&sleeps.lock().unwrap());
         assert_eq!(increments.len(), 4);
-        assert!(increments.windows(2).all(|w| w[0] <= w[1] + Duration::from_millis(2)), "{:?}", increments);
+        assert!(increments.windows(2).all(|w| w[0] <= w[1] + Duration::from_millis(2)), "{increments:?}");
     }
 
     #[rstest]
@@ -1632,7 +1659,10 @@ mod tests {
         engine.move_to(Point::new(4.0, 0.0), None).unwrap();
         let increments = mock_sleep_increments(&sleeps.lock().unwrap());
         assert_eq!(increments.len(), 4);
-        assert!(increments.windows(2).all(|w| w[0] >= w[1] - Duration::from_millis(2)), "{:?}", increments);
+        assert!(
+            increments.windows(2).all(|w| w[0] >= w[1].checked_sub(Duration::from_millis(2)).unwrap()),
+            "{increments:?}"
+        );
     }
 
     #[rstest]
@@ -1667,7 +1697,7 @@ mod tests {
             &sleep,
         );
 
-        let half_double = device.double_click_time().ok().flatten().map(|time| time / 2).unwrap_or(Duration::ZERO);
+        let half_double = device.double_click_time().ok().flatten().map_or(Duration::ZERO, |time| time / 2);
         let target_total = if configured_delay.is_zero() {
             half_double
         } else if half_double.is_zero() {
@@ -1679,8 +1709,10 @@ mod tests {
         engine.click(Some(Point::new(0.0, 0.0)), None, None).unwrap();
         sleeps.lock().unwrap().clear();
 
-        engine.last_click =
-            Some(ClickStamp { time: Instant::now() - Duration::from_millis(25), position: Point::new(0.0, 0.0) });
+        engine.last_click = Some(ClickStamp {
+            time: Instant::now().checked_sub(Duration::from_millis(25)).unwrap(),
+            position: Point::new(0.0, 0.0),
+        });
         engine.click(Some(Point::new(0.0, 0.0)), None, None).unwrap();
         let enforced = sleeps.lock().unwrap().first().copied().unwrap_or(Duration::ZERO);
         let expected_sleep = target_total.checked_sub(Duration::from_millis(25)).unwrap_or(Duration::ZERO);

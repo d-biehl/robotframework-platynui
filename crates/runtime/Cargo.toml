@@ -38,3 +38,6 @@ rstest = "0.27"
 platynui-platform-mock = { path = "../platform-mock" }
 platynui-provider-mock = { path = "../provider-mock" }
 serial_test = "4.0"
+
+[lints]
+workspace = true

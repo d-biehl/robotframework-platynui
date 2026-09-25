@@ -58,7 +58,7 @@ impl UiAttribute for StubAttribute {
     fn namespace(&self) -> Namespace {
         Namespace::Control
     }
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "Role"
     }
     fn value(&self) -> UiValue {
@@ -85,7 +85,7 @@ impl UiNode for StubNode {
     fn namespace(&self) -> Namespace {
         Namespace::Control
     }
-    fn role(&self) -> &str {
+    fn role(&self) -> &'static str {
         "Button"
     }
     fn name(&self) -> String {
@@ -348,7 +348,7 @@ impl UiNode for RejectingWindowNode {
     fn namespace(&self) -> Namespace {
         Namespace::Control
     }
-    fn role(&self) -> &str {
+    fn role(&self) -> &'static str {
         "Window"
     }
     fn name(&self) -> String {

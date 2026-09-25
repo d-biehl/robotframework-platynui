@@ -19,6 +19,11 @@ fn mock_config() -> RuntimeConfig {
 
 /// Builds a Runtime from the given provider factories, bound to the mock
 /// platform backend.
+///
+/// # Panics
+///
+/// Panics if the runtime cannot be constructed, e.g. when a provider factory
+/// fails or the mock platform backend is not linked.
 pub fn runtime_with_factories_and_mock_platform(factories: &[&'static dyn UiTreeProviderFactory]) -> Runtime {
     Runtime::new_with_factories_and_config(factories, mock_config()).expect("runtime")
 }

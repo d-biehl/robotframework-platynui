@@ -44,6 +44,11 @@ impl XdmCache {
         Self { inner: Arc::new(Mutex::new(None)) }
     }
 
+    /// Drops the cached XDM tree, so the next evaluation rebuilds it.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the cache mutex is poisoned (another thread panicked while holding it).
     pub fn clear(&self) {
         self.inner.lock().expect("xdm cache mutex poisoned").take();
     }
@@ -63,6 +68,11 @@ impl std::fmt::Debug for XdmCache {
 }
 
 pub trait NodeResolver: Send + Sync {
+    /// Looks up the current node for `runtime_id`; `Ok(None)` means the node no longer exists.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ProviderError`] if the lookup itself fails.
     fn resolve(&self, runtime_id: &RuntimeId) -> Result<Option<Arc<dyn UiNode>>, ProviderError>;
 }
 
@@ -81,6 +91,7 @@ impl EvaluateOptions {
         Self { desktop, invalidate_before_eval: false, resolver: None, cache: None, cancel_flag: None }
     }
 
+    #[must_use]
     pub fn desktop(&self) -> Arc<dyn UiNode> {
         Arc::clone(&self.desktop)
     }
@@ -90,6 +101,7 @@ impl EvaluateOptions {
         self
     }
 
+    #[must_use]
     pub fn invalidate_before_eval(&self) -> bool {
         self.invalidate_before_eval
     }
@@ -113,6 +125,7 @@ impl EvaluateOptions {
         self
     }
 
+    #[must_use]
     pub fn cache(&self) -> Option<&XdmCache> {
         self.cache.as_ref()
     }
@@ -122,6 +135,7 @@ impl EvaluateOptions {
         self
     }
 
+    #[must_use]
     pub fn cancel_flag(&self) -> Option<&Arc<AtomicBool>> {
         self.cancel_flag.as_ref()
     }
@@ -145,6 +159,8 @@ pub struct EvaluatedAttribute {
     pub value: UiValue,
 }
 
+// `owner` is a `dyn UiNode` without a `Debug` impl; it is left out on purpose.
+#[allow(clippy::missing_fields_in_debug)]
 impl std::fmt::Debug for EvaluatedAttribute {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EvaluatedAttribute")
@@ -172,6 +188,13 @@ impl std::fmt::Debug for EvaluationItem {
     }
 }
 
+/// Evaluates `xpath` against `node` (or the desktop from `options`) and collects all results.
+///
+/// # Errors
+///
+/// Returns [`EvaluateError::ContextNodeUnknown`] if a node resolver is configured and cannot find
+/// `node`, [`EvaluateError::Provider`] if that resolver fails, and [`EvaluateError::XPath`] if
+/// `xpath` does not compile or its evaluation fails.
 pub fn evaluate(
     node: Option<Arc<dyn UiNode>>,
     xpath: &str,
@@ -182,12 +205,16 @@ pub fn evaluate(
     iter.collect()
 }
 
-/// Returns whether an XPath expression's top-level node selection is relative to the context node —
+/// Returns whether an `XPath` expression's top-level node selection is relative to the context node —
 /// a relative path (`.//x`, `child::x`) or the context item (`.`). Absolute paths (`/x`, `//x`),
 /// filtered/parenthesized absolute paths (`(//x)[1]`) and expressions that do not select nodes from
 /// the context (`count(...)`, comparisons, ...) are independent; compound forms (if/for/let,
 /// sequences) are relative iff a produced branch is. Parses only; no context node or backend is
 /// required.
+///
+/// # Errors
+///
+/// Returns [`EvaluateError::XPath`] if `xpath` does not parse.
 pub fn is_context_dependent(xpath: &str) -> Result<bool, EvaluateError> {
     Ok(platynui_xpath::parser::parse(xpath)?.is_context_dependent())
 }
@@ -204,6 +231,16 @@ impl Iterator for EvaluationStream {
 }
 
 impl EvaluationStream {
+    /// Starts a lazy evaluation of `xpath` against `node` (or the desktop from `options`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EvaluateError::ContextNodeUnknown`] if a node resolver is configured and cannot
+    /// find `node`, [`EvaluateError::Provider`] if that resolver fails, and
+    /// [`EvaluateError::XPath`] if `xpath` does not compile or the evaluation cannot start. Errors
+    /// raised while items are produced are yielded by the stream.
+    // Public API signature; borrowing the arguments instead would break callers.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn new(node: Option<Arc<dyn UiNode>>, xpath: String, options: EvaluateOptions) -> Result<Self, EvaluateError> {
         let context = resolve_context(node.as_ref(), &options)?;
 
@@ -228,6 +265,9 @@ impl EvaluationStream {
     }
 }
 
+// Owned arguments mirror the exported `evaluate` / `Runtime::evaluate_iter*` signatures that
+// forward here; borrowing would move the lint onto those public functions.
+#[allow(clippy::needless_pass_by_value)]
 pub fn evaluate_iter(
     node: Option<Arc<dyn UiNode>>,
     xpath: &str,
@@ -302,7 +342,7 @@ fn get_or_create_xdm_root(context: &Arc<dyn UiNode>, force_rebuild: bool, cache:
     node
 }
 
-/// Build the static context with PlatynUI namespaces configured.
+/// Build the static context with `PlatynUI` namespaces configured.
 fn build_static_context() -> &'static platynui_xpath::engine::runtime::StaticContext {
     static STATIC_CTX: LazyLock<platynui_xpath::engine::runtime::StaticContext> = LazyLock::new(|| {
         StaticContextBuilder::new()
@@ -945,12 +985,12 @@ fn ui_value_to_atomic_values(value: &UiValue) -> Vec<XdmAtomicValue> {
 }
 
 fn component_attribute_name(base: &str, suffix: &str) -> String {
-    format!("{}.{}", base, suffix)
+    format!("{base}.{suffix}")
 }
 
 fn element_qname(ns: UiNamespace, role: &str) -> QName {
     QName {
-        prefix: namespace_prefix(ns).map(|p| p.to_string()),
+        prefix: namespace_prefix(ns).map(std::string::ToString::to_string),
         local: role.to_string(),
         ns_uri: Some(namespace_uri(ns).to_string()),
     }
@@ -958,9 +998,9 @@ fn element_qname(ns: UiNamespace, role: &str) -> QName {
 
 fn attribute_qname(ns: UiNamespace, name: &str) -> QName {
     QName {
-        prefix: attribute_prefix(ns).map(|p| p.to_string()),
+        prefix: attribute_prefix(ns).map(std::string::ToString::to_string),
         local: name.to_string(),
-        ns_uri: attribute_namespace(ns).map(|uri| uri.to_string()),
+        ns_uri: attribute_namespace(ns).map(std::string::ToString::to_string),
     }
 }
 
@@ -1001,7 +1041,13 @@ fn attribute_namespace(ns: UiNamespace) -> Option<&'static str> {
 }
 
 fn atomic_to_ui_value(value: &XdmAtomicValue) -> UiValue {
-    use XdmAtomicValue::*;
+    use XdmAtomicValue::{
+        AnyUri, Base64Binary, Boolean, Byte, Date, DateTime, DayTimeDuration, Decimal, Double, Entity, Float, GDay,
+        GMonth, GMonthDay, GYear, GYearMonth, HexBinary, Id, IdRef, Int, Integer, Language, Long, NCName, NMTOKEN,
+        Name, NegativeInteger, NonNegativeInteger, NonPositiveInteger, NormalizedString, Notation, PositiveInteger,
+        QName, Short, String, Time, Token, UnsignedByte, UnsignedInt, UnsignedLong, UnsignedShort, UntypedAtomic,
+        YearMonthDuration,
+    };
     match value {
         Boolean(b) => UiValue::Bool(*b),
         String(s) | UntypedAtomic(s) | AnyUri(s) | NormalizedString(s) | Token(s) | Language(s) | Name(s)
@@ -1012,16 +1058,15 @@ fn atomic_to_ui_value(value: &XdmAtomicValue) -> UiValue {
             UiValue::Number(d.to_f64().unwrap_or(f64::NAN))
         }
         Double(d) => UiValue::Number(*d),
-        Float(f) => UiValue::Number(*f as f64),
-        UnsignedLong(u) => UiValue::Integer(*u as i64),
-        NonNegativeInteger(u) => UiValue::Integer(*u as i64),
-        PositiveInteger(u) => UiValue::Integer(*u as i64),
-        UnsignedInt(u) => UiValue::Integer(*u as i64),
-        UnsignedShort(u) => UiValue::Integer(*u as i64),
-        UnsignedByte(u) => UiValue::Integer(*u as i64),
-        Int(i) => UiValue::Integer(*i as i64),
-        Short(i) => UiValue::Integer(*i as i64),
-        Byte(i) => UiValue::Integer(*i as i64),
+        Float(f) => UiValue::Number(f64::from(*f)),
+        // Values above `i64::MAX` wrap to negative integers (bit-for-bit reinterpretation).
+        UnsignedLong(u) | NonNegativeInteger(u) | PositiveInteger(u) => UiValue::Integer(u.cast_signed()),
+        UnsignedInt(u) => UiValue::Integer(i64::from(*u)),
+        UnsignedShort(u) => UiValue::Integer(i64::from(*u)),
+        UnsignedByte(u) => UiValue::Integer(i64::from(*u)),
+        Int(i) => UiValue::Integer(i64::from(*i)),
+        Short(i) => UiValue::Integer(i64::from(*i)),
+        Byte(i) => UiValue::Integer(i64::from(*i)),
         QName { ns_uri, prefix, local } => {
             let mut map = std::collections::BTreeMap::new();
             if let Some(ns) = ns_uri {
@@ -1035,27 +1080,27 @@ fn atomic_to_ui_value(value: &XdmAtomicValue) -> UiValue {
         }
         DateTime(dt) => UiValue::String(dt.to_rfc3339()),
         Date { date, tz } => UiValue::String(match tz {
-            Some(offset) => format!("{}{}", date, offset),
+            Some(offset) => format!("{date}{offset}"),
             None => date.to_string(),
         }),
         Time { time, tz } => UiValue::String(match tz {
-            Some(offset) => format!("{}{}", time, offset),
+            Some(offset) => format!("{time}{offset}"),
             None => time.to_string(),
         }),
-        YearMonthDuration(months) => UiValue::String(format!("P{}M", months)),
-        DayTimeDuration(secs) => UiValue::String(format!("PT{}S", secs)),
+        YearMonthDuration(months) => UiValue::String(format!("P{months}M")),
+        DayTimeDuration(secs) => UiValue::String(format!("PT{secs}S")),
         Base64Binary(data) | HexBinary(data) => UiValue::String(data.clone()),
-        GYear { year, tz } => UiValue::String(format!("{}{}", year, tz.map_or("".to_string(), |o| o.to_string()))),
+        GYear { year, tz } => UiValue::String(format!("{}{}", year, tz.map(|o| o.to_string()).unwrap_or_default())),
         GYearMonth { year, month, tz } => {
-            UiValue::String(format!("{}-{:02}{}", year, month, tz.map_or("".to_string(), |o| o.to_string())))
+            UiValue::String(format!("{}-{:02}{}", year, month, tz.map(|o| o.to_string()).unwrap_or_default()))
         }
         GMonth { month, tz } => {
-            UiValue::String(format!("{:02}{}", month, tz.map_or("".to_string(), |o| o.to_string())))
+            UiValue::String(format!("{:02}{}", month, tz.map(|o| o.to_string()).unwrap_or_default()))
         }
         GMonthDay { month, day, tz } => {
-            UiValue::String(format!("{:02}-{:02}{}", month, day, tz.map_or("".to_string(), |o| o.to_string())))
+            UiValue::String(format!("{:02}-{:02}{}", month, day, tz.map(|o| o.to_string()).unwrap_or_default()))
         }
-        GDay { day, tz } => UiValue::String(format!("{:02}{}", day, tz.map_or("".to_string(), |o| o.to_string()))),
+        GDay { day, tz } => UiValue::String(format!("{:02}{}", day, tz.map(|o| o.to_string()).unwrap_or_default())),
     }
 }
 
@@ -1067,7 +1112,7 @@ struct NodeChildrenIter<'a> {
     _marker: std::marker::PhantomData<&'a ()>,
     parent_node: Option<RuntimeXdmNode>,
 }
-impl<'a> NodeChildrenIter<'a> {
+impl NodeChildrenIter<'_> {
     fn from_shared(inner: NodeIteratorCell, cache: NodeCacheCell, finished: SharedFlag) -> Self {
         Self { inner, cache, finished, pos: 0, _marker: std::marker::PhantomData, parent_node: None }
     }
@@ -1086,7 +1131,7 @@ impl<'a> NodeChildrenIter<'a> {
         }
     }
 }
-impl<'a> Iterator for NodeChildrenIter<'a> {
+impl Iterator for NodeChildrenIter<'_> {
     type Item = RuntimeXdmNode;
     fn next(&mut self) -> Option<Self::Item> {
         {
@@ -1102,31 +1147,28 @@ impl<'a> Iterator for NodeChildrenIter<'a> {
             return None;
         }
         let mut inner_borrow = self.inner.lock().expect("children iterator mutex poisoned");
-        match inner_borrow.as_mut() {
-            Some(iter) => {
-                if let Some(owner) = iter.next() {
-                    let mut node = RuntimeXdmNode::from_node(owner);
-                    // Pre-link child's parent_cache to the parent node (Document or Element).
-                    // This ensures that cursor helpers like next_sibling_in_doc()
-                    // get the SAME parent wrapper (with shared children_cache), avoiding
-                    // O(N²) COM TreeWalker re-enumeration per sibling lookup.
-                    if let RuntimeXdmNode::Element(elem) = &mut node
-                        && let Some(parent) = self.parent_node.as_ref()
-                    {
-                        *elem.parent_cache.lock().expect("parent cache mutex poisoned") = Some(Some(parent.clone()));
-                    }
-                    self.cache.lock().expect("children cache mutex poisoned").push(node.clone());
-                    self.pos += 1;
-                    Some(node)
-                } else {
-                    self.finished.store(true, Ordering::Release);
-                    None
+        if let Some(iter) = inner_borrow.as_mut() {
+            if let Some(owner) = iter.next() {
+                let mut node = RuntimeXdmNode::from_node(owner);
+                // Pre-link child's parent_cache to the parent node (Document or Element).
+                // This ensures that cursor helpers like next_sibling_in_doc()
+                // get the SAME parent wrapper (with shared children_cache), avoiding
+                // O(N²) COM TreeWalker re-enumeration per sibling lookup.
+                if let RuntimeXdmNode::Element(elem) = &mut node
+                    && let Some(parent) = self.parent_node.as_ref()
+                {
+                    *elem.parent_cache.lock().expect("parent cache mutex poisoned") = Some(Some(parent.clone()));
                 }
-            }
-            None => {
+                self.cache.lock().expect("children cache mutex poisoned").push(node.clone());
+                self.pos += 1;
+                Some(node)
+            } else {
                 self.finished.store(true, Ordering::Release);
                 None
             }
+        } else {
+            self.finished.store(true, Ordering::Release);
+            None
         }
     }
 }
@@ -1139,7 +1181,7 @@ struct NodeAttributeIter<'a> {
     pos: usize,
     _marker: std::marker::PhantomData<&'a ()>,
 }
-impl<'a> NodeAttributeIter<'a> {
+impl NodeAttributeIter<'_> {
     fn from_shared(
         owner: Arc<dyn UiNode>,
         inner: AttributeIteratorCell,
@@ -1159,7 +1201,7 @@ impl<'a> NodeAttributeIter<'a> {
         }
     }
 }
-impl<'a> Iterator for NodeAttributeIter<'a> {
+impl Iterator for NodeAttributeIter<'_> {
     type Item = RuntimeXdmNode;
     fn next(&mut self) -> Option<Self::Item> {
         {
@@ -1260,7 +1302,7 @@ impl UiNode for DummyNode {
     fn namespace(&self) -> UiNamespace {
         UiNamespace::Control
     }
-    fn role(&self) -> &str {
+    fn role(&self) -> &'static str {
         ""
     }
     fn name(&self) -> String {
@@ -1506,7 +1548,7 @@ mod tests {
             EvaluationItem::Node(node) => {
                 assert_eq!(node.runtime_id().as_str(), "window-1");
             }
-            other => panic!("unexpected evaluation result: {:?}", other),
+            other => panic!("unexpected evaluation result: {other:?}"),
         }
     }
 
@@ -1517,7 +1559,7 @@ mod tests {
         assert_eq!(items.len(), 1);
         match &items[0] {
             EvaluationItem::Value(value) => assert_eq!(value, &UiValue::Integer(1)),
-            other => panic!("unexpected evaluation result: {:?}", other),
+            other => panic!("unexpected evaluation result: {other:?}"),
         }
     }
 
@@ -1530,7 +1572,7 @@ mod tests {
             EvaluationItem::Node(node) => {
                 assert_eq!(node.runtime_id().as_str(), "window-1");
             }
-            other => panic!("unexpected evaluation result: {:?}", other),
+            other => panic!("unexpected evaluation result: {other:?}"),
         }
     }
 
@@ -1544,7 +1586,7 @@ mod tests {
                 assert_eq!(attr.name, "Bounds.X");
                 assert_eq!(attr.value, UiValue::Number(0.0));
             }
-            other => panic!("unexpected attribute result: {:?}", other),
+            other => panic!("unexpected attribute result: {other:?}"),
         }
     }
 
@@ -1558,7 +1600,7 @@ mod tests {
                 EvaluationItem::Attribute(attr) => {
                     assert!(matches!(attr.value, UiValue::Number(_)));
                 }
-                other => panic!("expected attribute node, got {:?}", other),
+                other => panic!("expected attribute node, got {other:?}"),
             }
         }
         let items = evaluate(None, "data(//@*:Bounds.Width)", EvaluateOptions::new(tree.clone())).unwrap();
@@ -1567,7 +1609,7 @@ mod tests {
         for item in items {
             match item {
                 EvaluationItem::Value(UiValue::Number(n)) => widths.push(n),
-                other => panic!("expected numeric UiValue, got {:?}", other),
+                other => panic!("expected numeric UiValue, got {other:?}"),
             }
         }
         assert!(widths.contains(&1920.0));
@@ -1582,7 +1624,7 @@ mod tests {
         for item in items {
             match item {
                 EvaluationItem::Value(UiValue::Bool(value)) => assert!(value),
-                other => panic!("expected boolean UiValue, got {:?}", other),
+                other => panic!("expected boolean UiValue, got {other:?}"),
             }
         }
     }
@@ -1597,7 +1639,7 @@ mod tests {
                 assert!(json.contains("\"width\""));
                 assert!(json.contains("\"height\""));
             }
-            other => panic!("expected serialized bounds string, got {:?}", other),
+            other => panic!("expected serialized bounds string, got {other:?}"),
         }
     }
 
@@ -1613,10 +1655,10 @@ mod tests {
                     UiValue::Array(monitors) => {
                         assert_eq!(monitors.len(), 1);
                     }
-                    other => panic!("unexpected attribute type: {:?}", other),
+                    other => panic!("unexpected attribute type: {other:?}"),
                 }
             }
-            other => panic!("unexpected monitors result: {:?}", other),
+            other => panic!("unexpected monitors result: {other:?}"),
         }
     }
 
@@ -1677,7 +1719,7 @@ mod tests {
             EvaluationItem::Node(node) => {
                 assert!(Arc::ptr_eq(node, &fresh_node));
             }
-            other => panic!("unexpected result: {:?}", other),
+            other => panic!("unexpected result: {other:?}"),
         }
     }
 
@@ -1701,7 +1743,7 @@ mod tests {
 
         match result {
             Err(EvaluateError::ContextNodeUnknown(id)) => assert_eq!(id, runtime_id),
-            other => panic!("unexpected result: {:?}", other),
+            other => panic!("unexpected result: {other:?}"),
         }
     }
 
@@ -1727,7 +1769,7 @@ mod tests {
                 ProviderError::TreeUnavailable { .. } => {}
                 other => panic!("unexpected provider error: {other}"),
             },
-            other => panic!("unexpected result: {:?}", other),
+            other => panic!("unexpected result: {other:?}"),
         }
     }
 }
