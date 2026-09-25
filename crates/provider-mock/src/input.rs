@@ -27,7 +27,7 @@ impl UiAttribute for TextAttribute {
         self.namespace
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "Text"
     }
 
@@ -57,6 +57,18 @@ pub(crate) fn register_text_attribute(
     Arc::new(TextAttribute { namespace, buffer })
 }
 
+/// Replaces the text buffer of the node with `runtime_id` and returns the new
+/// content. Emits a `NodeUpdated` event for the node.
+///
+/// # Errors
+///
+/// Returns [`TextInputError::MissingTextBuffer`] if no text buffer is
+/// registered for `runtime_id`.
+///
+/// # Panics
+///
+/// Panics if the text buffer registry or the buffer lock is poisoned (a thread
+/// panicked while holding it).
 pub fn replace_text(runtime_id: &str, value: impl Into<String>) -> Result<String, TextInputError> {
     let buffer = text_buffer(runtime_id)?;
     let mut guard = buffer.write().expect("text buffer poisoned");
@@ -67,6 +79,18 @@ pub fn replace_text(runtime_id: &str, value: impl Into<String>) -> Result<String
     Ok(updated)
 }
 
+/// Appends `value` to the text buffer of the node with `runtime_id` and returns
+/// the new content. Emits a `NodeUpdated` event for the node.
+///
+/// # Errors
+///
+/// Returns [`TextInputError::MissingTextBuffer`] if no text buffer is
+/// registered for `runtime_id`.
+///
+/// # Panics
+///
+/// Panics if the text buffer registry or the buffer lock is poisoned (a thread
+/// panicked while holding it).
 pub fn append_text(runtime_id: &str, value: &str) -> Result<String, TextInputError> {
     let buffer = text_buffer(runtime_id)?;
     let mut guard = buffer.write().expect("text buffer poisoned");
@@ -77,10 +101,31 @@ pub fn append_text(runtime_id: &str, value: &str) -> Result<String, TextInputErr
     Ok(updated)
 }
 
+/// Returns the current content of the text buffer of the node with
+/// `runtime_id`, or `None` if no text buffer is registered for it.
+///
+/// # Panics
+///
+/// Panics if the text buffer registry or the buffer lock is poisoned (a thread
+/// panicked while holding it).
+#[must_use]
 pub fn text_snapshot(runtime_id: &str) -> Option<String> {
     text_buffer(runtime_id).ok().map(|buffer| buffer.read().expect("text buffer poisoned").clone())
 }
 
+/// Applies a sequence of simulated key presses and releases to the text buffer
+/// of the node with `runtime_id` and returns the new content. Emits a
+/// `NodeUpdated` event for the node.
+///
+/// # Errors
+///
+/// Returns [`TextInputError::MissingTextBuffer`] if no text buffer is
+/// registered for `runtime_id`.
+///
+/// # Panics
+///
+/// Panics if the text buffer registry or the buffer lock is poisoned (a thread
+/// panicked while holding it).
 pub fn apply_keyboard_events(runtime_id: &str, events: &[KeyboardInputEvent]) -> Result<String, TextInputError> {
     let buffer = text_buffer(runtime_id)?;
     let mut guard = buffer.write().expect("text buffer poisoned");
@@ -146,11 +191,7 @@ fn handle_special_press(buffer: &mut String, name: &str, modifiers: &ModifierSta
             }
             true
         }
-        "backspace" => {
-            buffer.pop();
-            true
-        }
-        "delete" => {
+        "backspace" | "delete" => {
             buffer.pop();
             true
         }

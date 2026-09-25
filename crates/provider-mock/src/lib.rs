@@ -1,4 +1,4 @@
-//! Deterministic mock UiTree provider for testing the runtime and CLI wiring.
+//! Deterministic mock `UiTree` provider for testing the runtime and CLI wiring.
 //!
 //! The provider exposes a deterministic, pattern-rich tree that mirrors common
 //! desktop application structures. Consumers can install custom trees, emit

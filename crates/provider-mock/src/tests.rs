@@ -79,7 +79,7 @@ impl UiNode for DesktopNode {
         Namespace::Control
     }
 
-    fn role(&self) -> &str {
+    fn role(&self) -> &'static str {
         "Desktop"
     }
 
@@ -115,7 +115,7 @@ impl UiNode for DesktopNode {
 fn provider_not_auto_registered() {
     // Mock providers should NOT be auto-registered; they're only available via explicit handles
     let ids: Vec<_> = provider_factories().map(|factory| factory.descriptor().id).collect();
-    assert!(!ids.contains(&factory::PROVIDER_ID), "Mock provider should not be auto-registered, found in: {:?}", ids);
+    assert!(!ids.contains(&factory::PROVIDER_ID), "Mock provider should not be auto-registered, found in: {ids:?}");
 }
 
 #[rstest]
@@ -246,6 +246,8 @@ fn window_surface_pattern_is_exposed() {
 
 #[rstest]
 #[serial]
+// Bounds are set verbatim and read back, so exact equality is what the test means.
+#[allow(clippy::float_cmp)]
 fn window_surface_actions_update_state() {
     let provider = mock_provider();
     let desktop: Arc<dyn UiNode> = Arc::new(DesktopNode);
@@ -341,6 +343,8 @@ fn activation_brings_a_window_back_in_the_state_it_was_minimized_from() {
 
 #[rstest]
 #[serial]
+// The activation point is parsed verbatim from the XML, so exact equality is what the test means.
+#[allow(clippy::float_cmp)]
 fn activation_point_aliases_absent_and_value_ok() {
     let provider = mock_provider();
     let desktop: Arc<dyn UiNode> = Arc::new(DesktopNode);
@@ -367,7 +371,7 @@ fn activation_point_aliases_absent_and_value_ok() {
             assert_eq!(p.x(), 200.0);
             assert_eq!(p.y(), 636.0);
         }
-        other => panic!("expected ActivationPoint as Point, got {:?}", other),
+        other => panic!("expected ActivationPoint as Point, got {other:?}"),
     }
 }
 

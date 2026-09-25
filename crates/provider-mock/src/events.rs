@@ -15,9 +15,11 @@ pub(crate) fn register_active_instance(provider: &Arc<MockProvider>) {
 fn active_providers() -> Vec<Arc<MockProvider>> {
     let mut list = ACTIVE_PROVIDERS.write().unwrap();
     list.retain(|entry| entry.upgrade().is_some());
-    list.iter().filter_map(|entry| entry.upgrade()).collect()
+    list.iter().filter_map(std::sync::Weak::upgrade).collect()
 }
 
+// Public API re-exported from lib.rs; taking the event by value is part of its signature.
+#[allow(clippy::needless_pass_by_value)]
 pub fn emit_event(event: ProviderEventKind) {
     for provider in active_providers() {
         provider.notify_listeners(event.clone());
@@ -32,6 +34,7 @@ pub fn emit_node_updated(runtime_id: &str) {
     }
 }
 
+#[must_use]
 pub fn node_by_runtime_id(runtime_id: &str) -> Option<Arc<dyn UiNode>> {
     for provider in active_providers() {
         if let Some(node) = provider.clone_node(runtime_id) {

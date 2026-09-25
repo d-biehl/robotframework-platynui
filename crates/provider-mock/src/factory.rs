@@ -23,6 +23,7 @@ pub static MOCK_PROVIDER_FACTORY: MockProviderFactory = MockProviderFactory;
 pub struct MockProviderFactory;
 
 impl MockProviderFactory {
+    #[must_use]
     pub fn descriptor_static() -> &'static ProviderDescriptor {
         static DESCRIPTOR: LazyLock<ProviderDescriptor> = LazyLock::new(|| {
             ProviderDescriptor::new(PROVIDER_ID, PROVIDER_NAME, TechnologyId::from(TECHNOLOGY), ProviderKind::Native)

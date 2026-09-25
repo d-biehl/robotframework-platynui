@@ -1,6 +1,6 @@
 use crate::events;
 use platynui_core::ui::attribute_names::focusable;
-use platynui_core::ui::{Namespace, PatternError, RuntimeId, UiAttribute, UiNode, UiValue};
+use platynui_core::ui::{Namespace, RuntimeId, UiAttribute, UiNode, UiValue};
 use std::sync::{Arc, LazyLock, RwLock};
 
 static FOCUSED_NODE: LazyLock<RwLock<Option<RuntimeId>>> = LazyLock::new(|| RwLock::new(None));
@@ -9,13 +9,13 @@ pub(crate) fn reset() {
     *FOCUSED_NODE.write().expect("focus state lock poisoned") = None;
 }
 
-pub(crate) fn request_focus(runtime_id: RuntimeId) -> Result<(), PatternError> {
+pub(crate) fn request_focus(runtime_id: &RuntimeId) {
     let node = events::node_by_runtime_id(runtime_id.as_str());
     let window_runtime = node.as_ref().and_then(|node| resolve_window(node)).map(|window| window.runtime_id().clone());
 
     let mut guard = FOCUSED_NODE.write().expect("focus state lock poisoned");
-    if guard.as_ref().is_some_and(|current| current == &runtime_id) {
-        return Ok(());
+    if guard.as_ref().is_some_and(|current| current == runtime_id) {
+        return;
     }
 
     let previous = guard.replace(runtime_id.clone());
@@ -30,7 +30,6 @@ pub(crate) fn request_focus(runtime_id: RuntimeId) -> Result<(), PatternError> {
     if let Some(window_id) = window_runtime {
         events::emit_node_updated(window_id.as_str());
     }
-    Ok(())
 }
 
 pub(crate) fn clear_if_matches(runtime_id: &RuntimeId) {
@@ -74,18 +73,15 @@ impl UiAttribute for FocusAttribute {
 
     fn value(&self) -> UiValue {
         let focused = FOCUSED_NODE.read().expect("focus state lock poisoned").clone();
-        let is_focused = focused
-            .as_ref()
-            .map(|current| {
-                if current == &self.runtime_id {
-                    true
-                } else if let Some(node) = events::node_by_runtime_id(current.as_str()) {
-                    is_ancestor(&node, &self.runtime_id)
-                } else {
-                    false
-                }
-            })
-            .unwrap_or(false);
+        let is_focused = focused.as_ref().is_some_and(|current| {
+            if current == &self.runtime_id {
+                true
+            } else if let Some(node) = events::node_by_runtime_id(current.as_str()) {
+                is_ancestor(&node, &self.runtime_id)
+            } else {
+                false
+            }
+        });
         UiValue::from(is_focused)
     }
 }

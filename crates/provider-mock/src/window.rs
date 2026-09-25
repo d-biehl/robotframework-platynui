@@ -12,6 +12,8 @@ use platynui_core::ui::{
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, RwLock};
 
+// Flag bag mirroring the independent window-state attributes one to one.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug)]
 pub(crate) struct WindowConfig {
     pub bounds: Rect,
@@ -47,6 +49,8 @@ impl Default for WindowConfig {
     }
 }
 
+// Flag bag mirroring the independent window-state attributes one to one.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug)]
 struct WindowState {
     bounds: Rect,
@@ -87,8 +91,8 @@ impl From<WindowConfig> for WindowState {
 }
 
 impl WindowState {
-    fn accepts_user_input(&self) -> Option<bool> {
-        if let Some(value) = self.accepts_user_input { Some(value) } else { Some(!self.is_minimized) }
+    fn accepts_user_input(&self) -> bool {
+        self.accepts_user_input.unwrap_or(!self.is_minimized)
     }
 }
 
@@ -253,7 +257,7 @@ fn register_patterns(runtime_id: RuntimeId, registry: &PatternRegistry) {
     registry.register_lazy(ResponsiveAction::static_pattern_name(), move || {
         let id = id.clone();
         state_exists(&id)
-            .then(|| Arc::new(ResponsiveAction::new(move || accepts_user_input(&id))) as Arc<dyn UiPattern>)
+            .then(|| Arc::new(ResponsiveAction::new(move || Ok(Some(accepts_user_input(&id))))) as Arc<dyn UiPattern>)
     });
 }
 
@@ -319,7 +323,8 @@ fn activate(runtime_id: &RuntimeId) -> Result<(), PatternError> {
         events::emit_node_updated(id.as_str());
     }
     events::emit_node_updated(runtime_id.as_str());
-    focus::request_focus(runtime_id.clone())
+    focus::request_focus(runtime_id);
+    Ok(())
 }
 
 fn minimize(runtime_id: &RuntimeId) -> Result<(), PatternError> {
@@ -356,7 +361,8 @@ fn restore(runtime_id: &RuntimeId) -> Result<(), PatternError> {
         state.is_minimized = false;
         Ok(())
     })?;
-    focus::request_focus(runtime_id.clone())
+    focus::request_focus(runtime_id);
+    Ok(())
 }
 
 fn close(runtime_id: &RuntimeId) -> Result<(), PatternError> {
@@ -391,8 +397,8 @@ fn resize(runtime_id: &RuntimeId, size: Size) -> Result<(), PatternError> {
     })
 }
 
-fn accepts_user_input(runtime_id: &RuntimeId) -> Result<Option<bool>, PatternError> {
-    Ok(read_state(runtime_id).and_then(|state| state.accepts_user_input()).or(Some(false)))
+fn accepts_user_input(runtime_id: &RuntimeId) -> bool {
+    read_state(runtime_id).is_some_and(|state| state.accepts_user_input())
 }
 
 fn window_attribute(
@@ -437,31 +443,17 @@ impl UiAttribute for WindowAttribute {
     fn value(&self) -> UiValue {
         let state = read_state(&self.runtime_id);
         match self.kind {
-            WindowAttributeKind::Bounds => {
-                state.map(|s| UiValue::from(s.bounds)).unwrap_or(UiValue::Rect(Rect::default()))
-            }
-            WindowAttributeKind::IsActive => state.map(|s| UiValue::from(s.is_active)).unwrap_or(UiValue::from(false)),
-            WindowAttributeKind::IsTopmost => {
-                state.map(|s| UiValue::from(s.is_topmost)).unwrap_or(UiValue::from(false))
-            }
-            WindowAttributeKind::IsModal => state.map(|s| UiValue::from(s.is_modal)).unwrap_or(UiValue::from(false)),
-            WindowAttributeKind::IsMinimized => {
-                state.map(|s| UiValue::from(s.is_minimized)).unwrap_or(UiValue::from(false))
-            }
-            WindowAttributeKind::CanMinimize => {
-                state.map(|s| UiValue::from(s.can_minimize)).unwrap_or(UiValue::from(false))
-            }
-            WindowAttributeKind::IsMaximized => {
-                state.map(|s| UiValue::from(s.is_maximized)).unwrap_or(UiValue::from(false))
-            }
-            WindowAttributeKind::CanMaximize => {
-                state.map(|s| UiValue::from(s.can_maximize)).unwrap_or(UiValue::from(false))
-            }
-            WindowAttributeKind::CanClose => state.map(|s| UiValue::from(s.can_close)).unwrap_or(UiValue::from(false)),
-            WindowAttributeKind::CanMove => state.map(|s| UiValue::from(s.can_move)).unwrap_or(UiValue::from(false)),
-            WindowAttributeKind::CanResize => {
-                state.map(|s| UiValue::from(s.can_resize)).unwrap_or(UiValue::from(false))
-            }
+            WindowAttributeKind::Bounds => state.map_or(UiValue::Rect(Rect::default()), |s| UiValue::from(s.bounds)),
+            WindowAttributeKind::IsActive => state.map_or(UiValue::from(false), |s| UiValue::from(s.is_active)),
+            WindowAttributeKind::IsTopmost => state.map_or(UiValue::from(false), |s| UiValue::from(s.is_topmost)),
+            WindowAttributeKind::IsModal => state.map_or(UiValue::from(false), |s| UiValue::from(s.is_modal)),
+            WindowAttributeKind::IsMinimized => state.map_or(UiValue::from(false), |s| UiValue::from(s.is_minimized)),
+            WindowAttributeKind::CanMinimize => state.map_or(UiValue::from(false), |s| UiValue::from(s.can_minimize)),
+            WindowAttributeKind::IsMaximized => state.map_or(UiValue::from(false), |s| UiValue::from(s.is_maximized)),
+            WindowAttributeKind::CanMaximize => state.map_or(UiValue::from(false), |s| UiValue::from(s.can_maximize)),
+            WindowAttributeKind::CanClose => state.map_or(UiValue::from(false), |s| UiValue::from(s.can_close)),
+            WindowAttributeKind::CanMove => state.map_or(UiValue::from(false), |s| UiValue::from(s.can_move)),
+            WindowAttributeKind::CanResize => state.map_or(UiValue::from(false), |s| UiValue::from(s.can_resize)),
         }
     }
 }

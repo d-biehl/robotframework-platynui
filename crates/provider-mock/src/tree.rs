@@ -34,14 +34,17 @@ impl AttributeSpec {
         Self { namespace, name: name.into(), value }
     }
 
+    #[must_use]
     pub fn namespace(&self) -> Namespace {
         self.namespace
     }
 
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    #[must_use]
     pub fn value(&self) -> &UiValue {
         &self.value
     }
@@ -96,21 +99,25 @@ impl NodeSpec {
         }
     }
 
+    #[must_use]
     pub fn with_attribute(mut self, attribute: impl Into<AttributeSpec>) -> Self {
         self.attributes.push(attribute.into());
         self
     }
 
+    #[must_use]
     pub fn with_child(mut self, child: NodeSpec) -> Self {
         self.children.push(child);
         self
     }
 
+    #[must_use]
     pub fn with_pattern(mut self, pattern: impl Into<String>) -> Self {
         self.patterns.push(pattern.into());
         self
     }
 
+    #[must_use]
     pub fn with_patterns<I, S>(mut self, patterns: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -120,6 +127,7 @@ impl NodeSpec {
         self
     }
 
+    #[must_use]
     pub fn with_text(mut self, text: impl Into<String>) -> Self {
         self.text = Some(text.into());
         self
@@ -128,17 +136,20 @@ impl NodeSpec {
     /// Sets the node's accessible description (`control:Description`). Empty
     /// strings are ignored so the attribute follows the "emit only when
     /// non-empty" rule.
+    #[must_use]
     pub fn with_description(mut self, description: impl Into<String>) -> Self {
         let description = description.into();
         self.description = (!description.is_empty()).then_some(description);
         self
     }
 
+    #[must_use]
     pub fn with_expose_flat(mut self, expose: bool) -> Self {
         self.expose_flat = expose;
         self
     }
 
+    #[must_use]
     pub fn expose_flat(&self) -> bool {
         self.expose_flat
     }
@@ -176,6 +187,7 @@ pub struct StaticMockTree {
 }
 
 impl StaticMockTree {
+    #[must_use]
     pub fn new(roots: Vec<NodeSpec>) -> Self {
         let mut flat_specs = Vec::new();
         for spec in &roots {
@@ -194,10 +206,12 @@ impl StaticMockTree {
         Self { roots, flat_specs }
     }
 
+    #[must_use]
     pub fn roots(&self) -> &[NodeSpec] {
         &self.roots
     }
 
+    #[must_use]
     pub fn flat_specs(&self) -> &[NodeSpec] {
         &self.flat_specs
     }
@@ -220,6 +234,17 @@ impl Default for StaticMockTree {
 }
 
 impl StaticMockTree {
+    /// Parses a mock tree from its XML description (the format of the embedded
+    /// `assets/mock_tree.xml`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MockTreeLoadError::Xml`] if the document cannot be deserialized,
+    /// [`MockTreeLoadError::UnknownNamespace`] for a namespace other than
+    /// `control`, `item`, `app` or `native`, [`MockTreeLoadError::InvalidRect`] for
+    /// a `bounds` value that is not four comma-separated numbers, and
+    /// [`MockTreeLoadError::InvalidPoint`] for an `activation_point` value that is
+    /// not two comma-separated numbers.
     pub fn from_xml(xml: &str) -> Result<Self, MockTreeLoadError> {
         let parsed: XmlTree = from_str(xml).map_err(MockTreeLoadError::Xml)?;
         let mut roots = Vec::new();
@@ -382,9 +407,9 @@ fn parse_patterns(list: Option<&XmlPatternList>) -> Option<Vec<String>> {
     let raw = list.and_then(|p| p.value.as_ref())?;
     let entries = raw
         .split(',')
-        .map(|entry| entry.trim())
+        .map(str::trim)
         .filter(|entry| !entry.is_empty())
-        .map(|entry| entry.to_owned())
+        .map(std::borrow::ToOwned::to_owned)
         .collect::<Vec<_>>();
     if entries.is_empty() { None } else { Some(entries) }
 }
@@ -446,6 +471,13 @@ impl Drop for TreeGuard {
     }
 }
 
+/// Installs `tree` as the tree that newly created mock providers instantiate,
+/// returning a guard that restores the previous tree when dropped.
+///
+/// # Panics
+///
+/// Panics if the shared tree lock is poisoned (a thread panicked while
+/// holding it).
 pub fn install_mock_tree(tree: StaticMockTree) -> TreeGuard {
     let mut lock = CURRENT_TREE.write().unwrap();
     let previous = lock.clone();
@@ -453,6 +485,12 @@ pub fn install_mock_tree(tree: StaticMockTree) -> TreeGuard {
     TreeGuard { previous }
 }
 
+/// Restores the default tree parsed from the embedded `assets/mock_tree.xml`.
+///
+/// # Panics
+///
+/// Panics if the shared tree lock is poisoned (a thread panicked while
+/// holding it). Parsing the embedded XML is an invariant that does not fail.
 pub fn reset_mock_tree() {
     *CURRENT_TREE.write().unwrap() = StaticMockTree::default();
 }
@@ -508,8 +546,10 @@ fn instantiate_node(
             let action_runtime_id = runtime_id.clone();
             runtime_patterns.register_lazy(PatternName::from(pattern_names::FOCUSABLE), move || {
                 let target = action_runtime_id.clone();
-                let pattern: Arc<dyn UiPattern> =
-                    Arc::new(FocusableAction::new(move || focus::request_focus(target.clone())));
+                let pattern: Arc<dyn UiPattern> = Arc::new(FocusableAction::new(move || {
+                    focus::request_focus(&target);
+                    Ok(())
+                }));
                 Some(pattern)
             });
             dynamic_attributes.push(focus::focus_attribute(spec.namespace, runtime_id.clone()));
@@ -540,7 +580,7 @@ fn instantiate_node(
     }
 
     if has_focusable && initial_focus {
-        let _ = focus::request_focus(runtime_id.clone());
+        focus::request_focus(&runtime_id);
     }
 
     let pattern_context = NodePatternContext { runtime_patterns, declared_patterns, order_key: spec.order_key };
