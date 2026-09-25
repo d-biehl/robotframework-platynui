@@ -3,7 +3,7 @@ use crate::engine::runtime::{CallCtx, Error, ErrorCode};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence, XdmSequenceStream};
 use std::collections::{HashMap, hash_map::Entry};
 
-/// Stream-based string() implementation.
+/// Stream-based `string()` implementation.
 /// Handles both 0-arity (uses context item) and 1-arity versions.
 pub(super) fn string_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
@@ -17,7 +17,7 @@ pub(super) fn string_stream<N: 'static + crate::model::XdmNode + Clone>(
     };
     Ok(XdmSequenceStream::from_vec(result))
 }
-/// Stream-based string-length() implementation.
+/// Stream-based `string-length()` implementation.
 /// Handles both 0-arity (uses context item) and 1-arity versions.
 pub(super) fn string_length_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
@@ -30,10 +30,12 @@ pub(super) fn string_length_stream<N: 'static + crate::model::XdmNode + Clone>(
         let seq = args[0].materialize()?;
         item_to_string(&seq)
     };
+    // A character count is bounded by isize::MAX, so it fits in i64.
+    #[allow(clippy::cast_possible_wrap)]
     let result = vec![XdmItem::Atomic(XdmAtomicValue::Integer(s.chars().count() as i64))];
     Ok(XdmSequenceStream::from_vec(result))
 }
-/// Stream-based untypedAtomic() implementation.
+/// Stream-based `untypedAtomic()` implementation.
 pub(super) fn untyped_atomic_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
@@ -55,7 +57,7 @@ pub(super) fn concat_stream<N: 'static + crate::model::XdmNode + Clone>(
     Ok(XdmSequenceStream::from_vec(vec![XdmItem::Atomic(XdmAtomicValue::String(out))]))
 }
 
-/// Stream-based string-to-codepoints() implementation.
+/// Stream-based `string-to-codepoints()` implementation.
 pub(super) fn string_to_codepoints_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
@@ -67,12 +69,12 @@ pub(super) fn string_to_codepoints_stream<N: 'static + crate::model::XdmNode + C
     let s = item_to_string(&seq);
     let mut out: XdmSequence<N> = Vec::with_capacity(s.chars().count());
     for ch in s.chars() {
-        out.push(XdmItem::Atomic(XdmAtomicValue::Integer(ch as u32 as i64)));
+        out.push(XdmItem::Atomic(XdmAtomicValue::Integer(i64::from(ch as u32))));
     }
     Ok(XdmSequenceStream::from_vec(out))
 }
 
-/// Stream-based codepoints-to-string() implementation.
+/// Stream-based `codepoints-to-string()` implementation.
 pub(super) fn codepoints_to_string_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
@@ -83,11 +85,10 @@ pub(super) fn codepoints_to_string_stream<N: 'static + crate::model::XdmNode + C
         match it {
             XdmItem::Atomic(XdmAtomicValue::Integer(i)) => {
                 let v = *i;
-                if !(0..=0x10FFFF).contains(&v) {
+                if !(0..=0x0010_FFFF).contains(&v) {
                     return Err(Error::from_code(ErrorCode::FORG0001, "invalid code point"));
                 }
-                let u = v as u32;
-                if let Some(c) = char::from_u32(u) {
+                if let Some(c) = u32::try_from(v).ok().and_then(char::from_u32) {
                     s.push(c);
                 } else {
                     return Err(Error::from_code(ErrorCode::FORG0001, "invalid code point"));
@@ -102,7 +103,7 @@ pub(super) fn codepoints_to_string_stream<N: 'static + crate::model::XdmNode + C
     Ok(XdmSequenceStream::from_vec(result))
 }
 
-/// Stream-based contains() implementation.
+/// Stream-based `contains()` implementation.
 ///
 /// Handles both 2-arity and 3-arity versions (with optional collation).
 pub(super) fn contains_stream<N: 'static + crate::model::XdmNode + Clone>(
@@ -121,7 +122,7 @@ pub(super) fn contains_stream<N: 'static + crate::model::XdmNode + Clone>(
     Ok(XdmSequenceStream::from_vec(result))
 }
 
-/// Stream-based starts-with() implementation.
+/// Stream-based `starts-with()` implementation.
 ///
 /// Handles both 2-arity and 3-arity versions (with optional collation).
 pub(super) fn starts_with_stream<N: 'static + crate::model::XdmNode + Clone>(
@@ -140,7 +141,7 @@ pub(super) fn starts_with_stream<N: 'static + crate::model::XdmNode + Clone>(
     Ok(XdmSequenceStream::from_vec(result))
 }
 
-/// Stream-based ends-with() implementation.
+/// Stream-based `ends-with()` implementation.
 ///
 /// Handles both 2-arity and 3-arity versions (with optional collation).
 pub(super) fn ends_with_stream<N: 'static + crate::model::XdmNode + Clone>(
@@ -159,7 +160,7 @@ pub(super) fn ends_with_stream<N: 'static + crate::model::XdmNode + Clone>(
     Ok(XdmSequenceStream::from_vec(result))
 }
 
-/// Stream-based substring() implementation.
+/// Stream-based `substring()` implementation.
 ///
 /// Handles both 2-arity and 3-arity versions.
 pub(super) fn substring_stream<N: 'static + crate::model::XdmNode + Clone>(
@@ -181,7 +182,7 @@ pub(super) fn substring_stream<N: 'static + crate::model::XdmNode + Clone>(
     Ok(XdmSequenceStream::from_vec(result))
 }
 
-/// Stream-based substring-before() implementation.
+/// Stream-based `substring-before()` implementation.
 pub(super) fn substring_before_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
@@ -200,7 +201,7 @@ pub(super) fn substring_before_stream<N: 'static + crate::model::XdmNode + Clone
     Ok(XdmSequenceStream::from_vec(result))
 }
 
-/// Stream-based substring-after() implementation.
+/// Stream-based `substring-after()` implementation.
 pub(super) fn substring_after_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
@@ -220,7 +221,7 @@ pub(super) fn substring_after_stream<N: 'static + crate::model::XdmNode + Clone>
     Ok(XdmSequenceStream::from_vec(result))
 }
 
-/// Stream-based normalize-space() implementation.
+/// Stream-based `normalize-space()` implementation.
 ///
 /// Handles both 0-arity (uses context item) and 1-arity versions.
 pub(super) fn normalize_space_stream<N: 'static + crate::model::XdmNode + Clone>(
@@ -235,7 +236,7 @@ pub(super) fn normalize_space_stream<N: 'static + crate::model::XdmNode + Clone>
     };
     Ok(XdmSequenceStream::from_vec(result))
 }
-/// Stream-based translate() implementation.
+/// Stream-based `translate()` implementation.
 pub(super) fn translate_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
@@ -273,7 +274,7 @@ pub(super) fn translate_stream<N: 'static + crate::model::XdmNode + Clone>(
     Ok(XdmSequenceStream::from_vec(result))
 }
 
-/// Stream-based lower-case() implementation.
+/// Stream-based `lower-case()` implementation.
 pub(super) fn lower_case_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
@@ -283,7 +284,7 @@ pub(super) fn lower_case_stream<N: 'static + crate::model::XdmNode + Clone>(
     Ok(XdmSequenceStream::from_vec(result))
 }
 
-/// Stream-based upper-case() implementation.
+/// Stream-based `upper-case()` implementation.
 pub(super) fn upper_case_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
@@ -293,7 +294,7 @@ pub(super) fn upper_case_stream<N: 'static + crate::model::XdmNode + Clone>(
     Ok(XdmSequenceStream::from_vec(result))
 }
 
-/// Stream-based string-join() implementation.
+/// Stream-based `string-join()` implementation.
 pub(super) fn string_join_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],

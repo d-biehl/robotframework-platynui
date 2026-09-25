@@ -12,6 +12,7 @@ pub struct InternedQName {
 }
 
 impl InternedQName {
+    #[must_use]
     pub fn from_expanded(expanded: ExpandedName) -> Self {
         let local = DefaultAtom::from(expanded.local.as_str());
         let ns_uri = expanded.ns_uri.as_ref().map(|uri| DefaultAtom::from(uri.as_str()));
@@ -264,14 +265,14 @@ impl fmt::Display for AxisIR {
             AxisIR::Following => "following",
             AxisIR::Namespace => "namespace",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 
 impl fmt::Display for NameOrWildcard {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            NameOrWildcard::Name(n) => write!(f, "{}", n),
+            NameOrWildcard::Name(n) => write!(f, "{n}"),
             NameOrWildcard::Any => write!(f, "*"),
         }
     }
@@ -281,29 +282,29 @@ impl fmt::Display for NodeTestIR {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             NodeTestIR::AnyKind => write!(f, "node()"),
-            NodeTestIR::Name(n) => write!(f, "{}", n),
+            NodeTestIR::Name(n) => write!(f, "{n}"),
             NodeTestIR::WildcardAny => write!(f, "*"),
-            NodeTestIR::NsWildcard(ns) => write!(f, "{}:*", ns),
-            NodeTestIR::LocalWildcard(local) => write!(f, "*:{}", local),
+            NodeTestIR::NsWildcard(ns) => write!(f, "{ns}:*"),
+            NodeTestIR::LocalWildcard(local) => write!(f, "*:{local}"),
 
             NodeTestIR::KindText => write!(f, "text()"),
             NodeTestIR::KindComment => write!(f, "comment()"),
             NodeTestIR::KindProcessingInstruction(None) => write!(f, "processing-instruction()"),
             NodeTestIR::KindProcessingInstruction(Some(t)) => {
-                write!(f, "processing-instruction('{}')", t)
+                write!(f, "processing-instruction('{t}')")
             }
             NodeTestIR::KindDocument(None) => write!(f, "document-node()"),
-            NodeTestIR::KindDocument(Some(inner)) => write!(f, "document-node({})", inner),
+            NodeTestIR::KindDocument(Some(inner)) => write!(f, "document-node({inner})"),
             NodeTestIR::KindElement { name, ty, nillable } => {
                 write!(f, "element(")?;
                 if let Some(n) = name {
-                    write!(f, "{}", n)?;
+                    write!(f, "{n}")?;
                 }
                 if let Some(t) = ty {
                     if name.is_some() {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}", t)?;
+                    write!(f, "{t}")?;
                 }
                 if *nillable {
                     if name.is_some() || ty.is_some() {
@@ -316,18 +317,18 @@ impl fmt::Display for NodeTestIR {
             NodeTestIR::KindAttribute { name, ty } => {
                 write!(f, "attribute(")?;
                 if let Some(n) = name {
-                    write!(f, "{}", n)?;
+                    write!(f, "{n}")?;
                 }
                 if let Some(t) = ty {
                     if name.is_some() {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}", t)?;
+                    write!(f, "{t}")?;
                 }
                 write!(f, ")")
             }
-            NodeTestIR::KindSchemaElement(n) => write!(f, "schema-element({})", n),
-            NodeTestIR::KindSchemaAttribute(n) => write!(f, "schema-attribute({})", n),
+            NodeTestIR::KindSchemaElement(n) => write!(f, "schema-element({n})"),
+            NodeTestIR::KindSchemaAttribute(n) => write!(f, "schema-attribute({n})"),
         }
     }
 }
@@ -342,7 +343,7 @@ impl fmt::Display for ComparisonOp {
             ComparisonOp::Gt => ">",
             ComparisonOp::Ge => ">=",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 
@@ -363,7 +364,7 @@ impl fmt::Display for OccurrenceIR {
             OccurrenceIR::ZeroOrMore => "*",
             OccurrenceIR::OneOrMore => "+",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 
@@ -377,8 +378,8 @@ impl fmt::Display for ItemTypeIR {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ItemTypeIR::AnyItem => write!(f, "item()"),
-            ItemTypeIR::Atomic(n) => write!(f, "{}", n),
-            ItemTypeIR::Kind(k) => write!(f, "{}", k),
+            ItemTypeIR::Atomic(n) => write!(f, "{n}"),
+            ItemTypeIR::Kind(k) => write!(f, "{k}"),
             ItemTypeIR::AnyNode => write!(f, "node()"),
         }
     }
@@ -389,7 +390,7 @@ impl fmt::Display for SeqTypeIR {
         match self {
             SeqTypeIR::EmptySequence => write!(f, "empty-sequence()"),
             SeqTypeIR::Typed { item, occ } => {
-                write!(f, "{}{}", item, occ)
+                write!(f, "{item}{occ}")
             }
         }
     }
@@ -399,8 +400,8 @@ impl fmt::Display for OpCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             // Data and variables
-            OpCode::PushAtomic(v) => write!(f, "push {}", v),
-            OpCode::LoadVarByName(n) => write!(f, "load-var {}", n),
+            OpCode::PushAtomic(v) => write!(f, "push {v}"),
+            OpCode::LoadVarByName(n) => write!(f, "load-var {n}"),
             OpCode::LoadContextItem => write!(f, "load ."),
             OpCode::Position => write!(f, "position"),
             OpCode::Last => write!(f, "last"),
@@ -412,7 +413,7 @@ impl fmt::Display for OpCode {
 
             // Steps / filters
             OpCode::AxisStep(axis, test, preds) => {
-                write!(f, "{}::{}", axis, test)?;
+                write!(f, "{axis}::{test}")?;
                 if !preds.is_empty() {
                     write!(f, " [predicates: {}]", preds.len())?;
                 }
@@ -442,19 +443,19 @@ impl fmt::Display for OpCode {
             OpCode::ToEBV => write!(f, "to-ebv"),
             OpCode::Atomize => write!(f, "atomize"),
             OpCode::Pop => write!(f, "pop"),
-            OpCode::JumpIfTrue(ofs) => write!(f, "jtrue +{}", ofs),
-            OpCode::JumpIfFalse(ofs) => write!(f, "jfalse +{}", ofs),
-            OpCode::Jump(ofs) => write!(f, "jump +{}", ofs),
+            OpCode::JumpIfTrue(ofs) => write!(f, "jtrue +{ofs}"),
+            OpCode::JumpIfFalse(ofs) => write!(f, "jfalse +{ofs}"),
+            OpCode::Jump(ofs) => write!(f, "jump +{ofs}"),
 
             // Comparisons
-            OpCode::CompareValue(op) => write!(f, "compare-value {}", op),
-            OpCode::CompareGeneral(op) => write!(f, "compare-general {}", op),
+            OpCode::CompareValue(op) => write!(f, "compare-value {op}"),
+            OpCode::CompareGeneral(op) => write!(f, "compare-general {op}"),
             OpCode::NodeIs => write!(f, "is"),
             OpCode::NodeBefore => write!(f, "node-before"),
             OpCode::NodeAfter => write!(f, "node-after"),
 
             // Sequences and sets
-            OpCode::MakeSeq(n) => write!(f, "make-seq {}", n),
+            OpCode::MakeSeq(n) => write!(f, "make-seq {n}"),
             OpCode::ConcatSeq => write!(f, "concat-seq"),
             OpCode::Union => write!(f, "union"),
             OpCode::Intersect => write!(f, "intersect"),
@@ -462,25 +463,25 @@ impl fmt::Display for OpCode {
             OpCode::RangeTo => write!(f, "range-to"),
 
             // Control flow / bindings
-            OpCode::BeginScope(n) => write!(f, "begin-scope slots={}", n),
+            OpCode::BeginScope(n) => write!(f, "begin-scope slots={n}"),
             OpCode::EndScope => write!(f, "end-scope"),
-            OpCode::LetStartByName(n) => write!(f, "let-start {}", n),
+            OpCode::LetStartByName(n) => write!(f, "let-start {n}"),
             OpCode::LetEnd => write!(f, "let-end"),
 
             // Quantifiers and iteration
-            OpCode::ForLoop { var, .. } => write!(f, "for ${} in …", var),
-            OpCode::QuantLoop { kind, var, .. } => write!(f, "{} ${} in …", kind, var),
+            OpCode::ForLoop { var, .. } => write!(f, "for ${var} in …"),
+            OpCode::QuantLoop { kind, var, .. } => write!(f, "{kind} ${var} in …"),
 
             // Types
-            OpCode::Cast(t) => write!(f, "cast as {}", t),
-            OpCode::Castable(t) => write!(f, "castable as {}", t),
-            OpCode::Treat(t) => write!(f, "treat as {}", t),
-            OpCode::InstanceOf(t) => write!(f, "instance of {}", t),
+            OpCode::Cast(t) => write!(f, "cast as {t}"),
+            OpCode::Castable(t) => write!(f, "castable as {t}"),
+            OpCode::Treat(t) => write!(f, "treat as {t}"),
+            OpCode::InstanceOf(t) => write!(f, "instance of {t}"),
 
             // Functions
-            OpCode::CallByName(name, arity) => write!(f, "call {}({} args)", name, arity),
+            OpCode::CallByName(name, arity) => write!(f, "call {name}({arity} args)"),
             // Errors
-            OpCode::Raise(code) => write!(f, "raise {}", code),
+            OpCode::Raise(code) => write!(f, "raise {code}"),
         }
     }
 }
@@ -492,29 +493,29 @@ impl InstrSeq {
             // For AxisStep and ApplyPredicates we print additional structure after the line
             match op {
                 OpCode::AxisStep(_axis, _test, preds) if !preds.is_empty() => {
-                    writeln!(f, "{}{:02}: {}", pad, i, op)?;
+                    writeln!(f, "{pad}{i:02}: {op}")?;
                     for (pi, p) in preds.iter().enumerate() {
-                        writeln!(f, "{}    [pred {}]", pad, pi)?;
+                        writeln!(f, "{pad}    [pred {pi}]")?;
                         p.fmt_with_indent(f, indent + 8)?;
                     }
                 }
                 OpCode::ApplyPredicates(preds) if !preds.is_empty() => {
-                    writeln!(f, "{}{:02}: {}", pad, i, op)?;
+                    writeln!(f, "{pad}{i:02}: {op}")?;
                     for (pi, p) in preds.iter().enumerate() {
-                        writeln!(f, "{}    [pred {}]", pad, pi)?;
+                        writeln!(f, "{pad}    [pred {pi}]")?;
                         p.fmt_with_indent(f, indent + 8)?;
                     }
                 }
                 OpCode::ForLoop { var, body } => {
-                    writeln!(f, "{}{:02}: for ${} in", pad, i, var)?;
+                    writeln!(f, "{pad}{i:02}: for ${var} in")?;
                     body.fmt_with_indent(f, indent + 4)?;
                 }
                 OpCode::QuantLoop { kind, var, body } => {
-                    writeln!(f, "{}{:02}: {} ${} in", pad, i, kind, var)?;
+                    writeln!(f, "{pad}{i:02}: {kind} ${var} in")?;
                     body.fmt_with_indent(f, indent + 4)?;
                 }
                 _ => {
-                    writeln!(f, "{}{:02}: {}", pad, i, op)?;
+                    writeln!(f, "{pad}{i:02}: {op}")?;
                 }
             }
         }

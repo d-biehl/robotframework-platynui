@@ -1,3 +1,5 @@
+#![allow(unused_crate_dependencies)]
+
 use std::io::{self, Write};
 
 use pest::{
@@ -40,7 +42,7 @@ fn build_sample_document() -> SimpleNode {
 fn print_error_chain(err: &dyn std::error::Error) {
     let mut source = err.source();
     while let Some(next) = source {
-        eprintln!("  caused by: {}", next);
+        eprintln!("  caused by: {next}");
         source = next.source();
     }
 }
@@ -79,7 +81,7 @@ fn main() {
     let mut input = String::new();
 
     loop {
-        print!("{}", prompt);
+        print!("{prompt}");
         if io::stdout().flush().is_err() {
             break;
         }
@@ -89,7 +91,7 @@ fn main() {
         let read = match read_result {
             Ok(n) => n,
             Err(err) => {
-                eprintln!("Error reading input: {}", err);
+                eprintln!("Error reading input: {err}");
                 print_error_chain(&err);
                 break;
             }
@@ -142,7 +144,7 @@ fn main() {
                         }
                     }
                     Err(err) => {
-                        eprintln!("Evaluation error: {}", err);
+                        eprintln!("Evaluation error: {err}");
                         print_error_chain(&err);
                     }
                 }
@@ -154,7 +156,7 @@ fn main() {
                     prompt = "....> ";
                     continue;
                 }
-                eprintln!("Compile error: {}", err);
+                eprintln!("Compile error: {err}");
                 print_error_chain(&err);
                 lines.clear();
                 prompt = "xpath> ";
@@ -169,7 +171,7 @@ fn handle_expression(expr: &str, ctx: &platynui_xpath::DynamicContext<SimpleNode
     let compiled = match compile(expr) {
         Ok(c) => c,
         Err(err) => {
-            eprintln!("Compile error: {}", err);
+            eprintln!("Compile error: {err}");
             print_error_chain(&err);
             return;
         }
@@ -184,7 +186,7 @@ fn handle_expression(expr: &str, ctx: &platynui_xpath::DynamicContext<SimpleNode
             }
         }
         Err(err) => {
-            eprintln!("Evaluation error: {}", err);
+            eprintln!("Evaluation error: {err}");
             print_error_chain(&err);
         }
     }

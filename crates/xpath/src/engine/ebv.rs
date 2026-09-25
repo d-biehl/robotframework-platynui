@@ -1,10 +1,10 @@
-//! Effective Boolean Value (EBV) per XPath 2.0 §2.4.3.
+//! Effective Boolean Value (EBV) per `XPath` 2.0 §2.4.3.
 //!
 //! This module provides the canonical EBV implementation used by the evaluator
 //! (And/Or/Not/ToEBV/JumpIf), built-in functions (`fn:boolean`, `fn:not`),
 //! and predicate evaluation.
 //!
-//! # XPath 2.0 EBV Rules (in priority order)
+//! # `XPath` 2.0 EBV Rules (in priority order)
 //!
 //! 1. Empty sequence → `false`
 //! 2. First item is a node → `true`
@@ -21,6 +21,12 @@ use crate::engine::runtime::{Error, ErrorCode};
 use crate::xdm::{SequenceCursor, XdmAtomicValue, XdmItem};
 
 /// Compute the EBV of a single atomic value (rules 3–7).
+///
+/// # Errors
+///
+/// Returns `FORG0006` if the effective boolean value is not defined for the
+/// atomic type (anything other than boolean, string, `xs:untypedAtomic` or a
+/// numeric type).
 pub fn ebv_of_atomic(a: &XdmAtomicValue) -> Result<bool, Error> {
     match a {
         XdmAtomicValue::Boolean(b) => Ok(*b),
@@ -39,6 +45,13 @@ pub fn ebv_of_atomic(a: &XdmAtomicValue) -> Result<bool, Error> {
 /// - Empty → `false` (reads nothing)
 /// - First item is a node → `true` (reads one item, rest is ignored)
 /// - First item is an atomic → compute EBV, then verify no second item exists
+///
+/// # Errors
+///
+/// Propagates any error produced by the cursor. Returns `FORG0006` if the
+/// sequence starts with an atomic value and has more than one item, or if the
+/// effective boolean value is not defined for that atomic value (see
+/// [`ebv_of_atomic`]).
 pub fn ebv_of_stream<N>(cursor: &mut dyn SequenceCursor<N>) -> Result<bool, Error> {
     let first = match cursor.next_item() {
         None => return Ok(false),

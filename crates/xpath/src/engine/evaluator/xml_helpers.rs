@@ -1,6 +1,7 @@
-//! XML and string utility functions for the XPath evaluator.
+//! XML and string utility functions for the `XPath` evaluator.
 
 use std::borrow::Cow;
+use std::fmt::Write as _;
 
 use crate::xdm::XdmAtomicValue;
 
@@ -56,7 +57,7 @@ pub(crate) fn string_like_into_owned(atom: XdmAtomicValue) -> Result<String, Xdm
     }
 }
 
-pub(crate) fn replace_xml_whitespace<'a>(input: &'a str) -> Cow<'a, str> {
+pub(crate) fn replace_xml_whitespace(input: &str) -> Cow<'_, str> {
     if !input.contains(['\t', '\n', '\r']) {
         return Cow::Borrowed(input);
     }
@@ -71,7 +72,7 @@ pub(crate) fn replace_xml_whitespace<'a>(input: &'a str) -> Cow<'a, str> {
     )
 }
 
-pub(crate) fn collapse_xml_whitespace<'a>(input: &'a str) -> Cow<'a, str> {
+pub(crate) fn collapse_xml_whitespace(input: &str) -> Cow<'_, str> {
     let needs_collapse = input.starts_with(char::is_whitespace)
         || input.ends_with(char::is_whitespace)
         || input.contains(['\t', '\n', '\r'])
@@ -158,6 +159,8 @@ pub(crate) fn decode_hex(input: &str) -> Option<Vec<u8>> {
     while let (Some(high_ch), Some(low_ch)) = (chars.next(), chars.next()) {
         let high = high_ch.to_digit(16)?;
         let low = low_ch.to_digit(16)?;
+        // Both hex digits are below 16, so the combined value is below 256 and fits in u8.
+        #[allow(clippy::cast_possible_truncation)]
         bytes.push(((high << 4) | low) as u8);
     }
     Some(bytes)
@@ -166,7 +169,7 @@ pub(crate) fn decode_hex(input: &str) -> Option<Vec<u8>> {
 pub(crate) fn encode_hex_upper(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
-        out.push_str(&format!("{:02X}", byte));
+        let _ = write!(out, "{byte:02X}");
     }
     out
 }

@@ -57,6 +57,7 @@ impl<N> Default for VariableBindings<N> {
 }
 
 impl<N> VariableBindings<N> {
+    #[must_use]
     pub fn with_binding(&self, name: ExpandedName, value: XdmSequence<N>) -> Self {
         Self { inner: VariableScope::with_binding(self.inner.clone(), name, value) }
     }
@@ -68,6 +69,7 @@ impl<N> VariableBindings<N> {
         Arc::make_mut(&mut self.inner).bindings.insert(name, value);
     }
 
+    #[must_use]
     pub fn get(&self, name: &ExpandedName) -> Option<XdmSequence<N>>
     where
         N: Clone,
@@ -135,6 +137,7 @@ impl<N> Default for FunctionImplementations<N> {
 }
 
 impl<N> FunctionImplementations<N> {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -205,8 +208,8 @@ impl<N> FunctionImplementations<N> {
         self.register_stream_fn(name, arity, f);
     }
 
-    /// Register a variadic stream function by ExpandedName with a minimum arity.
-    /// The function will be selected for any call with argc >= min_arity.
+    /// Register a variadic stream function by `ExpandedName` with a minimum arity.
+    /// The function will be selected for any call with argc >= `min_arity`.
     pub fn register_stream_variadic(&mut self, name: ExpandedName, min_arity: Arity, func: FunctionStreamImpl<N>) {
         self.register_stream_range(name, min_arity, None, func);
     }
@@ -267,6 +270,7 @@ impl<N> FunctionImplementations<N> {
     /// Returns `Some` if a stream implementation exists for this function,
     /// `None` otherwise. The caller should fall back to `resolve()` for
     /// Vec-based implementations.
+    #[must_use]
     pub fn resolve_stream(
         &self,
         name: &ExpandedName,
@@ -302,17 +306,51 @@ impl<N> FunctionImplementations<N> {
 
 // Node-producing resolver for host adapters that can construct N directly
 pub trait NodeResolver<N> {
+    /// Resolve the document node for `fn:doc` / `fn:doc-available`; `Ok(None)` means no
+    /// document is available for `uri`.
+    ///
+    /// # Errors
+    ///
+    /// Implementations return an error if retrieving the document fails. The default
+    /// implementation never fails. `fn:doc` reports any error as `FODC0005`, and
+    /// `fn:doc-available` treats it as `false`.
     fn doc_node(&self, _uri: &str) -> Result<Option<N>, Error> {
         Ok(None)
     }
+    /// Resolve the nodes of `fn:collection`; `uri` is `None` for the default collection.
+    ///
+    /// # Errors
+    ///
+    /// Implementations return an error if the collection cannot be resolved; `fn:collection`
+    /// propagates it unchanged. The default implementation never fails and returns an empty
+    /// collection.
     fn collection_nodes(&self, _uri: Option<&str>) -> Result<Vec<N>, Error> {
         Ok(vec![])
     }
 }
 
 pub trait RegexProvider {
+    /// Test whether `text` matches `pattern` under the `XPath` regex `flags` (`fn:matches`).
+    ///
+    /// # Errors
+    ///
+    /// Implementations return `FORX0001` for invalid flags and `FORX0002` for an invalid
+    /// pattern or a failure while matching.
     fn matches(&self, pattern: &str, flags: &str, text: &str) -> Result<bool, Error>;
+    /// Replace every match of `pattern` in `text` with `replacement` (`fn:replace`).
+    ///
+    /// # Errors
+    ///
+    /// Implementations return `FORX0001` for invalid flags, `FORX0002` for an invalid pattern
+    /// or a failure while matching, `FORX0003` if the pattern matches a zero-length string,
+    /// and `FORX0004` for an invalid replacement string.
     fn replace(&self, pattern: &str, flags: &str, text: &str, replacement: &str) -> Result<String, Error>;
+    /// Split `text` at the matches of `pattern` (`fn:tokenize`).
+    ///
+    /// # Errors
+    ///
+    /// Implementations return `FORX0001` for invalid flags, `FORX0002` for an invalid pattern
+    /// or a failure while matching, and `FORX0003` if the pattern matches a zero-length string.
     fn tokenize(&self, pattern: &str, flags: &str, text: &str) -> Result<Vec<String>, Error>;
 }
 
@@ -353,7 +391,7 @@ impl FancyRegexProvider {
                 }
                 _ => {
                     // validate_regex_flags should have rejected already, but keep a guard
-                    return Err(Error::from_code(ErrorCode::FORX0001, format!("unsupported regex flag: {}", ch)));
+                    return Err(Error::from_code(ErrorCode::FORX0001, format!("unsupported regex flag: {ch}")));
                 }
             }
         }
@@ -518,14 +556,15 @@ pub enum ErrorCode {
     Unknown,
 }
 
-/// ErrorCode notes:
+/// `ErrorCode` notes:
 /// - Only a subset of XPath/XQuery 2.0 codes currently emitted.
 /// - Expansion strategy: introduce variants when first needed; keep Unknown as
 ///   safe fallback for forward compatibility with older compiled artifacts.
 /// - Use `Error::code_enum()` for structured handling instead of matching raw strings.
 impl ErrorCode {
-    /// Returns the QName (ExpandedName) for this spec-defined error code.
+    /// Returns the `QName` (`ExpandedName`) for this spec-defined error code.
     /// Namespace: <http://www.w3.org/2005/xqt-errors>
+    #[must_use]
     pub fn qname(&self) -> ExpandedName {
         ExpandedName {
             ns_uri: Some(ERR_NS.to_string()),
@@ -560,8 +599,13 @@ impl ErrorCode {
             },
         }
     }
+    #[must_use]
     pub fn from_code(s: &str) -> Self {
-        use ErrorCode::*;
+        use ErrorCode::{
+            FOAR0001, FOAR0002, FOCA0001, FOCH0002, FOCH0003, FODC0002, FODC0004, FODC0005, FOER0000, FONS0004,
+            FONS0005, FORG0001, FORG0004, FORG0005, FORG0006, FORX0001, FORX0002, FORX0003, FORX0004, NYI0000, Unknown,
+            XPDY0002, XPDY0050, XPST0003, XPST0008, XPST0017, XPTY0004,
+        };
         match s {
             "err:FOAR0001" => FOAR0001,
             "err:FOAR0002" => FOAR0002,
@@ -606,10 +650,11 @@ pub struct Error {
 }
 
 impl Error {
-    /// New QName-centric constructor (preferred). Stores the QName directly.
+    /// New QName-centric constructor (preferred). Stores the `QName` directly.
     pub fn new_qname(code: ExpandedName, msg: impl Into<String>) -> Self {
         Self { code, message: msg.into(), source: None }
     }
+    #[must_use]
     pub fn code_enum(&self) -> ErrorCode {
         // Only ERR_NS codes map to the enum; others are Unknown.
         if self.code.ns_uri.as_deref() == Some(ERR_NS) {
@@ -619,14 +664,16 @@ impl Error {
             ErrorCode::Unknown
         }
     }
-    /// Attempt to reconstruct the QName from the stored string code.
-    /// Always returns the stored QName.
+    /// Attempt to reconstruct the `QName` from the stored string code.
+    /// Always returns the stored `QName`.
+    #[must_use]
     pub fn code_qname(&self) -> Option<ExpandedName> {
         Some(self.code.clone())
     }
-    /// Format the code as a human-readable string. Standard ERR_NS codes are
+    /// Format the code as a human-readable string. Standard `ERR_NS` codes are
     /// emitted as their bare local name (e.g. `XPST0003`); foreign-namespace
     /// codes use `Q{ns}local`.
+    #[must_use]
     pub fn format_code(&self) -> String {
         if self.code.ns_uri.as_deref() == Some(ERR_NS) {
             self.code.local.clone()
@@ -636,8 +683,9 @@ impl Error {
             self.code.local.clone()
         }
     }
+    #[must_use]
     pub fn not_implemented(feature: &str) -> Self {
-        Self::new_qname(ErrorCode::NYI0000.qname(), format!("not implemented: {}", feature))
+        Self::new_qname(ErrorCode::NYI0000.qname(), format!("not implemented: {feature}"))
     }
     // New helpers using strongly typed ErrorCode
     pub fn from_code(code: ErrorCode, msg: impl Into<String>) -> Self {
@@ -645,13 +693,15 @@ impl Error {
     }
 
     /// Compose an error with a source cause.
+    #[must_use]
     pub fn with_source(mut self, source: impl Into<Option<Arc<dyn std::error::Error + Send + Sync>>>) -> Self {
         self.source = source.into();
         self
     }
 
     /// Public helper: parse a legacy error code string (e.g., "err:FOER0000" or "Q{ns}local")
-    /// into an ExpandedName. Prefer using typed ErrorCode where possible.
+    /// into an `ExpandedName`. Prefer using typed `ErrorCode` where possible.
+    #[must_use]
     pub fn parse_code(s: &str) -> ExpandedName {
         if let Some(rest) = s.strip_prefix("err:") {
             return ExpandedName { ns_uri: Some(ERR_NS.to_string()), local: rest.to_string() };
@@ -698,6 +748,7 @@ pub struct ArityRange {
 }
 
 impl ArityRange {
+    #[must_use]
     pub fn contains(&self, value: usize) -> bool {
         if value < self.min {
             return false;
@@ -719,10 +770,12 @@ pub enum Occurrence {
 }
 
 impl Occurrence {
+    #[must_use]
     pub fn allows_empty(self) -> bool {
         matches!(self, Occurrence::ZeroOrOne | Occurrence::ZeroOrMore)
     }
 
+    #[must_use]
     pub fn allows_multiple(self) -> bool {
         matches!(self, Occurrence::ZeroOrMore | Occurrence::OneOrMore)
     }
@@ -755,6 +808,7 @@ pub enum ItemTypeSpec {
 }
 
 impl ItemTypeSpec {
+    #[must_use]
     pub fn is_atomic(&self) -> bool {
         matches!(
             self,
@@ -788,94 +842,125 @@ pub struct ParamTypeSpec {
 }
 
 impl ParamTypeSpec {
+    #[must_use]
     pub fn any_item(occurrence: Occurrence) -> Self {
         Self { item: ItemTypeSpec::AnyItem, occurrence }
     }
 
+    #[must_use]
     pub fn node(occurrence: Occurrence) -> Self {
         Self { item: ItemTypeSpec::Node, occurrence }
     }
 
+    #[must_use]
     pub fn element(occurrence: Occurrence) -> Self {
         Self { item: ItemTypeSpec::Element, occurrence }
     }
 
+    #[must_use]
     pub fn any_atomic(occurrence: Occurrence) -> Self {
         Self { item: ItemTypeSpec::AnyAtomic, occurrence }
     }
 
+    #[must_use]
     pub fn untyped_promotable(occurrence: Occurrence) -> Self {
         Self { item: ItemTypeSpec::UntypedPromotable, occurrence }
     }
 
+    #[must_use]
     pub fn numeric(occurrence: Occurrence) -> Self {
         Self { item: ItemTypeSpec::Numeric, occurrence }
     }
 
+    #[must_use]
     pub fn numeric_or_duration(occurrence: Occurrence) -> Self {
         Self { item: ItemTypeSpec::NumericOrDuration, occurrence }
     }
 
+    #[must_use]
     pub fn integer(occurrence: Occurrence) -> Self {
         Self { item: ItemTypeSpec::Integer, occurrence }
     }
 
+    #[must_use]
     pub fn string(occurrence: Occurrence) -> Self {
         Self { item: ItemTypeSpec::String, occurrence }
     }
 
+    #[must_use]
     pub fn boolean(occurrence: Occurrence) -> Self {
         Self { item: ItemTypeSpec::Boolean, occurrence }
     }
 
+    #[must_use]
     pub fn double(occurrence: Occurrence) -> Self {
         Self { item: ItemTypeSpec::Double, occurrence }
     }
 
+    #[must_use]
     pub fn decimal(occurrence: Occurrence) -> Self {
         Self { item: ItemTypeSpec::Decimal, occurrence }
     }
 
+    #[must_use]
     pub fn float(occurrence: Occurrence) -> Self {
         Self { item: ItemTypeSpec::Float, occurrence }
     }
 
+    #[must_use]
     pub fn any_uri(occurrence: Occurrence) -> Self {
         Self { item: ItemTypeSpec::AnyUri, occurrence }
     }
 
+    #[must_use]
     pub fn qname(occurrence: Occurrence) -> Self {
         Self { item: ItemTypeSpec::QName, occurrence }
     }
 
+    #[must_use]
     pub fn duration(occurrence: Occurrence) -> Self {
         Self { item: ItemTypeSpec::Duration, occurrence }
     }
 
+    #[must_use]
     pub fn year_month_duration(occurrence: Occurrence) -> Self {
         Self { item: ItemTypeSpec::YearMonthDuration, occurrence }
     }
 
+    #[must_use]
     pub fn day_time_duration(occurrence: Occurrence) -> Self {
         Self { item: ItemTypeSpec::DayTimeDuration, occurrence }
     }
 
+    #[must_use]
     pub fn date_time(occurrence: Occurrence) -> Self {
         Self { item: ItemTypeSpec::DateTime, occurrence }
     }
 
+    #[must_use]
     pub fn date(occurrence: Occurrence) -> Self {
         Self { item: ItemTypeSpec::Date, occurrence }
     }
 
+    #[must_use]
     pub fn time(occurrence: Occurrence) -> Self {
         Self { item: ItemTypeSpec::Time, occurrence }
     }
 
+    #[must_use]
     pub fn requires_atomization(&self) -> bool {
         self.item.is_atomic()
     }
 
+    /// Check `seq` against this parameter type and apply the function conversion rules
+    /// (atomization, untyped promotion, numeric promotion) item by item.
+    ///
+    /// # Errors
+    ///
+    /// Returns `XPTY0004` if the sequence length violates the occurrence indicator or an item
+    /// has the wrong type, `FORG0001` if an untyped or string value has an invalid lexical form,
+    /// `FOCA0001` if a numeric value is out of range for the target type, and `FONS0004` if a
+    /// `QName` prefix is not bound.
     pub fn apply_to_sequence<N: XdmNode + Clone>(
         &self,
         seq: XdmSequence<N>,
@@ -889,7 +974,9 @@ impl ParamTypeSpec {
             ItemTypeSpec::AnyItem => Ok(seq),
             ItemTypeSpec::Node => ensure_node_sequence(seq),
             ItemTypeSpec::Element => ensure_element_sequence(seq),
-            ItemTypeSpec::AnyAtomic | ItemTypeSpec::UntypedPromotable => ensure_atomic_sequence(seq),
+            ItemTypeSpec::AnyAtomic | ItemTypeSpec::UntypedPromotable | ItemTypeSpec::SpecificAtomic(_) => {
+                ensure_atomic_sequence(seq)
+            }
             ItemTypeSpec::Numeric => convert_numeric_sequence(seq),
             ItemTypeSpec::NumericOrDuration => convert_numeric_or_duration_sequence(seq),
             ItemTypeSpec::Integer => convert_integer_sequence(seq),
@@ -906,7 +993,6 @@ impl ParamTypeSpec {
             ItemTypeSpec::Date => convert_date_sequence(seq),
             ItemTypeSpec::Time => convert_time_sequence(seq),
             ItemTypeSpec::QName => convert_qname_sequence(seq, static_ctx),
-            ItemTypeSpec::SpecificAtomic(_) => ensure_atomic_sequence(seq),
         }
     }
 
@@ -1013,28 +1099,14 @@ fn convert_integer_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
     use XdmAtomicValue as V;
     Ok(match a {
         V::Integer(_) => a,
-        V::Long(v) => V::Integer(v),
-        V::Int(v) => V::Integer(v as i64),
-        V::Short(v) => V::Integer(v as i64),
-        V::Byte(v) => V::Integer(v as i64),
-        V::UnsignedLong(v) => {
-            if v <= i64::MAX as u64 {
-                V::Integer(v as i64)
-            } else {
-                return Err(Error::from_code(ErrorCode::FOCA0001, "integer argument exceeds supported range"));
-            }
-        }
-        V::UnsignedInt(v) => V::Integer(v as i64),
-        V::UnsignedShort(v) => V::Integer(v as i64),
-        V::UnsignedByte(v) => V::Integer(v as i64),
-        V::NonPositiveInteger(v) => V::Integer(v),
-        V::NegativeInteger(v) => V::Integer(v),
-        V::NonNegativeInteger(v) => {
-            let val = i64::try_from(v)
-                .map_err(|_| Error::from_code(ErrorCode::FOCA0001, "integer argument exceeds supported range"))?;
-            V::Integer(val)
-        }
-        V::PositiveInteger(v) => {
+        V::Long(v) | V::NonPositiveInteger(v) | V::NegativeInteger(v) => V::Integer(v),
+        V::Int(v) => V::Integer(i64::from(v)),
+        V::Short(v) => V::Integer(i64::from(v)),
+        V::Byte(v) => V::Integer(i64::from(v)),
+        V::UnsignedInt(v) => V::Integer(i64::from(v)),
+        V::UnsignedShort(v) => V::Integer(i64::from(v)),
+        V::UnsignedByte(v) => V::Integer(i64::from(v)),
+        V::UnsignedLong(v) | V::NonNegativeInteger(v) | V::PositiveInteger(v) => {
             let val = i64::try_from(v)
                 .map_err(|_| Error::from_code(ErrorCode::FOCA0001, "integer argument exceeds supported range"))?;
             V::Integer(val)
@@ -1051,6 +1123,8 @@ fn convert_integer_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
                 return Err(Error::from_code(ErrorCode::FOCA0001, "precision argument must be an integer"));
             }
         }
+        // The i64 bounds are compared as f64 (i64::MAX rounds up to 2^63); `as` saturates that edge.
+        #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
         V::Double(d) => {
             if d.is_nan() || d.is_infinite() {
                 return Err(Error::from_code(ErrorCode::FOCA0001, "cannot cast NaN or INF to xs:integer"));
@@ -1065,12 +1139,14 @@ fn convert_integer_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
                 return Err(Error::from_code(ErrorCode::FOCA0001, "precision argument must be integral"));
             }
         }
+        // The i64 bounds are compared as f64 (i64::MAX rounds up to 2^63); `as` saturates that edge.
+        #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
         V::Float(f) => {
             if f.is_nan() || f.is_infinite() {
                 return Err(Error::from_code(ErrorCode::FOCA0001, "cannot cast NaN or INF to xs:integer"));
             }
             if f.fract() == 0.0 {
-                let value = f as f64;
+                let value = f64::from(f);
                 if value >= (i64::MIN as f64) && value <= (i64::MAX as f64) {
                     V::Integer(value as i64)
                 } else {
@@ -1127,9 +1203,9 @@ fn convert_string_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
     use XdmAtomicValue as V;
     match a {
         V::String(_) => Ok(a),
-        V::UntypedAtomic(s) => Ok(V::String(s)),
-        V::AnyUri(s) => Ok(V::String(s)),
-        V::NormalizedString(s)
+        V::UntypedAtomic(s)
+        | V::AnyUri(s)
+        | V::NormalizedString(s)
         | V::Token(s)
         | V::Language(s)
         | V::Name(s)
@@ -1160,47 +1236,39 @@ fn convert_boolean_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
         V::Double(d) => V::Boolean(d != 0.0 && !d.is_nan()),
         V::Float(f) => V::Boolean(f != 0.0 && !f.is_nan()),
         V::Decimal(d) => V::Boolean(!d.is_zero()),
-        V::Integer(i) => V::Boolean(i != 0),
-        V::Long(i) => V::Boolean(i != 0),
+        V::Integer(i) | V::Long(i) | V::NonPositiveInteger(i) | V::NegativeInteger(i) => V::Boolean(i != 0),
         V::Int(i) => V::Boolean(i != 0),
         V::Short(i) => V::Boolean(i != 0),
         V::Byte(i) => V::Boolean(i != 0),
-        V::NonPositiveInteger(i) => V::Boolean(i != 0),
-        V::NegativeInteger(i) => V::Boolean(i != 0),
-        V::UnsignedLong(i) => V::Boolean(i != 0),
+        V::UnsignedLong(i) | V::NonNegativeInteger(i) | V::PositiveInteger(i) => V::Boolean(i != 0),
         V::UnsignedInt(i) => V::Boolean(i != 0),
         V::UnsignedShort(i) => V::Boolean(i != 0),
         V::UnsignedByte(i) => V::Boolean(i != 0),
-        V::NonNegativeInteger(i) => V::Boolean(i != 0),
-        V::PositiveInteger(i) => V::Boolean(i != 0),
         _ => {
             return Err(Error::from_code(ErrorCode::XPTY0004, "function argument cannot be cast to xs:boolean"));
         }
     })
 }
 
+// Promoting an integer to xs:double rounds to the nearest double, per the XPath casting rules.
+#[allow(clippy::cast_precision_loss)]
 fn convert_double_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
     use XdmAtomicValue as V;
     match a {
         V::Double(_) => Ok(a),
-        V::Float(f) => Ok(V::Double(f as f64)),
+        V::Float(f) => Ok(V::Double(f64::from(f))),
         V::Decimal(d) => {
             use rust_decimal::prelude::ToPrimitive;
             Ok(V::Double(d.to_f64().unwrap_or(f64::NAN)))
         }
-        V::Integer(i) => Ok(V::Double(i as f64)),
-        V::Long(i) => Ok(V::Double(i as f64)),
-        V::Int(i) => Ok(V::Double(i as f64)),
-        V::Short(i) => Ok(V::Double(i as f64)),
-        V::Byte(i) => Ok(V::Double(i as f64)),
-        V::NonPositiveInteger(i) => Ok(V::Double(i as f64)),
-        V::NegativeInteger(i) => Ok(V::Double(i as f64)),
-        V::UnsignedLong(i) => Ok(V::Double(i as f64)),
-        V::UnsignedInt(i) => Ok(V::Double(i as f64)),
-        V::UnsignedShort(i) => Ok(V::Double(i as f64)),
-        V::UnsignedByte(i) => Ok(V::Double(i as f64)),
-        V::NonNegativeInteger(i) => Ok(V::Double(i as f64)),
-        V::PositiveInteger(i) => Ok(V::Double(i as f64)),
+        V::Integer(i) | V::Long(i) | V::NonPositiveInteger(i) | V::NegativeInteger(i) => Ok(V::Double(i as f64)),
+        V::Int(i) => Ok(V::Double(f64::from(i))),
+        V::Short(i) => Ok(V::Double(f64::from(i))),
+        V::Byte(i) => Ok(V::Double(f64::from(i))),
+        V::UnsignedLong(i) | V::NonNegativeInteger(i) | V::PositiveInteger(i) => Ok(V::Double(i as f64)),
+        V::UnsignedInt(i) => Ok(V::Double(f64::from(i))),
+        V::UnsignedShort(i) => Ok(V::Double(f64::from(i))),
+        V::UnsignedByte(i) => Ok(V::Double(f64::from(i))),
         V::UntypedAtomic(s) => {
             let parsed = s
                 .trim()
@@ -1216,19 +1284,18 @@ fn convert_decimal_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
     use XdmAtomicValue as V;
     match a {
         V::Decimal(_) => Ok(a),
-        V::Integer(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i))),
-        V::Long(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i))),
+        V::Integer(i) | V::Long(i) | V::NonPositiveInteger(i) | V::NegativeInteger(i) => {
+            Ok(V::Decimal(rust_decimal::Decimal::from(i)))
+        }
         V::Int(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i))),
-        V::Short(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i as i64))),
-        V::Byte(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i as i64))),
-        V::NonPositiveInteger(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i))),
-        V::NegativeInteger(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i))),
-        V::UnsignedLong(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i))),
+        V::Short(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i64::from(i)))),
+        V::Byte(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i64::from(i)))),
+        V::UnsignedLong(i) | V::NonNegativeInteger(i) | V::PositiveInteger(i) => {
+            Ok(V::Decimal(rust_decimal::Decimal::from(i)))
+        }
         V::UnsignedInt(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i))),
-        V::UnsignedShort(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i as u64))),
-        V::UnsignedByte(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i as u64))),
-        V::NonNegativeInteger(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i))),
-        V::PositiveInteger(i) => Ok(V::Decimal(rust_decimal::Decimal::from(i))),
+        V::UnsignedShort(i) => Ok(V::Decimal(rust_decimal::Decimal::from(u64::from(i)))),
+        V::UnsignedByte(i) => Ok(V::Decimal(rust_decimal::Decimal::from(u64::from(i)))),
         V::Double(d) => {
             use rust_decimal::prelude::FromPrimitive;
             Ok(V::Decimal(rust_decimal::Decimal::from_f64(d).unwrap_or(rust_decimal::Decimal::ZERO)))
@@ -1247,6 +1314,9 @@ fn convert_decimal_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
     }
 }
 
+// Promoting to xs:float rounds to the nearest float, per the XPath casting rules; out-of-range
+// doubles become infinity, as `as` does.
+#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
 fn convert_float_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
     use XdmAtomicValue as V;
     match a {
@@ -1256,19 +1326,14 @@ fn convert_float_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue, Error> {
             use rust_decimal::prelude::ToPrimitive;
             Ok(V::Float(d.to_f32().unwrap_or(f32::NAN)))
         }
-        V::Integer(i) => Ok(V::Float(i as f32)),
-        V::Long(i) => Ok(V::Float(i as f32)),
+        V::Integer(i) | V::Long(i) | V::NonPositiveInteger(i) | V::NegativeInteger(i) => Ok(V::Float(i as f32)),
         V::Int(i) => Ok(V::Float(i as f32)),
-        V::Short(i) => Ok(V::Float(i as f32)),
-        V::Byte(i) => Ok(V::Float(i as f32)),
-        V::NonPositiveInteger(i) => Ok(V::Float(i as f32)),
-        V::NegativeInteger(i) => Ok(V::Float(i as f32)),
-        V::UnsignedLong(i) => Ok(V::Float(i as f32)),
+        V::Short(i) => Ok(V::Float(f32::from(i))),
+        V::Byte(i) => Ok(V::Float(f32::from(i))),
+        V::UnsignedLong(i) | V::NonNegativeInteger(i) | V::PositiveInteger(i) => Ok(V::Float(i as f32)),
         V::UnsignedInt(i) => Ok(V::Float(i as f32)),
-        V::UnsignedShort(i) => Ok(V::Float(i as f32)),
-        V::UnsignedByte(i) => Ok(V::Float(i as f32)),
-        V::NonNegativeInteger(i) => Ok(V::Float(i as f32)),
-        V::PositiveInteger(i) => Ok(V::Float(i as f32)),
+        V::UnsignedShort(i) => Ok(V::Float(f32::from(i))),
+        V::UnsignedByte(i) => Ok(V::Float(f32::from(i))),
         V::UntypedAtomic(s) => {
             let parsed = s
                 .trim()
@@ -1373,7 +1438,7 @@ fn convert_year_month_duration_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValu
         V::YearMonthDuration(_) => a,
         V::UntypedAtomic(s) | V::String(s) => {
             let months = parse_year_month_duration_months(&s)
-                .map_err(|_| Error::from_code(ErrorCode::FORG0001, "cannot cast to xs:yearMonthDuration"))?;
+                .map_err(|()| Error::from_code(ErrorCode::FORG0001, "cannot cast to xs:yearMonthDuration"))?;
             V::YearMonthDuration(months)
         }
         V::DayTimeDuration(_) => {
@@ -1394,7 +1459,7 @@ fn convert_day_time_duration_atomic(a: XdmAtomicValue) -> Result<XdmAtomicValue,
         V::DayTimeDuration(_) => a,
         V::UntypedAtomic(s) | V::String(s) => {
             let secs = parse_day_time_duration_secs(&s)
-                .map_err(|_| Error::from_code(ErrorCode::FORG0001, "cannot cast to xs:dayTimeDuration"))?;
+                .map_err(|()| Error::from_code(ErrorCode::FORG0001, "cannot cast to xs:dayTimeDuration"))?;
             V::DayTimeDuration(secs)
         }
         V::YearMonthDuration(_) => {
@@ -1454,8 +1519,7 @@ fn duration_from_string(s: &str) -> Result<XdmAtomicValue, Error> {
     match parse_duration_lexical(s) {
         Ok((Some(months), None)) => Ok(V::YearMonthDuration(months)),
         Ok((None, Some(secs))) => Ok(V::DayTimeDuration(secs)),
-        Ok((Some(_), Some(_))) => Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:duration")),
-        Ok((None, None)) => Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:duration")),
+        Ok((Some(_), Some(_)) | (None, None)) => Err(Error::from_code(ErrorCode::FORG0001, "invalid xs:duration")),
         Err(e) => Err(e),
     }
 }
@@ -1466,7 +1530,7 @@ fn convert_qname_atomic(a: XdmAtomicValue, static_ctx: &StaticContext) -> Result
         V::QName { .. } => a,
         V::UntypedAtomic(s) | V::String(s) => {
             let (prefix_opt, local) = parse_qname_lexical(&s)
-                .map_err(|_| Error::from_code(ErrorCode::FORG0001, "cannot cast to xs:QName"))?;
+                .map_err(|()| Error::from_code(ErrorCode::FORG0001, "cannot cast to xs:QName"))?;
             let ns_uri = match prefix_opt.as_deref() {
                 None => None,
                 Some("xml") => Some(crate::consts::XML_URI.to_string()),
@@ -1513,14 +1577,17 @@ impl FunctionSignatures {
         self.register(ExpandedName { ns_uri: None, local: local.to_string() }, min, max);
     }
 
+    #[must_use]
     pub fn arities(&self, name: &ExpandedName) -> Option<&[ArityRange]> {
-        self.entries.get(name).map(|v| v.as_slice())
+        self.entries.get(name).map(std::vec::Vec::as_slice)
     }
 
+    #[must_use]
     pub fn supports(&self, name: &ExpandedName, arity: usize) -> bool {
-        self.entries.get(name).map(|ranges| ranges.iter().any(|r| r.contains(arity))).unwrap_or(false)
+        self.entries.get(name).is_some_and(|ranges| ranges.iter().any(|r| r.contains(arity)))
     }
 
+    #[must_use]
     pub fn param_types_for_call(
         &self,
         name: &ExpandedName,
@@ -1603,44 +1670,52 @@ impl StaticContextBuilder {
     /// Create a new `StaticContextBuilder`.
     ///
     /// The resulting `StaticContext` is an immutable snapshot that is embedded into a
-    /// compiled XPath expression at compile time via `compile_xpath_with_context`.
+    /// compiled `XPath` expression at compile time via `compile_xpath_with_context`.
     /// After compilation, the evaluator only uses the captured copy; providing a different
-    /// `StaticContext` at evaluation time has no effect. This mirrors XPath 2.0's separation
+    /// `StaticContext` at evaluation time has no effect. This mirrors `XPath` 2.0's separation
     /// of static and dynamic context (static parts fixed during static analysis / compilation).
+    #[must_use]
     pub fn new() -> Self {
         Self { ctx: StaticContext::default() }
     }
 
+    #[must_use]
     pub fn with_base_uri(mut self, uri: impl Into<String>) -> Self {
         self.ctx.base_uri = Some(uri.into());
         self
     }
 
+    #[must_use]
     pub fn with_default_function_namespace(mut self, uri: impl Into<String>) -> Self {
         self.ctx.default_function_namespace = Some(uri.into());
         self
     }
 
+    #[must_use]
     pub fn with_default_collation(mut self, uri: impl Into<String>) -> Self {
         self.ctx.default_collation = Some(uri.into());
         self
     }
 
+    #[must_use]
     pub fn with_default_element_namespace(mut self, uri: impl Into<String>) -> Self {
         self.ctx.default_element_namespace = Some(uri.into());
         self
     }
 
+    #[must_use]
     pub fn with_xpath_compatibility_mode(mut self, enabled: bool) -> Self {
         self.ctx.xpath_compatibility_mode = enabled;
         self
     }
 
+    #[must_use]
     pub fn with_context_item_type(mut self, ty: ir::SeqTypeIR) -> Self {
         self.ctx.context_item_type = Some(ty);
         self
     }
 
+    #[must_use]
     pub fn clear_context_item_type(mut self) -> Self {
         self.ctx.context_item_type = None;
         self
@@ -1648,6 +1723,7 @@ impl StaticContextBuilder {
 
     /// Register a namespace prefix → URI mapping. Attempts to override the reserved `xml`
     /// prefix are ignored to keep spec conformance.
+    #[must_use]
     pub fn with_namespace(mut self, prefix: impl Into<String>, uri: impl Into<String>) -> Self {
         let p = prefix.into();
         if p == "xml" {
@@ -1658,36 +1734,43 @@ impl StaticContextBuilder {
     }
 
     /// Register an in-scope variable that may be referenced without being bound locally.
+    #[must_use]
     pub fn with_variable(mut self, name: ExpandedName) -> Self {
         self.ctx.in_scope_variables.insert(name);
         self
     }
 
+    #[must_use]
     pub fn with_function_signature(mut self, name: ExpandedName, min: usize, max: Option<usize>) -> Self {
         self.ctx.function_signatures.register(name, min, max);
         self
     }
 
+    #[must_use]
     pub fn with_function_signature_ns(mut self, ns: &str, local: &str, min: usize, max: Option<usize>) -> Self {
         self.ctx.function_signatures.register_ns(ns, local, min, max);
         self
     }
 
+    #[must_use]
     pub fn with_collation(mut self, uri: impl Into<String>) -> Self {
         self.ctx.statically_known_collations.insert(uri.into());
         self
     }
 
+    #[must_use]
     pub fn with_function_signatures(mut self, sigs: FunctionSignatures) -> Self {
         self.ctx.function_signatures = sigs;
         self
     }
 
+    #[must_use]
     pub fn with_collations(mut self, collations: HashSet<String>) -> Self {
         self.ctx.statically_known_collations = collations;
         self
     }
 
+    #[must_use]
     pub fn build(self) -> StaticContext {
         self.ctx
     }
@@ -1735,52 +1818,62 @@ impl<N: 'static + crate::model::XdmNode + Clone> Default for DynamicContextBuild
 }
 
 impl<N: 'static + crate::model::XdmNode + Clone> DynamicContextBuilder<N> {
+    #[must_use]
     pub fn new() -> Self {
         Self { ctx: DynamicContext::default() }
     }
 
+    #[must_use]
     pub fn with_context_item(mut self, item: impl Into<XdmItem<N>>) -> Self {
         self.ctx.context_item = Some(item.into());
         self
     }
 
+    #[must_use]
     pub fn with_variable(mut self, name: ExpandedName, value: impl Into<XdmSequence<N>>) -> Self {
         self.ctx.variables = self.ctx.variables.with_binding(name, value.into());
         self
     }
 
+    #[must_use]
     pub fn with_default_collation(mut self, uri: impl Into<String>) -> Self {
         self.ctx.default_collation = Some(uri.into());
         self
     }
 
+    #[must_use]
     pub fn with_functions(mut self, reg: Rc<FunctionImplementations<N>>) -> Self {
         self.ctx.functions = Some(reg);
         self
     }
 
+    #[must_use]
     pub fn with_collations(mut self, reg: Rc<CollationRegistry>) -> Self {
         self.ctx.collations = reg;
         self
     }
 
+    #[must_use]
     pub fn with_node_resolver(mut self, res: Arc<dyn NodeResolver<N>>) -> Self {
         self.ctx.node_resolver = Some(res);
         self
     }
 
+    #[must_use]
     pub fn with_regex(mut self, provider: Rc<dyn RegexProvider>) -> Self {
         self.ctx.regex = Some(provider);
         self
     }
 
     // Set a fixed 'now' instant for deterministic date/time functions
+    #[must_use]
     pub fn with_now(mut self, now: chrono::DateTime<chrono::FixedOffset>) -> Self {
         self.ctx.now = Some(now);
         self
     }
 
     // Override timezone for current-* formatting (applied to 'now' if set)
+    #[must_use]
     pub fn with_timezone(mut self, offset_minutes: i32) -> Self {
         let hours = offset_minutes / 60;
         let mins = offset_minutes % 60;
@@ -1790,6 +1883,7 @@ impl<N: 'static + crate::model::XdmNode + Clone> DynamicContextBuilder<N> {
         self
     }
 
+    #[must_use]
     pub fn with_cancel_flag(mut self, flag: Arc<AtomicBool>) -> Self {
         self.ctx.cancel_flag = Some(flag);
         self
@@ -1809,12 +1903,14 @@ impl<N: 'static + crate::model::XdmNode + Clone> DynamicContext<N> {
         }
     }
 
+    #[must_use]
     pub fn with_context_item(&self, item: impl Into<Option<XdmItem<N>>>) -> Self {
         let mut clone = self.clone();
         clone.context_item = item.into();
         clone
     }
 
+    #[must_use]
     pub fn with_variable(&self, name: ExpandedName, value: XdmSequence<N>) -> Self {
         let mut clone = self.clone();
         clone.variables = clone.variables.with_binding(name, value);

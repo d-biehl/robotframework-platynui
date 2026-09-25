@@ -6,6 +6,10 @@ pub mod parser;
 pub mod util;
 pub mod xdm;
 
+// rstest is used by the integration tests only, not by the unit tests in `src/`.
+#[cfg(test)]
+use rstest as _;
+
 // Back-compat public surface for existing tests and examples
 pub use compiler::{compile, compile_with_context};
 pub use engine::evaluator::{

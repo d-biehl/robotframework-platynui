@@ -1,4 +1,4 @@
-//! Atomic value comparison for XPath 2.0 value and general comparisons.
+//! Atomic value comparison for `XPath` 2.0 value and general comparisons.
 
 use std::borrow::Cow;
 
@@ -27,15 +27,17 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         out
     }
 
-    pub(crate) fn atomic_to_number(a: &XdmAtomicValue) -> Result<f64, Error> {
-        Ok(match a {
+    // XPath fn:number converts integers to xs:double; rounding to the nearest double is intended.
+    #[allow(clippy::cast_precision_loss)]
+    pub(crate) fn atomic_to_number(a: &XdmAtomicValue) -> f64 {
+        match a {
             XdmAtomicValue::Integer(i) => *i as f64,
             XdmAtomicValue::Decimal(d) => {
                 use rust_decimal::prelude::ToPrimitive;
                 d.to_f64().unwrap_or(f64::NAN)
             }
             XdmAtomicValue::Double(d) => *d,
-            XdmAtomicValue::Float(f) => *f as f64,
+            XdmAtomicValue::Float(f) => f64::from(*f),
             XdmAtomicValue::Boolean(b) => {
                 if *b {
                     1.0
@@ -45,16 +47,18 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
             }
             XdmAtomicValue::UntypedAtomic(s) | XdmAtomicValue::String(s) => s.parse::<f64>().unwrap_or(f64::NAN),
             _ => f64::NAN,
-        })
+        }
     }
 
+    // One dispatch over the XPath value-comparison type pairs, checked in a fixed order.
+    #[allow(clippy::too_many_lines)]
     pub(crate) fn compare_atomic(
         &self,
         a: &XdmAtomicValue,
         b: &XdmAtomicValue,
         op: ComparisonOp,
     ) -> Result<bool, Error> {
-        use ComparisonOp::*;
+        use ComparisonOp::{Eq, Ge, Gt, Le, Lt, Ne};
         // XPath 2.0 value comparison promotions (refined numeric path):
         // 1. untypedAtomic normalization (string or attempt numeric if other numeric)
         // 2. Numeric tower minimal promotion: integer + integer -> integer; integer + decimal -> decimal; decimal + float -> float;
@@ -68,7 +72,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         let (a_norm, b_norm): (Cow<'_, XdmAtomicValue>, Cow<'_, XdmAtomicValue>) = match (a, b) {
             (V::UntypedAtomic(sa), V::UntypedAtomic(sb)) => {
                 // Both untypedAtomic: compare as strings directly without allocating V::String wrappers
-                return self.compare_strings(sa, sb, op);
+                return Ok(self.compare_strings(sa, sb, op));
             }
             (V::UntypedAtomic(s), other)
                 if matches!(other, V::Integer(_) | V::Decimal(_) | V::Double(_) | V::Float(_)) =>
@@ -102,9 +106,9 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
 
         // If both (after normalization) are strings and not numeric context
         if matches!((&*a_norm, &*b_norm), (V::String(_), V::String(_))) && matches!(op, Lt | Le | Gt | Ge | Eq | Ne) {
-            let ls = if let V::String(s) = &*a_norm { s } else { unreachable!("expected string after normalization") };
-            let rs = if let V::String(s) = &*b_norm { s } else { unreachable!("expected string after normalization") };
-            return self.compare_strings(ls, rs, op);
+            let V::String(ls) = &*a_norm else { unreachable!("expected string after normalization") };
+            let V::String(rs) = &*b_norm else { unreachable!("expected string after normalization") };
+            return Ok(self.compare_strings(ls, rs, op));
         }
 
         // QName equality (only Eq/Ne permitted); compare namespace URI + local name; ignore prefix
@@ -140,6 +144,8 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
             if ln.is_nan() || rn.is_nan() {
                 return Ok(matches!(op, ComparisonOp::Ne));
             }
+            // XPath value comparison of numerics is exact IEEE comparison.
+            #[allow(clippy::float_cmp)]
             return Ok(match op {
                 Eq => ln == rn,
                 Ne => ln != rn,
@@ -152,9 +158,9 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
 
         // dateTime relational comparisons by absolute instant
         if let (XdmAtomicValue::DateTime(da), XdmAtomicValue::DateTime(db)) = (a, b) {
-            let (a_ts, b_ts) = (da.timestamp(), db.timestamp());
-            let (a_ns, b_ns) = (da.timestamp_subsec_nanos(), db.timestamp_subsec_nanos());
-            let ord = (a_ts, a_ns).cmp(&(b_ts, b_ns));
+            let (a_secs, b_secs) = (da.timestamp(), db.timestamp());
+            let (a_nanos, b_nanos) = (da.timestamp_subsec_nanos(), db.timestamp_subsec_nanos());
+            let ord = (a_secs, a_nanos).cmp(&(b_secs, b_nanos));
             return Ok(match op {
                 Eq => ord == core::cmp::Ordering::Equal,
                 Ne => ord != core::cmp::Ordering::Equal,
@@ -249,8 +255,8 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         Err(Error::from_code(ErrorCode::XPTY0004, "incomparable atomic types"))
     }
 
-    fn compare_strings(&self, ls: &str, rs: &str, op: ComparisonOp) -> Result<bool, Error> {
-        use ComparisonOp::*;
+    fn compare_strings(&self, ls: &str, rs: &str, op: ComparisonOp) -> bool {
+        use ComparisonOp::{Eq, Ge, Gt, Le, Lt, Ne};
         let coll_arc;
         let coll: &dyn crate::engine::collation::Collation = if let Some(c) = &self.default_collation {
             c.as_ref()
@@ -262,7 +268,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 .unwrap_or_else(|| std::rc::Rc::new(crate::engine::collation::CodepointCollation));
             coll_arc.as_ref()
         };
-        Ok(match op {
+        match op {
             Eq => coll.key(ls) == coll.key(rs),
             Ne => coll.key(ls) != coll.key(rs),
             Lt => coll.compare(ls, rs).is_lt(),
@@ -275,6 +281,6 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 let ord = coll.compare(ls, rs);
                 ord.is_gt() || ord.is_eq()
             }
-        })
+        }
     }
 }

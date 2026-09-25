@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::fmt::Write as _;
 
 use crate::engine::runtime::{CallCtx, Error, ErrorCode};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence};
@@ -116,6 +117,8 @@ pub(super) fn string_default<N: crate::model::XdmNode + Clone>(
 }
 
 // Default implementation for substring handling both 2- and 3-arity variants
+// XPath positions are rounded doubles; the saturating f64-to-isize cast is the intended conversion.
+#[allow(clippy::cast_possible_truncation)]
 pub(super) fn substring_default(s: &str, start_raw: f64, len_raw_opt: Option<f64>) -> String {
     // NaN handling
     if start_raw.is_nan() {
@@ -137,31 +140,29 @@ pub(super) fn substring_default(s: &str, start_raw: f64, len_raw_opt: Option<f64
     if start_raw.is_infinite() {
         if start_raw.is_sign_positive() {
             return String::new();
-        } else {
-            // -INF: treat as starting well before string
-            let chars: Vec<char> = s.chars().collect();
-            if let Some(len_raw) = len_raw_opt {
-                let len_rounded = round_half_to_even_f64(len_raw);
-                if len_rounded <= 0.0 {
-                    return String::new();
-                }
-                let total = chars.len() as isize;
-                let first_pos: isize = 1;
-                let mut last_pos: isize = first_pos + len_rounded as isize - 1;
-                if first_pos > total {
-                    return String::new();
-                }
-                if last_pos > total {
-                    last_pos = total;
-                }
-                let from_index = 0usize;
-                let to_index = last_pos.max(0) as usize;
-                return chars[from_index..to_index].iter().collect();
-            } else {
-                // 2-arity: whole string
-                return s.to_string();
-            }
         }
+        // -INF: treat as starting well before string
+        let chars: Vec<char> = s.chars().collect();
+        if let Some(len_raw) = len_raw_opt {
+            let len_rounded = round_half_to_even_f64(len_raw);
+            if len_rounded <= 0.0 {
+                return String::new();
+            }
+            let total = chars.len().cast_signed();
+            let first_pos: isize = 1;
+            let mut last_pos: isize = first_pos + len_rounded as isize - 1;
+            if first_pos > total {
+                return String::new();
+            }
+            if last_pos > total {
+                last_pos = total;
+            }
+            let from_index = 0usize;
+            let to_index = last_pos.max(0).cast_unsigned();
+            return chars[from_index..to_index].iter().collect();
+        }
+        // 2-arity: whole string
+        return s.to_string();
     }
 
     // Common path
@@ -172,7 +173,7 @@ pub(super) fn substring_default(s: &str, start_raw: f64, len_raw_opt: Option<f64
             return String::new();
         }
         let chars: Vec<char> = s.chars().collect();
-        let total = chars.len() as isize;
+        let total = chars.len().cast_signed();
         let first_pos: isize = if start_rounded < 1.0 { 1 } else { start_rounded as isize };
         let mut last_pos: isize = first_pos + len_rounded as isize - 1;
         if first_pos > total {
@@ -181,15 +182,15 @@ pub(super) fn substring_default(s: &str, start_raw: f64, len_raw_opt: Option<f64
         if last_pos > total {
             last_pos = total;
         }
-        let from_index = (first_pos - 1).max(0) as usize;
-        let to_index = last_pos.max(0) as usize; // inclusive 1-based -> exclusive
+        let from_index = (first_pos - 1).max(0).cast_unsigned();
+        let to_index = last_pos.max(0).cast_unsigned(); // inclusive 1-based -> exclusive
         chars[from_index..to_index].iter().collect()
     } else {
         // 2-arity: from start to end
         if start_rounded <= 1.0 {
             s.to_string()
         } else {
-            let from_index: usize = (start_rounded as isize - 1).max(0) as usize;
+            let from_index: usize = (start_rounded as isize - 1).max(0).cast_unsigned();
             s.chars().skip(from_index).collect()
         }
     }
@@ -214,7 +215,7 @@ pub(super) fn node_name_default<N: crate::model::XdmNode + Clone>(
                 Ok(vec![])
             }
         }
-        _ => Err(Error::from_code(ErrorCode::XPTY0004, "node-name expects node()")),
+        XdmItem::Atomic(_) => Err(Error::from_code(ErrorCode::XPTY0004, "node-name expects node()")),
     }
 }
 
@@ -334,6 +335,14 @@ pub(super) fn tokenize_default<N: crate::model::XdmNode + Clone>(
     Ok(parts.into_iter().map(|s| XdmItem::Atomic(XdmAtomicValue::String(s))).collect())
 }
 
+// Accumulator state of sum($seq[, $zero])
+enum SumState {
+    None,
+    Numeric { kind: NumericKind, use_int: bool, int_acc: i128, dec_acc: rust_decimal::Decimal },
+    YearMonth { total: i64 },
+    DayTime { total: i128 },
+}
+
 // Default for sum($seq[, $zero])
 pub(super) fn sum_default<N: crate::model::XdmNode>(
     seq: &XdmSequence<N>,
@@ -351,12 +360,6 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
         }
         return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))]);
     }
-    enum SumState {
-        None,
-        Numeric { kind: NumericKind, use_int: bool, int_acc: i128, dec_acc: rust_decimal::Decimal },
-        YearMonth { total: i64 },
-        DayTime { total: i128 },
-    }
     let mut state = SumState::None;
     for it in seq {
         let XdmItem::Atomic(a) = it else {
@@ -365,10 +368,10 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
         match a {
             XdmAtomicValue::YearMonthDuration(months) => {
                 state = match state {
-                    SumState::None => SumState::YearMonth { total: *months as i64 },
+                    SumState::None => SumState::YearMonth { total: i64::from(*months) },
                     SumState::YearMonth { total } => SumState::YearMonth {
                         total: total
-                            .checked_add(*months as i64)
+                            .checked_add(i64::from(*months))
                             .ok_or_else(|| Error::from_code(ErrorCode::FOAR0002, "yearMonthDuration overflow"))?,
                     },
                     _ => return Err(Error::from_code(ErrorCode::XPTY0004, "mixed types in sum")),
@@ -376,17 +379,17 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
             }
             XdmAtomicValue::DayTimeDuration(secs) => {
                 state = match state {
-                    SumState::None => SumState::DayTime { total: *secs as i128 },
+                    SumState::None => SumState::DayTime { total: i128::from(*secs) },
                     SumState::DayTime { total } => SumState::DayTime {
                         total: total
-                            .checked_add(*secs as i128)
+                            .checked_add(i128::from(*secs))
                             .ok_or_else(|| Error::from_code(ErrorCode::FOAR0002, "dayTimeDuration overflow"))?,
                     },
                     _ => return Err(Error::from_code(ErrorCode::XPTY0004, "mixed types in sum")),
                 };
             }
             _ => {
-                if let Some((nk, num)) = classify_numeric(a)? {
+                if let Some((nk, num)) = classify_numeric(a) {
                     if nk == NumericKind::Double && num.is_nan() {
                         return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(f64::NAN))]);
                     }
@@ -440,7 +443,12 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
             }
         }
     }
-    let result = match state {
+    Ok(vec![XdmItem::Atomic(sum_state_into_atomic(&state)?)])
+}
+
+// Converts the final accumulator state of sum() into its result value.
+fn sum_state_into_atomic(state: &SumState) -> Result<XdmAtomicValue, Error> {
+    let result = match *state {
         SumState::None => XdmAtomicValue::Integer(0),
         SumState::Numeric { kind, use_int, int_acc, dec_acc } => {
             if use_int && matches!(kind, NumericKind::Integer) {
@@ -478,7 +486,7 @@ pub(super) fn sum_default<N: crate::model::XdmNode>(
             XdmAtomicValue::DayTimeDuration(secs)
         }
     };
-    Ok(vec![XdmItem::Atomic(result)])
+    Ok(result)
 }
 
 // Default implementation for name() 0/1-arity
@@ -548,15 +556,15 @@ pub(super) fn compare_default<N: 'static + crate::model::XdmNode + Clone>(
     let sa = item_to_string(a);
     let sb = item_to_string(b);
     let uri_opt = collation_uri.filter(|&u| !u.is_empty());
-    let k = crate::engine::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
-    let c = k.as_trait();
-    let ord = c.compare(&sa, &sb);
-    let v = match ord {
+    let coll_kind = crate::engine::collation::resolve_collation(ctx.dyn_ctx, ctx.default_collation.as_ref(), uri_opt)?;
+    let coll = coll_kind.as_trait();
+    let ord = coll.compare(&sa, &sb);
+    let cmp_result = match ord {
         core::cmp::Ordering::Less => -1,
         core::cmp::Ordering::Equal => 0,
         core::cmp::Ordering::Greater => 1,
     };
-    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(v))])
+    Ok(vec![XdmItem::Atomic(XdmAtomicValue::Integer(cmp_result))])
 }
 
 // Default implementation for index-of($seq,$search[,$collation])
@@ -618,7 +626,10 @@ pub(super) fn index_of_default<N: 'static + crate::model::XdmNode + Clone>(
             _ => false,
         };
         if eq {
-            out.push(XdmItem::Atomic(XdmAtomicValue::Integer(i as i64 + 1)));
+            // A sequence index is bounded by isize::MAX, so it fits in i64.
+            #[allow(clippy::cast_possible_wrap)]
+            let pos = i as i64 + 1;
+            out.push(XdmItem::Atomic(XdmAtomicValue::Integer(pos)));
         }
     }
     Ok(out)
@@ -672,26 +683,26 @@ pub(super) fn as_string(a: &XdmAtomicValue) -> Cow<'_, str> {
                 Cow::Borrowed("false")
             }
         }
-        XdmAtomicValue::Integer(i) => Cow::Owned(i.to_string()),
         // Numeric subtypes fallback to their numeric representation
-        XdmAtomicValue::Long(i) => Cow::Owned(i.to_string()),
+        XdmAtomicValue::Integer(i)
+        | XdmAtomicValue::Long(i)
+        | XdmAtomicValue::NonPositiveInteger(i)
+        | XdmAtomicValue::NegativeInteger(i) => Cow::Owned(i.to_string()),
         XdmAtomicValue::Int(i) => Cow::Owned(i.to_string()),
         XdmAtomicValue::Short(i) => Cow::Owned(i.to_string()),
         XdmAtomicValue::Byte(i) => Cow::Owned(i.to_string()),
-        XdmAtomicValue::UnsignedLong(i) => Cow::Owned(i.to_string()),
+        XdmAtomicValue::UnsignedLong(i)
+        | XdmAtomicValue::NonNegativeInteger(i)
+        | XdmAtomicValue::PositiveInteger(i) => Cow::Owned(i.to_string()),
         XdmAtomicValue::UnsignedInt(i) => Cow::Owned(i.to_string()),
         XdmAtomicValue::UnsignedShort(i) => Cow::Owned(i.to_string()),
         XdmAtomicValue::UnsignedByte(i) => Cow::Owned(i.to_string()),
-        XdmAtomicValue::NonPositiveInteger(i) => Cow::Owned(i.to_string()),
-        XdmAtomicValue::NegativeInteger(i) => Cow::Owned(i.to_string()),
-        XdmAtomicValue::NonNegativeInteger(i) => Cow::Owned(i.to_string()),
-        XdmAtomicValue::PositiveInteger(i) => Cow::Owned(i.to_string()),
         XdmAtomicValue::Double(d) => Cow::Owned(d.to_string()),
         XdmAtomicValue::Float(f) => Cow::Owned(f.to_string()),
         XdmAtomicValue::Decimal(d) => Cow::Owned(d.normalize().to_string()),
         XdmAtomicValue::QName { prefix, local, .. } => {
             if let Some(p) = prefix {
-                Cow::Owned(format!("{}:{}", p, local))
+                Cow::Owned(format!("{p}:{local}"))
             } else {
                 Cow::Borrowed(local.as_str())
             }
@@ -699,14 +710,14 @@ pub(super) fn as_string(a: &XdmAtomicValue) -> Cow<'_, str> {
         XdmAtomicValue::DateTime(dt) => Cow::Owned(dt.format("%Y-%m-%dT%H:%M:%S%:z").to_string()),
         XdmAtomicValue::Date { date, tz } => {
             if let Some(off) = tz {
-                Cow::Owned(format!("{}{}", date.format("%Y-%m-%d"), fmt_offset_local(off)))
+                Cow::Owned(format!("{}{}", date.format("%Y-%m-%d"), fmt_offset_local(*off)))
             } else {
                 Cow::Owned(date.format("%Y-%m-%d").to_string())
             }
         }
         XdmAtomicValue::Time { time, tz } => {
             if let Some(off) = tz {
-                Cow::Owned(format!("{}{}", time.format("%H:%M:%S"), fmt_offset_local(off)))
+                Cow::Owned(format!("{}{}", time.format("%H:%M:%S"), fmt_offset_local(*off)))
             } else {
                 Cow::Owned(time.format("%H:%M:%S").to_string())
             }
@@ -728,19 +739,19 @@ pub(super) fn as_string(a: &XdmAtomicValue) -> Cow<'_, str> {
         | XdmAtomicValue::Notation(s) => Cow::Borrowed(s.as_str()),
         // g* date fragments: simple ISO-ish formatting
         XdmAtomicValue::GYear { year, tz } => {
-            Cow::Owned(format!("{:04}{}", year, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default()))
+            Cow::Owned(format!("{:04}{}", year, tz.map(fmt_offset_local).unwrap_or_default()))
         }
         XdmAtomicValue::GYearMonth { year, month, tz } => {
-            Cow::Owned(format!("{:04}-{:02}{}", year, month, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default()))
+            Cow::Owned(format!("{:04}-{:02}{}", year, month, tz.map(fmt_offset_local).unwrap_or_default()))
         }
         XdmAtomicValue::GMonth { month, tz } => {
-            Cow::Owned(format!("--{:02}{}", month, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default()))
+            Cow::Owned(format!("--{:02}{}", month, tz.map(fmt_offset_local).unwrap_or_default()))
         }
         XdmAtomicValue::GMonthDay { month, day, tz } => {
-            Cow::Owned(format!("--{:02}-{:02}{}", month, day, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default()))
+            Cow::Owned(format!("--{:02}-{:02}{}", month, day, tz.map(fmt_offset_local).unwrap_or_default()))
         }
         XdmAtomicValue::GDay { day, tz } => {
-            Cow::Owned(format!("---{:02}{}", day, tz.map(|o| fmt_offset_local(&o)).unwrap_or_default()))
+            Cow::Owned(format!("---{:02}{}", day, tz.map(fmt_offset_local).unwrap_or_default()))
         }
     }
 }
@@ -760,23 +771,25 @@ pub(super) fn to_number<N: crate::model::XdmNode>(seq: &XdmSequence<N>) -> Resul
     }
 }
 
+// Integer-to-double conversion rounds to the nearest double, as the XPath casting rules specify.
+#[allow(clippy::cast_precision_loss)]
 pub(super) fn to_number_atomic(a: &XdmAtomicValue) -> Result<f64, Error> {
     match a {
-        XdmAtomicValue::Integer(i) => Ok(*i as f64),
-        XdmAtomicValue::Long(i) => Ok(*i as f64),
-        XdmAtomicValue::Int(i) => Ok(*i as f64),
-        XdmAtomicValue::Short(i) => Ok(*i as f64),
-        XdmAtomicValue::Byte(i) => Ok(*i as f64),
-        XdmAtomicValue::UnsignedLong(i) => Ok(*i as f64),
-        XdmAtomicValue::UnsignedInt(i) => Ok(*i as f64),
-        XdmAtomicValue::UnsignedShort(i) => Ok(*i as f64),
-        XdmAtomicValue::UnsignedByte(i) => Ok(*i as f64),
-        XdmAtomicValue::NonPositiveInteger(i) => Ok(*i as f64),
-        XdmAtomicValue::NegativeInteger(i) => Ok(*i as f64),
-        XdmAtomicValue::NonNegativeInteger(i) => Ok(*i as f64),
-        XdmAtomicValue::PositiveInteger(i) => Ok(*i as f64),
+        XdmAtomicValue::Integer(i)
+        | XdmAtomicValue::Long(i)
+        | XdmAtomicValue::NonPositiveInteger(i)
+        | XdmAtomicValue::NegativeInteger(i) => Ok(*i as f64),
+        XdmAtomicValue::Int(i) => Ok(f64::from(*i)),
+        XdmAtomicValue::Short(i) => Ok(f64::from(*i)),
+        XdmAtomicValue::Byte(i) => Ok(f64::from(*i)),
+        XdmAtomicValue::UnsignedLong(i)
+        | XdmAtomicValue::NonNegativeInteger(i)
+        | XdmAtomicValue::PositiveInteger(i) => Ok(*i as f64),
+        XdmAtomicValue::UnsignedInt(i) => Ok(f64::from(*i)),
+        XdmAtomicValue::UnsignedShort(i) => Ok(f64::from(*i)),
+        XdmAtomicValue::UnsignedByte(i) => Ok(f64::from(*i)),
         XdmAtomicValue::Double(d) => Ok(*d),
-        XdmAtomicValue::Float(f) => Ok(*f as f64),
+        XdmAtomicValue::Float(f) => Ok(f64::from(*f)),
         XdmAtomicValue::Decimal(d) => {
             use rust_decimal::prelude::ToPrimitive;
             Ok(d.to_f64().unwrap_or(f64::NAN))
@@ -818,6 +831,8 @@ pub(super) fn num_unary<N: crate::model::XdmNode>(args: &[XdmSequence<N>], f: im
 
 // Precision rounding helpers for multi-arg numeric functions
 // Implements XPath 2.0 semantics (simplified: treat value as xs:double, precision as integer; NaN/INF propagate)
+// The precision is narrowed to i32 for powi; |precision| > i32::MAX truncates, kept to preserve behaviour.
+#[allow(clippy::cast_possible_truncation)]
 pub(super) fn round_with_precision(value: f64, precision: i64) -> f64 {
     if value.is_nan() || value.is_infinite() {
         return value;
@@ -841,46 +856,57 @@ pub(super) fn round_with_precision(value: f64, precision: i64) -> f64 {
     }
 }
 
+// The precision is narrowed to i32 for powi; |precision| > i32::MAX truncates, kept to preserve behaviour.
+// `t` is integral and, with a .5 fraction, below 2^53 in magnitude, so `t as i64` is exact.
+#[allow(clippy::cast_possible_truncation)]
 pub(super) fn round_half_to_even_with_precision(value: f64, precision: i64) -> f64 {
     if value.is_nan() || value.is_infinite() {
         return value;
     }
-    if precision == 0 {
-        // replicate single-arg banker rounding
-        let t = value.trunc();
-        let frac = value - t;
-        if frac.abs() != 0.5 {
-            return value.round();
+    match precision.cmp(&0) {
+        std::cmp::Ordering::Equal => {
+            // replicate single-arg banker rounding
+            let t = value.trunc();
+            let frac = value - t;
+            // Exact comparison: only a fraction of exactly one half is a tie.
+            #[allow(clippy::float_cmp)]
+            let is_tie = frac.abs() == 0.5;
+            if !is_tie {
+                return value.round();
+            }
+            let ti = t as i64;
+            if ti % 2 == 0 { t } else { t + value.signum() }
         }
-        let ti = t as i64;
-        if ti % 2 == 0 { t } else { t + value.signum() }
-    } else if precision > 0 {
-        if precision > 15 {
-            return value;
+        std::cmp::Ordering::Greater => {
+            if precision > 15 {
+                return value;
+            }
+            let factor = 10_f64.powi(precision as i32);
+            let scaled = value * factor;
+            banker_round(scaled) / factor
         }
-        let factor = 10_f64.powi(precision as i32);
-        let scaled = value * factor;
-        banker_round(scaled) / factor
-    } else {
-        // precision < 0
-        let negp = (-precision) as i32;
-        if negp > 15 {
-            return 0.0 * value.signum();
+        std::cmp::Ordering::Less => {
+            let negp = (-precision) as i32;
+            if negp > 15 {
+                return 0.0 * value.signum();
+            }
+            let factor = 10_f64.powi(negp);
+            banker_round(value / factor) * factor
         }
-        let factor = 10_f64.powi(negp);
-        banker_round(value / factor) * factor
     }
 }
 
+// `t` is integral and, within EPS of a .5 fraction, below 2^53 in magnitude, so `t as i64` is exact.
+#[allow(clippy::cast_possible_truncation)]
 pub(super) fn banker_round(x: f64) -> f64 {
+    const HALF: f64 = 0.5;
+    const EPS: f64 = 1e-9;
     let t = x.trunc();
     let frac = x - t;
     // Floating point scaling can yield values like 234.49999999997 for an
     // expected half (.5). Treat near-half within epsilon as exact .5 so the
     // even rule applies (ensures 2.345 -> 2.34 for precision=2 case).
     let frac_abs = frac.abs();
-    const HALF: f64 = 0.5;
-    const EPS: f64 = 1e-9;
     if (frac_abs - HALF).abs() > EPS {
         return x.round();
     }
@@ -1161,14 +1187,16 @@ pub(super) fn reject_backref_in_char_class(pattern: &str) -> Result<(), Error> {
 }
 
 // Banker (half-to-even) rounding for f64 values matching fn:round-half-to-even semantics used by substring/subsequence.
+// `floor` is integral and, within EPS of a .5 fraction, below 2^53, so `floor as i64` is exact.
+#[allow(clippy::cast_possible_truncation)]
 pub(super) fn round_half_to_even_f64(x: f64) -> f64 {
+    const EPS: f64 = 1e-12; // tolerant epsilon for .5 detection
     if !x.is_finite() {
         return x;
     }
     let ax = x.abs();
     let floor = ax.floor();
     let frac = ax - floor;
-    const EPS: f64 = 1e-12; // tolerant epsilon for .5 detection
     let rounded_abs = if (frac - 0.5).abs() < EPS {
         // tie -> even
         if ((floor as i64) & 1) == 0 { floor } else { floor + 1.0 }
@@ -1180,6 +1208,8 @@ pub(super) fn round_half_to_even_f64(x: f64) -> f64 {
     if x.is_sign_negative() { -rounded_abs } else { rounded_abs }
 }
 
+// The numeric result is the double image of the winning value; the saturating/rounding casts back are intended.
+#[allow(clippy::cast_possible_truncation)]
 pub(super) fn minmax_impl<N: crate::model::XdmNode>(
     ctx: &CallCtx<N>,
     seq: &XdmSequence<N>,
@@ -1193,23 +1223,19 @@ pub(super) fn minmax_impl<N: crate::model::XdmNode>(
     let mut all_num = true;
     let mut acc_num = if is_min { f64::INFINITY } else { f64::NEG_INFINITY };
     for it in seq {
-        match it {
-            XdmItem::Atomic(a) => match to_number_atomic(a) {
-                Ok(n) => {
-                    if n.is_nan() {
-                        return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(f64::NAN))]);
-                    }
-                    if is_min { acc_num = acc_num.min(n) } else { acc_num = acc_num.max(n) }
+        if let XdmItem::Atomic(a) = it {
+            if let Ok(n) = to_number_atomic(a) {
+                if n.is_nan() {
+                    return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(f64::NAN))]);
                 }
-                Err(_) => {
-                    all_num = false;
-                    break;
-                }
-            },
-            _ => {
+                if is_min { acc_num = acc_num.min(n) } else { acc_num = acc_num.max(n) }
+            } else {
                 all_num = false;
                 break;
             }
+        } else {
+            all_num = false;
+            break;
         }
     }
     if all_num {
@@ -1217,7 +1243,7 @@ pub(super) fn minmax_impl<N: crate::model::XdmNode>(
         let mut kind = NumericKind::Integer;
         for it in seq {
             if let XdmItem::Atomic(a) = it
-                && let Some((nk, num)) = classify_numeric(a)?
+                && let Some((nk, num)) = classify_numeric(a)
             {
                 if nk == NumericKind::Double && num.is_nan() {
                     return Ok(vec![XdmItem::Atomic(XdmAtomicValue::Double(f64::NAN))]);
@@ -1333,7 +1359,7 @@ pub(super) fn get_datetime<N: crate::model::XdmNode>(
     }
     match &seq[0] {
         XdmItem::Atomic(XdmAtomicValue::DateTime(dt)) => Ok(Some(*dt)),
-        XdmItem::Atomic(XdmAtomicValue::String(s)) | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
+        XdmItem::Atomic(XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s)) => {
             ChronoDateTime::parse_from_rfc3339(s)
                 .map(Some)
                 .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:dateTime"))
@@ -1341,7 +1367,7 @@ pub(super) fn get_datetime<N: crate::model::XdmNode>(
         XdmItem::Node(n) => ChronoDateTime::parse_from_rfc3339(&n.string_value())
             .map(Some)
             .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:dateTime")),
-        _ => Err(Error::from_code(ErrorCode::XPTY0004, "not a dateTime")),
+        XdmItem::Atomic(_) => Err(Error::from_code(ErrorCode::XPTY0004, "not a dateTime")),
     }
 }
 
@@ -1353,7 +1379,7 @@ pub(super) fn get_time<N: crate::model::XdmNode>(
     }
     match &seq[0] {
         XdmItem::Atomic(XdmAtomicValue::Time { time, tz }) => Ok(Some((*time, *tz))),
-        XdmItem::Atomic(XdmAtomicValue::String(s)) | XdmItem::Atomic(XdmAtomicValue::UntypedAtomic(s)) => {
+        XdmItem::Atomic(XdmAtomicValue::String(s) | XdmAtomicValue::UntypedAtomic(s)) => {
             crate::util::temporal::parse_time_lex(s)
                 .map(Some)
                 .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:time"))
@@ -1361,7 +1387,7 @@ pub(super) fn get_time<N: crate::model::XdmNode>(
         XdmItem::Node(n) => crate::util::temporal::parse_time_lex(&n.string_value())
             .map(Some)
             .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:time")),
-        _ => Err(Error::from_code(ErrorCode::XPTY0004, "not a time")),
+        XdmItem::Atomic(_) => Err(Error::from_code(ErrorCode::XPTY0004, "not a time")),
     }
 }
 
@@ -1379,10 +1405,10 @@ pub(super) fn format_year_month_duration_local(months: i32) -> String {
     }
     out.push('P');
     if y != 0 {
-        out.push_str(&format!("{}Y", y));
+        let _ = write!(out, "{y}Y");
     }
     if m != 0 {
-        out.push_str(&format!("{}M", m));
+        let _ = write!(out, "{m}M");
     }
     if y == 0 && m == 0 {
         out.push('0');
@@ -1410,31 +1436,31 @@ pub(super) fn format_day_time_duration_local(total_secs: i64) -> String {
     }
     out.push('P');
     if days != 0 {
-        out.push_str(&format!("{}D", days));
+        let _ = write!(out, "{days}D");
     }
     if hours != 0 || mins != 0 || secs != 0 {
         out.push('T');
     }
     if hours != 0 {
-        out.push_str(&format!("{}H", hours));
+        let _ = write!(out, "{hours}H");
     }
     if mins != 0 {
-        out.push_str(&format!("{}M", mins));
+        let _ = write!(out, "{mins}M");
     }
     if secs != 0 {
-        out.push_str(&format!("{}S", secs));
+        let _ = write!(out, "{secs}S");
     }
     out
 }
 
-pub(super) fn fmt_offset_local(off: &ChronoFixedOffset) -> String {
+pub(super) fn fmt_offset_local(off: ChronoFixedOffset) -> String {
     let secs = off.local_minus_utc();
     let sign = if secs < 0 { '-' } else { '+' };
     let mut s = secs.abs();
     let hours = s / 3600;
     s %= 3600;
     let mins = s / 60;
-    format!("{}{:02}:{:02}", sign, hours, mins)
+    format!("{sign}{hours:02}:{mins:02}")
 }
 
 pub(super) fn parse_xs_date_local(s: &str) -> Result<(NaiveDate, Option<ChronoFixedOffset>), ()> {
@@ -1597,6 +1623,8 @@ pub(crate) fn parse_year_month_duration_months(s: &str) -> Result<i32, ()> {
 ///
 /// Fractional seconds are truncated towards zero to match the current internal
 /// representation (`XdmAtomicValue::DayTimeDuration` stores integral seconds).
+// Seconds are summed as f64 to admit a fraction, then truncated; rounding/saturation at extremes is accepted.
+#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
 pub(crate) fn parse_day_time_duration_secs(s: &str) -> Result<i64, ()> {
     // Pattern: -?P(\d+D)?(T(\d+H)?(\d+M)?(\d+(\.\d+)?S)?)?
     let s = s.trim();

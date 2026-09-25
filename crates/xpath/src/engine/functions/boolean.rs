@@ -3,7 +3,7 @@ use crate::engine::ebv::ebv_of_stream;
 use crate::engine::runtime::{CallCtx, Error};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequenceStream};
 
-/// Stream-based data() implementation.
+/// Stream-based `data()` implementation.
 /// Handles both 0-arity (uses context item) and 1-arity versions.
 pub(super) fn data_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
@@ -20,7 +20,9 @@ pub(super) fn data_stream<N: 'static + crate::model::XdmNode + Clone>(
 
 //---- Stream-based boolean functions ----
 
-/// Stream-based true() - no materialization needed, constant result.
+/// Stream-based `true()` - no materialization needed, constant result.
+// Signature is fixed by the stream function registry (`register_stream_ns`).
+#[allow(clippy::unnecessary_wraps)]
 pub(super) fn fn_true_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     _args: &[XdmSequenceStream<N>],
@@ -28,7 +30,9 @@ pub(super) fn fn_true_stream<N: 'static + crate::model::XdmNode + Clone>(
     Ok(XdmSequenceStream::from_item(XdmItem::Atomic(XdmAtomicValue::Boolean(true))))
 }
 
-/// Stream-based false() - no materialization needed, constant result.
+/// Stream-based `false()` - no materialization needed, constant result.
+// Signature is fixed by the stream function registry (`register_stream_ns`).
+#[allow(clippy::unnecessary_wraps)]
 pub(super) fn fn_false_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     _args: &[XdmSequenceStream<N>],
@@ -36,7 +40,7 @@ pub(super) fn fn_false_stream<N: 'static + crate::model::XdmNode + Clone>(
     Ok(XdmSequenceStream::from_item(XdmItem::Atomic(XdmAtomicValue::Boolean(false))))
 }
 
-/// Stream-based not() - uses streaming EBV (no materialization).
+/// Stream-based `not()` - uses streaming EBV (no materialization).
 pub(super) fn fn_not_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
@@ -46,7 +50,7 @@ pub(super) fn fn_not_stream<N: 'static + crate::model::XdmNode + Clone>(
     Ok(XdmSequenceStream::from_item(XdmItem::Atomic(XdmAtomicValue::Boolean(!b))))
 }
 
-/// Stream-based boolean() implementation - uses streaming EBV (no materialization).
+/// Stream-based `boolean()` implementation - uses streaming EBV (no materialization).
 pub(super) fn fn_boolean_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],

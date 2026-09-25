@@ -23,14 +23,23 @@ pub enum CollationKind {
 }
 
 impl CollationKind {
+    #[must_use]
     pub fn as_trait(&self) -> &dyn Collation {
         match self {
-            CollationKind::Codepoint(c) => c.as_ref(),
-            CollationKind::Other(c) => c.as_ref(),
+            CollationKind::Codepoint(c) | CollationKind::Other(c) => c.as_ref(),
         }
     }
 }
 
+/// Resolve the collation to use for an operation.
+///
+/// An explicit `uri` wins; otherwise `default_collation` is used, and failing
+/// that the codepoint collation.
+///
+/// # Errors
+///
+/// Returns `FOCH0002` if `uri` is given but no collation with that URI is
+/// registered in the dynamic context.
 pub fn resolve_collation<N>(
     dyn_ctx: &DynamicContext<N>,
     default_collation: Option<&Rc<dyn Collation>>,
@@ -131,9 +140,11 @@ impl Default for CollationRegistry {
 }
 
 impl CollationRegistry {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
+    #[must_use]
     pub fn get(&self, uri: &str) -> Option<Rc<dyn Collation>> {
         self.by_uri.get(uri).cloned()
     }

@@ -1,0 +1,35 @@
+use platynui_xpath::{
+    SimpleNode, evaluate_expr,
+    runtime::DynamicContext,
+    xdm::{XdmAtomicValue, XdmItem},
+};
+use rstest::rstest;
+
+fn eval(expr: &str) -> XdmAtomicValue {
+    let ctx: DynamicContext<SimpleNode> = DynamicContext::default();
+    let seq = evaluate_expr(expr, &ctx).expect("eval");
+    match seq.first() {
+        Some(XdmItem::Atomic(a)) => a.clone(),
+        _ => panic!("expected atomic"),
+    }
+}
+
+#[rstest]
+#[case("1 + 2", XdmAtomicValue::Integer(3))]
+#[case("1 + 2.5", XdmAtomicValue::Decimal(rust_decimal::Decimal::from_str_exact("3.5").unwrap()))]
+#[case("2.5 + 3.0", XdmAtomicValue::Decimal(rust_decimal::Decimal::from_str_exact("5.5").unwrap()))]
+#[case("3.0 + 4.0", XdmAtomicValue::Decimal(rust_decimal::Decimal::from(7)))]
+#[case("5.0 div 2", XdmAtomicValue::Decimal(rust_decimal::Decimal::from_str_exact("2.5").unwrap()))]
+#[case("5 idiv 2", XdmAtomicValue::Integer(2))]
+#[case("10.0 mod 4", XdmAtomicValue::Decimal(rust_decimal::Decimal::from(2)))]
+#[case("1.5 + 1.5", XdmAtomicValue::Decimal(rust_decimal::Decimal::from(3)))]
+#[case("1.5 + 1.5 - 1.0", XdmAtomicValue::Decimal(rust_decimal::Decimal::from(2)))]
+fn arithmetic_promotion_cases(#[case] expr: &str, #[case] expected: XdmAtomicValue) {
+    let got = eval(expr);
+    match (got, expected) {
+        (XdmAtomicValue::Integer(a), XdmAtomicValue::Integer(b)) => assert_eq!(a, b),
+        (XdmAtomicValue::Decimal(a), XdmAtomicValue::Decimal(b)) => assert_eq!(a, b),
+        (XdmAtomicValue::Double(a), XdmAtomicValue::Double(b)) => assert!((a - b).abs() < 1e-12),
+        (other, exp) => panic!("type mismatch: got {other:?}, expected {exp:?}"),
+    }
+}

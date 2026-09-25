@@ -32,10 +32,7 @@ fn parse_year(s: &str) -> Result<i32, TemporalErr> {
         y = -y;
     }
     // i32 range check
-    if y < i32::MIN as i64 || y > i32::MAX as i64 {
-        return Err(TemporalErr::Range);
-    }
-    Ok(y as i32)
+    i32::try_from(y).map_err(|_| TemporalErr::Range)
 }
 
 fn parse_fraction(frac: &str) -> Result<u32, TemporalErr> {
@@ -44,7 +41,10 @@ fn parse_fraction(frac: &str) -> Result<u32, TemporalErr> {
     }
     let capped = if frac.len() > 9 { &frac[..9] } else { frac };
     let v: u32 = capped.parse().map_err(|_| TemporalErr::Lexical)?;
-    Ok(v * 10u32.pow(9 - capped.len() as u32))
+    // `capped` is at most 9 bytes long, so its length fits in u32.
+    #[allow(clippy::cast_possible_truncation)]
+    let scale = 10u32.pow(9 - capped.len() as u32);
+    Ok(v * scale)
 }
 
 fn split_tz(s: &str) -> (&str, Option<&str>) {
@@ -82,6 +82,13 @@ fn parse_tz(tz: &str) -> Result<FixedOffset, TemporalErr> {
     .ok_or(TemporalErr::Range)
 }
 
+/// Parse the `xs:date` lexical form with an optional timezone.
+///
+/// # Errors
+///
+/// Returns [`TemporalErr::Lexical`] if `s` is not in the `xs:date` lexical form, and
+/// [`TemporalErr::Range`] if the year is 0 or outside `i32`, the components do not form a valid
+/// date, or the timezone offset is out of range.
 pub fn parse_date_lex(s: &str) -> Result<(NaiveDate, Option<FixedOffset>), TemporalErr> {
     let (main, tz_opt) = split_tz(s);
     let (neg, body) = if let Some(stripped) = main.strip_prefix('-') { (true, stripped) } else { (false, main) };
@@ -93,10 +100,10 @@ pub fn parse_date_lex(s: &str) -> Result<(NaiveDate, Option<FixedOffset>), Tempo
     if neg {
         year_str.insert(0, '-');
     }
-    let y = parse_year(&year_str)?;
-    let m: u32 = parts[1].parse().map_err(|_| TemporalErr::Lexical)?;
-    let d: u32 = parts[2].parse().map_err(|_| TemporalErr::Lexical)?;
-    let date = NaiveDate::from_ymd_opt(y, m, d).ok_or(TemporalErr::Range)?;
+    let year = parse_year(&year_str)?;
+    let month: u32 = parts[1].parse().map_err(|_| TemporalErr::Lexical)?;
+    let day: u32 = parts[2].parse().map_err(|_| TemporalErr::Lexical)?;
+    let date = NaiveDate::from_ymd_opt(year, month, day).ok_or(TemporalErr::Range)?;
     let tz = match tz_opt {
         Some(t) => Some(parse_tz(t)?),
         None => None,
@@ -104,6 +111,13 @@ pub fn parse_date_lex(s: &str) -> Result<(NaiveDate, Option<FixedOffset>), Tempo
     Ok((date, tz))
 }
 
+/// Parse the `xs:time` lexical form with an optional timezone.
+///
+/// # Errors
+///
+/// Returns [`TemporalErr::Lexical`] if `s` is not in the `xs:time` lexical form, and
+/// [`TemporalErr::Range`] if the hour exceeds 23, the minute 59, the second is 60 or more, or
+/// the timezone offset is out of range.
 pub fn parse_time_lex(s: &str) -> Result<(NaiveTime, Option<FixedOffset>), TemporalErr> {
     let (main, tz_opt) = split_tz(s);
     let comps: Vec<&str> = main.split(':').collect();
@@ -132,6 +146,13 @@ pub fn parse_time_lex(s: &str) -> Result<(NaiveTime, Option<FixedOffset>), Tempo
     Ok((time, tz))
 }
 
+/// Parse the `xs:dateTime` lexical form with an optional timezone.
+///
+/// # Errors
+///
+/// Returns [`TemporalErr::Lexical`] if `s` is not a date and a time joined by `T` in their lexical
+/// forms, and [`TemporalErr::Range`] if a date, time or timezone component is out of range (see
+/// [`parse_date_lex`] and [`parse_time_lex`]).
 pub fn parse_date_time_lex(s: &str) -> Result<(NaiveDate, NaiveTime, Option<FixedOffset>), TemporalErr> {
     let (main, tz_opt) = split_tz(s);
     let split: Vec<&str> = main.split('T').collect();
@@ -148,6 +169,12 @@ pub fn parse_date_time_lex(s: &str) -> Result<(NaiveDate, NaiveTime, Option<Fixe
     Ok((date, time, tz))
 }
 
+/// Parse the `xs:gYear` lexical form with an optional timezone.
+///
+/// # Errors
+///
+/// Returns [`TemporalErr::Lexical`] if `s` is not in the `xs:gYear` lexical form, and
+/// [`TemporalErr::Range`] if the year is 0 or outside `i32`, or the timezone offset is out of range.
 pub fn parse_g_year(s: &str) -> Result<(i32, Option<FixedOffset>), TemporalErr> {
     let (main, tz_opt) = split_tz(s);
     if main.is_empty() {
@@ -161,6 +188,15 @@ pub fn parse_g_year(s: &str) -> Result<(i32, Option<FixedOffset>), TemporalErr> 
     Ok((year, tz))
 }
 
+/// Parse the `xs:gYearMonth` lexical form with an optional timezone.
+///
+/// # Errors
+///
+/// Returns [`TemporalErr::Lexical`] if `s` is not in the `xs:gYearMonth` lexical form, and
+/// [`TemporalErr::Range`] if the year is 0 or outside `i32`, the month is not in `1..=12`, or
+/// the timezone offset is out of range.
+// The month is range-checked to 1..=12 above, so the cast to u8 is exact.
+#[allow(clippy::cast_possible_truncation)]
 pub fn parse_g_year_month(s: &str) -> Result<(i32, u8, Option<FixedOffset>), TemporalErr> {
     let (main, tz_opt) = split_tz(s);
     let (neg, body) = if let Some(stripped) = main.strip_prefix('-') { (true, stripped) } else { (false, main) };
@@ -184,6 +220,14 @@ pub fn parse_g_year_month(s: &str) -> Result<(i32, u8, Option<FixedOffset>), Tem
     Ok((year, month as u8, tz))
 }
 
+/// Parse the `xs:gMonth` lexical form with an optional timezone.
+///
+/// # Errors
+///
+/// Returns [`TemporalErr::Lexical`] if `s` is not in the `xs:gMonth` lexical form, and
+/// [`TemporalErr::Range`] if the month is not in `1..=12`, or the timezone offset is out of range.
+// The month is range-checked to 1..=12 above, so the cast to u8 is exact.
+#[allow(clippy::cast_possible_truncation)]
 pub fn parse_g_month(s: &str) -> Result<(u8, Option<FixedOffset>), TemporalErr> {
     let (main, tz_opt) = split_tz(s);
     if !main.starts_with("--") {
@@ -204,6 +248,15 @@ pub fn parse_g_month(s: &str) -> Result<(u8, Option<FixedOffset>), TemporalErr> 
     Ok((month as u8, tz))
 }
 
+/// Parse the `xs:gMonthDay` lexical form with an optional timezone.
+///
+/// # Errors
+///
+/// Returns [`TemporalErr::Lexical`] if `s` is not in the `xs:gMonthDay` lexical form, and
+/// [`TemporalErr::Range`] if the month is not in `1..=12`, the day is not in `1..=31`, or
+/// the timezone offset is out of range.
+// Month and day are range-checked to 1..=12 and 1..=31 above, so the casts to u8 are exact.
+#[allow(clippy::cast_possible_truncation)]
 pub fn parse_g_month_day(s: &str) -> Result<(u8, u8, Option<FixedOffset>), TemporalErr> {
     let (main, tz_opt) = split_tz(s);
     if !main.starts_with("--") {
@@ -229,6 +282,14 @@ pub fn parse_g_month_day(s: &str) -> Result<(u8, u8, Option<FixedOffset>), Tempo
     Ok((month as u8, day as u8, tz))
 }
 
+/// Parse the `xs:gDay` lexical form with an optional timezone.
+///
+/// # Errors
+///
+/// Returns [`TemporalErr::Lexical`] if `s` is not in the `xs:gDay` lexical form, and
+/// [`TemporalErr::Range`] if the day is not in `1..=31`, or the timezone offset is out of range.
+// The day is range-checked to 1..=31 above, so the cast to u8 is exact.
+#[allow(clippy::cast_possible_truncation)]
 pub fn parse_g_day(s: &str) -> Result<(u8, Option<FixedOffset>), TemporalErr> {
     let (main, tz_opt) = split_tz(s);
     if !main.starts_with("---") {
@@ -249,6 +310,7 @@ pub fn parse_g_day(s: &str) -> Result<(u8, Option<FixedOffset>), TemporalErr> {
     Ok((day as u8, tz))
 }
 
+#[must_use]
 pub fn build_naive_datetime(
     date: NaiveDate,
     time: NaiveTime,

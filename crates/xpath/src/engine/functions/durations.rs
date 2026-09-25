@@ -11,7 +11,7 @@ pub(super) fn years_from_duration_stream<N: 'static + crate::model::XdmNode + Cl
     }
     let result = match &seq[0] {
         XdmItem::Atomic(XdmAtomicValue::YearMonthDuration(months)) => {
-            vec![XdmItem::Atomic(XdmAtomicValue::Integer((*months / 12) as i64))]
+            vec![XdmItem::Atomic(XdmAtomicValue::Integer(i64::from(*months / 12)))]
         }
         XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(_)) => {
             vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))]
@@ -33,7 +33,7 @@ pub(super) fn months_from_duration_stream<N: 'static + crate::model::XdmNode + C
     }
     let result = match &seq[0] {
         XdmItem::Atomic(XdmAtomicValue::YearMonthDuration(months)) => {
-            vec![XdmItem::Atomic(XdmAtomicValue::Integer((*months % 12) as i64))]
+            vec![XdmItem::Atomic(XdmAtomicValue::Integer(i64::from(*months % 12)))]
         }
         XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(_)) => {
             vec![XdmItem::Atomic(XdmAtomicValue::Integer(0))]

@@ -41,3 +41,6 @@ path = "examples/repl.rs"
 [[example]]
 name = "platynui_xpath_simple"
 path = "examples/simple.rs"
+
+[lints]
+workspace = true

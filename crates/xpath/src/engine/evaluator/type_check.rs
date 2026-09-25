@@ -1,4 +1,4 @@
-//! Type checking for XPath `instance of` and related operations.
+//! Type checking for `XPath` `instance of` and related operations.
 
 use crate::compiler::ir::SeqTypeIR;
 use crate::engine::runtime::Error;
@@ -8,7 +8,7 @@ use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequenceStream};
 use super::Vm;
 
 impl<N: 'static + XdmNode + Clone> Vm<N> {
-    pub(crate) fn instance_of_stream(&self, stream: XdmSequenceStream<N>, t: &SeqTypeIR) -> Result<bool, Error> {
+    pub(crate) fn instance_of_stream(stream: &XdmSequenceStream<N>, t: &SeqTypeIR) -> Result<bool, Error> {
         use crate::compiler::ir::{OccurrenceIR, SeqTypeIR};
         let mut c = stream.cursor();
         match t {
@@ -18,7 +18,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 while let Some(it) = c.next_item() {
                     let it = it?;
                     count = count.saturating_add(1);
-                    if !self.item_matches_type(&it, item)? {
+                    if !Self::item_matches_type(&it, item) {
                         return Ok(false);
                     }
                     match occ {
@@ -38,26 +38,24 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         }
     }
 
-    pub(crate) fn item_matches_type(
-        &self,
-        item: &XdmItem<N>,
-        t: &crate::compiler::ir::ItemTypeIR,
-    ) -> Result<bool, Error> {
+    pub(crate) fn item_matches_type(item: &XdmItem<N>, t: &crate::compiler::ir::ItemTypeIR) -> bool {
         use crate::compiler::ir::ItemTypeIR;
-        use XdmItem::*;
+        use XdmItem::{Atomic, Node};
         match (item, t) {
-            (_, ItemTypeIR::AnyItem) => Ok(true),
-            (Node(_), ItemTypeIR::AnyNode) => Ok(true),
-            (Atomic(_), ItemTypeIR::AnyNode) => Ok(false),
-            (Node(n), ItemTypeIR::Kind(k)) => Ok(self.node_test(n, &k.clone())), // reuse existing node_test via IR NodeTestIR
-            (Atomic(a), ItemTypeIR::Atomic(exp)) => Ok(self.atomic_matches_name(a, exp)),
-            (Atomic(_), ItemTypeIR::Kind(_)) => Ok(false),
-            (Node(_), ItemTypeIR::Atomic(_)) => Ok(false),
+            (_, ItemTypeIR::AnyItem) | (Node(_), ItemTypeIR::AnyNode) => true,
+            (Atomic(_), ItemTypeIR::AnyNode | ItemTypeIR::Kind(_)) | (Node(_), ItemTypeIR::Atomic(_)) => false,
+            (Node(n), ItemTypeIR::Kind(k)) => Self::node_test(n, &k.clone()), // reuse existing node_test via IR NodeTestIR
+            (Atomic(a), ItemTypeIR::Atomic(exp)) => Self::atomic_matches_name(a, exp),
         }
     }
 
-    pub(crate) fn atomic_matches_name(&self, a: &XdmAtomicValue, exp: &crate::xdm::ExpandedName) -> bool {
-        use XdmAtomicValue::*;
+    pub(crate) fn atomic_matches_name(a: &XdmAtomicValue, exp: &crate::xdm::ExpandedName) -> bool {
+        use XdmAtomicValue::{
+            AnyUri, Base64Binary, Boolean, Byte, Date, DateTime, DayTimeDuration, Decimal, Double, Entity, Float,
+            HexBinary, Id, IdRef, Int, Integer, Language, Long, NCName, NMTOKEN, Name, NegativeInteger,
+            NonNegativeInteger, NonPositiveInteger, NormalizedString, Notation, PositiveInteger, QName, Short, String,
+            Time, Token, UnsignedByte, UnsignedInt, UnsignedLong, UnsignedShort, UntypedAtomic, YearMonthDuration,
+        };
         // Only recognize XML Schema built-ins (xs:*). Unknown namespaces do not match.
         let xs_ns = crate::consts::XS;
         if let Some(ns) = &exp.ns_uri

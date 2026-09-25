@@ -86,7 +86,7 @@ ALWAYS run (in order) before submitting PR changes that touch Rust code:
 
 ## 6. Adding / Modifying Code
 Rust public API: update inside the specific crate then re-export in its `lib.rs` if part of external surface. Keep error handling via existing `Error` patterns; avoid panics except truly unreachable logic.
-XPath engine changes: modify relevant module in `crates/xpath/src/`; add focused tests in `crates/xpath/tests/` mirroring existing naming (e.g., `evaluator_<feature>.rs` or `parser_<aspect>.rs`).
+XPath engine changes: modify relevant module in `crates/xpath/src/`; add focused tests in `crates/xpath/tests/it/` mirroring existing naming (e.g., `evaluator_<feature>.rs` or `parser_<aspect>.rs`) and declare each new file in `crates/xpath/tests/it/main.rs`.
 New Rust crate: place under `crates/` and ensure workspace membership (root `Cargo.toml` uses `crates/*` glob—usually no edit required). Build to verify.
 Python keyword additions: extend `src/PlatynUI/__init__.py` or introduce modules imported there; keep names snake_case and return values (avoid print side-effects). If adding a new Python package, list it in `[tool.uv.workspace].members` then `uv sync`.
 Rust ↔ Python boundary changes: confine to `packages/native/`. Don’t mix binding code into core logic crates.

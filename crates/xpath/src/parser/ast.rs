@@ -105,6 +105,7 @@ impl Expr {
     /// This drives `Set Root`: a context-relative selector drills into the current root, an
     /// independent one starts fresh from the desktop. (Expressions that do not yield nodes cannot
     /// be a root at all, so their classification only needs to be "not relative".)
+    #[must_use]
     pub fn is_context_dependent(&self) -> bool {
         match self {
             Expr::ContextItem => true,
@@ -117,7 +118,7 @@ impl Expr {
                 then_expr.is_context_dependent() || else_expr.is_context_dependent()
             }
             Expr::ForExpr { return_expr, .. } | Expr::LetExpr { return_expr, .. } => return_expr.is_context_dependent(),
-            Expr::Sequence(items) => items.iter().any(|e| e.is_context_dependent()),
+            Expr::Sequence(items) => items.iter().any(Expr::is_context_dependent),
             _ => false,
         }
     }

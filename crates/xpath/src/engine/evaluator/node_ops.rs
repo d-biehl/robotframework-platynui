@@ -1,4 +1,4 @@
-//! Node testing and name matching for XPath axis evaluation.
+//! Node testing and name matching for `XPath` axis evaluation.
 
 use crate::compiler::ir::{NameOrWildcard, NodeTestIR};
 use crate::model::XdmNode;
@@ -8,10 +8,9 @@ use super::Vm;
 
 impl<N: 'static + XdmNode + Clone> Vm<N> {
     #[inline]
-    pub(crate) fn matches_interned_name(&self, node: &N, expected: &crate::compiler::ir::InternedQName) -> bool {
-        let node_name = match node.name() {
-            Some(n) => n,
-            None => return false,
+    pub(crate) fn matches_interned_name(node: &N, expected: &crate::compiler::ir::InternedQName) -> bool {
+        let Some(node_name) = node.name() else {
+            return false;
         };
 
         if expected.local.as_str() != node_name.local.as_str() {
@@ -23,9 +22,9 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         let effective_ns = match node_ns {
             Some(atom) => Some(atom),
             None => match node_name.prefix.as_deref() {
-                Some(prefix) => self.resolve_prefix_namespace(node, prefix),
+                Some(prefix) => Self::resolve_prefix_namespace(node, prefix),
                 None if matches!(node.kind(), crate::model::NodeKind::Attribute) => None,
-                None => self.resolve_prefix_namespace(node, ""),
+                None => Self::resolve_prefix_namespace(node, ""),
             },
         };
 
@@ -36,38 +35,37 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         }
     }
 
-    pub(crate) fn node_test(&self, node: &N, test: &NodeTestIR) -> bool {
-        use NodeTestIR::*;
+    pub(crate) fn node_test(node: &N, test: &NodeTestIR) -> bool {
+        use NodeTestIR::{
+            AnyKind, KindAttribute, KindComment, KindDocument, KindElement, KindProcessingInstruction,
+            KindSchemaAttribute, KindSchemaElement, KindText, LocalWildcard, Name, NsWildcard, WildcardAny,
+        };
         match test {
-            AnyKind => true,
+            // schema-element()/schema-attribute() are simplified to match everything.
+            AnyKind | WildcardAny | KindSchemaElement(_) | KindSchemaAttribute(_) => true,
             Name(q) => {
                 // For namespace nodes, the NameTest matches by prefix (local) only.
                 if matches!(node.kind(), crate::model::NodeKind::Namespace) {
-                    return node.name().map(|n| n.local == q.original.local).unwrap_or(false);
+                    return node.name().is_some_and(|n| n.local == q.original.local);
                 }
                 // Use fast path for name comparison
-                self.matches_interned_name(node, q)
+                Self::matches_interned_name(node, q)
             }
-            WildcardAny => true,
-            NsWildcard(ns) => node
-                .name()
-                .map(|n| {
-                    let eff = if let Some(uri) = n.ns_uri.as_ref() {
-                        Some(DefaultAtom::from(uri.as_str()))
-                    } else if let Some(pref) = &n.prefix {
-                        self.resolve_prefix_namespace(node, pref)
-                    } else if matches!(node.kind(), crate::model::NodeKind::Element | crate::model::NodeKind::Namespace)
-                    {
-                        self.resolve_prefix_namespace(node, "")
-                    } else {
-                        None
-                    };
-                    eff.is_some_and(|atom| atom == *ns)
-                })
-                .unwrap_or(false),
+            NsWildcard(ns) => node.name().is_some_and(|n| {
+                let eff = if let Some(uri) = n.ns_uri.as_ref() {
+                    Some(DefaultAtom::from(uri.as_str()))
+                } else if let Some(pref) = &n.prefix {
+                    Self::resolve_prefix_namespace(node, pref)
+                } else if matches!(node.kind(), crate::model::NodeKind::Element | crate::model::NodeKind::Namespace) {
+                    Self::resolve_prefix_namespace(node, "")
+                } else {
+                    None
+                };
+                eff.is_some_and(|atom| atom == *ns)
+            }),
             LocalWildcard(local) => {
                 // Use interned comparison for local names
-                node.name().map(|n| n.local.as_str() == local.as_str()).unwrap_or(false)
+                node.name().is_some_and(|n| n.local.as_str() == local.as_str())
             }
             KindText => matches!(node.kind(), crate::model::NodeKind::Text),
             KindComment => matches!(node.kind(), crate::model::NodeKind::Comment),
@@ -87,7 +85,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 }
                 if let Some(inner) = inner_opt {
                     for c in node.children() {
-                        if self.node_test(&c, inner) {
+                        if Self::node_test(&c, inner) {
                             return true;
                         }
                     }
@@ -101,9 +99,8 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     return false;
                 }
                 match name {
-                    None => true,
-                    Some(NameOrWildcard::Any) => true,
-                    Some(NameOrWildcard::Name(exp)) => self.matches_interned_name(node, exp),
+                    None | Some(NameOrWildcard::Any) => true,
+                    Some(NameOrWildcard::Name(exp)) => Self::matches_interned_name(node, exp),
                 }
             }
             KindAttribute { name, .. } => {
@@ -111,23 +108,21 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     return false;
                 }
                 match name {
-                    None => true,
-                    Some(NameOrWildcard::Any) => true,
-                    Some(NameOrWildcard::Name(exp)) => self.matches_interned_name(node, exp),
+                    None | Some(NameOrWildcard::Any) => true,
+                    Some(NameOrWildcard::Name(exp)) => Self::matches_interned_name(node, exp),
                 }
             }
-            KindSchemaElement(_) | KindSchemaAttribute(_) => true, // simplified
         }
     }
 
     /// Resolve a namespace prefix to its in-scope namespace URI for the given node by walking
     /// up the ancestor chain and inspecting declared namespace nodes. Honors the implicit `xml`
     /// binding. Returns `None` when no binding is found.
-    pub(crate) fn resolve_prefix_namespace(&self, node: &N, prefix: &str) -> Option<DefaultAtom> {
+    pub(crate) fn resolve_prefix_namespace(node: &N, prefix: &str) -> Option<DefaultAtom> {
+        use crate::model::NodeKind;
         if prefix == "xml" {
             return Some(DefaultAtom::from(crate::consts::XML_URI));
         }
-        use crate::model::NodeKind;
         let mut cur = Some(node.clone());
         while let Some(n) = cur {
             if matches!(n.kind(), NodeKind::Element) {

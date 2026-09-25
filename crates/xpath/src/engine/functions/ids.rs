@@ -9,9 +9,8 @@ fn is_ncname_ascii(s: &str) -> bool {
     }
     let mut chars = s.chars();
     match chars.next() {
-        Some('A'..='Z') | Some('a'..='z') | Some('_') => {}
-        Some(_) => return false,
-        None => return false,
+        Some('A'..='Z' | 'a'..='z' | '_') => {}
+        Some(_) | None => return false,
     }
 
     for ch in chars {
@@ -63,17 +62,17 @@ pub(super) fn id_fn<N: 'static + crate::model::XdmNode + Clone>(
     } else {
         Some(require_context_item(ctx)?)
     };
-    find_elements_with_id(ctx, start_node_opt, &tokens)
+    Ok(find_elements_with_id(ctx, start_node_opt, &tokens))
 }
 
 fn find_elements_with_id<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     start_node_opt: Option<&XdmItem<N>>,
     tokens: &HashSet<String>,
-) -> Result<XdmSequence<N>, Error> {
+) -> XdmSequence<N> {
     let mut out: XdmSequence<N> = Vec::new();
     let Some(XdmItem::Node(start)) = start_node_opt else {
-        return Ok(out);
+        return out;
     };
     let root = topmost_ancestor_ref(start);
     let mut stack: Vec<N> = vec![root];
@@ -102,7 +101,7 @@ fn find_elements_with_id<N: 'static + crate::model::XdmNode + Clone>(
             }
         }
     }
-    Ok(out)
+    out
 }
 
 pub(super) fn id_stream<N: 'static + crate::model::XdmNode + Clone>(
@@ -147,7 +146,7 @@ pub(super) fn element_with_id_fn<N: 'static + crate::model::XdmNode + Clone>(
     } else {
         Some(require_context_item(ctx)?)
     };
-    find_elements_with_id(ctx, start_node_opt, &tokens)
+    Ok(find_elements_with_id(ctx, start_node_opt, &tokens))
 }
 
 pub(super) fn element_with_id_stream<N: 'static + crate::model::XdmNode + Clone>(

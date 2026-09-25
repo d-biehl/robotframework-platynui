@@ -23,6 +23,8 @@ pub(crate) use common::{
     parse_day_time_duration_secs, parse_duration_lexical, parse_qname_lexical, parse_year_month_duration_months,
 };
 
+// The flat registration table of every built-in function; it keeps its shape.
+#[allow(clippy::too_many_lines)]
 fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
     reg: Option<&mut FunctionImplementations<N>>,
     sigs: Option<&mut FunctionSignatures>,
@@ -1412,6 +1414,7 @@ fn register_default_functions<N: 'static + crate::model::XdmNode + Clone>(
     );
 }
 
+#[must_use]
 pub fn default_function_registry<N: 'static + crate::model::XdmNode + Clone>() -> Rc<FunctionImplementations<N>> {
     let mut reg: FunctionImplementations<N> = FunctionImplementations::new();
     ensure_default_signatures();
@@ -1419,6 +1422,7 @@ pub fn default_function_registry<N: 'static + crate::model::XdmNode + Clone>() -
     Rc::new(reg)
 }
 
+#[must_use]
 pub fn default_function_signatures() -> FunctionSignatures {
     ensure_default_signatures().clone()
 }

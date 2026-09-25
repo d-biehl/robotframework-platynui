@@ -16,8 +16,33 @@ pub struct XPathParser;
 /// punctuation, distinctive keywords) keep their literal form quoted; binary
 /// operators, comparisons, type tests etc. collapse into shared category names
 /// so an "expected" list of 20+ raw tokens deduplicates to a handful.
-fn friendly_rule(r: &Rule) -> &'static str {
-    use Rule::*;
+// One flat lookup table over every grammar rule; it keeps its shape.
+#[allow(clippy::too_many_lines)]
+fn friendly_rule(r: Rule) -> &'static str {
+    use Rule::{
+        COMMA, COMMENT, EOI, K_ANCESTOR, K_ANCESTOR_OR_SELF, K_AND, K_AS, K_ATTRIBUTE, K_CAST, K_CASTABLE, K_CHILD,
+        K_COMMENT, K_DESCENDANT, K_DESCENDANT_OR_SELF, K_DIV, K_DOCUMENT_NODE, K_ELEMENT, K_ELSE, K_EMPTY_SEQUENCE,
+        K_EQ, K_EVERY, K_EXCEPT, K_FOLLOWING, K_FOLLOWING_SIBLING, K_FOR, K_GE, K_GT, K_IDIV, K_IF, K_IN, K_INSTANCE,
+        K_INTERSECT, K_IS, K_ITEM, K_LE, K_LET, K_LT, K_MOD, K_NAMESPACE, K_NE, K_NODE, K_OF, K_OR, K_PARENT,
+        K_PRECEDING, K_PRECEDING_SIBLING, K_PROCESSING_INSTRUCTION, K_RETURN, K_SATISFIES, K_SCHEMA_ATTRIBUTE,
+        K_SCHEMA_ELEMENT, K_SELF, K_SOME, K_TEXT, K_THEN, K_TO, K_TREAT, K_UNION, LBRACK, LPAR, OP_ASSIGN, OP_AT,
+        OP_COLONCOLON, OP_DOT, OP_DOTDOT, OP_DSLASH, OP_EQ, OP_FOLLOWS, OP_GT, OP_GTE, OP_LT, OP_LTE, OP_MINUS, OP_NE,
+        OP_PIPE, OP_PLUS, OP_PRECEDES, OP_SLASH, OP_STAR, QMARK, RBRACK, RPAR, WHITESPACE, abbrev_forward_step,
+        abbrev_reverse_step, absolute_path, add_op, additive_expr, and_expr, and_op, any_kind_test, atomic_type,
+        attrib_name_or_wildcard, attribute_declaration, attribute_name, attribute_test, axis_step, cast_expr, cast_op,
+        castable_expr, castable_op, comment_test, comparison_expr, comparison_op, context_item_expr, dbl_string,
+        dbl_string_inner, decimal_literal, digits, document_test, double_literal, element_declaration, element_name,
+        element_name_or_wildcard, element_test, escape_apos, escape_quot, expr, expr_single, filter_expr, for_expr,
+        forward_axis, forward_step, function_call, function_qname, general_comp, if_expr, instanceof_expr,
+        instanceof_op, integer_literal, intersect_except_expr, intersect_except_op, item_type, kind_test, let_expr,
+        literal, mult_op, multiplicative_expr, name_test, ncname, ncname_char, ncname_start_char, node_comp, node_test,
+        numeric_literal, occurrence_indicator, or_expr, or_op, parenthesized_expr, path_expr, path_operator, pi_test,
+        predicate, predicate_list, primary_expr, qname, qname_local, qname_prefix, quantified_expr, range_expr,
+        relative_path_expr, reserved_function_name, reverse_axis, reverse_step, schema_attribute_test,
+        schema_element_test, sequence_type, sgl_string, sgl_string_inner, single_type, step_expr, string_literal,
+        text_test, treat_expr, treat_op, type_name, unary_expr, union_expr, union_op, value_comp, value_expr, var_name,
+        var_ref, wildcard_name, xpath,
+    };
     match r {
         EOI => "end of expression",
 
@@ -159,7 +184,7 @@ fn format_pest_message(variant: &ErrorVariant<Rule>) -> String {
     fn collect_unique(rules: &[Rule]) -> Vec<&'static str> {
         let mut out: Vec<&'static str> = Vec::new();
         for r in rules {
-            let name = friendly_rule(r);
+            let name = friendly_rule(*r);
             if !out.contains(&name) {
                 out.push(name);
             }
@@ -215,6 +240,11 @@ fn format_pest_error(e: &pest::error::Error<Rule>) -> String {
     )
 }
 
+/// Parse an `XPath` 2.0 expression into its AST.
+///
+/// # Errors
+///
+/// Returns an `XPST0003` error if `input` is not a syntactically valid `XPath` 2.0 expression.
 pub fn parse(input: &str) -> Result<ast::Expr, Error> {
     let mut pairs = XPathParser::parse(Rule::xpath, input)
         .map_err(|e| Error::from_code(ErrorCode::XPST0003, format_pest_error(&e)))?;
@@ -491,8 +521,7 @@ fn build_or_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     for p in pair.into_inner() {
         match p.as_rule() {
             Rule::and_expr => exprs.push(build_and_expr(p)?),
-            Rule::or_op => ops.push(ast::BinaryOp::Or),
-            Rule::K_OR => ops.push(ast::BinaryOp::Or),
+            Rule::or_op | Rule::K_OR => ops.push(ast::BinaryOp::Or),
             _ => {}
         }
     }
@@ -506,8 +535,7 @@ fn build_and_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
     for p in pair.into_inner() {
         match p.as_rule() {
             Rule::comparison_expr => exprs.push(build_comparison_expr(p)?),
-            Rule::and_op => ops.push(ast::BinaryOp::And),
-            Rule::K_AND => ops.push(ast::BinaryOp::And),
+            Rule::and_op | Rule::K_AND => ops.push(ast::BinaryOp::And),
             _ => {}
         }
     }
@@ -1180,12 +1208,12 @@ fn build_path_expr_from_absolute(pair: Pair<Rule>) -> AstResult<ast::Expr> {
                 predicates: vec![],
             }];
             steps.extend(build_relative_steps(rel)?);
-            Ok(ast::Expr::Path(ast::PathExpr { start: ast::PathStart::Root, steps: steps.to_vec() }))
+            Ok(ast::Expr::Path(ast::PathExpr { start: ast::PathStart::Root, steps: steps.clone() }))
         }
         Rule::OP_SLASH => {
             if let Some(rel) = it.next() {
                 let steps = build_relative_steps(rel)?;
-                Ok(ast::Expr::Path(ast::PathExpr { start: ast::PathStart::Root, steps: steps.to_vec() }))
+                Ok(ast::Expr::Path(ast::PathExpr { start: ast::PathStart::Root, steps: steps.clone() }))
             } else {
                 Ok(ast::Expr::Path(ast::PathExpr { start: ast::PathStart::Root, steps: vec![] }))
             }
@@ -1368,9 +1396,7 @@ fn build_let_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
                     build_expr(it.next().ok_or_else(|| ParseAstError::new("let_expr missing return expr_single"))?)?;
                 return Ok(ast::Expr::LetExpr { bindings: bindings.to_vec(), return_expr: Box::new(return_expr) });
             }
-            Rule::COMMA | Rule::OP_ASSIGN => {
-                // already handled implicitly by loop
-            }
+            // COMMA and OP_ASSIGN are already handled implicitly by the loop.
             _ => {}
         }
     }
@@ -1398,15 +1424,9 @@ fn build_quantified_expr(pair: Pair<Rule>) -> AstResult<ast::Expr> {
                     it.next().ok_or_else(|| ParseAstError::new("quantified_expr missing expr_single after K_IN"))?,
                 )?;
                 bindings.push(ast::QuantifiedBinding { var, in_expr });
-                // Next could be COMMA or K_SATISFIES
-                if let Some(peek) = it.clone().next() {
-                    match peek.as_rule() {
-                        Rule::COMMA => {
-                            it.next(); /* consume comma */
-                        }
-                        Rule::K_SATISFIES => {}
-                        _ => {}
-                    }
+                // Next could be COMMA (consumed here) or K_SATISFIES (handled by the next iteration)
+                if it.clone().next().is_some_and(|peek| peek.as_rule() == Rule::COMMA) {
+                    it.next(); /* consume comma */
                 }
             }
             Rule::K_SATISFIES => {

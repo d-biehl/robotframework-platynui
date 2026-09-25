@@ -1,3 +1,5 @@
+#![allow(unused_crate_dependencies)]
+
 use platynui_xpath::{
     compiler::compile,
     engine::{evaluator::evaluate, runtime::DynamicContextBuilder},
@@ -30,27 +32,27 @@ fn main() {
     let compiled = match compile("//b") {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Compile error: {}", e);
+            eprintln!("Compile error: {e}");
             let mut src = e.source();
             while let Some(s) = src {
-                eprintln!("  caused by: {}", s);
+                eprintln!("  caused by: {s}");
                 src = s.source();
             }
             return;
         }
     };
 
-    println!("Compiled: {}", compiled);
+    println!("Compiled: {compiled}");
 
     let ctx = DynamicContextBuilder::default().with_context_item(XdmItem::Node(doc_node)).build();
     let result = evaluate::<SimpleNode>(&compiled, &ctx);
     match result {
         Ok(v) => println!("{}", PrettyNodeSeq::new(&v)),
         Err(e) => {
-            eprintln!("Evaluation error: {}", e);
+            eprintln!("Evaluation error: {e}");
             let mut src = e.source();
             while let Some(s) = src {
-                eprintln!("  caused by: {}", s);
+                eprintln!("  caused by: {s}");
                 src = s.source();
             }
         }

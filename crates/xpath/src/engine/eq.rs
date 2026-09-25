@@ -1,8 +1,8 @@
-//! Equality Kernel (EqKey) – central canonicalization for atomic & node values.
+//! Equality Kernel (`EqKey`) – central canonicalization for atomic & node values.
 //! Provides a reusable hash/equality key used by
 //! distinct-values, deep-equal, index-of, compare, codepoint-equal, min/max.
 //!
-//! Scope (initial): numeric, string (with collation key), boolean, QName, date/time,
+//! Scope (initial): numeric, string (with collation key), boolean, `QName`, date/time,
 //! durations, nodes (identity), NaN sentinel, and a conservative fallback bucket
 //! for yet-unhandled atomic kinds (Other). This avoids sprinkling ad-hoc matching
 //! logic across functions.rs and evaluator.rs.
@@ -10,19 +10,19 @@
 //! Design notes:
 //! * Numeric normalization collapses the integer tower and decimal into a lossless
 //!   (mantissa, scale) pair when derived from Decimal; float/double retain IEEE value
-//!   except that -0.0 normalizes to 0.0 and all NaN collapse into EqKey::NaN.
-//! * Promotion during equality already happened at higher layers (XPath rules). For
+//!   except that -0.0 normalizes to 0.0 and all NaN collapse into `EqKey::NaN`.
+//! * Promotion during equality already happened at higher layers (`XPath` rules). For
 //!   distinct-values / deep-equal we nevertheless require stable hashing across
 //!   representations that should compare equal; hence Integer(10) and Decimal(10.0)
-//!   map to the same NumericKey (mantissa=10, scale=0).
+//!   map to the same `NumericKey` (mantissa=10, scale=0).
 //! * Date/Time values are converted to an absolute instant in nanoseconds (i128) plus
-//!   a kind discriminator preventing cross-kind equality (Date vs DateTime vs Time).
-//!   (Current engine only stores timezone-aware DateTime; pure Date/Time hold tz opt.)
+//!   a kind discriminator preventing cross-kind equality (Date vs `DateTime` vs Time).
+//!   (Current engine only stores timezone-aware `DateTime`; pure Date/Time hold tz opt.)
 //! * Durations: yearMonthDuration normalized to total months (i64); dayTimeDuration to
 //!   total nanoseconds (i128). Kinds are not considered equal cross-wise per spec.
-//! * Node identity uses the pointer address (stable for Arc-backed SimpleNode). For
+//! * Node identity uses the pointer address (stable for Arc-backed `SimpleNode`). For
 //!   user supplied adapters we expect Eq/Hash semantics consistent with pointer/address.
-//! * Collations: we store both original string and a key produced by Collation::key.
+//! * Collations: we store both original string and a key produced by `Collation::key`.
 //!   Equality uses the key; original preserved for potential reconstruction.
 //! * Other bucket: packs a short type tag and a cheap lexical representation for
 //!   future types (binary, g* fragments, NOTATION) until specialized variants land.
@@ -98,7 +98,7 @@ impl Hash for NumericKey {
 impl Eq for NumericKey {}
 impl PartialEq for NumericKey {
     fn eq(&self, other: &Self) -> bool {
-        use NumericKey::*;
+        use NumericKey::{Decimal, Double, Float, Integer};
         match (self, other) {
             (Integer(a), Integer(b)) => a == b,
             (Decimal(a), Decimal(b)) => a.mantissa == b.mantissa && a.scale == b.scale,
@@ -119,7 +119,7 @@ pub struct QNameKey {
 pub struct DurationKey {
     pub kind: DurationKind,
     pub months: i64,
-    /// DayTimeDuration values are stored as nanoseconds to align with Date/Time keys.
+    /// `DayTimeDuration` values are stored as nanoseconds to align with Date/Time keys.
     pub nanos: i128,
 }
 
@@ -156,7 +156,7 @@ pub enum EqKey {
 impl Eq for EqKey {}
 impl PartialEq for EqKey {
     fn eq(&self, other: &Self) -> bool {
-        use EqKey::*;
+        use EqKey::{Boolean, DateTime, Duration, NaN, Node, Numeric, Other, QName, String};
         match (self, other) {
             (Numeric(a), Numeric(b)) => a == b,
             (String(a), String(b)) => a.key == b.key,
@@ -174,7 +174,7 @@ impl PartialEq for EqKey {
 
 impl core::hash::Hash for EqKey {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        use EqKey::*;
+        use EqKey::{Boolean, DateTime, Duration, NaN, Node, Numeric, Other, QName, String};
         match self {
             Numeric(n) => {
                 0u8.hash(state);
@@ -224,6 +224,8 @@ fn canonicalize_decimal(v: &rust_decimal::Decimal) -> DecimalKey {
     // rust_decimal provides exact mantissa/scale, no string-format workaround needed
     let normalized = v.normalize();
     let mantissa = normalized.mantissa();
+    // rust_decimal caps the scale at 28, so it always fits in i16.
+    #[allow(clippy::cast_possible_truncation)]
     let scale = normalized.scale() as i16;
     DecimalKey { mantissa, scale }
 }
@@ -238,7 +240,7 @@ fn double_norm(d: f64) -> f64 {
 // Convert date/time forms to instant nanoseconds (UTC). For now we rely on stored chrono
 // values; Date with tz -> midnight that date + offset; Time with tz -> reference date 1970-01-01.
 fn date_time_instant_ns(dt: &XdmAtomicValue) -> Option<(DateTimeKind, i128)> {
-    use XdmAtomicValue::*;
+    use XdmAtomicValue::{Date, DateTime, Time};
     match dt {
         DateTime(d) => Some((DateTimeKind::DateTime, safe_nanos(d))),
         Date { date, tz } => {
@@ -272,13 +274,13 @@ fn date_time_instant_ns(dt: &XdmAtomicValue) -> Option<(DateTimeKind, i128)> {
 }
 
 fn safe_nanos(dt: &chrono::DateTime<chrono::FixedOffset>) -> i128 {
-    (dt.timestamp() as i128) * 1_000_000_000 + dt.timestamp_subsec_nanos() as i128
+    i128::from(dt.timestamp()) * 1_000_000_000 + i128::from(dt.timestamp_subsec_nanos())
 }
 
 fn duration_key(a: &XdmAtomicValue) -> Option<DurationKey> {
-    use XdmAtomicValue::*;
+    use XdmAtomicValue::{DayTimeDuration, YearMonthDuration};
     match a {
-        YearMonthDuration(m) => Some(DurationKey { kind: DurationKind::YearMonth, months: *m as i64, nanos: 0 }),
+        YearMonthDuration(m) => Some(DurationKey { kind: DurationKind::YearMonth, months: i64::from(*m), nanos: 0 }),
         DayTimeDuration(d) => {
             Some(DurationKey { kind: DurationKind::DayTime, months: 0, nanos: i128::from(*d) * NANOS_PER_SECOND })
         }
@@ -287,7 +289,7 @@ fn duration_key(a: &XdmAtomicValue) -> Option<DurationKey> {
 }
 
 fn numeric_key(a: &XdmAtomicValue) -> Option<NumericKey> {
-    use XdmAtomicValue::*;
+    use XdmAtomicValue::{Boolean, Decimal, Double, Float, UntypedAtomic};
 
     // Handle all integer subtypes via centralized as_i128()
     if let Some(i) = a.as_i128() {
@@ -303,7 +305,7 @@ fn numeric_key(a: &XdmAtomicValue) -> Option<NumericKey> {
         Float(f) => NumericKey::Float(float_norm(*f)),
         Double(d) if d.is_nan() => return None,
         Double(d) => NumericKey::Double(double_norm(*d)),
-        Boolean(b) => NumericKey::Integer(if *b { 1 } else { 0 }),
+        Boolean(b) => NumericKey::Integer(i128::from(*b)),
         UntypedAtomic(s) => {
             if let Ok(parsed) = s.parse::<f64>() {
                 if parsed.is_nan() {
@@ -314,14 +316,19 @@ fn numeric_key(a: &XdmAtomicValue) -> Option<NumericKey> {
                 return None;
             }
         }
-        String(_) | AnyUri(_) => return None,
+        // String, anyURI and every other non-numeric type have no numeric key.
         _ => return None,
     })
 }
 
-/// Build EqKey for an item, using an optional collation for string values.
+/// Build `EqKey` for an item, using an optional collation for string values.
+///
+/// # Errors
+///
+/// Currently never fails: every node and atomic value maps to a key (unhandled
+/// atomic kinds fall into the `Other` bucket), so this always returns `Ok`.
 pub fn build_eq_key<N: XdmNode>(item: &XdmItem<N>, coll: Option<&dyn Collation>) -> Result<EqKey, Error> {
-    use XdmItem::*;
+    use XdmItem::{Atomic, Node};
     Ok(match item {
         Node(n) => EqKey::Node(ptr_as_u64(n)),
         Atomic(a) => atomic_eq_key(a, coll),
@@ -329,7 +336,11 @@ pub fn build_eq_key<N: XdmNode>(item: &XdmItem<N>, coll: Option<&dyn Collation>)
 }
 
 fn atomic_eq_key(a: &XdmAtomicValue, coll: Option<&dyn Collation>) -> EqKey {
-    use XdmAtomicValue::*;
+    use XdmAtomicValue::{
+        AnyUri, Base64Binary, Boolean, Date, DateTime, DayTimeDuration, Double, Entity, Float, HexBinary, Id, IdRef,
+        Language, NCName, NMTOKEN, Name, NormalizedString, Notation, QName, String, Time, Token, UntypedAtomic,
+        YearMonthDuration,
+    };
     if let Some(num) = numeric_key(a) {
         return EqKey::Numeric(num);
     }
@@ -337,7 +348,10 @@ fn atomic_eq_key(a: &XdmAtomicValue, coll: Option<&dyn Collation>) -> EqKey {
         Float(f) if f.is_nan() => EqKey::NaN,
         Double(f) if f.is_nan() => EqKey::NaN,
         Boolean(b) => EqKey::Boolean(*b),
-        String(s) | AnyUri(s) | UntypedAtomic(s) => {
+        // String-like types; the derived string types collapse to their string value
+        // (spec: value space maps).
+        String(s) | AnyUri(s) | UntypedAtomic(s) | NormalizedString(s) | Token(s) | Language(s) | Name(s)
+        | NCName(s) | NMTOKEN(s) | Id(s) | IdRef(s) | Entity(s) | Notation(s) => {
             let key = if let Some(c) = coll { c.key(s) } else { Cow::Borrowed(s.as_str()) };
             EqKey::String(StringKey { key: CompactString::from(&*key), original: s.as_str().into() })
         }
@@ -349,32 +363,26 @@ fn atomic_eq_key(a: &XdmAtomicValue, coll: Option<&dyn Collation>) -> EqKey {
             if let Some((kind, ns)) = date_time_instant_ns(a) {
                 EqKey::DateTime(DateTimeKey { kind, instant_ns: ns })
             } else {
-                EqKey::Other(OtherKey { type_tag: 1, bytes: format!("{:?}", a).into_bytes() })
+                EqKey::Other(OtherKey { type_tag: 1, bytes: format!("{a:?}").into_bytes() })
             }
         }
         YearMonthDuration(_) | DayTimeDuration(_) => {
             if let Some(dk) = duration_key(a) {
                 EqKey::Duration(dk)
             } else {
-                EqKey::Other(OtherKey { type_tag: 2, bytes: format!("{:?}", a).into_bytes() })
+                EqKey::Other(OtherKey { type_tag: 2, bytes: format!("{a:?}").into_bytes() })
             }
         }
         Base64Binary(b) | HexBinary(b) => EqKey::Other(OtherKey { type_tag: 10, bytes: b.as_bytes().to_vec() }),
-        // g* and string derived types collapse to their string value (spec: value space maps)
-        NormalizedString(s) | Token(s) | Language(s) | Name(s) | NCName(s) | NMTOKEN(s) | Id(s) | IdRef(s)
-        | Entity(s) | Notation(s) => {
-            let key = if let Some(c) = coll { c.key(s) } else { Cow::Borrowed(s.as_str()) };
-            EqKey::String(StringKey { key: CompactString::from(&*key), original: s.as_str().into() })
-        }
         // Fallback – pack debug; will be replaced by specialized handling later.
-        _ => EqKey::Other(OtherKey { type_tag: 255, bytes: format!("{:?}", a).into_bytes() }),
+        _ => EqKey::Other(OtherKey { type_tag: 255, bytes: format!("{a:?}").into_bytes() }),
     }
 }
 
 fn ptr_as_u64<N: XdmNode>(n: &N) -> u64 {
     // Safety: relying on Eq/Hash semantics of underlying node types; for SimpleNode Arc ptr is stable.
 
-    (n as *const N) as usize as u64
+    std::ptr::from_ref::<N>(n) as usize as u64
 }
 
 #[cfg(test)]

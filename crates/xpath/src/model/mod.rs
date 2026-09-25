@@ -41,10 +41,11 @@ pub struct QName {
 ///   the fallback cannot establish a global order. Adapters with multi-root trees must
 ///   override `XdmNode::compare_document_order` and provide a total order
 ///   (e.g. `(tree_id, preorder_index)`).
+///
+/// # Errors
+///
+/// Returns an `FOER0000` error if `a` and `b` belong to different roots.
 pub fn try_compare_by_ancestry<N: XdmNode>(a: &N, b: &N) -> Result<Ordering, Error> {
-    if a == b {
-        return Ok(Ordering::Equal);
-    }
     // Build paths from root to the node (inclusive)
     fn path_to_root<N: XdmNode>(mut n: N) -> Vec<N> {
         let mut p = vec![n.clone()];
@@ -54,6 +55,9 @@ pub fn try_compare_by_ancestry<N: XdmNode>(a: &N, b: &N) -> Result<Ordering, Err
         }
         p.reverse();
         p
+    }
+    if a == b {
+        return Ok(Ordering::Equal);
     }
     let pa = path_to_root(a.clone());
     let pb = path_to_root(b.clone());
@@ -84,9 +88,9 @@ pub fn try_compare_by_ancestry<N: XdmNode>(a: &N, b: &N) -> Result<Ordering, Err
     sibs.extend(parent.children());
     let na = &pa[i];
     let nb = &pb[i];
-    let posa = sibs.iter().position(|n| n == na);
-    let posb = sibs.iter().position(|n| n == nb);
-    Ok(match (posa, posb) {
+    let pos_a = sibs.iter().position(|n| n == na);
+    let pos_b = sibs.iter().position(|n| n == nb);
+    Ok(match (pos_a, pos_b) {
         (Some(aidx), Some(bidx)) => aidx.cmp(&bidx),
         // Fallback: if one is the parent itself (shouldn't happen here), treat parent before child
         _ => Ordering::Equal,
@@ -135,7 +139,7 @@ pub trait XdmNode: Clone + Eq + core::fmt::Debug {
     fn attributes(&self) -> Self::Attributes<'_>;
     fn namespaces(&self) -> Self::Namespaces<'_>;
 
-    /// Direct lookup of a single attribute by expanded QName.
+    /// Direct lookup of a single attribute by expanded `QName`.
     ///
     /// The default implementation linearly scans `attributes()`.  Backends
     /// that can resolve attributes in O(1) (e.g. via a direct provider call)
@@ -161,6 +165,11 @@ pub trait XdmNode: Clone + Eq + core::fmt::Debug {
 
     /// Default document order comparison uses ancestry and sibling order.
     /// Returns an error for multi-root comparisons unless overridden by adapter.
+    ///
+    /// # Errors
+    ///
+    /// The default implementation returns an `FOER0000` error if the two nodes belong to
+    /// different roots; an adapter's override may report its own errors.
     fn compare_document_order(&self, other: &Self) -> Result<Ordering, Error> {
         try_compare_by_ancestry(self, other)
     }
@@ -175,70 +184,71 @@ fn typed_value_to_string(values: &[XdmAtomicValue]) -> String {
 }
 
 fn lexical_cast(value: &XdmAtomicValue) -> Cow<'_, str> {
-    use XdmAtomicValue::*;
+    use XdmAtomicValue::{
+        AnyUri, Base64Binary, Boolean, Byte, Date, DateTime, DayTimeDuration, Decimal, Double, Entity, Float, GDay,
+        GMonth, GMonthDay, GYear, GYearMonth, HexBinary, Id, IdRef, Int, Integer, Language, Long, NCName, NMTOKEN,
+        Name, NegativeInteger, NonNegativeInteger, NonPositiveInteger, NormalizedString, Notation, PositiveInteger,
+        QName, Short, String, Time, Token, UnsignedByte, UnsignedInt, UnsignedLong, UnsignedShort, UntypedAtomic,
+        YearMonthDuration,
+    };
     match value {
         Boolean(b) => Cow::Owned(b.to_string()),
         String(s) | UntypedAtomic(s) | AnyUri(s) | NormalizedString(s) | Token(s) | Language(s) | Name(s)
         | NCName(s) | NMTOKEN(s) | Id(s) | IdRef(s) | Entity(s) | Notation(s) => Cow::Borrowed(s.as_str()),
-        Integer(i) => Cow::Owned(i.to_string()),
-        Long(i) => Cow::Owned(i.to_string()),
-        NonPositiveInteger(i) => Cow::Owned(i.to_string()),
-        NegativeInteger(i) => Cow::Owned(i.to_string()),
+        Integer(i) | Long(i) | NonPositiveInteger(i) | NegativeInteger(i) => Cow::Owned(i.to_string()),
         Int(i) => Cow::Owned(i.to_string()),
         Short(i) => Cow::Owned(i.to_string()),
         Byte(i) => Cow::Owned(i.to_string()),
-        UnsignedLong(u) => Cow::Owned(u.to_string()),
-        NonNegativeInteger(u) => Cow::Owned(u.to_string()),
-        PositiveInteger(u) => Cow::Owned(u.to_string()),
+        UnsignedLong(u) | NonNegativeInteger(u) | PositiveInteger(u) => Cow::Owned(u.to_string()),
         UnsignedInt(u) => Cow::Owned(u.to_string()),
         UnsignedShort(u) => Cow::Owned(u.to_string()),
         UnsignedByte(u) => Cow::Owned(u.to_string()),
         Decimal(d) => Cow::Owned(d.normalize().to_string()),
         Double(d) => Cow::Owned(trim_float(*d)),
-        Float(f) => Cow::Owned(trim_float(*f as f64)),
+        Float(f) => Cow::Owned(trim_float(f64::from(*f))),
         QName { ns_uri, prefix, local } => match (ns_uri, prefix) {
-            (Some(ns), Some(pref)) => Cow::Owned(format!("{{{}}}{}:{}", ns, pref, local)),
-            (Some(ns), None) => Cow::Owned(format!("{{{}}}{}", ns, local)),
-            (None, Some(pref)) => Cow::Owned(format!("{}:{}", pref, local)),
+            (Some(ns), Some(pref)) => Cow::Owned(format!("{{{ns}}}{pref}:{local}")),
+            (Some(ns), None) => Cow::Owned(format!("{{{ns}}}{local}")),
+            (None, Some(pref)) => Cow::Owned(format!("{pref}:{local}")),
             (None, None) => Cow::Borrowed(local.as_str()),
         },
         DateTime(dt) => Cow::Owned(dt.to_rfc3339()),
         Date { date, tz } => match tz {
-            Some(offset) => Cow::Owned(format!("{}{}", date, offset)),
+            Some(offset) => Cow::Owned(format!("{date}{offset}")),
             None => Cow::Owned(date.to_string()),
         },
         Time { time, tz } => match tz {
-            Some(offset) => Cow::Owned(format!("{}{}", time, offset)),
+            Some(offset) => Cow::Owned(format!("{time}{offset}")),
             None => Cow::Owned(time.to_string()),
         },
-        YearMonthDuration(months) => Cow::Owned(format!("P{}M", months)),
-        DayTimeDuration(secs) => Cow::Owned(format!("PT{}S", secs)),
+        YearMonthDuration(months) => Cow::Owned(format!("P{months}M")),
+        DayTimeDuration(secs) => Cow::Owned(format!("PT{secs}S")),
         Base64Binary(data) | HexBinary(data) => Cow::Borrowed(data.as_str()),
         GYear { year, tz } => match tz {
-            Some(offset) => Cow::Owned(format!("{}{}", year, offset)),
+            Some(offset) => Cow::Owned(format!("{year}{offset}")),
             None => Cow::Owned(year.to_string()),
         },
         GYearMonth { year, month, tz } => match tz {
-            Some(offset) => Cow::Owned(format!("{}-{:02}{}", year, month, offset)),
-            None => Cow::Owned(format!("{}-{:02}", year, month)),
+            Some(offset) => Cow::Owned(format!("{year}-{month:02}{offset}")),
+            None => Cow::Owned(format!("{year}-{month:02}")),
         },
         GMonth { month, tz } => match tz {
-            Some(offset) => Cow::Owned(format!("{:02}{}", month, offset)),
-            None => Cow::Owned(format!("{:02}", month)),
+            Some(offset) => Cow::Owned(format!("{month:02}{offset}")),
+            None => Cow::Owned(format!("{month:02}")),
         },
         GMonthDay { month, day, tz } => match tz {
-            Some(offset) => Cow::Owned(format!("{:02}-{:02}{}", month, day, offset)),
-            None => Cow::Owned(format!("{:02}-{:02}", month, day)),
+            Some(offset) => Cow::Owned(format!("{month:02}-{day:02}{offset}")),
+            None => Cow::Owned(format!("{month:02}-{day:02}")),
         },
         GDay { day, tz } => match tz {
-            Some(offset) => Cow::Owned(format!("{:02}{}", day, offset)),
-            None => Cow::Owned(format!("{:02}", day)),
+            Some(offset) => Cow::Owned(format!("{day:02}{offset}")),
+            None => Cow::Owned(format!("{day:02}")),
         },
     }
 }
 
 fn trim_float(value: f64) -> String {
-    let mut s = format!("{}", value);
+    let mut s = format!("{value}");
     if s.contains('e') || s.contains('E') {
         return s;
     }

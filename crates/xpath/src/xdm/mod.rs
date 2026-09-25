@@ -77,17 +77,21 @@ impl XdmAtomicValue {
     /// Extract the integer value as `i128`, if this is any integer subtype.
     ///
     /// Returns `None` for non-integer types (decimal, float, double, string, etc.).
+    #[must_use]
     pub fn as_i128(&self) -> Option<i128> {
-        use XdmAtomicValue::*;
+        use XdmAtomicValue::{
+            Byte, Int, Integer, Long, NegativeInteger, NonNegativeInteger, NonPositiveInteger, PositiveInteger, Short,
+            UnsignedByte, UnsignedInt, UnsignedLong, UnsignedShort,
+        };
         Some(match self {
-            Integer(i) | Long(i) | NonPositiveInteger(i) | NegativeInteger(i) => *i as i128,
-            Int(i) => *i as i128,
-            Short(i) => *i as i128,
-            Byte(i) => *i as i128,
-            UnsignedLong(i) | NonNegativeInteger(i) | PositiveInteger(i) => *i as i128,
-            UnsignedInt(i) => *i as i128,
-            UnsignedShort(i) => *i as i128,
-            UnsignedByte(i) => *i as i128,
+            Integer(i) | Long(i) | NonPositiveInteger(i) | NegativeInteger(i) => i128::from(*i),
+            Int(i) => i128::from(*i),
+            Short(i) => i128::from(*i),
+            Byte(i) => i128::from(*i),
+            UnsignedLong(i) | NonNegativeInteger(i) | PositiveInteger(i) => i128::from(*i),
+            UnsignedInt(i) => i128::from(*i),
+            UnsignedShort(i) => i128::from(*i),
+            UnsignedByte(i) => i128::from(*i),
             _ => return None,
         })
     }
@@ -95,18 +99,19 @@ impl XdmAtomicValue {
     /// Returns `true` if this value is any integer subtype
     /// (`xs:integer`, `xs:long`, `xs:int`, `xs:short`, `xs:byte`,
     /// `xs:unsigned*`, `xs:nonPositiveInteger`, etc.).
+    #[must_use]
     pub fn is_integer(&self) -> bool {
         self.as_i128().is_some()
     }
 }
 
-/// XPath Data Model sequence type (standard Vec-based).
+/// `XPath` Data Model sequence type (standard Vec-based).
 pub type XdmSequence<N> = Vec<XdmItem<N>>;
 
 use smallvec::SmallVec;
 
 /// Small sequence optimization for hot paths.
-/// Most XPath results are small (<8 items), so we use stack allocation to avoid heap overhead.
+/// Most `XPath` results are small (<8 items), so we use stack allocation to avoid heap overhead.
 pub type XdmSmallSeq<N> = SmallVec<[XdmItem<N>; 8]>;
 
 use crate::engine::runtime::Error;
@@ -139,6 +144,7 @@ impl<N: 'static> XdmSequenceStream<N> {
         Self { cursor: Arc::new(cursor) }
     }
 
+    #[must_use]
     pub fn empty() -> Self {
         struct EmptyCursor<N>(PhantomData<N>);
 
@@ -159,6 +165,7 @@ impl<N: 'static> XdmSequenceStream<N> {
         Self::new(EmptyCursor(PhantomData))
     }
 
+    #[must_use]
     pub fn from_vec(items: Vec<XdmItem<N>>) -> Self
     where
         N: Clone + 'static,
@@ -173,6 +180,7 @@ impl<N: 'static> XdmSequenceStream<N> {
         Self::new(SingleItemCursor::new(item))
     }
 
+    #[must_use]
     pub fn from_range_inclusive(start: i64, end: i64) -> Self
     where
         N: Clone + 'static,
@@ -180,14 +188,19 @@ impl<N: 'static> XdmSequenceStream<N> {
         Self::new(RangeCursor::new(start, end))
     }
 
+    #[must_use]
     pub fn iter(&self) -> XdmSequenceStreamIter<N> {
         XdmSequenceStreamIter { cursor: self.cursor.boxed_clone() }
     }
 
+    #[must_use]
     pub fn cursor(&self) -> Box<dyn SequenceCursor<N>> {
         self.cursor.boxed_clone()
     }
 
+    #[must_use]
+    // Public API: `other` is taken by value to mirror `self`; changing it would break callers.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn chain(self, other: XdmSequenceStream<N>) -> Self
     where
         N: Clone + 'static,
@@ -197,6 +210,13 @@ impl<N: 'static> XdmSequenceStream<N> {
         Self::new(ChainCursor::new(left, right))
     }
 
+    /// Collect all items of the stream into a sequence.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first error produced while pulling items from the underlying cursor.
+    // The upper size hint is only traced; wrapping for hints above i64::MAX is harmless.
+    #[allow(clippy::cast_possible_wrap)]
     pub fn materialize(&self) -> Result<XdmSequence<N>, Error>
     where
         N: Clone,
@@ -231,6 +251,15 @@ impl<N> IntoIterator for XdmSequenceStream<N> {
 
     fn into_iter(self) -> Self::IntoIter {
         XdmSequenceStreamIter { cursor: self.cursor.boxed_clone() }
+    }
+}
+
+impl<N: 'static> IntoIterator for &XdmSequenceStream<N> {
+    type Item = XdmItemResult<N>;
+    type IntoIter = XdmSequenceStreamIter<N>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }
 
@@ -397,6 +426,8 @@ impl<N: 'static> SequenceCursor<N> for RangeCursor<N> {
         if self.current > self.end {
             (0, Some(0))
         } else {
+            // current <= end here, so the count is non-negative; a range beyond usize only skews the hint.
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let remaining = (self.end - self.current + 1) as usize;
             (remaining, Some(remaining))
         }
@@ -426,9 +457,9 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            XdmItem::Node(n) => write!(f, "{:?}", n),
+            XdmItem::Node(n) => write!(f, "{n:?}"),
             // Use pretty Display for atomics (quoted strings, humanized numerics, etc.)
-            XdmItem::Atomic(a) => write!(f, "{}", a),
+            XdmItem::Atomic(a) => write!(f, "{a}"),
         }
     }
 }
@@ -444,91 +475,97 @@ impl fmt::Display for ExpandedName {
 
 impl fmt::Display for XdmAtomicValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use XdmAtomicValue::*;
+        use XdmAtomicValue::{
+            AnyUri, Base64Binary, Boolean, Byte, Date, DateTime, DayTimeDuration, Decimal, Double, Entity, Float, GDay,
+            GMonth, GMonthDay, GYear, GYearMonth, HexBinary, Id, IdRef, Int, Integer, Language, Long, NCName, NMTOKEN,
+            Name, NegativeInteger, NonNegativeInteger, NonPositiveInteger, NormalizedString, Notation, PositiveInteger,
+            QName, Short, String, Time, Token, UnsignedByte, UnsignedInt, UnsignedLong, UnsignedShort, UntypedAtomic,
+            YearMonthDuration,
+        };
         match self {
-            Boolean(b) => write!(f, "{}", b),
-            String(s) => write!(f, "\"{}\"", s),
-            Integer(i) => write!(f, "{}", i),
+            Boolean(b) => write!(f, "{b}"),
+            String(s) => write!(f, "\"{s}\""),
+            Integer(i) => write!(f, "{i}"),
             Decimal(d) => write!(f, "{}D", d.normalize()),
-            Double(d) => write!(f, "{}E", d),
-            Float(fl) => write!(f, "{}F", fl),
-            AnyUri(u) => write!(f, "anyURI(\"{}\")", u),
+            Double(d) => write!(f, "{d}E"),
+            Float(fl) => write!(f, "{fl}F"),
+            AnyUri(u) => write!(f, "anyURI(\"{u}\")"),
             QName { ns_uri, prefix, local } => match (ns_uri, prefix) {
-                (Some(ns), Some(p)) => write!(f, "QName(ns='{}', {}:{})", ns, p, local),
-                (Some(ns), None) => write!(f, "QName(ns='{}', {})", ns, local),
-                (None, Some(p)) => write!(f, "QName({}:{})", p, local),
-                (None, None) => write!(f, "QName({})", local),
+                (Some(ns), Some(p)) => write!(f, "QName(ns='{ns}', {p}:{local})"),
+                (Some(ns), None) => write!(f, "QName(ns='{ns}', {local})"),
+                (None, Some(p)) => write!(f, "QName({p}:{local})"),
+                (None, None) => write!(f, "QName({local})"),
             },
-            UntypedAtomic(s) => write!(f, "untyped(\"{}\")", s),
+            UntypedAtomic(s) => write!(f, "untyped(\"{s}\")"),
             DateTime(dt) => write!(f, "dateTime({})", dt.to_rfc3339()),
             Date { date, tz } => match tz {
-                Some(tz) => write!(f, "date({} {})", date, tz),
-                None => write!(f, "date({})", date),
+                Some(tz) => write!(f, "date({date} {tz})"),
+                None => write!(f, "date({date})"),
             },
             Time { time, tz } => match tz {
-                Some(tz) => write!(f, "time({} {})", time, tz),
-                None => write!(f, "time({})", time),
+                Some(tz) => write!(f, "time({time} {tz})"),
+                None => write!(f, "time({time})"),
             },
-            YearMonthDuration(m) => write!(f, "ymDur({}m)", m),
-            DayTimeDuration(s) => write!(f, "dtDur({}s)", s),
-            Long(v) => write!(f, "{}L", v),
-            Int(v) => write!(f, "{}i", v),
-            Short(v) => write!(f, "{}s", v),
-            Byte(v) => write!(f, "{}b", v),
-            UnsignedLong(v) => write!(f, "{}UL", v),
-            UnsignedInt(v) => write!(f, "{}Ui", v),
-            UnsignedShort(v) => write!(f, "{}Us", v),
-            UnsignedByte(v) => write!(f, "{}Ub", v),
-            NonPositiveInteger(v) => write!(f, "{}(<=0)", v),
-            NegativeInteger(v) => write!(f, "{}(<0)", v),
-            NonNegativeInteger(v) => write!(f, "{}(>=0)", v),
-            PositiveInteger(v) => write!(f, "{}(>0)", v),
+            YearMonthDuration(m) => write!(f, "ymDur({m}m)"),
+            DayTimeDuration(s) => write!(f, "dtDur({s}s)"),
+            Long(v) => write!(f, "{v}L"),
+            Int(v) => write!(f, "{v}i"),
+            Short(v) => write!(f, "{v}s"),
+            Byte(v) => write!(f, "{v}b"),
+            UnsignedLong(v) => write!(f, "{v}UL"),
+            UnsignedInt(v) => write!(f, "{v}Ui"),
+            UnsignedShort(v) => write!(f, "{v}Us"),
+            UnsignedByte(v) => write!(f, "{v}Ub"),
+            NonPositiveInteger(v) => write!(f, "{v}(<=0)"),
+            NegativeInteger(v) => write!(f, "{v}(<0)"),
+            NonNegativeInteger(v) => write!(f, "{v}(>=0)"),
+            PositiveInteger(v) => write!(f, "{v}(>0)"),
             Base64Binary(s) => write!(f, "base64Binary(len={})", s.len()),
             HexBinary(s) => write!(f, "hexBinary(len={})", s.len()),
             GYear { year, tz } => match tz {
-                Some(tz) => write!(f, "gYear({} {})", year, tz),
-                None => write!(f, "gYear({})", year),
+                Some(tz) => write!(f, "gYear({year} {tz})"),
+                None => write!(f, "gYear({year})"),
             },
             GYearMonth { year, month, tz } => match tz {
-                Some(tz) => write!(f, "gYearMonth({}-{} {})", year, month, tz),
-                None => write!(f, "gYearMonth({}-{})", year, month),
+                Some(tz) => write!(f, "gYearMonth({year}-{month} {tz})"),
+                None => write!(f, "gYearMonth({year}-{month})"),
             },
             GMonth { month, tz } => match tz {
-                Some(tz) => write!(f, "gMonth({} {})", month, tz),
-                None => write!(f, "gMonth({})", month),
+                Some(tz) => write!(f, "gMonth({month} {tz})"),
+                None => write!(f, "gMonth({month})"),
             },
             GMonthDay { month, day, tz } => match tz {
-                Some(tz) => write!(f, "gMonthDay({}-{} {})", month, day, tz),
-                None => write!(f, "gMonthDay({}-{})", month, day),
+                Some(tz) => write!(f, "gMonthDay({month}-{day} {tz})"),
+                None => write!(f, "gMonthDay({month}-{day})"),
             },
             GDay { day, tz } => match tz {
-                Some(tz) => write!(f, "gDay({} {})", day, tz),
-                None => write!(f, "gDay({})", day),
+                Some(tz) => write!(f, "gDay({day} {tz})"),
+                None => write!(f, "gDay({day})"),
             },
-            NormalizedString(s) => write!(f, "normalizedString(\"{}\")", s),
-            Token(s) => write!(f, "token(\"{}\")", s),
-            Language(s) => write!(f, "language(\"{}\")", s),
-            Name(s) => write!(f, "name(\"{}\")", s),
-            NCName(s) => write!(f, "NCName(\"{}\")", s),
-            NMTOKEN(s) => write!(f, "NMTOKEN(\"{}\")", s),
-            Id(s) => write!(f, "ID(\"{}\")", s),
-            IdRef(s) => write!(f, "IDREF(\"{}\")", s),
-            Entity(s) => write!(f, "ENTITY(\"{}\")", s),
-            Notation(s) => write!(f, "NOTATION(\"{}\")", s),
+            NormalizedString(s) => write!(f, "normalizedString(\"{s}\")"),
+            Token(s) => write!(f, "token(\"{s}\")"),
+            Language(s) => write!(f, "language(\"{s}\")"),
+            Name(s) => write!(f, "name(\"{s}\")"),
+            NCName(s) => write!(f, "NCName(\"{s}\")"),
+            NMTOKEN(s) => write!(f, "NMTOKEN(\"{s}\")"),
+            Id(s) => write!(f, "ID(\"{s}\")"),
+            IdRef(s) => write!(f, "IDREF(\"{s}\")"),
+            Entity(s) => write!(f, "ENTITY(\"{s}\")"),
+            Notation(s) => write!(f, "NOTATION(\"{s}\")"),
         }
     }
 }
 
-/// Optional pretty-print wrapper for XdmItem that uses Display for atomics
+/// Optional pretty-print wrapper for `XdmItem` that uses Display for atomics
 /// (e.g., strings quoted) while keeping node items compact.
 pub struct PrettyItem<'a, N>(pub &'a XdmItem<N>);
 
-impl<'a, N: fmt::Debug> fmt::Display for PrettyItem<'a, N> {
+impl<N: fmt::Debug> fmt::Display for PrettyItem<'_, N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
             // Default: prefer Debug for nodes (always available via bound)
-            XdmItem::Node(n) => write!(f, "{:?}", n),
-            XdmItem::Atomic(a) => write!(f, "{}", a),
+            XdmItem::Node(n) => write!(f, "{n:?}"),
+            XdmItem::Atomic(a) => write!(f, "{a}"),
         }
     }
 }
@@ -540,10 +577,10 @@ impl<N> XdmItem<N> {
     }
 }
 
-/// Optional pretty-print wrapper for a sequence of XdmItem values.
+/// Optional pretty-print wrapper for a sequence of `XdmItem` values.
 pub struct PrettySeq<'a, N>(pub &'a [XdmItem<N>]);
 
-impl<'a, N: fmt::Debug> fmt::Display for PrettySeq<'a, N> {
+impl<N: fmt::Debug> fmt::Display for PrettySeq<'_, N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[")?;
         for (i, item) in self.0.iter().enumerate() {
@@ -565,14 +602,14 @@ impl<'a, N> PrettySeq<'a, N> {
 /// Optional pretty-print wrapper that prefers Display for node items when available.
 pub struct PrettyItemDisplay<'a, N>(pub &'a XdmItem<N>);
 
-impl<'a, N> fmt::Display for PrettyItemDisplay<'a, N>
+impl<N> fmt::Display for PrettyItemDisplay<'_, N>
 where
     N: fmt::Display + fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
-            XdmItem::Node(n) => write!(f, "{}", n),
-            XdmItem::Atomic(a) => write!(f, "{}", a),
+            XdmItem::Node(n) => write!(f, "{n}"),
+            XdmItem::Atomic(a) => write!(f, "{a}"),
         }
     }
 }
@@ -596,7 +633,7 @@ impl<'a, N> PrettySeqDisplay<'a, N> {
     }
 }
 
-impl<'a, N> fmt::Display for PrettySeqDisplay<'a, N>
+impl<N> fmt::Display for PrettySeqDisplay<'_, N>
 where
     N: fmt::Display + fmt::Debug,
 {
@@ -612,14 +649,14 @@ where
     }
 }
 
-/// Pretty printer for a single XdmItem using the XdmNode trait (no need for node Display).
+/// Pretty printer for a single `XdmItem` using the `XdmNode` trait (no need for node Display).
 pub struct PrettyNodeItem<'a, N>(pub &'a XdmItem<N>);
 
-impl<'a, N: XdmNode> fmt::Display for PrettyNodeItem<'a, N> {
+impl<N: XdmNode> fmt::Display for PrettyNodeItem<'_, N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fn qname_to_string(q: &QName) -> String {
             match (&q.prefix, &q.local) {
-                (Some(p), local) if !p.is_empty() => format!("{}:{}", p, local),
+                (Some(p), local) if !p.is_empty() => format!("{p}:{local}"),
                 _ => q.local.clone(),
             }
         }
@@ -633,51 +670,47 @@ impl<'a, N: XdmNode> fmt::Display for PrettyNodeItem<'a, N> {
             }
         }
         match self.0 {
-            XdmItem::Atomic(a) => write!(f, "{}", a),
+            XdmItem::Atomic(a) => write!(f, "{a}"),
             XdmItem::Node(n) => match n.kind() {
                 NodeKind::Document => {
                     let ch = n.children().count();
-                    write!(f, "document(children={})", ch)
+                    write!(f, "document(children={ch})")
                 }
                 NodeKind::Element => {
-                    let name = n.name().map(|q| qname_to_string(&q)).unwrap_or_else(|| "<unnamed>".to_string());
+                    let name = n.name().map_or_else(|| "<unnamed>".to_string(), |q| qname_to_string(&q));
                     let attrs = n.attributes().count();
                     let ch = n.children().count();
-                    write!(f, "<{} attrs={} children={}>", name, attrs, ch)
+                    write!(f, "<{name} attrs={attrs} children={ch}>")
                 }
                 NodeKind::Attribute => {
-                    let name = n.name().map(|q| qname_to_string(&q)).unwrap_or_else(|| "?".to_string());
+                    let name = n.name().map_or_else(|| "?".to_string(), |q| qname_to_string(&q));
                     let val = clip(&n.string_value());
-                    write!(f, "@{}=\"{}\"", name, val)
+                    write!(f, "@{name}=\"{val}\"")
                 }
                 NodeKind::Text => {
                     let val = clip(&n.string_value());
-                    write!(f, "\"{}\"", val)
+                    write!(f, "\"{val}\"")
                 }
                 NodeKind::Comment => {
                     let val = clip(&n.string_value());
-                    write!(f, "<!--{}-->", val)
+                    write!(f, "<!--{val}-->")
                 }
                 NodeKind::ProcessingInstruction => {
-                    let target = n.name().map(|q| q.local).unwrap_or_else(|| "".to_string());
+                    let target = n.name().map_or_else(String::new, |q| q.local);
                     let data = clip(&n.string_value());
-                    if target.is_empty() { write!(f, "<?{}?>", data) } else { write!(f, "<?{} {}?>", target, data) }
+                    if target.is_empty() { write!(f, "<?{data}?>") } else { write!(f, "<?{target} {data}?>") }
                 }
                 NodeKind::Namespace => {
                     let prefix = n.name().and_then(|q| q.prefix).unwrap_or_default();
                     let uri = n.string_value();
-                    if prefix.is_empty() {
-                        write!(f, "xmlns=\"{}\"", uri)
-                    } else {
-                        write!(f, "xmlns:{}=\"{}\"", prefix, uri)
-                    }
+                    if prefix.is_empty() { write!(f, "xmlns=\"{uri}\"") } else { write!(f, "xmlns:{prefix}=\"{uri}\"") }
                 }
             },
         }
     }
 }
 
-/// Pretty printer for a sequence using the XdmNode trait (no need for node Display).
+/// Pretty printer for a sequence using the `XdmNode` trait (no need for node Display).
 pub struct PrettyNodeSeq<'a, N>(pub &'a [XdmItem<N>]);
 
 impl<'a, N> PrettyNodeSeq<'a, N> {
@@ -686,7 +719,7 @@ impl<'a, N> PrettyNodeSeq<'a, N> {
     }
 }
 
-impl<'a, N: XdmNode> fmt::Display for PrettyNodeSeq<'a, N> {
+impl<N: XdmNode> fmt::Display for PrettyNodeSeq<'_, N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[")?;
         for (i, item) in self.0.iter().enumerate() {
@@ -717,42 +750,42 @@ mod tests {
 
     #[test]
     fn as_i128_long() {
-        assert_eq!(XdmAtomicValue::Long(i64::MAX).as_i128(), Some(i64::MAX as i128));
+        assert_eq!(XdmAtomicValue::Long(i64::MAX).as_i128(), Some(i128::from(i64::MAX)));
     }
 
     #[test]
     fn as_i128_int() {
-        assert_eq!(XdmAtomicValue::Int(i32::MIN).as_i128(), Some(i32::MIN as i128));
+        assert_eq!(XdmAtomicValue::Int(i32::MIN).as_i128(), Some(i128::from(i32::MIN)));
     }
 
     #[test]
     fn as_i128_short() {
-        assert_eq!(XdmAtomicValue::Short(i16::MAX).as_i128(), Some(i16::MAX as i128));
+        assert_eq!(XdmAtomicValue::Short(i16::MAX).as_i128(), Some(i128::from(i16::MAX)));
     }
 
     #[test]
     fn as_i128_byte() {
-        assert_eq!(XdmAtomicValue::Byte(i8::MIN).as_i128(), Some(i8::MIN as i128));
+        assert_eq!(XdmAtomicValue::Byte(i8::MIN).as_i128(), Some(i128::from(i8::MIN)));
     }
 
     #[test]
     fn as_i128_unsigned_long() {
-        assert_eq!(XdmAtomicValue::UnsignedLong(u64::MAX).as_i128(), Some(u64::MAX as i128));
+        assert_eq!(XdmAtomicValue::UnsignedLong(u64::MAX).as_i128(), Some(i128::from(u64::MAX)));
     }
 
     #[test]
     fn as_i128_unsigned_int() {
-        assert_eq!(XdmAtomicValue::UnsignedInt(u32::MAX).as_i128(), Some(u32::MAX as i128));
+        assert_eq!(XdmAtomicValue::UnsignedInt(u32::MAX).as_i128(), Some(i128::from(u32::MAX)));
     }
 
     #[test]
     fn as_i128_unsigned_short() {
-        assert_eq!(XdmAtomicValue::UnsignedShort(u16::MAX).as_i128(), Some(u16::MAX as i128));
+        assert_eq!(XdmAtomicValue::UnsignedShort(u16::MAX).as_i128(), Some(i128::from(u16::MAX)));
     }
 
     #[test]
     fn as_i128_unsigned_byte() {
-        assert_eq!(XdmAtomicValue::UnsignedByte(u8::MAX).as_i128(), Some(u8::MAX as i128));
+        assert_eq!(XdmAtomicValue::UnsignedByte(u8::MAX).as_i128(), Some(i128::from(u8::MAX)));
     }
 
     #[test]

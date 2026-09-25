@@ -1,10 +1,13 @@
 use super::common::{item_to_string, require_context_item};
 use crate::engine::runtime::{CallCtx, Error, ErrorCode};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence, XdmSequenceStream};
+use std::fmt::Write as _;
 use unicode_normalization::UnicodeNormalization;
 use url::Url;
 
-/// Stream-based default-collation() implementation.
+/// Stream-based `default-collation()` implementation.
+// Signature is fixed by the stream function registry (`register_stream_ns`).
+#[allow(clippy::unnecessary_wraps)]
 pub(super) fn default_collation_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     _args: &[XdmSequenceStream<N>],
@@ -20,7 +23,9 @@ pub(super) fn default_collation_stream<N: 'static + crate::model::XdmNode + Clon
     Ok(XdmSequenceStream::from_vec(result))
 }
 
-/// Stream-based static-base-uri() implementation.
+/// Stream-based `static-base-uri()` implementation.
+// Signature is fixed by the stream function registry (`register_stream_ns`).
+#[allow(clippy::unnecessary_wraps)]
 pub(super) fn static_base_uri_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     _args: &[XdmSequenceStream<N>],
@@ -33,7 +38,7 @@ pub(super) fn static_base_uri_stream<N: 'static + crate::model::XdmNode + Clone>
     Ok(XdmSequenceStream::from_vec(result))
 }
 
-/// Stream-based root() implementation.
+/// Stream-based `root()` implementation.
 ///
 /// Handles both 0-arity (uses context item) and 1-arity versions.
 pub(super) fn root_stream<N: 'static + crate::model::XdmNode + Clone>(
@@ -64,7 +69,7 @@ pub(super) fn root_stream<N: 'static + crate::model::XdmNode + Clone>(
             };
             Ok(XdmSequenceStream::from_vec(vec![XdmItem::Node(root)]))
         }
-        _ => Err(Error::from_code(ErrorCode::XPTY0004, "root() expects node()")),
+        XdmItem::Atomic(_) => Err(Error::from_code(ErrorCode::XPTY0004, "root() expects node()")),
     }
 }
 
@@ -87,7 +92,7 @@ pub(super) fn base_uri_fn<N: crate::model::XdmNode + Clone>(
                 Ok(vec![])
             }
         }
-        _ => Err(Error::from_code(ErrorCode::XPTY0004, "base-uri() expects node()")),
+        XdmItem::Atomic(_) => Err(Error::from_code(ErrorCode::XPTY0004, "base-uri() expects node()")),
     }
 }
 
@@ -126,7 +131,7 @@ pub(super) fn document_uri_fn<N: crate::model::XdmNode + Clone>(
             }
             Ok(vec![])
         }
-        _ => Err(Error::from_code(ErrorCode::XPTY0004, "document-uri() expects node()")),
+        XdmItem::Atomic(_) => Err(Error::from_code(ErrorCode::XPTY0004, "document-uri() expects node()")),
     }
 }
 
@@ -225,6 +230,9 @@ pub(super) fn encode_for_uri_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
+    fn is_unreserved(ch: char) -> bool {
+        ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '~')
+    }
     let seq: XdmSequence<N> = args[0].materialize()?;
     if seq.len() > 1 {
         return Err(Error::from_code(ErrorCode::FORG0006, "encode-for-uri expects at most one string argument"));
@@ -233,9 +241,6 @@ pub(super) fn encode_for_uri_stream<N: 'static + crate::model::XdmNode + Clone>(
         return Ok(XdmSequenceStream::from_vec(vec![XdmItem::Atomic(XdmAtomicValue::String(String::new()))]));
     }
     let s = item_to_string(&seq);
-    fn is_unreserved(ch: char) -> bool {
-        ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '~')
-    }
     let mut out = String::new();
     for ch in s.chars() {
         if is_unreserved(ch) {
@@ -244,7 +249,7 @@ pub(super) fn encode_for_uri_stream<N: 'static + crate::model::XdmNode + Clone>(
             let mut buf = [0u8; 4];
             for b in ch.encode_utf8(&mut buf).as_bytes() {
                 out.push('%');
-                out.push_str(&format!("{:02X}", b));
+                let _ = write!(out, "{b:02X}");
             }
         }
     }
@@ -299,7 +304,7 @@ pub(super) fn iri_to_uri_stream<N: 'static + crate::model::XdmNode + Clone>(
             let mut buf = [0u8; 4];
             for b in ch.encode_utf8(&mut buf).as_bytes() {
                 out.push('%');
-                out.push_str(&format!("{:02X}", b));
+                let _ = write!(out, "{b:02X}");
             }
         }
     }
@@ -327,7 +332,7 @@ pub(super) fn escape_html_uri_stream<N: 'static + crate::model::XdmNode + Clone>
             let mut buf = [0u8; 4];
             for b in ch.encode_utf8(&mut buf).as_bytes() {
                 out.push('%');
-                out.push_str(&format!("{:02X}", b));
+                let _ = write!(out, "{b:02X}");
             }
         }
     }
@@ -476,7 +481,7 @@ pub(super) fn collection_fn<N: crate::model::XdmNode + Clone>(
     if args.first().is_some_and(|seq| seq.len() > 1) {
         return Err(Error::from_code(ErrorCode::FORG0006, "collection() argument must be a single string"));
     }
-    let uri_opt = if args.is_empty() || args.first().is_some_and(|seq| seq.is_empty()) {
+    let uri_opt = if args.is_empty() || args.first().is_some_and(std::vec::Vec::is_empty) {
         None
     } else {
         Some(item_to_string(&args[0]))

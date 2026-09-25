@@ -171,7 +171,7 @@ pub(super) fn xs_qname_stream<N: 'static + crate::model::XdmNode + Clone>(
         return Ok(XdmSequenceStream::from_vec(vec![]));
     };
     let (prefix_opt, local) =
-        parse_qname_lexical(&s).map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:QName"))?;
+        parse_qname_lexical(&s).map_err(|()| Error::from_code(ErrorCode::FORG0001, "invalid xs:QName"))?;
     let ns_uri = match prefix_opt.as_deref() {
         None => None,
         Some("xml") => Some(crate::consts::XML_URI.to_string()),
@@ -286,7 +286,7 @@ pub(super) fn xs_day_time_duration_stream<N: 'static + crate::model::XdmNode + C
         return Ok(XdmSequenceStream::from_vec(vec![]));
     };
     let secs = parse_day_time_duration_secs(&s)
-        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:dayTimeDuration"))?;
+        .map_err(|()| Error::from_code(ErrorCode::FORG0001, "invalid xs:dayTimeDuration"))?;
     let result = vec![XdmItem::Atomic(XdmAtomicValue::DayTimeDuration(secs))];
     Ok(XdmSequenceStream::from_vec(result))
 }
@@ -361,7 +361,7 @@ pub(super) fn xs_year_month_duration_stream<N: 'static + crate::model::XdmNode +
         return Ok(XdmSequenceStream::from_vec(vec![]));
     };
     let months = parse_year_month_duration_months(&s)
-        .map_err(|_| Error::from_code(ErrorCode::FORG0001, "invalid xs:yearMonthDuration"))?;
+        .map_err(|()| Error::from_code(ErrorCode::FORG0001, "invalid xs:yearMonthDuration"))?;
     let result = vec![XdmItem::Atomic(XdmAtomicValue::YearMonthDuration(months))];
     Ok(XdmSequenceStream::from_vec(result))
 }
@@ -380,7 +380,9 @@ pub(super) fn xs_int_stream<N: 'static + crate::model::XdmNode + Clone>(
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result = int_subtype_i64(&[seq], i32::MIN as i64, i32::MAX as i64, |v| XdmAtomicValue::Int(v as i32))?;
+    // int_subtype_i64 range-checks the value against the target type's bounds first, so the cast is exact.
+    #[allow(clippy::cast_possible_truncation)]
+    let result = int_subtype_i64(&[seq], i64::from(i32::MIN), i64::from(i32::MAX), |v| XdmAtomicValue::Int(v as i32))?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -389,7 +391,10 @@ pub(super) fn xs_short_stream<N: 'static + crate::model::XdmNode + Clone>(
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result = int_subtype_i64(&[seq], i16::MIN as i64, i16::MAX as i64, |v| XdmAtomicValue::Short(v as i16))?;
+    // int_subtype_i64 range-checks the value against the target type's bounds first, so the cast is exact.
+    #[allow(clippy::cast_possible_truncation)]
+    let result =
+        int_subtype_i64(&[seq], i64::from(i16::MIN), i64::from(i16::MAX), |v| XdmAtomicValue::Short(v as i16))?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -398,7 +403,9 @@ pub(super) fn xs_byte_stream<N: 'static + crate::model::XdmNode + Clone>(
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result = int_subtype_i64(&[seq], i8::MIN as i64, i8::MAX as i64, |v| XdmAtomicValue::Byte(v as i8))?;
+    // int_subtype_i64 range-checks the value against the target type's bounds first, so the cast is exact.
+    #[allow(clippy::cast_possible_truncation)]
+    let result = int_subtype_i64(&[seq], i64::from(i8::MIN), i64::from(i8::MAX), |v| XdmAtomicValue::Byte(v as i8))?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -407,7 +414,9 @@ pub(super) fn xs_unsigned_long_stream<N: 'static + crate::model::XdmNode + Clone
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result = uint_subtype_u128(&[seq], 0, u64::MAX as u128, |v| XdmAtomicValue::UnsignedLong(v as u64))?;
+    // uint_subtype_u128 range-checks the value against the target type's bounds first, so the cast is exact.
+    #[allow(clippy::cast_possible_truncation)]
+    let result = uint_subtype_u128(&[seq], 0, u128::from(u64::MAX), |v| XdmAtomicValue::UnsignedLong(v as u64))?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -416,7 +425,9 @@ pub(super) fn xs_unsigned_int_stream<N: 'static + crate::model::XdmNode + Clone>
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result = uint_subtype_u128(&[seq], 0, u32::MAX as u128, |v| XdmAtomicValue::UnsignedInt(v as u32))?;
+    // uint_subtype_u128 range-checks the value against the target type's bounds first, so the cast is exact.
+    #[allow(clippy::cast_possible_truncation)]
+    let result = uint_subtype_u128(&[seq], 0, u128::from(u32::MAX), |v| XdmAtomicValue::UnsignedInt(v as u32))?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -425,7 +436,9 @@ pub(super) fn xs_unsigned_short_stream<N: 'static + crate::model::XdmNode + Clon
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result = uint_subtype_u128(&[seq], 0, u16::MAX as u128, |v| XdmAtomicValue::UnsignedShort(v as u16))?;
+    // uint_subtype_u128 range-checks the value against the target type's bounds first, so the cast is exact.
+    #[allow(clippy::cast_possible_truncation)]
+    let result = uint_subtype_u128(&[seq], 0, u128::from(u16::MAX), |v| XdmAtomicValue::UnsignedShort(v as u16))?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -434,7 +447,9 @@ pub(super) fn xs_unsigned_byte_stream<N: 'static + crate::model::XdmNode + Clone
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result = uint_subtype_u128(&[seq], 0, u8::MAX as u128, |v| XdmAtomicValue::UnsignedByte(v as u8))?;
+    // uint_subtype_u128 range-checks the value against the target type's bounds first, so the cast is exact.
+    #[allow(clippy::cast_possible_truncation)]
+    let result = uint_subtype_u128(&[seq], 0, u128::from(u8::MAX), |v| XdmAtomicValue::UnsignedByte(v as u8))?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -461,7 +476,9 @@ pub(super) fn xs_non_negative_integer_stream<N: 'static + crate::model::XdmNode 
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result = uint_subtype_u128(&[seq], 0, u64::MAX as u128, |v| XdmAtomicValue::NonNegativeInteger(v as u64))?;
+    // uint_subtype_u128 range-checks the value against the target type's bounds first, so the cast is exact.
+    #[allow(clippy::cast_possible_truncation)]
+    let result = uint_subtype_u128(&[seq], 0, u128::from(u64::MAX), |v| XdmAtomicValue::NonNegativeInteger(v as u64))?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 
@@ -470,7 +487,9 @@ pub(super) fn xs_positive_integer_stream<N: 'static + crate::model::XdmNode + Cl
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq: XdmSequence<N> = args[0].materialize()?;
-    let result = uint_subtype_u128(&[seq], 1, u64::MAX as u128, |v| XdmAtomicValue::PositiveInteger(v as u64))?;
+    // uint_subtype_u128 range-checks the value against the target type's bounds first, so the cast is exact.
+    #[allow(clippy::cast_possible_truncation)]
+    let result = uint_subtype_u128(&[seq], 1, u128::from(u64::MAX), |v| XdmAtomicValue::PositiveInteger(v as u64))?;
     Ok(XdmSequenceStream::from_vec(result))
 }
 

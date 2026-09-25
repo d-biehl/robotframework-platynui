@@ -236,7 +236,7 @@ Recommended verification by change type:
 |---|---|
 | Documentation only | Check links and examples touched by the change; run `just` if documented commands changed. |
 | Rust library/runtime change | `just check` and `just test-crate <package>`; use `just test` for shared behavior. |
-| XPath parser/evaluator change | `just test-crate platynui-xpath` plus targeted tests under `crates/xpath/tests/`. |
+| XPath parser/evaluator change | `just test-crate platynui-xpath` plus targeted tests under `crates/xpath/tests/it/`. |
 | Python or Robot Framework change | `just test-python`; also run `just ruff` and `just mypy` when editing typed Python. |
 | Native Python binding change | `just build-native-mock` and `just test-python`; add Rust tests if the Rust API changed. |
 | CLI or Inspector packaging change | `just build-cli` or `just build-inspector`; run relevant CLI/Inspector checks manually if behavior changed. |
@@ -319,7 +319,7 @@ End‑to‑end / acceptance:
 ## 9) Adding or changing public APIs
 
 - Rust public APIs: update crate modules and re‑export in `lib.rs` if part of external surface. Keep breaking changes minimal and documented in the PR.
-- XPath engine changes: add targeted tests under `crates/xpath/tests/` following existing naming (e.g., `evaluator_*.rs`, `parser_*.rs`).
+- XPath engine changes: add targeted tests under `crates/xpath/tests/it/` following existing naming (e.g., `evaluator_*.rs`, `parser_*.rs`), and declare each new file in `crates/xpath/tests/it/main.rs`. The directory is one test binary, so an undeclared file is not built.
 - Python RF library: extend `src/PlatynUI/__init__.py` or new modules imported there. Keep keyword names stable; document changes in README.
 - Rust/Python boundary changes belong in `packages/native`; keep binding code out of core logic crates.
 - CLI behavior changes should update help text, examples, and tests where practical.

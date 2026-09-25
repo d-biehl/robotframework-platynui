@@ -28,7 +28,7 @@ use cursors::{
 };
 use numeric::{NumKind, classify, unify_numeric};
 
-/// Evaluates a compiled XPath expression against a dynamic context.
+/// Evaluates a compiled `XPath` expression against a dynamic context.
 ///
 /// This function **materializes** the entire result sequence into memory before
 /// returning. For large result sets or when early termination is desired, prefer
@@ -64,11 +64,11 @@ pub fn evaluate<N: 'static + XdmNode + Clone>(
     evaluate_stream(compiled, dyn_ctx)?.materialize()
 }
 
-/// Evaluates a compiled XPath expression and returns a **lazy streaming** iterator.
+/// Evaluates a compiled `XPath` expression and returns a **lazy streaming** iterator.
 ///
 /// # Streaming Guarantees
 ///
-/// This function returns an iterator that evaluates the XPath expression **incrementally**.
+/// This function returns an iterator that evaluates the `XPath` expression **incrementally**.
 /// Results are produced on-demand without materializing the entire sequence in memory.
 ///
 /// ## Operations that Stream Efficiently
@@ -147,7 +147,7 @@ pub fn evaluate_stream<N: 'static + XdmNode + Clone>(
     vm.run(&compiled.instrs)
 }
 
-/// Convenience function: compiles and evaluates an XPath string using the default static context.
+/// Convenience function: compiles and evaluates an `XPath` string using the default static context.
 ///
 /// This is equivalent to calling [`compile`](crate::compile) followed by [`evaluate`].
 ///
@@ -165,6 +165,11 @@ pub fn evaluate_stream<N: 'static + XdmNode + Clone>(
 /// let results = evaluate_expr::<SimpleNode>("//item", &ctx).unwrap();
 /// assert_eq!(results.len(), 1);
 /// ```
+///
+/// # Errors
+///
+/// Returns a static error if `expr` fails to compile (for example a syntax
+/// error), and otherwise any error [`evaluate`] returns.
 pub fn evaluate_expr<N: 'static + XdmNode + Clone>(
     expr: &str,
     dyn_ctx: &DynamicContext<N>,
@@ -173,7 +178,7 @@ pub fn evaluate_expr<N: 'static + XdmNode + Clone>(
     evaluate(&compiled, dyn_ctx)
 }
 
-/// Convenience function: compiles and evaluates an XPath string as a **streaming** iterator.
+/// Convenience function: compiles and evaluates an `XPath` string as a **streaming** iterator.
 ///
 /// This is equivalent to calling [`compile`](crate::compile) followed by [`evaluate_stream`].
 ///
@@ -198,6 +203,11 @@ pub fn evaluate_expr<N: 'static + XdmNode + Clone>(
 ///     .collect();
 /// assert_eq!(values, vec!["1", "2"]);
 /// ```
+///
+/// # Errors
+///
+/// Returns a static error if `expr` fails to compile (for example a syntax
+/// error), and otherwise any error [`evaluate_stream`] returns.
 #[must_use = "iterators are lazy and do nothing unless consumed"]
 pub fn evaluate_stream_expr<N: 'static + XdmNode + Clone>(
     expr: &str,
@@ -207,7 +217,7 @@ pub fn evaluate_stream_expr<N: 'static + XdmNode + Clone>(
     evaluate_stream(&compiled, dyn_ctx)
 }
 
-/// Evaluates a compiled XPath expression and returns only the **first item** in the result sequence.
+/// Evaluates a compiled `XPath` expression and returns only the **first item** in the result sequence.
 ///
 /// This is a **fast-path** optimization for queries where only the first result is needed,
 /// such as existence checks (`exists()`) or first-item queries (`//item[1]`).
@@ -288,7 +298,7 @@ pub fn evaluate_first<N: 'static + XdmNode + Clone>(
     evaluate_stream(compiled, dyn_ctx)?.iter().next().transpose()
 }
 
-/// Convenience function: compiles and evaluates an XPath string, returning only the first item.
+/// Convenience function: compiles and evaluates an `XPath` string, returning only the first item.
 ///
 /// This is equivalent to calling [`compile`](crate::compile) followed by [`evaluate_first`].
 ///
@@ -309,6 +319,11 @@ pub fn evaluate_first<N: 'static + XdmNode + Clone>(
 ///     _ => panic!("Expected node"),
 /// }
 /// ```
+///
+/// # Errors
+///
+/// Returns a static error if `expr` fails to compile (for example a syntax
+/// error), and otherwise any error [`evaluate_first`] returns.
 pub fn evaluate_first_expr<N: 'static + XdmNode + Clone>(
     expr: &str,
     dyn_ctx: &DynamicContext<N>,
@@ -476,14 +491,14 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
     fn reset_to_snapshot(&mut self, snapshot: &VmSnapshot<N>) {
         self.compiled = Rc::clone(&snapshot.compiled);
         self.dyn_ctx = Rc::clone(&snapshot.dyn_ctx);
-        self.local_vars = snapshot.local_vars.clone();
-        self.frames = snapshot.frames.clone();
+        self.local_vars.clone_from(&snapshot.local_vars);
+        self.frames.clone_from(&snapshot.frames);
         self.default_collation = snapshot.default_collation.as_ref().map(Rc::clone);
         self.functions = Rc::clone(&snapshot.functions);
-        self.current_context_item = snapshot.current_context_item.clone();
+        self.current_context_item.clone_from(&snapshot.current_context_item);
         self.stack.clear();
         self.axis_buffer.clear();
-        self.cancel_flag = snapshot.dyn_ctx.cancel_flag.clone();
+        self.cancel_flag.clone_from(&snapshot.dyn_ctx.cancel_flag);
         self.set_fallback.clear();
     }
 
@@ -508,7 +523,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         Ok(())
     }
 
-    fn singleton_atomic_from_stream(&self, stream: XdmSequenceStream<N>) -> Result<XdmAtomicValue, Error> {
+    fn singleton_atomic_from_stream(stream: &XdmSequenceStream<N>) -> Result<XdmAtomicValue, Error> {
         use crate::xdm::XdmItem;
         let mut c = stream.cursor();
         let first = c
@@ -538,7 +553,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         Ok(atom)
     }
 
-    fn first_node_from_stream(&self, stream: XdmSequenceStream<N>) -> Option<N> {
+    fn first_node_from_stream(stream: &XdmSequenceStream<N>) -> Option<N> {
         use crate::xdm::XdmItem;
         let mut c = stream.cursor();
         match c.next_item()? {
@@ -547,13 +562,12 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         }
     }
 
-    fn to_number_stream(&self, stream: XdmSequenceStream<N>) -> Result<f64, Error> {
+    fn to_number_stream(stream: &XdmSequenceStream<N>) -> Result<f64, Error> {
         use crate::xdm::XdmItem;
         let mut c = stream.cursor();
         match c.next_item() {
-            None => Ok(f64::NAN),
-            Some(Ok(XdmItem::Atomic(a))) => Self::atomic_to_number(&a),
-            Some(Ok(XdmItem::Node(_))) => Ok(f64::NAN),
+            None | Some(Ok(XdmItem::Node(_))) => Ok(f64::NAN),
+            Some(Ok(XdmItem::Atomic(a))) => Ok(Self::atomic_to_number(&a)),
             Some(Err(e)) => Err(e),
         }
     }
@@ -571,6 +585,8 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
 
     // removed set_operation_stream; set ops materialize both operands for correctness
 
+    // The VM's opcode dispatch loop: one `match` arm per opcode.
+    #[allow(clippy::too_many_lines)]
     fn execute(&mut self, code: &InstrSeq) -> Result<(), Error> {
         let mut ip: usize = 0;
         let ops = &code.0;
@@ -599,12 +615,16 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     ip += 1;
                 }
                 OpCode::Position => {
-                    let v = self.frames.last().map(|f| f.pos).unwrap_or(0) as i64;
+                    // Positions are bounded by in-memory sequence lengths and fit in i64.
+                    #[allow(clippy::cast_possible_wrap)]
+                    let v = self.frames.last().map_or(0, |f| f.pos) as i64;
                     self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Integer(v))]);
                     ip += 1;
                 }
                 OpCode::Last => {
-                    let v = self.frames.last().map(|f| f.last).unwrap_or(0) as i64;
+                    // Sequence lengths are bounded by memory and fit in i64.
+                    #[allow(clippy::cast_possible_wrap)]
+                    let v = self.frames.last().map_or(0, |f| f.last) as i64;
                     self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Integer(v))]);
                     ip += 1;
                 }
@@ -654,7 +674,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 // Steps / filters
                 OpCode::AxisStep(axis, test, pred_ir) => {
                     let input_stream = self.pop_stream();
-                    let axis_cursor = AxisStepCursor::new(self.handle(), input_stream, axis.clone(), test.clone());
+                    let axis_cursor = AxisStepCursor::new(self.handle(), &input_stream, axis.clone(), test.clone());
                     let axis_stream = XdmSequenceStream::new(axis_cursor);
                     let filtered_stream = self.apply_predicates_stream(axis_stream, pred_ir);
                     self.push_stream(filtered_stream);
@@ -662,7 +682,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 }
                 OpCode::PathExprStep(step_ir) => {
                     let input_stream = self.pop_stream();
-                    let cursor = PathStepCursor::new(self.handle(), input_stream, step_ir.clone());
+                    let cursor = PathStepCursor::new(self.handle(), &input_stream, step_ir.clone());
                     self.push_stream(XdmSequenceStream::new(cursor));
                     ip += 1;
                 }
@@ -687,12 +707,47 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
 
                 // Arithmetic / logic
                 OpCode::Add | OpCode::Sub | OpCode::Mul | OpCode::Div | OpCode::IDiv | OpCode::Mod => {
+                    use NumKind::{Dec, Double, Float, Int};
                     use XdmAtomicValue as V;
+
+                    // Helper: add months to NaiveDate saturating day to end of month
+                    fn add_months_saturating(date: chrono::NaiveDate, delta_months: i32) -> chrono::NaiveDate {
+                        use chrono::{Datelike, NaiveDate};
+                        let y = date.year();
+                        // month() is 1..=12, so it fits in i32.
+                        #[allow(clippy::cast_possible_wrap)]
+                        let m = date.month() as i32; // 1-12
+                        // Avoid overflow by saturating arithmetic on months total
+                        let total = y.saturating_mul(12).saturating_add(m - 1).saturating_add(delta_months);
+                        let ny = total.div_euclid(12);
+                        let nm0 = total.rem_euclid(12);
+                        // rem_euclid(12) is 0..12, so the month is 1..=12 and fits in u32.
+                        #[allow(clippy::cast_sign_loss)]
+                        let nm = (nm0 + 1) as u32; // 1..=12
+                        // compute last day of target month
+                        // The explicit 30-day months mirror the calendar; `_` is an unreachable fallback.
+                        #[allow(clippy::match_same_arms)]
+                        let last_day: u32 = match nm {
+                            1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+                            4 | 6 | 9 | 11 => 30,
+                            2 => {
+                                let leap = (ny % 4 == 0 && ny % 100 != 0) || (ny % 400 == 0);
+                                if leap { 29 } else { 28 }
+                            }
+                            _ => 30,
+                        };
+                        let day = date.day().min(last_day);
+                        match NaiveDate::from_ymd_opt(ny, nm, day) {
+                            Some(valid) => valid,
+                            None => date, // fallback conservatively to original date
+                        }
+                    }
+
                     // Streamed singleton-atomics (with atomization of nodes)
                     let rhs_stream = self.pop_stream();
-                    let rhs_atom = self.singleton_atomic_from_stream(rhs_stream)?;
+                    let rhs_atom = Self::singleton_atomic_from_stream(&rhs_stream)?;
                     let lhs_stream = self.pop_stream();
-                    let lhs_atom = self.singleton_atomic_from_stream(lhs_stream)?;
+                    let lhs_atom = Self::singleton_atomic_from_stream(&lhs_stream)?;
                     let (mut a, mut b) = (lhs_atom, rhs_atom);
 
                     // Handle temporal arithmetic and duration ops before numeric normalization
@@ -705,34 +760,10 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     // - yearMonthDuration div yearMonthDuration -> double
                     // - dayTimeDuration div dayTimeDuration -> double
                     let op = &ops[ip];
-                    // Helper: add months to NaiveDate saturating day to end of month
-                    fn add_months_saturating(date: chrono::NaiveDate, delta_months: i32) -> chrono::NaiveDate {
-                        use chrono::{Datelike, NaiveDate};
-                        let y = date.year();
-                        let m = date.month() as i32; // 1-12
-                        // Avoid overflow by saturating arithmetic on months total
-                        let total = y.saturating_mul(12).saturating_add(m - 1).saturating_add(delta_months);
-                        let ny = total.div_euclid(12);
-                        let nm0 = total.rem_euclid(12);
-                        let nm = (nm0 + 1) as u32; // 1..=12
-                        // compute last day of target month
-                        let last_day = match nm {
-                            1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-                            4 | 6 | 9 | 11 => 30,
-                            2 => {
-                                let leap = (ny % 4 == 0 && ny % 100 != 0) || (ny % 400 == 0);
-                                if leap { 29 } else { 28 }
-                            }
-                            _ => 30,
-                        } as u32;
-                        let day = date.day().min(last_day);
-                        match NaiveDate::from_ymd_opt(ny, nm, day) {
-                            Some(valid) => valid,
-                            None => date, // fallback conservatively to original date
-                        }
-                    }
 
                     // Numeric value for a if numeric, else None
+                    // XPath promotes integers to xs:double here; rounding to the nearest double is intended.
+                    #[allow(clippy::cast_precision_loss)]
                     let classify_numeric = |v: &V| -> Option<f64> {
                         match v {
                             V::Integer(i) => Some(*i as f64),
@@ -741,34 +772,26 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                 Some(d.to_f64().unwrap_or(f64::NAN))
                             }
                             V::Double(d) => Some(*d),
-                            V::Float(f) => Some(*f as f64),
+                            V::Float(f) => Some(f64::from(*f)),
                             _ => None,
                         }
                     };
 
                     // duration * number and friends
+                    // Duration scaling runs in f64 and truncates toward zero (`as` saturates on overflow).
+                    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
                     let handled_temporal = match op {
                         OpCode::Add => {
                             match (&a, &b) {
-                                (V::DateTime(dt), V::DayTimeDuration(secs)) => {
+                                (V::DateTime(dt), V::DayTimeDuration(secs))
+                                | (V::DayTimeDuration(secs), V::DateTime(dt)) => {
                                     let ndt = *dt + ChronoDuration::seconds(*secs);
                                     self.push_seq(vec![XdmItem::Atomic(V::DateTime(ndt))]);
                                     ip += 1;
                                     true
                                 }
-                                (V::DayTimeDuration(secs), V::DateTime(dt)) => {
-                                    let ndt = *dt + ChronoDuration::seconds(*secs);
-                                    self.push_seq(vec![XdmItem::Atomic(V::DateTime(ndt))]);
-                                    ip += 1;
-                                    true
-                                }
-                                (V::Date { date, tz }, V::YearMonthDuration(months)) => {
-                                    let nd = add_months_saturating(*date, *months);
-                                    self.push_seq(vec![XdmItem::Atomic(V::Date { date: nd, tz: *tz })]);
-                                    ip += 1;
-                                    true
-                                }
-                                (V::YearMonthDuration(months), V::Date { date, tz }) => {
+                                (V::Date { date, tz }, V::YearMonthDuration(months))
+                                | (V::YearMonthDuration(months), V::Date { date, tz }) => {
                                     let nd = add_months_saturating(*date, *months);
                                     self.push_seq(vec![XdmItem::Atomic(V::Date { date: nd, tz: *tz })]);
                                     ip += 1;
@@ -876,7 +899,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                 }
                                 (V::YearMonthDuration(months), _) => {
                                     if let Some(n) = classify_numeric(&b) {
-                                        let v = (*months as f64 * n).trunc() as i32;
+                                        let v = (f64::from(*months) * n).trunc() as i32;
                                         self.push_seq(vec![XdmItem::Atomic(V::YearMonthDuration(v))]);
                                         ip += 1;
                                         true
@@ -896,7 +919,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                 }
                                 (_, V::YearMonthDuration(months)) => {
                                     if let Some(n) = classify_numeric(&a) {
-                                        let v = (*months as f64 * n).trunc() as i32;
+                                        let v = (f64::from(*months) * n).trunc() as i32;
                                         self.push_seq(vec![XdmItem::Atomic(V::YearMonthDuration(v))]);
                                         ip += 1;
                                         true
@@ -912,7 +935,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                 if *b_m == 0 {
                                     return Err(Error::from_code(ErrorCode::FOAR0001, "divide by zero"));
                                 }
-                                let v = *a_m as f64 / *b_m as f64;
+                                let v = f64::from(*a_m) / f64::from(*b_m);
                                 self.push_seq(vec![XdmItem::Atomic(V::Double(v))]);
                                 ip += 1;
                                 true
@@ -931,7 +954,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                     if n == 0.0 {
                                         return Err(Error::from_code(ErrorCode::FOAR0001, "divide by zero"));
                                     }
-                                    let v = (*months as f64 / n).trunc() as i32;
+                                    let v = (f64::from(*months) / n).trunc() as i32;
                                     self.push_seq(vec![XdmItem::Atomic(V::YearMonthDuration(v))]);
                                     ip += 1;
                                     true
@@ -954,7 +977,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                             }
                             _ => false,
                         },
-                        OpCode::IDiv | OpCode::Mod => false, // not supported for durations
+                        // IDiv and Mod are not supported for durations.
                         _ => false,
                     };
                     if handled_temporal {
@@ -978,16 +1001,12 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     a = norm_untyped(a)?;
                     b = norm_untyped(b)?;
 
-                    let (ka, kb) = match (classify(&a), classify(&b)) {
-                        (Some(x), Some(y)) => (x, y),
-                        _ => {
-                            return Err(Error::from_code(ErrorCode::XPTY0004, "non-numeric operand"));
-                        }
+                    let (Some(ka), Some(kb)) = (classify(&a), classify(&b)) else {
+                        return Err(Error::from_code(ErrorCode::XPTY0004, "non-numeric operand"));
                     };
                     let (ua, ub) = unify_numeric(ka, kb);
 
                     // Determine promoted result "kind" (excluding operation-specific adjustments)
-                    use NumKind::*;
                     let promoted_kind = match (ua, ub) {
                         (Double(_), _) | (_, Double(_)) => Double(0.0),
                         (Float(_), _) | (_, Float(_)) => Float(0.0),
@@ -1001,14 +1020,14 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     let mut pushed = false;
                     if matches!((ua, ub), (Int(_), Int(_))) {
                         let (ai, bi) = match (ua, ub) {
-                            (Int(x), Int(y)) => (x as i128, y as i128),
+                            (Int(x), Int(y)) => (i128::from(x), i128::from(y)),
                             _ => unreachable!("integer arithmetic path entered with non-integer operands"),
                         };
                         match &ops[ip] {
                             OpCode::Add => {
                                 if let Some(sum) = ai.checked_add(bi) {
-                                    if sum >= i64::MIN as i128 && sum <= i64::MAX as i128 {
-                                        self.push_seq(vec![XdmItem::Atomic(V::Integer(sum as i64))]);
+                                    if let Ok(v) = i64::try_from(sum) {
+                                        self.push_seq(vec![XdmItem::Atomic(V::Integer(v))]);
                                     } else {
                                         self.push_seq(vec![XdmItem::Atomic(V::Decimal(
                                             rust_decimal::Decimal::from_i128_with_scale(sum, 0),
@@ -1028,8 +1047,8 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                             }
                             OpCode::Sub => {
                                 if let Some(diff) = ai.checked_sub(bi) {
-                                    if diff >= i64::MIN as i128 && diff <= i64::MAX as i128 {
-                                        self.push_seq(vec![XdmItem::Atomic(V::Integer(diff as i64))]);
+                                    if let Ok(v) = i64::try_from(diff) {
+                                        self.push_seq(vec![XdmItem::Atomic(V::Integer(v))]);
                                     } else {
                                         self.push_seq(vec![XdmItem::Atomic(V::Decimal(
                                             rust_decimal::Decimal::from_i128_with_scale(diff, 0),
@@ -1048,8 +1067,8 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                             }
                             OpCode::Mul => {
                                 if let Some(prod) = ai.checked_mul(bi) {
-                                    if prod >= i64::MIN as i128 && prod <= i64::MAX as i128 {
-                                        self.push_seq(vec![XdmItem::Atomic(V::Integer(prod as i64))]);
+                                    if let Ok(v) = i64::try_from(prod) {
+                                        self.push_seq(vec![XdmItem::Atomic(V::Integer(v))]);
                                     } else {
                                         self.push_seq(vec![XdmItem::Atomic(V::Decimal(
                                             rust_decimal::Decimal::from_i128_with_scale(prod, 0),
@@ -1075,8 +1094,8 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                 let r = ai % bi;
                                 let needs_adjust = (r != 0) && ((ai ^ bi) < 0);
                                 let q_floor = if needs_adjust { q_trunc - 1 } else { q_trunc };
-                                if q_floor >= i64::MIN as i128 && q_floor <= i64::MAX as i128 {
-                                    self.push_seq(vec![XdmItem::Atomic(V::Integer(q_floor as i64))]);
+                                if let Ok(q) = i64::try_from(q_floor) {
+                                    self.push_seq(vec![XdmItem::Atomic(V::Integer(q))]);
                                 } else {
                                     // xs:integer result cannot be represented by our i64 storage → FOAR0002
                                     return Err(Error::from_code(
@@ -1098,11 +1117,13 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                 let q_floor = if needs_adjust { q_trunc - 1 } else { q_trunc };
                                 let rem = ai - bi * q_floor;
                                 // rem magnitude is < |bi|, thus guaranteed to fit into i64
-                                self.push_seq(vec![XdmItem::Atomic(V::Integer(rem as i64))]);
+                                #[allow(clippy::cast_possible_truncation)]
+                                let rem = rem as i64;
+                                self.push_seq(vec![XdmItem::Atomic(V::Integer(rem))]);
                                 ip += 1;
                                 pushed = true;
                             }
-                            OpCode::Div => {}
+                            // Div yields xs:decimal and is handled by the decimal path below.
                             _ => {}
                         }
                     }
@@ -1132,10 +1153,10 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                 V::Decimal(ad / bd)
                             }
                             OpCode::IDiv => {
+                                use rust_decimal::prelude::ToPrimitive;
                                 if bd.is_zero() {
                                     return Err(Error::from_code(ErrorCode::FOAR0001, "idiv by zero"));
                                 }
-                                use rust_decimal::prelude::ToPrimitive;
                                 let q = (ad / bd).floor();
                                 let qi = q.to_i64().ok_or_else(|| {
                                     Error::from_code(ErrorCode::FOAR0002, "idiv result overflows xs:integer range")
@@ -1198,6 +1219,9 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     // Determine result type (XPath 2.0 rules simplified):
                     // - idiv -> integer
                     // - div/add/sub/mul/mod -> Float or Double (Dec/Int paths handled above)
+                    // XPath numeric results: xs:double narrows to xs:float, integer results truncate
+                    // toward zero (range checked above for idiv), and i64 bounds round to f64.
+                    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
                     let result_atomic = match op {
                         OpCode::IDiv => {
                             // Guard overflow: xs:integer result must fit our i64 storage
@@ -1212,16 +1236,10 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                             }
                             V::Integer(result_value as i64)
                         }
-                        OpCode::Div => match promoted_kind {
-                            Double(_) => V::Double(result_value),
+                        OpCode::Add | OpCode::Sub | OpCode::Mul | OpCode::Div => match promoted_kind {
                             Float(_) => V::Float(result_value as f32),
-                            // Dec/Int div handled in Decimal path above; defensive fallback
-                            _ => V::Double(result_value),
-                        },
-                        OpCode::Add | OpCode::Sub | OpCode::Mul => match promoted_kind {
-                            Double(_) => V::Double(result_value),
-                            Float(_) => V::Float(result_value as f32),
-                            // Dec handled in Decimal path above; Int handled in integer path
+                            // Double, plus a defensive fallback: Dec is handled in the decimal path
+                            // above, Int in the integer path (and Int div in the decimal path).
                             _ => V::Double(result_value),
                         },
                         OpCode::Mod => match promoted_kind {
@@ -1239,12 +1257,12 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     let rhs_stream = self.pop_stream();
                     let lhs_stream = self.pop_stream();
                     let lhs_b = ebv_of_stream(&mut *lhs_stream.cursor())?;
-                    if !lhs_b {
-                        self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(false))]);
-                        ip += 1;
-                    } else {
+                    if lhs_b {
                         let rhs_b = ebv_of_stream(&mut *rhs_stream.cursor())?;
                         self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(rhs_b))]);
+                        ip += 1;
+                    } else {
+                        self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(false))]);
                         ip += 1;
                     }
                 }
@@ -1275,7 +1293,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 }
                 OpCode::Atomize => {
                     let v = self.pop_stream();
-                    let cursor = AtomizeCursor::new(v);
+                    let cursor = AtomizeCursor::new(&v);
                     self.push_stream(XdmSequenceStream::new(cursor));
                     ip += 1;
                 }
@@ -1295,10 +1313,10 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 OpCode::JumpIfFalse(delta) => {
                     let v = self.pop_stream();
                     let b = ebv_of_stream(&mut *v.cursor())?;
-                    if !b {
-                        ip += 1 + *delta;
-                    } else {
+                    if b {
                         ip += 1;
+                    } else {
+                        ip += 1 + *delta;
                     }
                 }
                 OpCode::Jump(delta) => {
@@ -1310,9 +1328,9 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     // Value comparison ( =, !=, lt, etc. with 'value' grammar) expects each side to be a singleton.
                     // Streamed singleton atomics (with node atomization) and direct atomic comparison.
                     let rhs_stream = self.pop_stream();
-                    let rhs_atom = self.singleton_atomic_from_stream(rhs_stream)?;
+                    let rhs_atom = Self::singleton_atomic_from_stream(&rhs_stream)?;
                     let lhs_stream = self.pop_stream();
-                    let lhs_atom = self.singleton_atomic_from_stream(lhs_stream)?;
+                    let lhs_atom = Self::singleton_atomic_from_stream(&lhs_stream)?;
                     let b = self.compare_atomic(&lhs_atom, &rhs_atom, *op)?;
                     self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
                     ip += 1;
@@ -1376,9 +1394,9 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 }
                 OpCode::NodeIs => {
                     let rhs_stream = self.pop_stream();
-                    let rhs = self.first_node_from_stream(rhs_stream);
+                    let rhs = Self::first_node_from_stream(&rhs_stream);
                     let lhs_stream = self.pop_stream();
-                    let lhs = self.first_node_from_stream(lhs_stream);
+                    let lhs = Self::first_node_from_stream(&lhs_stream);
                     let b = match (lhs, rhs) {
                         (Some(a), Some(b)) => a == b,
                         _ => false,
@@ -1389,9 +1407,9 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 OpCode::NodeBefore | OpCode::NodeAfter => {
                     let after = matches!(&ops[ip], OpCode::NodeAfter);
                     let rhs_stream = self.pop_stream();
-                    let rhs = self.first_node_from_stream(rhs_stream);
+                    let rhs = Self::first_node_from_stream(&rhs_stream);
                     let lhs_stream = self.pop_stream();
-                    let lhs = self.first_node_from_stream(lhs_stream);
+                    let lhs = Self::first_node_from_stream(&lhs_stream);
                     let b = match (lhs, rhs) {
                         (Some(a), Some(b)) => {
                             let ord = a.compare_document_order(&b)?;
@@ -1413,7 +1431,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     parts.reverse();
                     let mut iter = parts.into_iter();
                     if let Some(first) = iter.next() {
-                        let chained = iter.fold(first, |acc, stream| acc.chain(stream));
+                        let chained = iter.fold(first, super::super::xdm::XdmSequenceStream::chain);
                         self.push_stream(chained);
                     } else {
                         self.push_stream(XdmSequenceStream::empty());
@@ -1430,7 +1448,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     // Consume both operands as streams and compute union on nodes.
                     let rhs = self.pop_stream();
                     let lhs = self.pop_stream();
-                    let out = self.set_union_stream(lhs, rhs)?;
+                    let out = Self::set_union_stream(lhs, rhs)?;
                     self.push_seq(out);
                     ip += 1;
                 }
@@ -1439,8 +1457,8 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     let rhs = self.pop_stream();
                     let lhs = self.pop_stream();
                     let out = match &ops[ip] {
-                        OpCode::Intersect => self.set_intersect_stream(lhs, rhs)?,
-                        OpCode::Except => self.set_except_stream(lhs, rhs)?,
+                        OpCode::Intersect => self.set_intersect_stream(&lhs, &rhs)?,
+                        OpCode::Except => self.set_except_stream(&lhs, &rhs)?,
                         _ => unreachable!("expected Intersect or Except opcode"),
                     };
                     self.push_seq(out);
@@ -1448,11 +1466,12 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 }
                 OpCode::RangeTo => {
                     let end_stream = self.pop_stream();
-                    let end = self.to_number_stream(end_stream)?;
+                    let end = Self::to_number_stream(&end_stream)?;
                     let start_stream = self.pop_stream();
-                    let start = self.to_number_stream(start_stream)?;
-                    let a = start as i64;
-                    let b = end as i64;
+                    let start = Self::to_number_stream(&start_stream)?;
+                    // XPath range bounds are integers; `as` truncates and saturates (NaN becomes 0).
+                    #[allow(clippy::cast_possible_truncation)]
+                    let (a, b) = (start as i64, end as i64);
                     if a <= b {
                         self.push_stream(XdmSequenceStream::from_range_inclusive(a, b));
                     } else {
@@ -1478,13 +1497,13 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 }
                 OpCode::ForLoop { var, body } => {
                     let input_stream = self.pop_stream();
-                    let cursor = ForLoopCursor::new(self.handle(), input_stream, var.clone(), body.clone());
+                    let cursor = ForLoopCursor::new(self.handle(), &input_stream, var.clone(), body.clone());
                     self.push_stream(XdmSequenceStream::new(cursor));
                     ip += 1;
                 }
                 OpCode::QuantLoop { kind, var, body } => {
                     let input_stream = self.pop_stream();
-                    let cursor = QuantLoopCursor::new(self.handle(), input_stream, *kind, var.clone(), body.clone());
+                    let cursor = QuantLoopCursor::new(self.handle(), &input_stream, *kind, var.clone(), body.clone());
                     self.push_stream(XdmSequenceStream::new(cursor));
                     ip += 1;
                 }
@@ -1494,17 +1513,15 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     let stream = self.pop_stream();
                     // Enforce singleton/empty semantics without full materialization
                     let mut c = stream.cursor();
-                    let first = match c.next_item() {
-                        Some(it) => it?,
-                        None => {
-                            if t.optional {
-                                self.push_stream(XdmSequenceStream::empty());
-                                ip += 1;
-                                continue;
-                            } else {
-                                return Err(Error::from_code(ErrorCode::XPST0003, "empty not allowed"));
-                            }
+                    let first = if let Some(it) = c.next_item() {
+                        it?
+                    } else {
+                        if t.optional {
+                            self.push_stream(XdmSequenceStream::empty());
+                            ip += 1;
+                            continue;
                         }
+                        return Err(Error::from_code(ErrorCode::XPST0003, "empty not allowed"));
                     };
                     if c.next_item().is_some() {
                         return Err(Error::from_code(ErrorCode::XPTY0004, "cast of multi-item"));
@@ -1513,7 +1530,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                         XdmItem::Atomic(a) => a,
                         XdmItem::Node(n) => XdmAtomicValue::UntypedAtomic(n.string_value()),
                     };
-                    let casted = self.cast_atomic(val, &t.atomic)?;
+                    let casted = Self::cast_atomic(val, &t.atomic)?;
                     self.push_stream(XdmSequenceStream::from_item(XdmItem::Atomic(casted)));
                     ip += 1;
                 }
@@ -1551,7 +1568,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                                         false
                                     }
                                 } else {
-                                    self.cast_atomic(val, &t.atomic).is_ok()
+                                    Self::cast_atomic(val, &t.atomic).is_ok()
                                 }
                             }
                         }
@@ -1561,13 +1578,13 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 }
                 OpCode::Treat(t) => {
                     let input = self.pop_stream();
-                    let cursor = TreatCursor::new(self.handle(), input, t.clone());
+                    let cursor = TreatCursor::new(self.handle(), &input, t.clone());
                     self.push_stream(XdmSequenceStream::new(cursor));
                     ip += 1;
                 }
                 OpCode::InstanceOf(t) => {
                     let stream = self.pop_stream();
-                    let b = self.instance_of_stream(stream, t)?;
+                    let b = Self::instance_of_stream(&stream, t)?;
                     self.push_seq(vec![XdmItem::Atomic(XdmAtomicValue::Boolean(b))]);
                     ip += 1;
                 }
@@ -1615,7 +1632,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                         // No stream implementation found - error
                         return Err(Error::from_code(
                             ErrorCode::XPST0017,
-                            format!("unknown function: {{{:?}}}#{argc}", en),
+                            format!("unknown function: {{{en:?}}}#{argc}"),
                         ));
                     }
 
@@ -1713,8 +1730,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
     // - Else: use EBV of the result
 
     fn predicate_truth_value_stream(
-        &self,
-        stream: XdmSequenceStream<N>,
+        stream: &XdmSequenceStream<N>,
         position: usize,
         _last: usize,
     ) -> Result<bool, Error> {
@@ -1738,6 +1754,8 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     ));
                 }
                 // Singleton atomic: try numeric predicate special case first
+                // XPath compares numeric predicates as xs:double; rounding to the nearest double is intended.
+                #[allow(clippy::cast_precision_loss)]
                 let num_opt: Option<f64> = match &a {
                     A::Integer(i) => Some(*i as f64),
                     A::Decimal(d) => {
@@ -1745,7 +1763,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                         Some(d.to_f64().unwrap_or(f64::NAN))
                     }
                     A::Double(d) => Some(*d),
-                    A::Float(f) => Some(*f as f64),
+                    A::Float(f) => Some(f64::from(*f)),
                     A::UntypedAtomic(s) => s.parse::<f64>().ok(),
                     _ => None,
                 };
@@ -1753,7 +1771,10 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     if num.is_nan() {
                         return Ok(false);
                     }
-                    return Ok((num - (position as f64)).abs() < f64::EPSILON);
+                    // Positions are compared as xs:double; rounding to the nearest double is intended.
+                    #[allow(clippy::cast_precision_loss)]
+                    let position = position as f64;
+                    return Ok((num - position).abs() < f64::EPSILON);
                 }
                 // Otherwise EBV of singleton atomic
                 ebv_of_atomic(&a)

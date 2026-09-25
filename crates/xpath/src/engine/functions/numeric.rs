@@ -5,7 +5,7 @@ use super::common::{
 use crate::engine::runtime::{CallCtx, Error, ErrorCode};
 use crate::xdm::{XdmAtomicValue, XdmItem, XdmSequence, XdmSequenceStream};
 
-/// Stream-based number() implementation.
+/// Stream-based `number()` implementation.
 ///
 /// Handles both 0-arity (uses context item) and 1-arity versions.
 pub(super) fn number_stream<N: 'static + crate::model::XdmNode + Clone>(
@@ -20,37 +20,37 @@ pub(super) fn number_stream<N: 'static + crate::model::XdmNode + Clone>(
     };
     Ok(XdmSequenceStream::from_vec(result))
 }
-/// Stream-based abs() implementation.
+/// Stream-based `abs()` implementation.
 pub(super) fn abs_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq = args[0].materialize()?;
-    let result = num_unary(&[seq], |n| n.abs());
+    let result = num_unary(&[seq], f64::abs);
     Ok(XdmSequenceStream::from_vec(result))
 }
 
-/// Stream-based floor() implementation.
+/// Stream-based `floor()` implementation.
 pub(super) fn floor_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq = args[0].materialize()?;
-    let result = num_unary(&[seq], |n| n.floor());
+    let result = num_unary(&[seq], f64::floor);
     Ok(XdmSequenceStream::from_vec(result))
 }
 
-/// Stream-based ceiling() implementation.
+/// Stream-based `ceiling()` implementation.
 pub(super) fn ceiling_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
     let seq = args[0].materialize()?;
-    let result = num_unary(&[seq], |n| n.ceil());
+    let result = num_unary(&[seq], f64::ceil);
     Ok(XdmSequenceStream::from_vec(result))
 }
 
-/// Stream-based round() implementation.
+/// Stream-based `round()` implementation.
 ///
 /// Handles both 1-arity and 2-arity versions.
 pub(super) fn round_stream<N: 'static + crate::model::XdmNode + Clone>(
@@ -67,7 +67,7 @@ pub(super) fn round_stream<N: 'static + crate::model::XdmNode + Clone>(
     Ok(XdmSequenceStream::from_vec(result))
 }
 
-/// Stream-based round-half-to-even() implementation.
+/// Stream-based `round-half-to-even()` implementation.
 ///
 /// Handles both 1-arity and 2-arity versions.
 pub(super) fn round_half_to_even_stream<N: 'static + crate::model::XdmNode + Clone>(
@@ -84,24 +84,27 @@ pub(super) fn round_half_to_even_stream<N: 'static + crate::model::XdmNode + Clo
     Ok(XdmSequenceStream::from_vec(result))
 }
 
-/// Stream-based avg() implementation.
+/// Stream-based `avg()` implementation.
 ///
 /// Materializes input and performs average calculation.
+// One accumulation pass over shared numeric/duration accumulators; splitting it would scatter that state.
+#[allow(clippy::too_many_lines)]
 pub(super) fn avg_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
 ) -> Result<XdmSequenceStream<N>, Error> {
+    enum AvgState {
+        Numeric,
+        YearMonth,
+        DayTime,
+    }
+
     let seq = args[0].materialize()?;
 
     if seq.is_empty() {
         return Ok(XdmSequenceStream::empty());
     }
 
-    enum AvgState {
-        Numeric,
-        YearMonth,
-        DayTime,
-    }
     let mut state: Option<AvgState> = None;
     let mut kind = NumericKind::Integer;
     let mut int_acc: i128 = 0;
@@ -119,12 +122,12 @@ pub(super) fn avg_stream<N: 'static + crate::model::XdmNode + Clone>(
             XdmAtomicValue::YearMonthDuration(months) => {
                 state = match state {
                     None => {
-                        ym_total = *months as i64;
+                        ym_total = i64::from(*months);
                         Some(AvgState::YearMonth)
                     }
                     Some(AvgState::YearMonth) => {
                         ym_total = ym_total
-                            .checked_add(*months as i64)
+                            .checked_add(i64::from(*months))
                             .ok_or_else(|| Error::from_code(ErrorCode::FOAR0002, "yearMonthDuration overflow"))?;
                         Some(AvgState::YearMonth)
                     }
@@ -136,12 +139,12 @@ pub(super) fn avg_stream<N: 'static + crate::model::XdmNode + Clone>(
             XdmAtomicValue::DayTimeDuration(secs) => {
                 state = match state {
                     None => {
-                        dt_total = *secs as i128;
+                        dt_total = i128::from(*secs);
                         Some(AvgState::DayTime)
                     }
                     Some(AvgState::DayTime) => {
                         dt_total = dt_total
-                            .checked_add(*secs as i128)
+                            .checked_add(i128::from(*secs))
                             .ok_or_else(|| Error::from_code(ErrorCode::FOAR0002, "dayTimeDuration overflow"))?;
                         Some(AvgState::DayTime)
                     }
@@ -151,13 +154,12 @@ pub(super) fn avg_stream<N: 'static + crate::model::XdmNode + Clone>(
                 };
             }
             _ => {
-                if let Some((nk, num)) = classify_numeric(a)? {
+                if let Some((nk, num)) = classify_numeric(a) {
                     if nk == NumericKind::Double && num.is_nan() {
                         return Ok(XdmSequenceStream::from_item(XdmItem::Atomic(XdmAtomicValue::Double(f64::NAN))));
                     }
                     state = match state {
-                        None => Some(AvgState::Numeric),
-                        Some(AvgState::Numeric) => Some(AvgState::Numeric),
+                        None | Some(AvgState::Numeric) => Some(AvgState::Numeric),
                         _ => {
                             return Err(Error::from_code(ErrorCode::XPTY0004, "avg requires values of a single type"));
                         }
@@ -231,10 +233,10 @@ pub(super) fn avg_stream<N: 'static + crate::model::XdmNode + Clone>(
             XdmAtomicValue::YearMonthDuration(months)
         }
         AvgState::DayTime => {
-            if dt_total % (count as i128) != 0 {
+            if dt_total % i128::from(count) != 0 {
                 return Err(Error::from_code(ErrorCode::FOAR0002, "average dayTimeDuration has fractional seconds"));
             }
-            let secs: i64 = (dt_total / (count as i128))
+            let secs: i64 = (dt_total / i128::from(count))
                 .try_into()
                 .map_err(|_| Error::from_code(ErrorCode::FOAR0002, "dayTimeDuration overflow"))?;
             XdmAtomicValue::DayTimeDuration(secs)
@@ -246,9 +248,9 @@ pub(super) fn avg_stream<N: 'static + crate::model::XdmNode + Clone>(
 
 //---- Stream-based aggregate functions ----
 
-/// Stream-based sum() implementation.
+/// Stream-based `sum()` implementation.
 ///
-/// Materializes the input stream and delegates to existing sum_default().
+/// Materializes the input stream and delegates to existing `sum_default()`.
 /// Performance: O(n) iteration with accumulation logic.
 pub(super) fn sum_stream<N: 'static + crate::model::XdmNode + Clone>(
     _ctx: &CallCtx<N>,
@@ -266,9 +268,9 @@ pub(super) fn sum_stream<N: 'static + crate::model::XdmNode + Clone>(
     Ok(XdmSequenceStream::from_vec(result))
 }
 
-/// Stream-based min() implementation.
+/// Stream-based `min()` implementation.
 ///
-/// Materializes input and delegates to minmax_impl() with is_min=true.
+/// Materializes input and delegates to `minmax_impl()` with `is_min=true`.
 pub(super) fn min_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],
@@ -291,9 +293,9 @@ pub(super) fn min_stream<N: 'static + crate::model::XdmNode + Clone>(
     Ok(XdmSequenceStream::from_vec(result))
 }
 
-/// Stream-based max() implementation.
+/// Stream-based `max()` implementation.
 ///
-/// Materializes input and delegates to minmax_impl() with is_min=false.
+/// Materializes input and delegates to `minmax_impl()` with `is_min=false`.
 pub(super) fn max_stream<N: 'static + crate::model::XdmNode + Clone>(
     ctx: &CallCtx<N>,
     args: &[XdmSequenceStream<N>],

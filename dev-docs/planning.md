@@ -415,7 +415,7 @@ From the XPath streaming analysis:
 - [x] `evaluate_first()` fast path — stop after first match (`crates/xpath/src/engine/evaluator/mod.rs`: streams and stops at first match, ~230x faster)
 - [x] Constant folding in compiler (`crates/xpath/src/compiler/optimizer.rs`: `fold_constants()` evaluates `PushAtomic + BinaryOp` at compile time)
 - [x] Positional predicate fast-paths and early termination — recognize all comparison operators (`<`, `>`, `>=`, `<=`, `=`) for `position()` predicates, skip VM evaluation; stop iteration once no further matches are possible (`crates/xpath/src/engine/evaluator/cursors.rs`: `classify_predicate_fast()`, `PredicateFastKind`, early exit in `PredicateCursor::next_item()`)
-- [x] Comprehensive streaming predicate tests — 35 tests covering all positional operators, edge cases (zero, negative), sibling axes with predicates, nested/chained predicates, `last()`-based predicates (`crates/xpath/tests/evaluator_streaming.rs`)
+- [x] Comprehensive streaming predicate tests — 35 tests covering all positional operators, edge cases (zero, negative), sibling axes with predicates, nested/chained predicates, `last()`-based predicates (`crates/xpath/tests/it/evaluator_streaming.rs`)
 - [x] Streaming completeness audit and micro-optimizations — 34 `.collect()` calls reviewed; 30 structurally necessary. 4 micro-optimizations implemented: in-place `reverse()` in `sequences.rs`, direct `stack.extend()` + slice reverse for DFS in `ids.rs` (2 sites), streaming children comparison in `node_deep_equal` in `common.rs`
 - [ ] Memory profiling and benchmark suite
 - [ ] Persistent XPath caching & snapshot layer (if performance demands)

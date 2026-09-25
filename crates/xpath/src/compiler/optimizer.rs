@@ -32,7 +32,7 @@ use super::ir::{AxisIR, InstrSeq, OpCode};
 ///
 /// # Safety
 ///
-/// The optimizer preserves XPath semantics. Predicates are only pushed down when:
+/// The optimizer preserves `XPath` semantics. Predicates are only pushed down when:
 /// - They don't depend on the full sequence (e.g., `last()` is safe with caveats)
 /// - Document order is maintained
 /// - Position context is correctly preserved
@@ -49,6 +49,7 @@ use super::ir::{AxisIR, InstrSeq, OpCode};
 /// let optimized = optimize(instrs);
 /// // IR: AxisStep(Descendant, ..., [@id='foo'])
 /// ```
+#[must_use]
 pub fn optimize(mut seq: InstrSeq) -> InstrSeq {
     fold_constants(&mut seq.0);
     push_down_predicates(&mut seq.0);
@@ -64,7 +65,7 @@ fn push_down_predicates(instrs: &mut Vec<OpCode>) {
     // First, recursively optimize all nested sequences
     for instr in instrs.iter_mut() {
         match instr {
-            OpCode::AxisStep(_, _, preds) => {
+            OpCode::AxisStep(_, _, preds) | OpCode::ApplyPredicates(preds) => {
                 for pred in preds {
                     push_down_predicates(&mut pred.0);
                 }
@@ -72,15 +73,7 @@ fn push_down_predicates(instrs: &mut Vec<OpCode>) {
             OpCode::PathExprStep(inner) => {
                 push_down_predicates(&mut inner.0);
             }
-            OpCode::ApplyPredicates(preds) => {
-                for pred in preds {
-                    push_down_predicates(&mut pred.0);
-                }
-            }
-            OpCode::ForLoop { var: _, body } => {
-                push_down_predicates(&mut body.0);
-            }
-            OpCode::QuantLoop { kind: _, var: _, body } => {
+            OpCode::ForLoop { var: _, body } | OpCode::QuantLoop { kind: _, var: _, body } => {
                 push_down_predicates(&mut body.0);
             }
             _ => {}
@@ -189,11 +182,13 @@ fn can_push_down_to_axis(_axis: &AxisIR, _predicates: &[InstrSeq]) -> bool {
 /// ```text
 /// PushAtomic(result)
 /// ```
+// One folding table over operator and operand-type combinations; it keeps its shape.
+#[allow(clippy::too_many_lines)]
 fn fold_constants(instrs: &mut Vec<OpCode>) {
     // First, recursively fold constants in nested sequences
     for instr in instrs.iter_mut() {
         match instr {
-            OpCode::AxisStep(_, _, preds) => {
+            OpCode::AxisStep(_, _, preds) | OpCode::ApplyPredicates(preds) => {
                 for pred in preds {
                     fold_constants(&mut pred.0);
                 }
@@ -201,15 +196,7 @@ fn fold_constants(instrs: &mut Vec<OpCode>) {
             OpCode::PathExprStep(inner) => {
                 fold_constants(&mut inner.0);
             }
-            OpCode::ApplyPredicates(preds) => {
-                for pred in preds {
-                    fold_constants(&mut pred.0);
-                }
-            }
-            OpCode::ForLoop { var: _, body } => {
-                fold_constants(&mut body.0);
-            }
-            OpCode::QuantLoop { kind: _, var: _, body } => {
+            OpCode::ForLoop { var: _, body } | OpCode::QuantLoop { kind: _, var: _, body } => {
                 fold_constants(&mut body.0);
             }
             _ => {}

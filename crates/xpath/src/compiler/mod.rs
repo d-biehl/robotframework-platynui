@@ -16,12 +16,26 @@ fn default_static_ctx() -> &'static StaticContext {
     DEFAULT_STATIC_CONTEXT.get_or_init(StaticContext::default)
 }
 
-/// Compile using a lazily initialized default StaticContext
+/// Compile using a lazily initialized default `StaticContext`
+///
+/// # Errors
+///
+/// Returns an `XPST0003` error if `expr` is not syntactically valid or uses a construct the static
+/// context rules out (a schema-aware type test, or the context item while it is statically typed as
+/// `empty-sequence()`), `XPST0008` for an undeclared variable, `XPST0017` for an unknown function or
+/// a call with an unsupported arity, and `FOER0000` if the compile cache lock is poisoned.
 pub fn compile(expr: &str) -> Result<ir::CompiledXPath, Error> {
     compile_inner(expr, default_static_ctx())
 }
 
-/// Compile with an explicitly provided StaticContext
+/// Compile with an explicitly provided `StaticContext`
+///
+/// # Errors
+///
+/// Returns an `XPST0003` error if `expr` is not syntactically valid or uses a construct the static
+/// context rules out (a schema-aware type test, or the context item while it is statically typed as
+/// `empty-sequence()`), `XPST0008` for an undeclared variable, `XPST0017` for an unknown function or
+/// a call with an unsupported arity, and `FOER0000` if the compile cache lock is poisoned.
 pub fn compile_with_context(expr: &str, static_ctx: &StaticContext) -> Result<ir::CompiledXPath, Error> {
     compile_inner(expr, static_ctx)
 }
@@ -129,17 +143,22 @@ impl<'a> Compiler<'a> {
             || self.static_ctx.in_scope_variables.contains(name)
     }
 
+    // The central lowering dispatch: one arm per expression kind.
+    #[allow(clippy::too_many_lines)]
     fn lower_expr(&mut self, e: &ast::Expr) -> CResult<()> {
         use ast::Expr as E;
         match e {
-            E::Literal(l) => self.lower_literal(l),
+            E::Literal(l) => {
+                self.lower_literal(l);
+                Ok(())
+            }
             E::Parenthesized(inner) => self.lower_expr(inner),
             E::VarRef(q) => {
                 let en = self.to_expanded(q);
                 if !self.var_in_scope(&en) {
                     return Err(Error::from_code(
                         ErrorCode::XPST0008,
-                        format!("Variable ${} is not declared in the static context", en),
+                        format!("Variable ${en} is not declared in the static context"),
                     ));
                 }
                 self.emit(ir::OpCode::LoadVarByName(en));
@@ -163,11 +182,11 @@ impl<'a> Compiler<'a> {
                     .static_ctx
                     .function_signatures
                     .param_types_for_call(&en, args.len(), self.static_ctx.default_function_namespace.as_deref())
-                    .map(|kinds| kinds.to_vec());
+                    .map(<[crate::engine::runtime::ParamTypeSpec]>::to_vec);
                 for (idx, a) in args.iter().enumerate() {
                     self.lower_expr(a)?;
                     if let Some(specs) = &param_specs
-                        && specs.get(idx).is_some_and(|spec| spec.requires_atomization())
+                        && specs.get(idx).is_some_and(super::engine::runtime::ParamTypeSpec::requires_atomization)
                     {
                         self.emit(ir::OpCode::Atomize);
                     }
@@ -189,7 +208,7 @@ impl<'a> Compiler<'a> {
                 Ok(())
             }
             E::Binary { left, op, right } => {
-                use ast::BinaryOp::*;
+                use ast::BinaryOp::{Add, And, Div, IDiv, Mod, Mul, Or, Sub};
 
                 // Special handling for And/Or to enable short-circuit evaluation
                 match op {
@@ -285,9 +304,9 @@ impl<'a> Compiler<'a> {
                 Ok(())
             }
             E::NodeComparison { left, op, right } => {
+                use ast::NodeComp::{Follows, Is, Precedes};
                 self.lower_expr(left)?;
                 self.lower_expr(right)?;
-                use ast::NodeComp::*;
                 self.emit(match op {
                     Is => ir::OpCode::NodeIs,
                     Precedes => ir::OpCode::NodeBefore,
@@ -341,12 +360,12 @@ impl<'a> Compiler<'a> {
             }
             E::CastableAs { expr, ty } => {
                 self.lower_expr(expr)?;
-                self.emit(ir::OpCode::Castable(self.lower_single_type(ty)?));
+                self.emit(ir::OpCode::Castable(self.lower_single_type(ty)));
                 Ok(())
             }
             E::CastAs { expr, ty } => {
                 self.lower_expr(expr)?;
-                self.emit(ir::OpCode::Cast(self.lower_single_type(ty)?));
+                self.emit(ir::OpCode::Cast(self.lower_single_type(ty)));
                 Ok(())
             }
             E::ContextItem => self.load_context_item("the context item expression"),
@@ -401,13 +420,13 @@ impl<'a> Compiler<'a> {
                 Ok(())
             }
             E::SetOp { left, op, right } => {
+                use ast::SetOp::{Except, Intersect, Union};
                 self.lower_expr(left)?;
                 // Lower right in an isolated compiler fork to avoid state bleed
                 let mut right_comp = self.fork();
                 right_comp.lower_expr(right)?;
                 let right_code = right_comp.code;
                 self.code.extend(right_code);
-                use ast::SetOp::*;
                 match op {
                     Union => {
                         // Emit dedicated Union opcode (evaluator handles doc-order + distinct for nodes)
@@ -421,8 +440,8 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn lower_literal(&mut self, l: &ast::Literal) -> CResult<()> {
-        use ast::Literal::*;
+    fn lower_literal(&mut self, l: &ast::Literal) {
+        use ast::Literal::{AnyUri, Boolean, Decimal, Double, Integer, String, UntypedAtomic};
         let v = match l {
             Integer(i) => XdmAtomicValue::Integer(*i),
             Decimal(d) => XdmAtomicValue::Decimal(*d),
@@ -433,7 +452,6 @@ impl<'a> Compiler<'a> {
             UntypedAtomic(s) => XdmAtomicValue::UntypedAtomic(s.to_string()),
         };
         self.emit(ir::OpCode::PushAtomic(v));
-        Ok(())
     }
 
     fn lower_predicates(&mut self, preds: &[ast::Expr]) -> CResult<Vec<ir::InstrSeq>> {
@@ -526,7 +544,7 @@ impl<'a> Compiler<'a> {
         for s in steps {
             match s {
                 ast::Step::Axis { axis, test, predicates } => {
-                    let axis_ir = self.map_axis(axis);
+                    let axis_ir = Self::map_axis(axis);
                     let test_ir = self.map_node_test_checked(test, &axis_ir)?;
                     let preds = self.lower_predicates(predicates)?;
                     self.emit(ir::OpCode::AxisStep(axis_ir.clone(), test_ir.clone(), preds));
@@ -534,14 +552,14 @@ impl<'a> Compiler<'a> {
                     // For child/attribute/self the concatenation over a doc-ordered, distinct
                     // input remains doc-ordered and duplicate-free.
                     match axis_ir {
-                        // Forward axes that do not introduce duplicates and preserve order
-                        ir::AxisIR::Child | ir::AxisIR::SelfAxis => {}
+                        // Forward axes that do not introduce duplicates and preserve order;
+                        // attribute/namespace need no normalization either
+                        ir::AxisIR::Child | ir::AxisIR::SelfAxis | ir::AxisIR::Attribute | ir::AxisIR::Namespace => {}
                         // Forward axes that may introduce duplicates but keep order
                         ir::AxisIR::Descendant
                         | ir::AxisIR::DescendantOrSelf
                         | ir::AxisIR::Following
                         | ir::AxisIR::FollowingSibling => self.emit(ir::OpCode::EnsureDistinct),
-                        ir::AxisIR::Attribute | ir::AxisIR::Namespace => { /* no normalization needed */ }
                         // Reverse axes need both: order and distinct
                         ir::AxisIR::Parent
                         | ir::AxisIR::Ancestor
@@ -568,8 +586,11 @@ impl<'a> Compiler<'a> {
 
     // no special optimistic streaming hints; evaluator handles streaming per axis
 
-    fn map_axis(&self, a: &ast::Axis) -> ir::AxisIR {
-        use ast::Axis::*;
+    fn map_axis(a: &ast::Axis) -> ir::AxisIR {
+        use ast::Axis::{
+            Ancestor, AncestorOrSelf, Attribute, Child, Descendant, DescendantOrSelf, Following, FollowingSibling,
+            Namespace, Parent, Preceding, PrecedingSibling, SelfAxis,
+        };
         match a {
             Child => ir::AxisIR::Child,
             Descendant => ir::AxisIR::Descendant,
@@ -619,13 +640,13 @@ impl<'a> Compiler<'a> {
                 },
             },
             ast::NodeTest::Kind(k) => {
-                self.validate_kind_test(k)?;
+                Self::validate_kind_test(k)?;
                 self.map_kind_test(k)
             }
         })
     }
 
-    fn validate_kind_test(&self, k: &ast::KindTest) -> CResult<()> {
+    fn validate_kind_test(k: &ast::KindTest) -> CResult<()> {
         use ast::KindTest as K;
         match k {
             K::Element { ty, nillable, .. } => {
@@ -679,7 +700,7 @@ impl<'a> Compiler<'a> {
                 ty: ty.as_ref().map(|t| {
                     let mut expanded = self.to_expanded(&t.0);
                     if expanded.ns_uri.is_none() && self.static_ctx.default_element_namespace.is_some() {
-                        expanded.ns_uri = self.static_ctx.default_element_namespace.clone();
+                        expanded.ns_uri.clone_from(&self.static_ctx.default_element_namespace);
                     }
                     expanded
                 }),
@@ -699,29 +720,31 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn lower_single_type(&self, t: &ast::SingleType) -> CResult<ir::SingleTypeIR> {
-        Ok(ir::SingleTypeIR { atomic: self.to_expanded(&t.atomic), optional: t.optional })
+    fn lower_single_type(&self, t: &ast::SingleType) -> ir::SingleTypeIR {
+        ir::SingleTypeIR { atomic: self.to_expanded(&t.atomic), optional: t.optional }
     }
     fn lower_seq_type(&self, t: &ast::SequenceType) -> CResult<ir::SeqTypeIR> {
-        use ast::SequenceType::*;
+        use ast::SequenceType::{EmptySequence, Typed};
         Ok(match t {
             EmptySequence => ir::SeqTypeIR::EmptySequence,
-            Typed { item, occ } => ir::SeqTypeIR::Typed { item: self.lower_item_type(item)?, occ: self.lower_occ(occ) },
+            Typed { item, occ } => {
+                ir::SeqTypeIR::Typed { item: self.lower_item_type(item)?, occ: Self::lower_occ(occ) }
+            }
         })
     }
     fn lower_item_type(&self, t: &ast::ItemType) -> CResult<ir::ItemTypeIR> {
-        use ast::ItemType::*;
+        use ast::ItemType::{Atomic, Item, Kind};
         Ok(match t {
             Item => ir::ItemTypeIR::AnyItem,
             Atomic(q) => ir::ItemTypeIR::Atomic(self.to_expanded(q)),
             Kind(k) => {
-                self.validate_kind_test(k)?;
+                Self::validate_kind_test(k)?;
                 ir::ItemTypeIR::Kind(self.map_kind_test(k))
             }
         })
     }
-    fn lower_occ(&self, o: &ast::Occurrence) -> ir::OccurrenceIR {
-        use ast::Occurrence::*;
+    fn lower_occ(o: &ast::Occurrence) -> ir::OccurrenceIR {
+        use ast::Occurrence::{One, OneOrMore, ZeroOrMore, ZeroOrOne};
         match o {
             One => ir::OccurrenceIR::One,
             ZeroOrOne => ir::OccurrenceIR::ZeroOrOne,
@@ -782,24 +805,19 @@ impl<'a> Compiler<'a> {
                     if cand.ns_uri.as_ref() == default_fn_ns { cand.local.clone() } else { cand.to_string() };
                 return Err(Error::from_code(
                     ErrorCode::XPST0017,
-                    format!("function {}() cannot be called with {}", friendly, arg_phrase),
+                    format!("function {friendly}() cannot be called with {arg_phrase}"),
                 ));
             }
         }
 
         let display = candidates.last().cloned().unwrap_or(expanded);
-        Err(Error::from_code(ErrorCode::XPST0017, format!("unknown function: {}#{}", display, arity)))
+        Err(Error::from_code(ErrorCode::XPST0017, format!("unknown function: {display}#{arity}")))
     }
 
     fn patch_jump(code: &mut [ir::OpCode], pos: usize) {
         let delta = code.len() - pos - 1;
-        if let Some(op) = code.get_mut(pos) {
-            match op {
-                ir::OpCode::JumpIfFalse(d) => *d = delta,
-                ir::OpCode::JumpIfTrue(d) => *d = delta,
-                ir::OpCode::Jump(d) => *d = delta,
-                _ => {}
-            }
+        if let Some(ir::OpCode::JumpIfFalse(d) | ir::OpCode::JumpIfTrue(d) | ir::OpCode::Jump(d)) = code.get_mut(pos) {
+            *d = delta;
         }
     }
 }

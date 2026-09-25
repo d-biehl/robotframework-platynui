@@ -1,6 +1,6 @@
-//! Cursor types for streaming XPath evaluation.
+//! Cursor types for streaming `XPath` evaluation.
 
-use super::*;
+use super::{Frame, Vm, VmHandle};
 
 use core::cmp::Ordering;
 use smallvec::SmallVec;
@@ -22,7 +22,7 @@ pub(super) struct AxisStepCursor<N> {
 }
 
 impl<N: 'static + XdmNode + Clone> AxisStepCursor<N> {
-    pub(super) fn new(vm: VmHandle<N>, input: XdmSequenceStream<N>, axis: AxisIR, test: NodeTestIR) -> Self {
+    pub(super) fn new(vm: VmHandle<N>, input: &XdmSequenceStream<N>, axis: AxisIR, test: NodeTestIR) -> Self {
         // For descendant/descendant-or-self, minimize overlapping contexts to avoid duplicates
         let base_cursor = input.cursor();
         let input_cursor: Box<dyn SequenceCursor<N>> = match axis {
@@ -134,8 +134,8 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
             AxisIR::Attribute => {
                 // Decide at init time whether this is an exact-name or wildcard test.
                 let exact_name = match &self.test {
-                    NodeTestIR::Name(q) => Some(&q.original),
-                    NodeTestIR::KindAttribute { name: Some(NameOrWildcard::Name(q)), ty: None } => Some(&q.original),
+                    NodeTestIR::Name(q)
+                    | NodeTestIR::KindAttribute { name: Some(NameOrWildcard::Name(q)), ty: None } => Some(&q.original),
                     _ => None,
                 };
                 if let Some(en) = exact_name {
@@ -170,6 +170,8 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
         };
     }
 
+    // One state machine over all axes; splitting it would scatter the per-axis state handling.
+    #[allow(clippy::too_many_lines)]
     fn next_candidate(&mut self) -> Result<Option<N>, Error> {
         if matches!(self.state, AxisState::Init) {
             self.init_state();
@@ -218,7 +220,6 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                             Some(false) => {
                                 let next = Self::next_attribute_in_doc(&self.node, cur);
                                 *current = next;
-                                continue;
                             }
                         }
                     }
@@ -268,15 +269,13 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                         let n = self.node.clone();
                         *last = Some(n.clone());
                         return Ok(Some(n));
-                    } else {
-                        // Start with the first child in pre-order
-                        if let Some(first) = Self::first_child_in_doc(&self.node) {
-                            *last = Some(first.clone());
-                            return Ok(Some(first));
-                        } else {
-                            return Ok(None);
-                        }
                     }
+                    // Start with the first child in pre-order
+                    if let Some(first) = Self::first_child_in_doc(&self.node) {
+                        *last = Some(first.clone());
+                        return Ok(Some(first));
+                    }
+                    return Ok(None);
                 }
                 // Advance to the next document-order successor *within* the
                 // anchor's subtree. Stops when the walk-up reaches the anchor.
@@ -323,7 +322,7 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                     // ancestors until one has a following sibling — avoids
                     // eagerly traversing the entire subtree.
                     *next = Self::first_node_after_subtree(&self.node);
-                    *anchor = next.clone();
+                    anchor.clone_from(next);
                 }
                 while let Some(n) = next.take() {
                     *anchor = Some(n.clone());
@@ -391,10 +390,8 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                             return Ok(Some(n));
                         }
                         continue;
-                    } else {
-                        *current = cur.parent();
-                        continue;
                     }
+                    *current = cur.parent();
                 }
                 Ok(None)
             }
@@ -407,22 +404,32 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
         match (&self.axis, &self.test) {
             // node() matches any node kind
             (_, NodeTestIR::AnyKind) => return Ok(true),
-            (AxisIR::Child, NodeTestIR::WildcardAny) => {
+            // `*` matches the principal node kind of the axis: attribute:: matches attributes,
+            // namespace:: matches namespace nodes, every other axis matches elements only (not
+            // document nodes). element() with no constraints also matches elements only.
+            (
+                AxisIR::Child
+                | AxisIR::DescendantOrSelf
+                | AxisIR::SelfAxis
+                | AxisIR::Ancestor
+                | AxisIR::AncestorOrSelf
+                | AxisIR::Descendant
+                | AxisIR::Following
+                | AxisIR::Preceding
+                | AxisIR::FollowingSibling
+                | AxisIR::PrecedingSibling
+                | AxisIR::Parent,
+                NodeTestIR::WildcardAny,
+            )
+            | (_, NodeTestIR::KindElement { name: None, ty: None, nillable: false }) => {
                 return Ok(matches!(node.kind(), NodeKind::Element));
             }
-            (AxisIR::Attribute, NodeTestIR::WildcardAny) => {
+            // attribute::* or attribute() with no constraints
+            (AxisIR::Attribute, NodeTestIR::WildcardAny) | (_, NodeTestIR::KindAttribute { name: None, ty: None }) => {
                 return Ok(matches!(node.kind(), NodeKind::Attribute));
             }
             (AxisIR::Namespace, NodeTestIR::WildcardAny) => {
                 return Ok(matches!(node.kind(), NodeKind::Namespace));
-            }
-            // element() with no constraints
-            (_, NodeTestIR::KindElement { name: None, ty: None, nillable: false }) => {
-                return Ok(matches!(node.kind(), NodeKind::Element));
-            }
-            // attribute() with no constraints
-            (_, NodeTestIR::KindAttribute { name: None, ty: None }) => {
-                return Ok(matches!(node.kind(), NodeKind::Attribute));
             }
             // text(), comment(), processing-instruction()
             (_, NodeTestIR::KindText) => return Ok(matches!(node.kind(), NodeKind::Text)),
@@ -435,63 +442,25 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                     return Ok(false);
                 }
                 let n = node.name();
-                return Ok(n.as_ref().map(|q| &q.local == target).unwrap_or(false));
+                return Ok(n.as_ref().is_some_and(|q| &q.local == target));
             }
             // QName and namespace wildcards require effective-namespace resolution
             // Delegate to the full resolver to honor prefix/default namespace semantics and namespace-axis rules.
+            // Going through `with_vm` keeps its cancellation check.
             (_, NodeTestIR::Name(_)) => {
-                return self.vm.with_vm(|vm| Ok(vm.node_test(node, &self.test)));
+                return self.vm.with_vm(|_| Ok(Vm::node_test(node, &self.test)));
             }
             (_, NodeTestIR::NsWildcard(_)) => {
-                return self.vm.with_vm(|vm| Ok(vm.node_test(node, &self.test)));
+                return self.vm.with_vm(|_| Ok(Vm::node_test(node, &self.test)));
             }
             (_, NodeTestIR::LocalWildcard(_)) => {
-                return self.vm.with_vm(|vm| Ok(vm.node_test(node, &self.test)));
-            }
-            (AxisIR::DescendantOrSelf, NodeTestIR::WildcardAny) => {
-                // For descendant-or-self element()/"*" we only pass elements
-                return Ok(matches!(node.kind(), NodeKind::Element));
-            }
-            (AxisIR::SelfAxis, NodeTestIR::WildcardAny) => {
-                // self::* should only match elements (not document nodes)
-                return Ok(matches!(node.kind(), NodeKind::Element));
-            }
-            (AxisIR::Ancestor, NodeTestIR::WildcardAny) => {
-                // ancestor::* should only match elements (not document nodes)
-                return Ok(matches!(node.kind(), NodeKind::Element));
-            }
-            (AxisIR::AncestorOrSelf, NodeTestIR::WildcardAny) => {
-                // ancestor-or-self::* should only match elements (not document nodes)
-                return Ok(matches!(node.kind(), NodeKind::Element));
-            }
-            (AxisIR::Descendant, NodeTestIR::WildcardAny) => {
-                // descendant::* should only match elements (not document nodes)
-                return Ok(matches!(node.kind(), NodeKind::Element));
-            }
-            (AxisIR::Following, NodeTestIR::WildcardAny) => {
-                // following::* should only match elements (not document nodes)
-                return Ok(matches!(node.kind(), NodeKind::Element));
-            }
-            (AxisIR::Preceding, NodeTestIR::WildcardAny) => {
-                // preceding::* should only match elements (not document nodes)
-                return Ok(matches!(node.kind(), NodeKind::Element));
-            }
-            (AxisIR::FollowingSibling, NodeTestIR::WildcardAny) => {
-                // following-sibling::* should only match elements (not document nodes)
-                return Ok(matches!(node.kind(), NodeKind::Element));
-            }
-            (AxisIR::PrecedingSibling, NodeTestIR::WildcardAny) => {
-                // preceding-sibling::* should only match elements (not document nodes)
-                return Ok(matches!(node.kind(), NodeKind::Element));
-            }
-            (AxisIR::Parent, NodeTestIR::WildcardAny) => {
-                // parent::* should only match elements (not document nodes)
-                return Ok(matches!(node.kind(), NodeKind::Element));
+                return self.vm.with_vm(|_| Ok(Vm::node_test(node, &self.test)));
             }
             _ => {}
         }
-        // Fallback: use the full resolver through the VM to ensure correct namespace handling
-        self.vm.with_vm(|vm| Ok(vm.node_test(node, &self.test)))
+        // Fallback: use the full resolver to ensure correct namespace handling. Going through
+        // `with_vm` keeps its cancellation check.
+        self.vm.with_vm(|_| Ok(Vm::node_test(node, &self.test)))
     }
 }
 
@@ -669,10 +638,9 @@ impl<N: XdmNode + Clone + 'static> SequenceCursor<N> for ContextMinFollowingSibl
                             }
                             // If we got here, either n is before left (unsorted) → keep
                             return Some(Ok(XdmItem::Node(n)));
-                        } else {
-                            self.leftmost.push((parent, n.clone()));
-                            return Some(Ok(XdmItem::Node(n)));
                         }
+                        self.leftmost.push((parent, n.clone()));
+                        return Some(Ok(XdmItem::Node(n)));
                     }
                     // No parent? Not a normal element; just pass through
                     return Some(Ok(XdmItem::Node(n)));
@@ -696,7 +664,7 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for NodeAxisCursor<N> {
             }?;
             match self.matches_test(&cand) {
                 Ok(true) => return Some(Ok(XdmItem::Node(cand))),
-                Ok(false) => continue,
+                Ok(false) => {}
                 Err(err) => return Some(Err(err)),
             }
         }
@@ -848,21 +816,8 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
             return Some(false);
         }
         match test {
-            NT::WildcardAny => Some(true),
-            NT::KindAttribute { name: None, ty: None } => Some(true),
-            NT::KindAttribute { name: Some(NameOrWildcard::Any), ty: None } => Some(true),
-            NT::KindAttribute { name: Some(NameOrWildcard::Name(q)), ty: None } => {
-                let n = attr.name()?;
-                let matches_local = n.local == q.original.local;
-                let matches_ns = match (&n.ns_uri, &q.original.ns_uri) {
-                    (None, None) => true,
-                    (Some(a), Some(b)) => a == b,
-                    _ => false,
-                };
-                Some(matches_local && matches_ns)
-            }
-            NT::KindAttribute { name: Some(_), ty: Some(_) } | NT::KindAttribute { name: None, ty: Some(_) } => None,
-            NT::Name(q) => {
+            NT::WildcardAny | NT::KindAttribute { name: None | Some(NameOrWildcard::Any), ty: None } => Some(true),
+            NT::KindAttribute { name: Some(NameOrWildcard::Name(q)), ty: None } | NT::Name(q) => {
                 let n = attr.name()?;
                 let matches_local = n.local == q.original.local;
                 let matches_ns = match (&n.ns_uri, &q.original.ns_uri) {
@@ -880,6 +835,7 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
                 let n = attr.name()?;
                 Some(n.local == local.as_str())
             }
+            // Typed attribute tests and every other test: no fast answer.
             _ => None,
         }
     }
@@ -899,7 +855,7 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for AxisStepCursor<N> {
                 Ok(item) => item,
                 Err(err) => return Some(Err(err)),
             };
-            let node = if let XdmItem::Node(n) = candidate { n } else { continue };
+            let XdmItem::Node(node) = candidate else { continue };
             // Build streaming axis cursor for this node (no extra clone)
             let cursor = NodeAxisCursor::new(self.vm.clone(), node, self.axis.clone(), self.test.clone());
             self.current_output = Some(Box::new(cursor));
@@ -974,7 +930,7 @@ impl<N: 'static + XdmNode + Clone> PredicateCursor<N> {
         self.vm.with_vm(|vm| {
             let stream =
                 vm.eval_subprogram_stream(&self.predicate, Some(item.clone()), Some(Frame { last, pos }), None)?;
-            vm.predicate_truth_value_stream(stream, pos, last)
+            Vm::predicate_truth_value_stream(&stream, pos, last)
         })
     }
 }
@@ -1008,7 +964,7 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for PredicateCursor<N> {
 
                     match self.evaluate_predicate(&item, pos, last) {
                         Ok(true) => return Some(Ok(item)),
-                        Ok(false) => continue,
+                        Ok(false) => {}
                         Err(err) => return Some(Err(err)),
                     }
                 }
@@ -1048,7 +1004,7 @@ enum PredicateFastKind {
 }
 
 fn classify_predicate_fast(code: &InstrSeq) -> PredicateFastKind {
-    use OpCode::*;
+    use OpCode::{CompareGeneral, CompareValue, Position, PushAtomic};
     // Pattern: [K]  -> single PushAtomic numeric literal
     if code.0.len() == 1
         && let PushAtomic(ref av) = code.0[0]
@@ -1094,26 +1050,28 @@ fn classify_predicate_fast(code: &InstrSeq) -> PredicateFastKind {
     PredicateFastKind::None
 }
 
+// The guards ensure a positive (and, for floating point, integral) value; the `as` casts keep
+// their truncating/saturating behaviour for values beyond `usize`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn atomic_to_usize(av: &XdmAtomicValue) -> Option<usize> {
     match av {
-        XdmAtomicValue::Integer(i) if *i >= 1 => Some(*i as usize),
-        XdmAtomicValue::Long(i) if *i >= 1 => Some(*i as usize),
+        XdmAtomicValue::Integer(i) | XdmAtomicValue::Long(i) if *i >= 1 => Some(*i as usize),
         XdmAtomicValue::Int(i) if *i >= 1 => Some(*i as usize),
         XdmAtomicValue::UnsignedInt(u) if *u >= 1 => Some(*u as usize),
-        XdmAtomicValue::UnsignedLong(u) if *u >= 1 && *u <= usize::MAX as u64 => Some(*u as usize),
+        XdmAtomicValue::UnsignedLong(u) if *u >= 1 => usize::try_from(*u).ok(),
         XdmAtomicValue::Double(d) if *d >= 1.0 && d.fract() == 0.0 => Some(*d as usize),
         XdmAtomicValue::Decimal(d) if *d >= rust_decimal::Decimal::ONE && d.fract().is_zero() => {
             use rust_decimal::prelude::ToPrimitive;
             d.to_usize()
         }
-        XdmAtomicValue::Float(f) if *f >= 1.0 && (*f as f64).fract() == 0.0 => Some(*f as usize),
+        XdmAtomicValue::Float(f) if *f >= 1.0 && f64::from(*f).fract() == 0.0 => Some(*f as usize),
         _ => None,
     }
 }
 
 // Cheap static analysis: does the predicate program reference `last()`?
 pub(super) fn instr_seq_uses_last(code: &InstrSeq) -> bool {
-    use OpCode::*;
+    use OpCode::{ApplyPredicates, AxisStep, ForLoop, Last, PathExprStep, QuantLoop};
     for op in &code.0 {
         match op {
             Last => return true,
@@ -1121,14 +1079,7 @@ pub(super) fn instr_seq_uses_last(code: &InstrSeq) -> bool {
             PathExprStep(inner) if instr_seq_uses_last(inner) => {
                 return true;
             }
-            ApplyPredicates(preds) => {
-                for p in preds {
-                    if instr_seq_uses_last(p) {
-                        return true;
-                    }
-                }
-            }
-            AxisStep(_, _, preds) => {
+            ApplyPredicates(preds) | AxisStep(_, _, preds) => {
                 for p in preds {
                     if instr_seq_uses_last(p) {
                         return true;
@@ -1159,7 +1110,7 @@ pub(super) struct PathStepCursor<N> {
 }
 
 impl<N: 'static + XdmNode + Clone> PathStepCursor<N> {
-    pub(super) fn new(vm: VmHandle<N>, input_stream: XdmSequenceStream<N>, code: InstrSeq) -> Self {
+    pub(super) fn new(vm: VmHandle<N>, input_stream: &XdmSequenceStream<N>, code: InstrSeq) -> Self {
         let input = input_stream.cursor();
         let seed = Some(input.boxed_clone());
         let needs_last = instr_seq_uses_last(&code);
@@ -1255,7 +1206,7 @@ pub(super) struct ForLoopCursor<N> {
 }
 
 impl<N: 'static + XdmNode + Clone> ForLoopCursor<N> {
-    pub(super) fn new(vm: VmHandle<N>, input_stream: XdmSequenceStream<N>, var: ExpandedName, body: InstrSeq) -> Self {
+    pub(super) fn new(vm: VmHandle<N>, input_stream: &XdmSequenceStream<N>, var: ExpandedName, body: InstrSeq) -> Self {
         let input = input_stream.cursor();
         let seed = Some(input.boxed_clone());
         let needs_last = instr_seq_uses_last(&body);
@@ -1395,7 +1346,7 @@ pub(super) struct QuantLoopCursor<N> {
 impl<N: 'static + XdmNode + Clone> QuantLoopCursor<N> {
     pub(super) fn new(
         vm: VmHandle<N>,
-        input_stream: XdmSequenceStream<N>,
+        input_stream: &XdmSequenceStream<N>,
         kind: QuantifierKind,
         var: ExpandedName,
         body: InstrSeq,
@@ -1621,7 +1572,8 @@ impl<N: 'static + XdmNode + Clone> EnsureOrderCursor<N> {
     }
 
     fn cmp_doc_order(&self, a: &N, b: &N) -> Result<Ordering, Error> {
-        self.vm.with_vm(|vm| vm.node_compare(a, b))
+        // Going through `with_vm` keeps its cancellation check.
+        self.vm.with_vm(|_| Vm::node_compare(a, b))
     }
 
     fn switch_to_fallback(&mut self, first: XdmItem<N>, second: XdmItem<N>) -> Result<(), Error> {
@@ -1630,7 +1582,8 @@ impl<N: 'static + XdmNode + Clone> EnsureOrderCursor<N> {
         while let Some(item) = self.input.next_item() {
             seq.push(item?);
         }
-        let ordered = self.vm.with_vm(|vm| vm.doc_order_only(seq))?;
+        // Going through `with_vm` keeps its cancellation check.
+        let ordered = self.vm.with_vm(|_| Ok(Vm::doc_order_only(seq)))?;
         self.buffer = VecDeque::from(ordered);
         self.in_fallback = true;
         Ok(())
@@ -1665,7 +1618,6 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for EnsureOrderCursor<N> {
                         self.last_key = n.doc_order_key();
                         self.last_node = Some(n.clone());
                     }
-                    continue;
                 }
                 (Some(XdmItem::Node(_prev_n)), XdmItem::Node(cur_n)) => {
                     // Check monotonicity
@@ -1687,30 +1639,28 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for EnsureOrderCursor<N> {
                         self.last_key = cur_n.doc_order_key();
                         self.last_node = Some(cur_n.clone());
                         return Some(Ok(to_emit));
-                    } else {
-                        // Try local adjacent-swap repair (single inversion): emit `cur` first if it
-                        // still maintains global monotonicity relative to the last emitted item.
-                        let can_swap = match self.last_node.as_ref() {
-                            Some(ln) => match self.cmp_doc_order(ln, cur_n) {
-                                Ok(ord) => ord != Ordering::Greater,
-                                Err(e) => return Some(Err(e)),
-                            },
-                            None => true,
-                        };
-                        if can_swap {
-                            // Emit current (`next`) immediately; keep `pending` (prev) for next round.
-                            self.last_key = cur_n.doc_order_key();
-                            self.last_node = Some(cur_n.clone());
-                            return Some(Ok(next));
-                        } else {
-                            // disorder beyond simple adjacent inversion → fallback
-                            let first = self.pending.take().expect("pending must be Some before fallback switch");
-                            if let Err(e) = self.switch_to_fallback(first, next) {
-                                return Some(Err(e));
-                            }
-                            return self.buffer.pop_front().map(Ok);
-                        }
                     }
+                    // Try local adjacent-swap repair (single inversion): emit `cur` first if it
+                    // still maintains global monotonicity relative to the last emitted item.
+                    let can_swap = match self.last_node.as_ref() {
+                        Some(ln) => match self.cmp_doc_order(ln, cur_n) {
+                            Ok(ord) => ord != Ordering::Greater,
+                            Err(e) => return Some(Err(e)),
+                        },
+                        None => true,
+                    };
+                    if can_swap {
+                        // Emit current (`next`) immediately; keep `pending` (prev) for next round.
+                        self.last_key = cur_n.doc_order_key();
+                        self.last_node = Some(cur_n.clone());
+                        return Some(Ok(next));
+                    }
+                    // disorder beyond simple adjacent inversion → fallback
+                    let first = self.pending.take().expect("pending must be Some before fallback switch");
+                    if let Err(e) = self.switch_to_fallback(first, next) {
+                        return Some(Err(e));
+                    }
+                    return self.buffer.pop_front().map(Ok);
                 }
                 (Some(_prev), _) => {
                     // Non-node items: emit previous, shift window
@@ -1742,14 +1692,14 @@ pub(super) struct AtomizeCursor<N> {
 }
 
 impl<N: 'static + XdmNode + Clone> AtomizeCursor<N> {
-    pub(super) fn new(stream: XdmSequenceStream<N>) -> Self {
+    pub(super) fn new(stream: &XdmSequenceStream<N>) -> Self {
         Self { input: stream.cursor(), pending: VecDeque::new() }
     }
 }
 
 impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for AtomizeCursor<N> {
     fn next_item(&mut self) -> Option<XdmItemResult<N>> {
-        use XdmItem::*;
+        use XdmItem::{Atomic, Node};
         if let Some(atom) = self.pending.pop_front() {
             return Some(Ok(Atomic(atom)));
         }
@@ -1764,7 +1714,6 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for AtomizeCursor<N> {
                     if let Some(atom) = self.pending.pop_front() {
                         return Some(Ok(Atomic(atom)));
                     }
-                    continue;
                 }
                 Err(e) => return Some(Err(e)),
             }
@@ -1792,7 +1741,7 @@ pub(super) struct TreatCursor<N> {
 }
 
 impl<N: 'static + XdmNode + Clone> TreatCursor<N> {
-    pub(super) fn new(vm: VmHandle<N>, stream: XdmSequenceStream<N>, t: crate::compiler::ir::SeqTypeIR) -> Self {
+    pub(super) fn new(vm: VmHandle<N>, stream: &XdmSequenceStream<N>, t: crate::compiler::ir::SeqTypeIR) -> Self {
         use crate::compiler::ir::{OccurrenceIR, SeqTypeIR};
         let (min, max, item_type) = match t {
             SeqTypeIR::EmptySequence => (0, Some(0), crate::compiler::ir::ItemTypeIR::AnyItem),
@@ -1837,7 +1786,8 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for TreatCursor<N> {
                         format!("treat as failed: cardinality mismatch (expected max {} got {})", max, self.seen),
                     )));
                 }
-                let ok = match self.vm.with_vm(|vm| vm.item_matches_type(&it, &self.item_type)) {
+                // Going through `with_vm` keeps its cancellation check.
+                let ok = match self.vm.with_vm(|_| Ok(Vm::item_matches_type(&it, &self.item_type))) {
                     Ok(v) => v,
                     Err(e) => return Some(Err(e)),
                 };
