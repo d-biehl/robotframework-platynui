@@ -270,6 +270,7 @@ test-crate crate:
 # `just test`: the test is `#[ignore]`d because not every machine allows them
 # (AppArmor blocks them on stock Ubuntu 24.04).
 # Run the compositor's PID-namespace checks (a client the compositor cannot see)
+[linux]
 test-compositor-pidns:
     cargo nextest run -p platynui-wayland-compositor --run-ignored ignored-only -E 'binary(pidns_tests)'
 

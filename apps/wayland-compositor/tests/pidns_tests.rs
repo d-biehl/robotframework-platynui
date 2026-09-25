@@ -1,6 +1,8 @@
+// Must precede the `cfg`: a false crate-level `cfg` drops every attribute after
+// it, and the crate left empty on other targets still sees every dependency.
+#![allow(unused_crate_dependencies)]
 // This test only applies to Linux (Wayland compositor, PID namespaces).
 #![cfg(target_os = "linux")]
-#![allow(unused_crate_dependencies)]
 
 //! PID-namespace integration test — the compositor serves a client whose
 //! process it cannot see.

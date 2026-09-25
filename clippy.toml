@@ -25,9 +25,12 @@ disallowed-types = [
 # peer in a foreign PID namespace breaks that invariant — undefined behaviour,
 # not an error. Read SO_PEERCRED through `nix::sys::socket::getsockopt` with
 # `sockopt::PeerCredentials`, whose credentials can carry 0.
+#
+# `allow-invalid`: on Windows `rustix` is in the graph without its `net` module,
+# so the path cannot resolve there and clippy would warn about the entry itself.
 disallowed-methods = [
     { path = "wayland_server::Client::get_credentials", reason = "panics for a peer in a foreign PID namespace; use the identity captured in ClientState" },
-    { path = "rustix::net::sockopt::socket_peercred", reason = "UCred.pid is a non-zero Pid, so a peer in a foreign PID namespace (pid 0) is undefined behaviour; use nix getsockopt(sockopt::PeerCredentials)" },
+    { path = "rustix::net::sockopt::socket_peercred", reason = "UCred.pid is a non-zero Pid, so a peer in a foreign PID namespace (pid 0) is undefined behaviour; use nix getsockopt(sockopt::PeerCredentials)", allow-invalid = true },
 ]
 
 # --- Function signature limits ---
