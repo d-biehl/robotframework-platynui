@@ -129,6 +129,55 @@ jobs:
       - name: Run Rust tests
         run: just test
 
+  # ── Windows lint ───────────────────────────────────────────────────────────────
+  #
+  # `just clippy` lints the whole workspace for the host, so on Windows it also
+  # compiles the Linux-only crates and their `cfg(target_os = "linux")` test
+  # targets. Neither the Linux job nor the Linux-side `just clippy-windows`
+  # cross-check (Windows crates only) builds those for Windows, so without this
+  # job a Windows-only lint surfaces first on a developer's Windows machine.
+
+  rust-windows:
+    name: Rust (clippy, Windows)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # pyo3's build script in `packages/native` needs an interpreter. Pin the
+      # one the wheels target (`abi3-py312`) instead of whatever the runner
+      # image happens to put on PATH.
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
+
+      - name: Install tools (just)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - name: Add Rust tool bin directories to PATH
+        shell: pwsh
+        run: |
+          $cargoBin = Join-Path $env:USERPROFILE '.cargo\bin'
+          if (Test-Path $cargoBin) {
+            $cargoBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          }
+
+      - name: Lint Rust (clippy)
+        run: just clippy
+
   python:
     name: Python (pytest, RF mock)
     runs-on: ubuntu-latest
@@ -297,7 +346,7 @@ jobs:
 
   build-wheels:
     name: Build wheels
-    needs: [lint, rust, python, acceptance-linux]
+    needs: [lint, rust, rust-windows, python, acceptance-linux]
     runs-on: ubuntu-latest
 
     steps:
@@ -349,7 +398,7 @@ jobs:
 
   build-wheels-java:
     name: Build wheels (Java agent)
-    needs: [lint, rust, python, acceptance-linux]
+    needs: [lint, rust, rust-windows, python, acceptance-linux]
     runs-on: ubuntu-latest
 
     steps:
@@ -407,7 +456,7 @@ jobs:
 
   build-wheels-linux:
     name: Build wheels (Linux ${{ matrix.target }})
-    needs: [lint, rust, python, acceptance-linux]
+    needs: [lint, rust, rust-windows, python, acceptance-linux]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -488,7 +537,7 @@ jobs:
 
   build-wheels-macos-windows:
     name: Build wheels (${{ matrix.os }})
-    needs: [lint, rust, python, acceptance-linux]
+    needs: [lint, rust, rust-windows, python, acceptance-linux]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
