@@ -12,13 +12,13 @@ authors.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
-[dependencies]
+# Everything is Windows-gated (including the workspace crates) so that
+# non-Windows builds see an empty crate without unused-dependency warnings.
+[target.'cfg(windows)'.dependencies]
 platynui-core = { path = "../core" }
 inventory = "0.3"
 thiserror = "2.0"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
-
-[target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
   "Win32_System_Com",
   "Win32_System_Ole",

@@ -12,7 +12,9 @@ authors.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
-[dependencies]
+# Everything is Windows-gated (including the workspace crates) so that
+# non-Windows builds see an empty crate without unused-dependency warnings.
+[target.'cfg(target_os = "windows")'.dependencies]
 platynui-core = { path = "../core" }
 # Only for the classifier's agent-presence signal: it owns the handshake-path
 # rule, and duplicating that rule is how the two halves would drift apart. A
@@ -20,8 +22,6 @@ platynui-core = { path = "../core" }
 platynui-java-agent = { path = "../java-agent" }
 inventory = "0.3"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
-
-[target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",

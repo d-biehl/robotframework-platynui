@@ -36,7 +36,7 @@ mod linux {
 
     /// Reads the global modifier state. Two backends, probed in this order:
     ///
-    /// 1. **PlatynUI compositor** — the session's control socket answers
+    /// 1. **`PlatynUI` compositor** — the session's control socket answers
     ///    `get_modifiers` with the seat keyboard's state. This MUST be probed
     ///    before X11: a compositor session may still carry the host's X11
     ///    `DISPLAY`, and the X11 reader would then silently bind the *host*
@@ -72,7 +72,7 @@ mod linux {
         }
     }
 
-    /// Polls the seat keyboard's modifier state from the PlatynUI compositor
+    /// Polls the seat keyboard's modifier state from the `PlatynUI` compositor
     /// (`get_modifiers` over the control socket). One-shot connection per
     /// poll, like the platform's other control-socket clients — the picker
     /// polls at UI tick rate, which a local Unix socket handles easily.
@@ -81,7 +81,7 @@ mod linux {
     }
 
     impl CompositorModifierReader {
-        /// The PlatynUI control socket (`$PLATYNUI_CONTROL_SOCKET`, else
+        /// The `PlatynUI` control socket (`$PLATYNUI_CONTROL_SOCKET`, else
         /// `$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY.control`), if it answers `ping`.
         fn probe() -> Option<Self> {
             let socket_path = if let Ok(path) = std::env::var("PLATYNUI_CONTROL_SOCKET") {
