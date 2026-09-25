@@ -31,13 +31,16 @@ impl MockScreenshot {
         Self
     }
 
-    fn record(&self, entry: ScreenshotLogEntry) {
+    fn record(entry: ScreenshotLogEntry) {
         let mut log = SCREENSHOT_LOG.lock().expect("screenshot log poisoned");
         log.push(entry);
     }
 }
 
 impl ScreenshotProvider for MockScreenshot {
+    // Pixel extents are rounded and clamped to >= 1 (saturating `as` on overflow is
+    // intended); `bytes_per_pixel` is a small constant that always fits in u32.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     fn capture(&self, request: &ScreenshotRequest) -> Result<Screenshot, PlatformError> {
         let info = MOCK_PLATFORM.desktop_info()?;
         let region = match request.region {
@@ -69,11 +72,14 @@ impl ScreenshotProvider for MockScreenshot {
         }
 
         let screenshot = Screenshot::new(width, height, PixelFormat::Rgba8, pixels);
-        self.record(ScreenshotLogEntry { request: request.clone(), width, height });
+        Self::record(ScreenshotLogEntry { request: request.clone(), width, height });
         Ok(screenshot)
     }
 }
 
+// Pixel math: coordinates are rounded to whole pixels with saturating `as` semantics,
+// and every row/column is bounds-checked against the buffer before it is indexed.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_possible_wrap)]
 fn fill_region(
     buffer: &mut [u8],
     buffer_width: usize,
@@ -107,6 +113,16 @@ fn fill_region(
     }
 }
 
+// Pixel math: glyph positions are rounded to whole pixels with saturating `as` semantics,
+// and every row/column is bounds-checked against the buffer before it is indexed.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss
+)]
+// `start_x_abs`/`start_y_abs` are an x/y coordinate pair; the mirrored names are deliberate.
+#[allow(clippy::similar_names)]
 fn draw_label(
     buffer: &mut [u8],
     buffer_width: usize,
@@ -187,11 +203,23 @@ fn glyph_for(character: char) -> [u8; 7] {
     }
 }
 
+/// Drains and returns every capture recorded so far.
+///
+/// # Panics
+///
+/// Panics if the shared screenshot log mutex is poisoned (a thread panicked
+/// while holding it).
 pub fn take_screenshot_log() -> Vec<ScreenshotLogEntry> {
     let mut log = SCREENSHOT_LOG.lock().expect("screenshot log poisoned");
     log.drain(..).collect()
 }
 
+/// Clears the recorded screenshot log.
+///
+/// # Panics
+///
+/// Panics if the shared screenshot log mutex is poisoned (a thread panicked
+/// while holding it).
 pub fn reset_screenshot_state() {
     SCREENSHOT_LOG.lock().expect("screenshot log poisoned").clear();
 }
@@ -207,7 +235,15 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
+    // Mirrors the pixel math of `draw_label`: desktop coordinates are small and
+    // rounded to whole pixels before they are used as indices.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
     fn screenshot_captures_full_and_region() {
+        const GLYPH_W: usize = 5;
+        const GLYPH_H: usize = 7;
+        const GLYPH_SPACING: usize = 1;
+        const TEXT: &str = "PLATYNUI";
+
         reset_screenshot_state();
         // Use direct reference for testing the provider itself
         let provider = &MOCK_SCREENSHOT;
@@ -245,11 +281,6 @@ mod tests {
             + ((portrait_bounds.x() + 100.0 - desktop_bounds.x()).round() as usize).clamp(0, full.width as usize - 1)
                 * 4;
         assert_eq!(&pixels[portrait_idx..portrait_idx + 3], &expected_portrait);
-
-        const GLYPH_W: usize = 5;
-        const GLYPH_H: usize = 7;
-        const GLYPH_SPACING: usize = 1;
-        const TEXT: &str = "PLATYNUI";
 
         let total_cols = TEXT.len() * (GLYPH_W + GLYPH_SPACING) - GLYPH_SPACING;
         let max_scale_x = ((center_bounds.width() / total_cols as f64).floor() as usize).max(1);

@@ -162,10 +162,22 @@ impl KeyboardDevice for MockKeyboardDevice {
 
 pub static MOCK_KEYBOARD: MockKeyboardDevice = MockKeyboardDevice::new();
 
+/// Clears the recorded keyboard log and resets the keyboard state.
+///
+/// # Panics
+///
+/// Panics if the shared keyboard state mutex is poisoned (a thread panicked
+/// while holding it).
 pub fn reset_keyboard_state() {
     *KEYBOARD_STATE.lock().unwrap() = KeyboardState::new();
 }
 
+/// Returns the recorded keyboard log since the last reset and clears the buffer.
+///
+/// # Panics
+///
+/// Panics if the shared keyboard state mutex is poisoned (a thread panicked
+/// while holding it).
 pub fn take_keyboard_log() -> Vec<KeyboardLogEntry> {
     let mut state = KEYBOARD_STATE.lock().unwrap();
     let log = state.log.clone();

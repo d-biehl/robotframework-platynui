@@ -36,6 +36,7 @@ impl PlatformFactory for MockPlatformFactory {
 }
 
 /// Build a [`PlatformBundle`] of the in-memory mock devices.
+#[must_use]
 pub fn create_mock_bundle() -> PlatformBundle {
     PlatformBundle {
         pointer: Arc::new(MockPointerDevice::new()),

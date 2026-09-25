@@ -1,4 +1,4 @@
-//! In-memory mock platform implementation for PlatynUI tests.
+//! In-memory mock platform implementation for `PlatynUI` tests.
 //!
 //! The real implementation will expose deterministic devices and window
 //! management primitives so integration tests can run without native APIs.

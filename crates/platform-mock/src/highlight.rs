@@ -19,12 +19,12 @@ impl MockHighlight {
         Self
     }
 
-    fn record(&self, request: &HighlightRequest) {
+    fn record(request: &HighlightRequest) {
         let mut log = HIGHLIGHT_LOG.lock().expect("highlight log poisoned");
         log.push(request.clone());
     }
 
-    fn mark_clear(&self) {
+    fn mark_clear() {
         let mut count = HIGHLIGHT_CLEAR_CALLS.lock().expect("highlight clear count poisoned");
         *count += 1;
     }
@@ -32,25 +32,43 @@ impl MockHighlight {
 
 impl HighlightProvider for MockHighlight {
     fn highlight(&self, request: &HighlightRequest) -> Result<(), PlatformError> {
-        self.record(request);
+        Self::record(request);
         Ok(())
     }
 
     fn clear(&self) -> Result<(), PlatformError> {
-        self.mark_clear();
+        Self::mark_clear();
         Ok(())
     }
 }
 
+/// Drains and returns every highlight request recorded so far.
+///
+/// # Panics
+///
+/// Panics if the shared highlight log mutex is poisoned (a thread panicked
+/// while holding it).
 pub fn take_highlight_log() -> Vec<HighlightRequest> {
     let mut log = HIGHLIGHT_LOG.lock().expect("highlight log poisoned");
     log.drain(..).collect()
 }
 
+/// Returns how often `clear` has been called since the last reset.
+///
+/// # Panics
+///
+/// Panics if the shared clear-count mutex is poisoned (a thread panicked
+/// while holding it).
 pub fn highlight_clear_count() -> usize {
     *HIGHLIGHT_CLEAR_CALLS.lock().expect("highlight clear count poisoned")
 }
 
+/// Clears the recorded highlight requests and resets the clear count to zero.
+///
+/// # Panics
+///
+/// Panics if the shared highlight log or clear-count mutex is poisoned (a
+/// thread panicked while holding it).
 pub fn reset_highlight_state() {
     HIGHLIGHT_LOG.lock().expect("highlight log poisoned").clear();
     *HIGHLIGHT_CLEAR_CALLS.lock().expect("highlight clear count poisoned") = 0;

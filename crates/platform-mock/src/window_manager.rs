@@ -98,11 +98,23 @@ impl WindowManager for MockWindowManager {
     }
 }
 
+/// Drains and returns every window-manager call recorded so far.
+///
+/// # Panics
+///
+/// Panics if the shared window-manager log mutex is poisoned (a thread
+/// panicked while holding it).
 pub fn take_window_manager_log() -> Vec<WindowManagerLogEntry> {
     let mut log = MOCK_WINDOW_MANAGER.log.lock().expect("window manager log poisoned");
     log.drain(..).collect()
 }
 
+/// Clears the recorded window-manager log.
+///
+/// # Panics
+///
+/// Panics if the shared window-manager log mutex is poisoned (a thread
+/// panicked while holding it).
 pub fn reset_window_manager_state() {
     MOCK_WINDOW_MANAGER.log.lock().expect("window manager log poisoned").clear();
 }

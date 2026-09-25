@@ -91,11 +91,21 @@ pub static MOCK_POINTER: MockPointerDevice = MockPointerDevice::new();
 // Mock pointer device does NOT auto-register - only available via explicit handles
 
 /// Clears the recorded pointer log and resets the cursor position to the origin.
+///
+/// # Panics
+///
+/// Panics if the shared pointer state mutex is poisoned (a thread panicked
+/// while holding it).
 pub fn reset_pointer_state() {
     *POINTER_STATE.lock().unwrap() = PointerState::new();
 }
 
 /// Returns the recorded pointer log since the last reset and clears the buffer.
+///
+/// # Panics
+///
+/// Panics if the shared pointer state mutex is poisoned (a thread panicked
+/// while holding it).
 pub fn take_pointer_log() -> Vec<PointerLogEntry> {
     let mut state = POINTER_STATE.lock().unwrap();
     let entries = state.log.clone();
@@ -111,6 +121,8 @@ mod tests {
     use super::*;
 
     #[test]
+    // The scroll delta is recorded verbatim, so exact equality is what the test means.
+    #[allow(clippy::float_cmp)]
     fn pointer_log_records_events() {
         reset_pointer_state();
         // Use direct reference to mock pointer
