@@ -1,4 +1,4 @@
-//! THROWAWAY Java Access Bridge spike — OpenSpec change `add-swing-test-app`,
+//! THROWAWAY Java Access Bridge spike — `OpenSpec` change `add-swing-test-app`,
 //! task group 4. **Not production code**; the `add-jab-provider` change gets a
 //! proper implementation and this file is deleted afterwards.
 //!
@@ -14,6 +14,11 @@
 //!   Per-Monitor-V2 awareness.
 //!
 //! Findings are recorded in `openspec/changes/add-jab-provider/design.md`.
+
+// FFI spike: nearly every call goes through the Java Access Bridge DLL or Win32 and is `unsafe`.
+#![allow(unsafe_code)]
+// Bin target sharing the crate's dependency list; this spike uses only `windows` and `libloading`.
+#![allow(unused_crate_dependencies)]
 
 #[cfg(windows)]
 fn main() {
@@ -96,6 +101,8 @@ mod spike {
         // Layout guard: header-derived expected size (natural alignment, x64).
         const _: () = assert!(std::mem::size_of::<AccessibleContextInfo>() == 6188);
 
+        // Field names mirror the members of the JDK header struct `AccessBridgeVersionInfo`.
+        #[allow(clippy::struct_field_names)]
         #[repr(C)]
         pub struct AccessBridgeVersionInfo {
             pub vm_version: [u16; SHORT_STRING_SIZE],
@@ -279,21 +286,21 @@ mod spike {
 
     fn pump_pending_messages() {
         let mut msg = MSG::default();
-        while unsafe { PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE) }.as_bool() {
+        while unsafe { PeekMessageW(&raw mut msg, None, 0, 0, PM_REMOVE) }.as_bool() {
             unsafe {
-                let _ = TranslateMessage(&msg);
-                DispatchMessageW(&msg);
+                let _ = TranslateMessage(&raw const msg);
+                DispatchMessageW(&raw const msg);
             }
         }
     }
 
     fn enumerate_top_level_windows() -> Vec<HWND> {
-        let mut handles: Vec<HWND> = Vec::new();
         unsafe extern "system" fn callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
             let handles = unsafe { &mut *(lparam.0 as *mut Vec<HWND>) };
             handles.push(hwnd);
             BOOL(1)
         }
+        let mut handles: Vec<HWND> = Vec::new();
         let _ = unsafe { EnumWindows(Some(callback), LPARAM(&raw mut handles as isize)) };
         handles
     }
@@ -340,7 +347,7 @@ mod spike {
 
         for hwnd in java_windows {
             let mut stats = Stats::default();
-            dump_window(bridge, hwnd, &mut out, &mut stats)?;
+            dump_window(bridge, hwnd, &mut out, &mut stats);
             let _ = writeln!(
                 out,
                 "-- stats: {} nodes, {} handles released, {} info failures, {} null children\n",
@@ -350,14 +357,14 @@ mod spike {
         Ok(out)
     }
 
-    fn dump_window(bridge: &Bridge, hwnd: HWND, out: &mut String, stats: &mut Stats) -> Result<(), String> {
+    fn dump_window(bridge: &Bridge, hwnd: HWND, out: &mut String, stats: &mut Stats) {
         let mut class_buffer = [0u16; 256];
         let class_len = unsafe { GetClassNameW(hwnd, &mut class_buffer) };
-        let class_name = String::from_utf16_lossy(&class_buffer[..class_len.max(0) as usize]);
+        let class_name = String::from_utf16_lossy(&class_buffer[..usize::try_from(class_len).unwrap_or(0)]);
 
         let mut title_buffer = [0u16; 256];
         let title_len = unsafe { GetWindowTextW(hwnd, &mut title_buffer) };
-        let title = String::from_utf16_lossy(&title_buffer[..title_len.max(0) as usize]);
+        let title = String::from_utf16_lossy(&title_buffer[..usize::try_from(title_len).unwrap_or(0)]);
 
         let mut pid = 0u32;
         unsafe { GetWindowThreadProcessId(hwnd, Some(&raw mut pid)) };
@@ -382,7 +389,7 @@ mod spike {
         let ok = unsafe { (bridge.get_accessible_context_from_hwnd)(hwnd, &raw mut vm_id, &raw mut root) };
         if !ok.as_bool() {
             let _ = writeln!(out, "  getAccessibleContextFromHWND FAILED");
-            return Ok(());
+            return;
         }
 
         let mut version = Box::new(ffi::AccessBridgeVersionInfo {
@@ -391,7 +398,7 @@ mod spike {
             bridge_java_dll_version: [0; ffi::SHORT_STRING_SIZE],
             bridge_win_dll_version: [0; ffi::SHORT_STRING_SIZE],
         });
-        if unsafe { (bridge.get_version_info)(vm_id, &mut *version) }.as_bool() {
+        if unsafe { (bridge.get_version_info)(vm_id, &raw mut *version) }.as_bool() {
             let _ = writeln!(
                 out,
                 "  vmID={vm_id} vm={} javaClass={} javaDll={} winDll={}",
@@ -408,7 +415,7 @@ mod spike {
         let mut root2: ffi::JObject64 = 0;
         if unsafe { (bridge.get_accessible_context_from_hwnd)(hwnd, &raw mut vm_id2, &raw mut root2) }.as_bool() {
             let same = unsafe { (bridge.is_same_object)(vm_id, root, root2) }.as_bool();
-            let _ = writeln!(out, "  isSameObject(second lookup)={same} (raw handles {} vs {})", root, root2);
+            let _ = writeln!(out, "  isSameObject(second lookup)={same} (raw handles {root} vs {root2})");
             unsafe { (bridge.release_java_object)(vm_id2, root2) };
             stats.released += 1;
         }
@@ -416,7 +423,6 @@ mod spike {
         walk(bridge, vm_id, root, 1, out, stats);
         unsafe { (bridge.release_java_object)(vm_id, root) };
         stats.released += 1;
-        Ok(())
     }
 
     fn walk(
@@ -434,7 +440,7 @@ mod spike {
         }
 
         let mut info = Box::new(unsafe { std::mem::zeroed::<ffi::AccessibleContextInfo>() });
-        if !unsafe { (bridge.get_accessible_context_info)(vm_id, context, &mut *info) }.as_bool() {
+        if !unsafe { (bridge.get_accessible_context_info)(vm_id, context, &raw mut *info) }.as_bool() {
             stats.info_failures += 1;
             let _ = writeln!(out, "{indent}<getAccessibleContextInfo FAILED>");
             return;

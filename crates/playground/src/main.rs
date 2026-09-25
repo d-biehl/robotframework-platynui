@@ -1,3 +1,7 @@
+// Bin target sharing the crate's dependency list: `windows`/`libloading` serve only the `jab_spike`
+// bin, and the platform crates are linked by `platynui_link_os_providers!` in non-test builds only.
+#![allow(unused_crate_dependencies)]
+
 use std::{thread::sleep, time::Duration};
 
 use platynui_core::platform::HighlightRequest;

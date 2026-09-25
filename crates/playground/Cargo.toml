@@ -17,9 +17,6 @@ default = []
 [dependencies]
 platynui-core = { path = "../core" }
 platynui-runtime = { path = "../runtime" }
-anyhow = "1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 
 platynui-link = { path = "../link" }
 
@@ -42,3 +39,6 @@ platynui-provider-atspi = { path = "../provider-atspi" }
 [target.'cfg(target_os = "macos")'.dependencies]
 platynui-platform-macos = { path = "../platform-macos" }
 platynui-provider-macos-ax = { path = "../provider-macos-ax" }
+
+[lints]
+workspace = true
