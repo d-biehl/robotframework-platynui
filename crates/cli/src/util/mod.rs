@@ -78,6 +78,8 @@ mod tests {
         assert!(parse_point("abc").is_err());
     }
 
+    // Exact parse result of integral literals; exact equality is what the test means.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn parse_scroll_delta_converts_components() {
         let delta = parse_scroll_delta("0,-120").unwrap();

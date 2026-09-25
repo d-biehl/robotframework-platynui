@@ -59,7 +59,7 @@ pub fn run(runtime: &Runtime, args: &QueryArgs) -> CliResult<String> {
                 match item {
                     EvaluationItem::Node(node) => print_node_stream_text(&node),
                     EvaluationItem::Attribute(attr) => {
-                        print_attribute_stream_text(&attr.owner, &attr.namespace, &attr.name, &attr.value)
+                        print_attribute_stream_text(&attr.owner, attr.namespace, &attr.name, &attr.value);
                     }
                     EvaluationItem::Value(value) => {
                         let plain = format_attribute_value(&value);
@@ -85,13 +85,13 @@ pub(crate) fn summarize_query_results(results: Vec<EvaluationItem>) -> Vec<Query
         .map(|item| match item {
             EvaluationItem::Node(node) => {
                 let patterns = node.supported_patterns();
-                node_to_query_summary(node, patterns)
+                node_to_query_summary(&node, patterns)
             }
             EvaluationItem::Attribute(attr) => QueryItemSummary::Attribute {
                 owner_runtime_id: attr.owner.runtime_id().as_str().to_owned(),
                 owner_namespace: attr.owner.namespace().as_str().to_owned(),
                 owner_role: attr.owner.role().to_owned(),
-                owner_name: attr.owner.name().to_owned(),
+                owner_name: attr.owner.name().clone(),
                 namespace: attr.namespace.as_str().to_owned(),
                 name: attr.name.clone(),
                 value: attr.value.clone(),
@@ -101,7 +101,7 @@ pub(crate) fn summarize_query_results(results: Vec<EvaluationItem>) -> Vec<Query
         .collect()
 }
 
-fn node_to_query_summary(node: Arc<dyn UiNode>, patterns: Vec<PatternName>) -> QueryItemSummary {
+fn node_to_query_summary(node: &Arc<dyn UiNode>, patterns: Vec<PatternName>) -> QueryItemSummary {
     let namespace = node.namespace();
     let supported_patterns = patterns.into_iter().map(|id| id.as_str().to_owned()).collect();
 
@@ -121,7 +121,7 @@ fn node_to_query_summary(node: Arc<dyn UiNode>, patterns: Vec<PatternName>) -> Q
         runtime_id: node.runtime_id().as_str().to_owned(),
         namespace: namespace.as_str().to_owned(),
         role: node.role().to_owned(),
-        name: node.name().to_owned(),
+        name: node.name().clone(),
         supported_patterns,
         attributes,
     }
@@ -179,7 +179,7 @@ pub(crate) fn render_query_text(items: &[QueryItemSummary]) -> String {
                     let attribute_namespace = format_namespace_prefix(attribute.namespace.as_str());
                     let colored_name = colorize_attribute_name(&attribute_namespace, &attribute.name);
                     let colored_value = colorize_attribute_value(&value);
-                    let _ = writeln!(&mut output, "    {colored_name} = {colored_value}",);
+                    let _ = writeln!(&mut output, "    {colored_name} = {colored_value}");
                 }
             }
             QueryItemSummary::Attribute {
@@ -197,7 +197,7 @@ pub(crate) fn render_query_text(items: &[QueryItemSummary]) -> String {
                 let colored_name = colorize_attribute_name(&attribute_namespace, name);
                 let value_text = format_attribute_value(value);
                 let colored_value = colorize_attribute_value(&value_text);
-                let _ = writeln!(&mut output, "{colored_name} = {colored_value} ({colored_owner})",);
+                let _ = writeln!(&mut output, "{colored_name} = {colored_value} ({colored_owner})");
             }
             QueryItemSummary::Value { value } => {
                 let plain = format_attribute_value(value);
@@ -223,7 +223,7 @@ fn print_node_stream_text(node: &Arc<dyn UiNode>) {
     }
 }
 
-fn print_attribute_stream_text(owner: &Arc<dyn UiNode>, namespace: &Namespace, name: &str, value: &UiValue) {
+fn print_attribute_stream_text(owner: &Arc<dyn UiNode>, namespace: Namespace, name: &str, value: &UiValue) {
     let attribute_namespace = format_namespace_prefix(namespace.as_str());
     let owner_label = format_node_label(owner.namespace().as_str(), owner.role(), owner.name().as_str());
     let colored_owner = colorize_owner_label(&owner_label);

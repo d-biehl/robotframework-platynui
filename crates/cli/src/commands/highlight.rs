@@ -74,7 +74,7 @@ pub fn run(runtime: &Runtime, args: &HighlightArgs) -> CliResult<String> {
 
     if messages.is_empty() {
         if highlighted > 0 {
-            messages.push(format!("Highlighted {} region(s).", highlighted));
+            messages.push(format!("Highlighted {highlighted} region(s)."));
         } else {
             messages.push("No highlight action executed.".to_owned());
         }

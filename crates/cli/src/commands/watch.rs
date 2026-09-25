@@ -69,11 +69,11 @@ where
         match args.format {
             OutputFormat::Text => {
                 let text = render_watch_text(&summary, query_results.as_deref());
-                writeln!(writer, "{}", text).map_err(|err| anyhow!("failed to write output: {err}"))?;
+                writeln!(writer, "{text}").map_err(|err| anyhow!("failed to write output: {err}"))?;
             }
             OutputFormat::Json => {
                 let json = render_watch_json(&summary, query_results.as_deref())?;
-                writeln!(writer, "{}", json).map_err(|err| anyhow!("failed to write output: {err}"))?;
+                writeln!(writer, "{json}").map_err(|err| anyhow!("failed to write output: {err}"))?;
             }
         }
 
@@ -133,7 +133,7 @@ impl NodeSnapshot {
         Self {
             namespace: node.namespace().as_str().to_owned(),
             role: node.role().to_owned(),
-            name: node.name().to_owned(),
+            name: node.name().clone(),
             runtime_id: node.runtime_id().as_str().to_owned(),
         }
     }
@@ -184,7 +184,7 @@ fn render_watch_json(summary: &WatchEventSummary, query_results: Option<&[QueryI
         runtime_id: summary.runtime_id.clone(),
         parent_runtime_id: summary.parent_runtime_id.clone(),
         node: summary.node.clone(),
-        query_results: query_results.map(|items| items.to_vec()),
+        query_results: query_results.map(<[QueryItemSummary]>::to_vec),
     };
     Ok(serde_json::to_string(&payload)?)
 }

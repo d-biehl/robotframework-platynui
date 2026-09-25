@@ -45,6 +45,9 @@ pub struct KeyboardListArgs {
     pub format: OutputFormat,
 }
 
+// clap argument struct: field names are the arg ids and help value names, and mirror the
+// `KeyboardOverrides` builder methods.
+#[allow(clippy::struct_field_names)]
 #[derive(Args, Default, Clone)]
 struct KeyboardOverrideArgs {
     #[arg(long = "delay-ms", value_parser = parse_millis)]

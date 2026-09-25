@@ -86,8 +86,8 @@ fn parse_rect_arg(value: &str) -> Result<Rect, String> {
 fn default_output_path() -> PathBuf {
     let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     // Timestamp-based default name; collisions highly unlikely. If it exists, we still uniquify below.
-    let ts_ms = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
-    let base = cwd.join(format!("screenshot-{}.png", ts_ms));
+    let ts_ms = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis());
+    let base = cwd.join(format!("screenshot-{ts_ms}.png"));
     ensure_unique_path(&base)
 }
 
@@ -99,7 +99,7 @@ fn ensure_unique_path(path: &Path) -> PathBuf {
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("screenshot");
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("png");
     for idx in 1..=9999 {
-        let candidate = parent.join(format!("{}-{:03}.{}", stem, idx, ext));
+        let candidate = parent.join(format!("{stem}-{idx:03}.{ext}"));
         if !candidate.exists() {
             return candidate;
         }
@@ -109,7 +109,7 @@ fn ensure_unique_path(path: &Path) -> PathBuf {
 }
 
 fn ts_fallback() -> u128 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis())
 }
 
 #[cfg(test)]
@@ -194,9 +194,9 @@ mod tests {
         // Find a png file in temp dir
         let entries: Vec<_> = fs::read_dir(dir.path())
             .expect("list")
-            .filter_map(|e| e.ok())
+            .filter_map(std::result::Result::ok)
             .map(|e| e.path())
-            .filter(|p| p.extension().map(|e| e == "png").unwrap_or(false))
+            .filter(|p| p.extension().is_some_and(|e| e == "png"))
             .collect();
         assert_eq!(entries.len(), 1);
 

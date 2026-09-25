@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
+// clap argument struct: every bool is an independent command-line flag.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Args, Debug, Clone)]
 pub struct SnapshotArgs {
     #[arg(value_name = "XPATH", help = "XPath expression selecting root node(s).")]
@@ -116,24 +118,21 @@ pub fn run(runtime: &Runtime, args: &SnapshotArgs) -> CliResult<String> {
         return Ok(format!("Saved {} snapshot file(s) with prefix {}-NNN.{}.", index - 1, prefix.display(), ext));
     }
 
-    match &args.output {
-        Some(path) => {
-            match args.format {
-                SnapshotFormat::Xml => write_wrapped_document_xml(path, &roots, args)?,
-                SnapshotFormat::Text => write_wrapped_document_text(path, &roots, args)?,
-            }
-            Ok(format!("Saved snapshot to {} ({} root(s)).", path.display(), roots.len()))
+    if let Some(path) = &args.output {
+        match args.format {
+            SnapshotFormat::Xml => write_wrapped_document_xml(path, &roots, args)?,
+            SnapshotFormat::Text => write_wrapped_document_text(path, &roots, args)?,
         }
-        None => {
-            // stdout (default text unless --format xml)
-            let stdout = io::stdout();
-            let mut handle = stdout.lock();
-            match args.format {
-                SnapshotFormat::Xml => write_wrapped_xml_to(&mut handle, &roots, args)?,
-                SnapshotFormat::Text => write_text_to(&mut handle, &roots, args)?,
-            }
-            Ok(String::new())
+        Ok(format!("Saved snapshot to {} ({} root(s)).", path.display(), roots.len()))
+    } else {
+        // stdout (default text unless --format xml)
+        let stdout = io::stdout();
+        let mut handle = stdout.lock();
+        match args.format {
+            SnapshotFormat::Xml => write_wrapped_xml_to(&mut handle, &roots, args)?,
+            SnapshotFormat::Text => write_text_to(&mut handle, &roots, args)?,
         }
+        Ok(String::new())
     }
 }
 
@@ -242,7 +241,7 @@ fn write_node<W: Write>(
     writer.write_event(Event::Start(start))?;
 
     // Recurse into children if depth limit allows
-    let has_children = args.max_depth.map(|max| depth < max).unwrap_or(true);
+    let has_children = args.max_depth.is_none_or(|max| depth < max);
 
     if has_children {
         let mut first = true;
@@ -291,7 +290,7 @@ fn numbered_path(prefix: &Path, index: usize, format: SnapshotFormat) -> PathBuf
         SnapshotFormat::Xml => "xml",
         SnapshotFormat::Text => "txt",
     };
-    let filename = format!("{}-{:03}.{}", stem, index, ext);
+    let filename = format!("{stem}-{index:03}.{ext}");
     PathBuf::from(filename)
 }
 
@@ -302,7 +301,7 @@ fn format_value(value: &UiValue) -> String {
         UiValue::Integer(i) => i.to_string(),
         UiValue::Number(n) => {
             if n.fract().abs() < f64::EPSILON {
-                format!("{:.0}", n)
+                format!("{n:.0}")
             } else {
                 n.to_string()
             }
@@ -319,12 +318,12 @@ fn format_value_text(value: &UiValue) -> String {
         UiValue::Integer(i) => i.to_string(),
         UiValue::Number(n) => {
             if n.fract().abs() < f64::EPSILON {
-                format!("{:.0}", n)
+                format!("{n:.0}")
             } else {
                 n.to_string()
             }
         }
-        UiValue::String(s) => serde_json::to_string(s).unwrap_or_else(|_| format!("\"{}\"", s)),
+        UiValue::String(s) => serde_json::to_string(s).unwrap_or_else(|_| format!("\"{s}\"")),
         _ => serde_json::to_string(value).unwrap_or_else(|_| String::from("<value>")),
     }
 }
@@ -360,7 +359,7 @@ fn wildcard_match(pattern: &str, text: &str) -> bool {
             continue;
         }
         if let Some(found) = text[pos..].find(p) {
-            if i == 0 && !pattern.starts_with(p) && !pattern.starts_with("*") && found != 0 {
+            if i == 0 && !pattern.starts_with(p) && !pattern.starts_with('*') && found != 0 {
                 return false;
             }
             pos += found + p.len();
@@ -490,7 +489,7 @@ fn write_tree<W: Write>(
     } else {
         "├ "
     };
-    let line_prefix = format!("{}{}", prefix, connector);
+    let line_prefix = format!("{prefix}{connector}");
 
     // Determine label and inline extras (Id/RuntimeId)
     let ns = node.namespace();
@@ -499,7 +498,7 @@ fn write_tree<W: Write>(
 
     let ns_prefix = if ns == Namespace::Control { String::new() } else { format!("{}:", ns.as_str()) };
     let label_plain =
-        if name.is_empty() { format!("{}{}", ns_prefix, role) } else { format!("{}{} \"{}\"", ns_prefix, role, name) };
+        if name.is_empty() { format!("{ns_prefix}{role}") } else { format!("{ns_prefix}{role} \"{name}\"") };
     let label = label_plain.if_supports_color(Stream::Stdout, |t| t.bold().fg_rgb::<79, 166, 255>().to_string());
 
     let attrs = collect_attributes(node, args);
@@ -526,17 +525,17 @@ fn write_tree<W: Write>(
 
     let mut extras: Vec<String> = Vec::new();
     if let Some(idv) = id_opt {
-        extras.push(format!("Id={}", idv));
+        extras.push(format!("Id={idv}"));
     }
     if let Some(rid) = rid_opt {
-        extras.push(format!("RuntimeId={}", rid));
+        extras.push(format!("RuntimeId={rid}"));
     }
     if extras.is_empty() {
-        writeln!(writer, "{}{}", line_prefix, label)?;
+        writeln!(writer, "{line_prefix}{label}")?;
     } else {
         let extras_join = format!("[{}]", extras.join(", "));
         let extras_text = extras_join.if_supports_color(Stream::Stdout, |t| t.dimmed().to_string());
-        writeln!(writer, "{}{} {}", line_prefix, label, extras_text)?;
+        writeln!(writer, "{line_prefix}{label} {extras_text}")?;
     }
 
     // print attributes (beyond defaults) as indented lines
@@ -544,19 +543,19 @@ fn write_tree<W: Write>(
         // Attribute mit Baum-Markern ausgeben: Vor Attributen kommt ein lokaler "│ "
         // und alle Elternebenen behalten ihre "│  " bzw. "   "-Segmente bei.
         let base = format!("{}{}", prefix, if is_last { "   " } else { "│  " });
-        let attr_prefix = format!("{}│ ", base);
+        let attr_prefix = format!("{base}│ ");
         for (ans, aname, aval) in rest {
             let qname_plain = format!("{}:{}", ans.as_str(), aname);
             let qname =
                 qname_plain.if_supports_color(Stream::Stdout, |t| t.bold().fg_rgb::<241, 149, 255>().to_string());
             let value_plain = format_value_text(&aval);
             let value = value_plain.if_supports_color(Stream::Stdout, |t| t.fg_rgb::<136, 192, 74>().to_string());
-            writeln!(writer, "{}@{} = {}", attr_prefix, qname, value)?;
+            writeln!(writer, "{attr_prefix}@{qname} = {value}")?;
         }
     }
 
     // recurse
-    let proceed = args.max_depth.map(|m| m > 0).unwrap_or(true);
+    let proceed = args.max_depth.is_none_or(|m| m > 0);
     if proceed {
         // Compute child prefix
         let child_prefix = format!("{}{}", prefix, if is_last { "   " } else { "│  " });

@@ -1,3 +1,7 @@
+// `platynui_link_providers!` links the real OS platform/provider crates only outside tests and
+// the `mock-provider` feature; referencing them here would register them in the test binaries.
+#![cfg_attr(any(test, feature = "mock-provider"), allow(unused_crate_dependencies))]
+
 mod commands;
 #[cfg(test)]
 mod test_support;
@@ -73,8 +77,8 @@ fn log_level_directive(level: LogLevel) -> String {
 #[command(author, version, about = "PlatynUI command line interface", long_about = None)]
 struct Cli {
     /// Set the log level for diagnostic output (written to stderr).
-    /// Overrides the PLATYNUI_LOG environment variable.
-    /// Use RUST_LOG for fine-grained per-crate filtering.
+    /// Overrides the `PLATYNUI_LOG` environment variable.
+    /// Use `RUST_LOG` for fine-grained per-crate filtering.
     #[arg(long = "log-level", value_enum, global = true)]
     log_level: Option<LogLevel>,
 
@@ -142,7 +146,11 @@ pub enum OutputFormat {
     Json,
 }
 
-/// Execute the PlatynUI CLI using command-line arguments from the environment.
+/// Execute the `PlatynUI` CLI using command-line arguments from the environment.
+///
+/// # Errors
+///
+/// Returns an error if the runtime cannot be initialized or the selected subcommand fails.
 pub fn run() -> CliResult<()> {
     let cli = Cli::parse();
 
@@ -234,7 +242,7 @@ mod tests {
         match cli.command {
             Commands::ListProviders { format } => assert!(matches!(format, OutputFormat::Text)),
             _ => panic!("unexpected command"),
-        };
+        }
     }
 
     #[test]
@@ -243,7 +251,7 @@ mod tests {
         match cli.command {
             Commands::Info { format } => assert!(matches!(format, OutputFormat::Text)),
             _ => panic!("unexpected command"),
-        };
+        }
     }
 
     #[test]
@@ -290,7 +298,7 @@ mod tests {
         match cli.command {
             Commands::Keyboard(args) => match args.command {
                 keyboard::KeyboardCommand::Type(type_args) => {
-                    assert_eq!(type_args.sequence, "<Ctrl+A>Test")
+                    assert_eq!(type_args.sequence, "<Ctrl+A>Test");
                 }
                 _ => panic!("unexpected keyboard subcommand"),
             },
@@ -312,6 +320,8 @@ mod tests {
         }
     }
 
+    // Exact parse result of integral literals; exact equality is what the test means.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn clap_parsing_screenshot_rect_allows_negative() {
         let cli = Cli::try_parse_from(["platynui", "screenshot", "--rect", "-10,-10,200,2000"]).expect("parse");

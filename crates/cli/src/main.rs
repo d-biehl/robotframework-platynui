@@ -1,3 +1,6 @@
+// Bin target sharing the package's dependency list; everything but the entry point lives in the lib.
+#![allow(unused_crate_dependencies)]
+
 use owo_colors::{OwoColorize, Stream};
 
 fn main() {

@@ -15,6 +15,8 @@ use std::sync::Arc;
 
 const DEFAULT_WINDOW_QUERY: &str = "//control:Window";
 
+// clap argument struct: every bool is an independent command-line flag.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Args, Debug, Clone)]
 pub struct WindowArgs {
     #[arg(value_name = "XPATH", help = "XPath expression selecting windows.", required_unless_present = "list")]
@@ -67,7 +69,7 @@ pub fn run(runtime: &Runtime, args: &WindowArgs) -> CliResult<String> {
         return list_windows(runtime, args);
     }
 
-    let actions = WindowActions::from_args(args)?;
+    let actions = WindowActions::from_args(args);
     if actions.is_empty() {
         bail!("no window action specified");
     }
@@ -93,7 +95,7 @@ fn list_windows(runtime: &Runtime, args: &WindowArgs) -> CliResult<String> {
     }
 
     if windows.is_empty() {
-        return Ok(format!("No windows matched expression `{}`.", expression));
+        return Ok(format!("No windows matched expression `{expression}`."));
     }
 
     let mut lines = Vec::new();
@@ -286,7 +288,7 @@ fn render_window_header(node: &Arc<dyn UiNode>) -> String {
 }
 
 fn format_number(value: f64) -> String {
-    if (value.fract()).abs() < f64::EPSILON { format!("{:.0}", value) } else { format!("{:.2}", value) }
+    if (value.fract()).abs() < f64::EPSILON { format!("{value:.0}") } else { format!("{value:.2}") }
 }
 
 fn window_state(node: &Arc<dyn UiNode>) -> Option<WindowStatus> {
@@ -318,6 +320,8 @@ fn attr_bool(node: &Arc<dyn UiNode>, name: &str) -> bool {
         .unwrap_or(false)
 }
 
+// Flag bag: independent window state flags read from separate attributes.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Copy)]
 struct WindowStatus {
     bounds: Rect,
@@ -328,6 +332,8 @@ struct WindowStatus {
     supports_resize: bool,
 }
 
+// Flag bag: mirrors the independent, combinable action flags of `WindowArgs`.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Copy)]
 struct WindowActions {
     bring_to_front: bool,
@@ -342,11 +348,11 @@ struct WindowActions {
 }
 
 impl WindowActions {
-    fn from_args(args: &WindowArgs) -> CliResult<Self> {
+    fn from_args(args: &WindowArgs) -> Self {
         let move_to = args.move_to.as_ref().map(|values| Point::new(values[0], values[1]));
         let resize = args.resize.as_ref().map(|values| Size::new(values[0], values[1]));
 
-        Ok(Self {
+        Self {
             bring_to_front: args.bring_to_front,
             wait_ms: args.wait_ms,
             activate: args.activate,
@@ -356,7 +362,7 @@ impl WindowActions {
             close: args.close,
             move_to,
             resize,
-        })
+        }
     }
 
     fn is_empty(&self) -> bool {
