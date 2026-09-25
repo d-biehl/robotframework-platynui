@@ -72,8 +72,16 @@ depend on the command.
 
 ### `status`
 
-Compositor status — returns version, uptime, backend info, window counts, and output configuration.
-The `ping` command is an alias for `status`.
+Compositor status — identifies the server as a PlatynUI compositor and returns version, uptime,
+backend info, window counts, and output configuration. The `ping` command is an alias for `status`.
+
+The `compositor` field is how a client tells a PlatynUI compositor from any other peer that answers
+on a control socket: the PlatynUI Wayland backend sends `status` once at initialization and treats
+the session as a PlatynUI session only when the response carries `"compositor": "platynui"`. The
+value does not depend on the compositor's process name, path or version, and no other command
+returns it, so one round trip answers both "is this a PlatynUI compositor" and "is its control
+channel usable" — without the client having to see the compositor's process, which it cannot when
+the two run in different PID namespaces.
 
 **Request:**
 ```json
@@ -84,6 +92,7 @@ The `ping` command is an alias for `status`.
 ```json
 {
   "status": "ok",
+  "compositor": "platynui",
   "version": "0.12.0-dev.5",
   "backend": "winit",
   "uptime_secs": 154,
@@ -109,6 +118,7 @@ The `ping` command is an alias for `status`.
 
 | Field          | Type   | Description                                             |
 |----------------|--------|---------------------------------------------------------|
+| `compositor`   | string | Always `"platynui"`: identifies a PlatynUI compositor   |
 | `version`      | string | Compositor version (from `Cargo.toml`)                  |
 | `backend`      | string | Active backend: `"headless"`, `"winit"`, or `"drm"`     |
 | `uptime_secs`  | int    | Seconds since compositor started                        |

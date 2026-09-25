@@ -835,6 +835,9 @@ fn get_keymap_string(state: &mut State) -> Option<String> {
     })
 }
 
+/// The `compositor` value of the `status` response.
+const COMPOSITOR_IDENTITY: &str = "platynui";
+
 /// Build the JSON response for the `status` command.
 fn build_status_response(state: &State) -> serde_json::Value {
     let outputs: Vec<OutputInfo> = state
@@ -858,6 +861,9 @@ fn build_status_response(state: &State) -> serde_json::Value {
 
     serde_json::json!({
         "status": "ok",
+        // Identifies this server as a PlatynUI compositor to any control-socket
+        // client, independent of process name, path and version.
+        "compositor": COMPOSITOR_IDENTITY,
         "version": env!("CARGO_PKG_VERSION"),
         "backend": state.backend_name,
         "uptime_secs": state.start_time.elapsed().as_secs(),

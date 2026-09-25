@@ -171,6 +171,40 @@ fn ipc_status() {
     shutdown_compositor(&socket_path, child);
 }
 
+/// The status response names the compositor, so a client can tell a `PlatynUI` compositor from
+/// any other peer on a control socket (spec: *The `PlatynUI` compositor identifies itself over
+/// its control socket*). The marker is additive: every field the response carried before
+/// is still there, `ping` answers identically, and no other command carries it.
+#[test]
+fn ipc_status_identifies_the_compositor() {
+    let Some((child, socket_name)) = start_compositor("identity") else {
+        return;
+    };
+
+    let Some(socket_path) = wait_for_socket(&socket_name, Duration::from_secs(10)) else {
+        eprintln!("skipping: control socket did not appear");
+        return;
+    };
+
+    for command in [r#"{"command": "status"}"#, r#"{"command": "ping"}"#] {
+        let response = send_command(&socket_path, command).expect("failed to send command");
+        let json: Value = serde_json::from_str(&response).expect("status response is JSON");
+        assert_eq!(json["status"], "ok", "{command}: {json}");
+        assert_eq!(json["compositor"], "platynui", "{command}: identity marker missing: {json}");
+        for field in ["version", "backend", "uptime_secs", "socket", "xwayland", "windows", "minimized", "outputs"] {
+            assert!(json.get(field).is_some(), "{command}: field `{field}` missing: {json}");
+        }
+        assert_eq!(json["socket"], socket_name.as_str(), "{command}: {json}");
+    }
+
+    let response = send_command(&socket_path, r#"{"command": "nonexistent"}"#).expect("failed to send command");
+    let json: Value = serde_json::from_str(&response).expect("error response is JSON");
+    assert_eq!(json["status"], "error", "{json}");
+    assert!(json.get("compositor").is_none(), "an error response must not look like an identity answer: {json}");
+
+    shutdown_compositor(&socket_path, child);
+}
+
 #[test]
 fn ipc_list_windows_empty() {
     let Some((child, socket_name)) = start_compositor("list_empty") else {
