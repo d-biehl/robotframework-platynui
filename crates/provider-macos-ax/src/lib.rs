@@ -1,4 +1,4 @@
-//! macOS Accessibility (AX) UiTree provider (stub).
+//! macOS Accessibility (AX) `UiTree` provider (stub).
 //!
 //! This crate exposes a minimal provider factory so tests and consumers can
 //! construct a `Runtime` with a macOS AX provider via
