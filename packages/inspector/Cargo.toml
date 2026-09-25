@@ -12,3 +12,6 @@ platynui-inspector = { path = "../../apps/inspector" }
 [[bin]]
 name = "platynui-inspector"
 path = "src/main.rs"
+
+[lints]
+workspace = true
