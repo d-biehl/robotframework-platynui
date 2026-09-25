@@ -22,6 +22,12 @@ Binary crates (CLI, Inspector) additionally depend on the subscriber:
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
 ```
 
+The Python extension (`packages/native`) installs a queueing subscriber instead of a writer, so it needs no `fmt`:
+
+```toml
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "env-filter", "std"] }
+```
+
 Always use `default-features = false` with the exact feature set shown above. Do not add extra features without explicit justification.
 
 ## 2. Log Levels
@@ -29,7 +35,7 @@ Always use `default-features = false` with the exact feature set shown above. Do
 | Level   | Purpose                                                                                               | Examples                                                       |
 |---------|-------------------------------------------------------------------------------------------------------|----------------------------------------------------------------|
 | `error` | Unexpected failure that is **not** already surfaced as a `Result::Err` to the caller.                 | `SendInput` failed, `BitBlt` failed, unsupported image depth   |
-| `warn`  | Degraded operation, fallbacks in use, slow calls (>200 ms), missing optional capabilities.           | RANDR missing, using fallback desktop info, connect timeout    |
+| `warn`  | Degraded operation, fallbacks in use, slow calls (>200 ms), missing optional capabilities. Reaches the Robot Framework console (see §3). | RANDR missing, using fallback desktop info, connect timeout    |
 | `info`  | One-time lifecycle events — emitted at most once per program run.                                    | Runtime initialized/shutdown, platform initialized, bus connected |
 | `debug` | Operational details useful during development or field diagnosis.                                     | Provider count, device discovery, XPath expression, pointer coords |
 | `trace` | Hot-path per-item iteration — extremely verbose; normally only enabled to debug specific subsystems.  | Per-node AT-SPI resolution, per-app enumeration                |
@@ -41,11 +47,13 @@ Always use `default-features = false` with the exact feature set shown above. Do
 - If a message would fire once per UI node or once per event-loop tick, use `trace`.
 - When in doubt between `debug` and `trace`, ask: "Would this be noisy with 500 nodes?" If yes → `trace`.
 
-## 3. Subscriber Setup (Binary Crates Only)
+## 3. Subscriber Setup (Entry Points Only)
 
-Library crates **never** initialize a subscriber — they only emit events. Subscriber initialization lives in the two binary entry points: `crates/cli/src/lib.rs` and `apps/inspector/src/lib.rs`.
+Library crates **never** initialize a subscriber — they only emit events. Subscriber initialization lives in the entry points: the two binaries, `crates/cli/src/lib.rs` and `apps/inspector/src/lib.rs`, and the Python extension, `packages/native/src/log_bridge.rs`.
 
-The subscriber uses:
+The Python extension's subscriber is different: it never writes, it only queues. Each enabled event becomes a record in a bounded queue, and records reach Python `logging` — and through it the Robot Framework log — on the thread that calls into the extension, when a runtime call returns and around every Robot Framework keyword. It never calls into Python from the thread that logged, because Robot Framework drops messages from other threads and because a native call may hold the GIL while it waits for that thread. By default it produces only `warn` and `error`. The `native_log_level` import argument of `PlatynUI.BareMetal` lowers that for PlatynUI's own crates; `RUST_LOG` and `PLATYNUI_LOG_LEVEL` work as below. A native `warn` therefore becomes a Robot Framework warning, which also appears on the console: keep `warn` for situations a user should act on, and use `debug` for what is expected in a healthy session. `dev-docs/python-bindings.md` (Logging) has the details.
+
+The binaries' subscriber uses:
 - `tracing_subscriber::fmt()` with `env_filter`
 - `with_target(true)` — shows the emitting module path
 - `with_writer(std::io::stderr)` — keeps diagnostics off stdout (stdout is reserved for command output)

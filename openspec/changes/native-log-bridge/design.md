@@ -276,3 +276,7 @@ The suite lives outside `tests/BareMetal`, so the regular mock lane does not pic
 
 - Should the high-level `PlatynUI` library also offer `native_log_level` once it leaves placeholder state? Deferrable: it would reuse the registry and needs no change to the extension or the spec's requirements.
 - Should `platynui_native` expose a context manager that flushes on exit, for plain Python users who work mostly with nodes? Deferrable: `flush_logs()` covers it. A context manager is sugar on top.
+
+## Follow-ups
+
+- **Windows lane warning review — pending, needs a Windows machine.** Decision 9's review covered the mock, X11 and compositor lanes on Linux. The Windows lane (`just test-acceptance-windows`: UIA, the JAB pump, the Java agent) emits its own native warnings, and only a Windows host can collect them. Until that review has run, a healthy Windows run may show native warnings that are not actionable.

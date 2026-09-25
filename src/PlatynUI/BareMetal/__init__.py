@@ -40,6 +40,7 @@ from robot.running.context import EXECUTION_CONTEXTS
 from ..__version__ import __version__
 from .._assertable import assertable
 from .._our_libcore import OurDynamicCore, keyword
+from ..core.native_logging import NativeLogScope, native_log_levels
 
 
 class BareMetalError(Exception):
@@ -915,6 +916,7 @@ class BareMetal(OurDynamicCore):
         query_settings: QuerySettingsDict | None = None,
         config: dict[str, Any] | None = None,
         use_mock: bool = False,
+        native_log_level: str | None = None,
     ) -> None:
         """Import the library, optionally tuning window activation and input behaviour.
 
@@ -933,6 +935,7 @@ class BareMetal(OurDynamicCore):
         | ``pointer_settings`` | pointer *behaviour*: double-click interval and size, and the default button |
         | ``pointer_profile`` | pointer *motion*: speed, acceleration, curve, overshoot and jitter |
         | ``config`` | *session* binding: which display server and accessibility bus this runtime drives |
+        | ``native_log_level`` | *diagnostics*: how much of PlatynUI's own logging reaches the log — default ``warn`` |
 
         | Library    PlatynUI.BareMetal    auto_activate=${False}    query_settings={'timeout': 60}
 
@@ -954,11 +957,27 @@ class BareMetal(OurDynamicCore):
         environment. ``config`` is fixed at construction time (a live connection cannot be re-pointed
         at another display), so there is no per-call override.
 
+        PlatynUI writes its own diagnostics into the log of the keyword during which they occur.
+        By default only warnings and errors are written; warnings also appear on the console and among
+        the run's errors, like any other warning. ``native_log_level`` makes PlatynUI's diagnostics
+        more detailed: ``error``, ``warn``, ``info``, ``debug`` or ``trace``. Robot Framework's own log
+        level (``--loglevel`` or ``Set Log Level``) must let the messages through as well, so seeing
+        debug output takes both:
+
+        | Library    PlatynUI.BareMetal    native_log_level=debug
+
+        The setting is shared by every library instance in the run: the most detailed level any
+        instance currently in scope asks for applies. For finer control, the environment variables
+        ``PLATYNUI_LOG_LEVEL`` and ``RUST_LOG`` take filter directives, as for the PlatynUI
+        command-line tool; ``RUST_LOG`` overrides ``native_log_level``, and ``PLATYNUI_LOG_LEVEL``
+        applies when no instance asks for a level.
+
         ``use_mock`` exists only for PlatynUI's own development and test suites — it drives a built-in
         stand-in tree instead of the real desktop, selecting the in-memory mock backend regardless of
         ``config``. Leave it at its default; it is not meant for automating applications.
         """
-        super().__init__([])
+        native_log_request = native_log_levels.request(native_log_level) if native_log_level is not None else None
+        super().__init__([NativeLogScope(native_log_request)])
         self._screenshot_counter = 1
         self.use_mock = use_mock
         # Construction-time session binding (immutable); consumed once in _create_runtime().
