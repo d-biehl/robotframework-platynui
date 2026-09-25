@@ -2,7 +2,7 @@
 //!
 //! Answers, for a native top-level window, the question that governs routing
 //! and diagnosability of Java applications: *is this window backed by a JVM,
-//! which UI toolkit renders it (Swing/AWT, SWT, JavaFX), and is it reachable
+//! which UI toolkit renders it (Swing/AWT, SWT, `JavaFX`), and is it reachable
 //! through the platform's native accessibility stack at all?*
 //!
 //! The [`JavaClassifier`] trait is a platform-bundle capability (like
@@ -38,7 +38,7 @@ pub enum JavaToolkit {
     SwingAwt,
     /// Eclipse SWT.
     Swt,
-    /// JavaFX (Glass windowing layer).
+    /// `JavaFX` (Glass windowing layer).
     JavaFx,
     /// Confirmed JVM window, but no toolkit discriminator matched.
     Unknown,
@@ -48,6 +48,7 @@ impl JavaToolkit {
     /// Toolkit from a Windows top-level window class name, per the prefix
     /// table in `dev-docs/java-toolkits.md` (`SunAwt*`, `SWT_Window*`,
     /// `Glass*`). `None` when the class matches no Java toolkit.
+    #[must_use]
     pub fn from_window_class(class_name: &str) -> Option<Self> {
         if class_name.starts_with("SunAwt") {
             Some(Self::SwingAwt)
@@ -61,7 +62,8 @@ impl JavaToolkit {
     }
 
     /// Stable display label, used verbatim as the `native:JvmToolkit`
-    /// attribute value (Inspector display and XPath selectors).
+    /// attribute value (Inspector display and `XPath` selectors).
+    #[must_use]
     pub fn label(self) -> &'static str {
         match self {
             Self::SwingAwt => "Swing/AWT",
@@ -97,7 +99,7 @@ pub struct JavaClassification {
     /// [`classify_from_signals`]); `None` where answering would require an
     /// eager probe.
     pub native_a11y_visible: Option<bool>,
-    /// Whether a PlatynUI agent is present in the window's process, from the
+    /// Whether a `PlatynUI` agent is present in the window's process, from the
     /// agent's per-user handshake file. `None` for non-JVM windows and where
     /// the probe was not possible.
     ///
@@ -119,6 +121,11 @@ pub trait JavaClassifier: Send + Sync {
     fn name(&self) -> &'static str;
 
     /// Classify the top-level window `window` owned by process `pid`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PlatformError`] when the backend cannot collect the
+    /// classification signals for the window.
     fn classify(&self, window: WindowId, pid: u32) -> Result<JavaClassification, PlatformError>;
 }
 
@@ -132,7 +139,7 @@ pub trait JavaClassifier: Send + Sync {
 /// - `claimed_by_provider`: whether a provider claims the window in
 ///   [`window_claims`](crate::platform::window_claims) — the materialized
 ///   "a native accessibility provider genuinely serves this window" fact.
-/// - `agent_present`: whether a PlatynUI agent published a live handshake file
+/// - `agent_present`: whether a `PlatynUI` agent published a live handshake file
 ///   for the window's process; `None` when the probe was not possible.
 ///
 /// Rules:
@@ -144,7 +151,7 @@ pub trait JavaClassifier: Send + Sync {
 /// - `native_a11y_visible` is answered only where free: for Swing/AWT the
 ///   provider claim is the accessibility-bridge answer (on Windows, the JAB
 ///   provider claims exactly the windows `isJavaWindow` acknowledged). SWT and
-///   JavaFX windows are served by the generic native provider, so answering
+///   `JavaFX` windows are served by the generic native provider, so answering
 ///   would need an eager probe — left `None` by design.
 /// - `agent_present` is reported only for JVM windows: "no agent" about a
 ///   process that is not a JVM would be a fact about nothing.
@@ -181,6 +188,11 @@ static UNREACHABLE_WARNED: LazyLock<Mutex<HashSet<u64>>> = LazyLock::new(|| Mute
 /// `window_claims` semantics) and `None` on every later call, so the caller
 /// logs it at most once per window. Core deliberately does not log itself —
 /// the calling provider owns the log line and its structured fields.
+///
+/// # Panics
+///
+/// Panics if the process-wide registry mutex was poisoned by an earlier panic
+/// while it was held.
 pub fn jvm_unreachable_diagnostic_once(window: u64, toolkit: JavaToolkit) -> Option<&'static str> {
     let mut warned = UNREACHABLE_WARNED.lock().expect("jvm diagnostic registry mutex poisoned");
     if !warned.insert(window) {
@@ -191,6 +203,11 @@ pub fn jvm_unreachable_diagnostic_once(window: u64, toolkit: JavaToolkit) -> Opt
 
 /// Whether the diagnostic has already been emitted for `window`. Intended for
 /// tests and diagnostics tooling.
+///
+/// # Panics
+///
+/// Panics if the process-wide registry mutex is poisoned (see
+/// [`jvm_unreachable_diagnostic_once`]).
 pub fn jvm_unreachable_diagnostic_emitted(window: u64) -> bool {
     UNREACHABLE_WARNED.lock().expect("jvm diagnostic registry mutex poisoned").contains(&window)
 }

@@ -39,10 +39,12 @@ pub struct DesktopInfo {
 }
 
 impl DesktopInfo {
+    #[must_use]
     pub fn display_count(&self) -> usize {
         self.monitors.len()
     }
 
+    #[must_use]
     pub fn primary_monitor(&self) -> Option<&MonitorInfo> {
         self.monitors.iter().find(|monitor| monitor.is_primary)
     }
@@ -50,5 +52,11 @@ impl DesktopInfo {
 
 /// Provides desktop metadata on demand.
 pub trait DesktopInfoProvider: Send + Sync {
+    /// Collect the current desktop metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PlatformError`] when the platform cannot query the desktop
+    /// or monitor information.
     fn desktop_info(&self) -> Result<DesktopInfo, PlatformError>;
 }

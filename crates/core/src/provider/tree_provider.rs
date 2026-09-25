@@ -11,6 +11,12 @@ pub trait UiTreeProvider: Send + Sync {
 
     /// Returns an iterator over nodes that should be attached to the given
     /// parent (typically the runtime-managed desktop or an application node).
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ProviderError`] when the provider cannot enumerate its
+    /// nodes, for example because its tree or backend connection is
+    /// unavailable.
     fn get_nodes(
         &self,
         parent: Arc<dyn UiNode>,
@@ -31,6 +37,13 @@ pub trait UiTreeProvider: Send + Sync {
     /// the current platform) cannot hit-test at all — the default. Callers use
     /// the distinct `UnsupportedOperation` to disable point-based features
     /// rather than treating an unsupported provider as an empty result.
+    ///
+    /// # Errors
+    ///
+    /// The default implementation always returns
+    /// [`ProviderError::UnsupportedOperation`]. Implementations return that
+    /// variant when they cannot hit-test, and another [`ProviderError`] when
+    /// the hit-test itself fails.
     fn element_at_point(&self, _point: Point) -> Result<Option<Arc<dyn UiNode>>, ProviderError> {
         Err(ProviderError::UnsupportedOperation { operation: "element_at_point", details: None })
     }
@@ -38,6 +51,11 @@ pub trait UiTreeProvider: Send + Sync {
     /// Registers a listener for provider-originated events. The default
     /// implementation does nothing so providers without event support can
     /// ignore this call.
+    ///
+    /// # Errors
+    ///
+    /// The default implementation never fails. Implementations return a
+    /// [`ProviderError`] when the event subscription cannot be set up.
     fn subscribe_events(&self, _listener: Arc<dyn ProviderEventListener>) -> Result<(), ProviderError> {
         Ok(())
     }

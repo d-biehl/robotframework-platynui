@@ -78,11 +78,13 @@ impl From<ConfigMap> for ConfigValue {
 pub struct ConfigMap(BTreeMap<String, ConfigValue>);
 
 impl ConfigMap {
+    #[must_use]
     pub fn new() -> Self {
         Self(BTreeMap::new())
     }
 
     /// Insert a value, returning `&mut self` for fluent building.
+    #[must_use]
     pub fn with(mut self, key: impl Into<String>, value: impl Into<ConfigValue>) -> Self {
         self.0.insert(key.into(), value.into());
         self
@@ -92,11 +94,13 @@ impl ConfigMap {
         self.0.insert(key.into(), value.into());
     }
 
+    #[must_use]
     pub fn get(&self, key: &str) -> Option<&ConfigValue> {
         self.0.get(key)
     }
 
     /// The value at `key` if it is a string.
+    #[must_use]
     pub fn get_str(&self, key: &str) -> Option<&str> {
         match self.0.get(key) {
             Some(ConfigValue::Str(value)) => Some(value.as_str()),
@@ -105,6 +109,7 @@ impl ConfigMap {
     }
 
     /// The value at `key` if it is a boolean.
+    #[must_use]
     pub fn get_bool(&self, key: &str) -> Option<bool> {
         match self.0.get(key) {
             Some(ConfigValue::Bool(value)) => Some(*value),
@@ -113,6 +118,7 @@ impl ConfigMap {
     }
 
     /// The value at `key` if it is an integer.
+    #[must_use]
     pub fn get_i64(&self, key: &str) -> Option<i64> {
         match self.0.get(key) {
             Some(ConfigValue::Int(value)) => Some(*value),
@@ -121,6 +127,7 @@ impl ConfigMap {
     }
 
     /// The value at `key` if it is a float.
+    #[must_use]
     pub fn get_f64(&self, key: &str) -> Option<f64> {
         match self.0.get(key) {
             Some(ConfigValue::Float(value)) => Some(*value),
@@ -129,6 +136,7 @@ impl ConfigMap {
     }
 
     /// The value at `key` if it is a nested map.
+    #[must_use]
     pub fn get_map(&self, key: &str) -> Option<&ConfigMap> {
         match self.0.get(key) {
             Some(ConfigValue::Map(value)) => Some(value),
@@ -140,10 +148,12 @@ impl ConfigMap {
         self.0.keys().map(String::as_str)
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.0.len()
     }
@@ -167,22 +177,26 @@ pub struct RuntimeConfig {
 }
 
 impl RuntimeConfig {
+    #[must_use]
     pub fn new(platform: ConfigMap, providers: ConfigMap) -> Self {
         Self { platform, providers }
     }
 
     /// The forced platform backend id (`platform.backend`), if set. When absent
     /// the runtime auto-detects the backend from the environment.
+    #[must_use]
     pub fn platform_backend(&self) -> Option<&str> {
         self.platform.get_str(PLATFORM_BACKEND_KEY)
     }
 
     /// The settings sub-map for platform backend `id` (`platform.<id>`).
+    #[must_use]
     pub fn platform(&self, id: &str) -> Option<&ConfigMap> {
         self.platform.get_map(id)
     }
 
     /// The settings sub-map for provider `id` (`providers.<id>`).
+    #[must_use]
     pub fn provider(&self, id: &str) -> Option<&ConfigMap> {
         self.providers.get_map(id)
     }

@@ -10,6 +10,7 @@ impl RuntimeId {
         Self(value.into())
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -39,7 +40,7 @@ impl From<Arc<str>> for RuntimeId {
     }
 }
 
-/// Identifies the technology that surfaced a node (UIAutomation, AT-SPI, ...).
+/// Identifies the technology that surfaced a node (`UIAutomation`, AT-SPI, ...).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TechnologyId(Arc<str>);
 
@@ -48,6 +49,7 @@ impl TechnologyId {
         Self(value.into())
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -86,6 +88,7 @@ impl PatternName {
         Self(value.into())
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -210,7 +213,7 @@ mod tests {
             pattern_names::LAZY,
             pattern_names::OTHER,
         ] {
-            assert!(id.starts_with("org.platynui.patterns."), "pattern id `{id}` must use reverse-DNS prefix",);
+            assert!(id.starts_with("org.platynui.patterns."), "pattern id `{id}` must use reverse-DNS prefix");
         }
     }
 }

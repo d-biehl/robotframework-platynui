@@ -51,11 +51,13 @@ pub fn release_window(raw: u64, provider_id: &'static str) {
 /// Whether `raw` is currently claimed by any provider other than
 /// `provider_id`. This is the question a generic provider asks during root
 /// streaming: "is someone else representing this window?"
+#[must_use]
 pub fn is_claimed_by_other(raw: u64, provider_id: &str) -> bool {
     claims().get(&raw).is_some_and(|owners| owners.keys().any(|owner| *owner != provider_id))
 }
 
 /// Whether `raw` is claimed by anyone at all.
+#[must_use]
 pub fn is_claimed(raw: u64) -> bool {
     claims().get(&raw).is_some_and(|owners| !owners.is_empty())
 }

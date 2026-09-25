@@ -13,6 +13,7 @@ impl KeyCode {
         Self(Arc::new(value))
     }
 
+    #[must_use]
     pub fn downcast_ref<T: Send + Sync + 'static>(&self) -> Option<&T> {
         self.0.as_ref().downcast_ref::<T>()
     }
@@ -45,6 +46,7 @@ pub struct KeyboardEvent {
 }
 
 impl KeyboardEvent {
+    #[must_use]
     pub fn state(&self) -> KeyState {
         self.state
     }
@@ -193,6 +195,7 @@ impl KeyboardOverrides {
         self
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.press_delay.is_none()
             && self.release_delay.is_none()
@@ -206,14 +209,40 @@ impl KeyboardOverrides {
 
 /// Trait implemented by platform keyboard providers.
 pub trait KeyboardDevice: Send + Sync {
+    /// Resolve a key name (or a single character) to a device key code.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KeyboardError::UnsupportedKey`] when the device does not know
+    /// the name, or another [`KeyboardError`] when the device cannot resolve
+    /// it right now.
     fn key_to_code(&self, name: &str) -> Result<KeyCode, KeyboardError>;
 
+    /// Begin a keyboard input sequence.
+    ///
+    /// # Errors
+    ///
+    /// The default implementation never fails. Implementations return a
+    /// [`KeyboardError`] when the device cannot start an input sequence, for
+    /// example [`KeyboardError::InputInProgress`] or
+    /// [`KeyboardError::NotReady`].
     fn start_input(&self) -> Result<(), KeyboardError> {
         Ok(())
     }
 
+    /// Send a single key press or release.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`KeyboardError`] when the device cannot deliver the event.
     fn send_key_event(&self, event: KeyboardEvent) -> Result<(), KeyboardError>;
 
+    /// Finish the current keyboard input sequence.
+    ///
+    /// # Errors
+    ///
+    /// The default implementation never fails. Implementations return a
+    /// [`KeyboardError`] when the device cannot finish the sequence cleanly.
     fn end_input(&self) -> Result<(), KeyboardError> {
         Ok(())
     }

@@ -12,15 +12,18 @@ pub struct ProviderDescriptor {
 }
 
 impl ProviderDescriptor {
+    #[must_use]
     pub fn new(id: &'static str, display_name: &'static str, technology: TechnologyId, kind: ProviderKind) -> Self {
         Self { id, display_name, technology, kind, event_capabilities: ProviderEventCapabilities::NONE }
     }
 
+    #[must_use]
     pub const fn with_event_capabilities(mut self, capabilities: ProviderEventCapabilities) -> Self {
         self.event_capabilities = capabilities;
         self
     }
 
+    #[must_use]
     pub const fn event_capabilities(&self) -> ProviderEventCapabilities {
         self.event_capabilities
     }
@@ -45,14 +48,17 @@ bitflags! {
 }
 
 impl ProviderEventCapabilities {
+    #[must_use]
     pub fn supports_change_hint(self) -> bool {
         self.intersects(Self::CHANGE_HINT | Self::STRUCTURE | Self::STRUCTURE_WITH_PROPERTIES)
     }
 
+    #[must_use]
     pub fn supports_structure(self) -> bool {
         self.intersects(Self::STRUCTURE | Self::STRUCTURE_WITH_PROPERTIES)
     }
 
+    #[must_use]
     pub fn supports_property_changes(self) -> bool {
         self.contains(Self::STRUCTURE_WITH_PROPERTIES)
     }

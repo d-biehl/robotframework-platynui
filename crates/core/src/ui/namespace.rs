@@ -3,13 +3,13 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use std::sync::LazyLock;
 
-/// Known namespaces within the PlatynUI document model.
+/// Known namespaces within the `PlatynUI` document model.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub enum Namespace {
-    /// Default namespace for Controls (Buttons, TextBoxes, etc.).
+    /// Default namespace for Controls (Buttons, `TextBoxes`, etc.).
     #[default]
     Control,
-    /// Namespace for items belonging to container controls (ListItem, TreeItem, ...).
+    /// Namespace for items belonging to container controls (`ListItem`, `TreeItem`, ...).
     Item,
     /// Namespace exposing application level information (processes, packages).
     App,
@@ -18,7 +18,8 @@ pub enum Namespace {
 }
 
 impl Namespace {
-    /// Returns the canonical prefix (used as namespace identifier inside XPath expressions).
+    /// Returns the canonical prefix (used as namespace identifier inside `XPath` expressions).
+    #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Namespace::Control => "control",
@@ -28,7 +29,8 @@ impl Namespace {
         }
     }
 
-    /// Returns whether this namespace is the default one for XPath queries.
+    /// Returns whether this namespace is the default one for `XPath` queries.
+    #[must_use]
     pub const fn is_default(self) -> bool {
         matches!(self, Namespace::Control)
     }

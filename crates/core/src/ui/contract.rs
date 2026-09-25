@@ -15,6 +15,13 @@ pub enum ContractViolation {
 
 /// Ensures that `control:` and `item:` nodes expose the mandatory attributes and
 /// that all advertised runtime patterns provide concrete implementations.
+///
+/// # Errors
+///
+/// Returns [`ContractViolation::UnsupportedNamespace`] for a node outside the
+/// `control:` and `item:` namespaces, and
+/// [`ContractViolation::DuplicatePattern`] for the first pattern that
+/// `SupportedPatterns` lists more than once.
 pub fn validate_control_or_item(node: &dyn UiNode) -> Result<(), ContractViolation> {
     match node.namespace() {
         Namespace::Control | Namespace::Item => {
@@ -144,7 +151,7 @@ mod tests {
             self.namespace
         }
 
-        fn role(&self) -> &str {
+        fn role(&self) -> &'static str {
             "Button"
         }
 

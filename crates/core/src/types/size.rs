@@ -18,25 +18,31 @@ impl Size {
         }
     }
 
+    #[must_use]
     pub fn width(&self) -> f64 {
         self.width
     }
+    #[must_use]
     pub fn height(&self) -> f64 {
         self.height
     }
 
+    #[must_use]
     pub fn to_tuple(&self) -> (f64, f64) {
         (self.width, self.height)
     }
 
+    #[must_use]
     pub fn area(&self) -> f64 {
         if self.width > 0.0 && self.height > 0.0 { self.width * self.height } else { 0.0 }
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.width <= 0.0 || self.height <= 0.0
     }
 
+    #[must_use]
     pub fn is_finite(&self) -> bool {
         self.width.is_finite() && self.height.is_finite()
     }
@@ -88,6 +94,8 @@ impl Div<f64> for Size {
 mod tests {
     use super::*;
 
+    // Small integral values are exact in f64, so exact equality is intended.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn create_works() {
         let s1 = Size::new(1.0, 2.0);
@@ -100,16 +108,20 @@ mod tests {
         let s1 = Size::new(1.0, 2.0);
         let s2 = Size::new(1.0, 2.0);
         assert_eq!(s1, s2);
-        assert!(s1 == s2);
+        assert_eq!(s1, s2);
     }
 
+    // Small integral values are exact in f64, so exact equality is intended.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn default_works() {
-        let s: Size = Default::default();
+        let s = Size::default();
         assert_eq!(s.width(), 0.0);
         assert_eq!(s.height(), 0.0);
     }
 
+    // Small integral values are exact in f64, so exact equality is intended.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn add_works() {
         let s1 = Size::new(1.0, 2.0);
@@ -119,6 +131,8 @@ mod tests {
         assert_eq!(s3.height(), 6.0);
     }
 
+    // Small integral values are exact in f64, so exact equality is intended.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn add_assign_works() {
         let s1 = Size::new(1.0, 2.0);
@@ -128,6 +142,8 @@ mod tests {
         assert_eq!(s1.height(), 6.0);
     }
 
+    // Small integral values are exact in f64, so exact equality is intended.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn sub_works() {
         let s1 = Size::new(3.0, 4.0);
@@ -137,6 +153,8 @@ mod tests {
         assert_eq!(s3.height(), 2.0);
     }
 
+    // Small integral values are exact in f64, so exact equality is intended.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn sub_assign_works() {
         let s1 = Size::new(3.0, 4.0);
@@ -153,6 +171,8 @@ mod tests {
         assert_eq!(serialized, r#"{"width":1.0,"height":2.0}"#);
     }
 
+    // Small integral values are exact in f64, so exact equality is intended.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn new_clamps_negatives() {
         let s = Size::new(-1.0, -2.0);
@@ -160,6 +180,8 @@ mod tests {
         assert_eq!(s.height(), 0.0);
     }
 
+    // Small integral values are exact in f64, so exact equality is intended.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn from_and_to_tuple_and_area_empty() {
         let s: Size = (3.0, 4.0).into();

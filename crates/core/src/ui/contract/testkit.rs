@@ -18,10 +18,12 @@ pub struct AttributeExpectation {
 }
 
 impl AttributeExpectation {
+    #[must_use]
     pub const fn required(namespace: Namespace, name: &'static str) -> Self {
         Self { namespace, name, optional: false }
     }
 
+    #[must_use]
     pub const fn optional(namespace: Namespace, name: &'static str) -> Self {
         Self { namespace, name, optional: true }
     }
@@ -35,6 +37,7 @@ pub struct PatternExpectation {
 }
 
 impl PatternExpectation {
+    #[must_use]
     pub const fn new(id: PatternName, attributes: &'static [AttributeExpectation]) -> Self {
         Self { id, attributes }
     }
@@ -47,6 +50,7 @@ pub struct NodeExpectation {
 }
 
 impl NodeExpectation {
+    #[must_use]
     pub fn with_pattern(mut self, pattern: PatternExpectation) -> Self {
         self.patterns.push(pattern);
         self
@@ -113,6 +117,7 @@ pub const COMMON_ATTRIBUTES: &[AttributeExpectation] = &[
 
 /// The common-attribute expectations, for provider suites that want to inspect
 /// or extend the set rather than call [`verify_common_attributes`] directly.
+#[must_use]
 pub fn common_attributes() -> &'static [AttributeExpectation] {
     COMMON_ATTRIBUTES
 }
@@ -146,7 +151,7 @@ pub fn verify_common_attributes(node: &dyn UiNode) -> Vec<ContractIssue> {
                 issues.push(ContractIssue::NullCommonAttribute {
                     namespace: expectation.namespace,
                     name: expectation.name.to_owned(),
-                })
+                });
             }
             _ => {}
         }
@@ -185,13 +190,12 @@ pub fn verify_node(node: &dyn UiNode, expectations: &NodeExpectation) -> Vec<Con
                         name: attr.name.to_owned(),
                     });
                 }
-                Some(_) => {
+                _ => {
                     // Note: Derived geometry aliases (Bounds.X/Y/Width/Height, ActivationPoint.X/Y)
                     // are produced by the Runtime/XPath layer and are no longer part of the
                     // provider contract. Providers should expose only the base attributes such as
                     // Bounds (Rect) and ActivationPoint (Point).
                 }
-                _ => {}
             }
         }
     }
@@ -200,6 +204,11 @@ pub fn verify_node(node: &dyn UiNode, expectations: &NodeExpectation) -> Vec<Con
 }
 
 /// Verifies a node and returns a detailed list on the first failure.
+///
+/// # Errors
+///
+/// Returns every [`ContractIssue`] that [`verify_node`] detects when the list
+/// is not empty.
 pub fn require_node(node: &dyn UiNode, expectations: &NodeExpectation) -> Result<(), Vec<ContractIssue>> {
     let issues = verify_node(node, expectations);
     if issues.is_empty() { Ok(()) } else { Err(issues) }
@@ -277,7 +286,7 @@ mod geometry_tests {
             Namespace::Control
         }
 
-        fn role(&self) -> &str {
+        fn role(&self) -> &'static str {
             "Node"
         }
 
@@ -433,7 +442,7 @@ mod expectation_tests {
         }
 
         fn with_pattern(self, pattern: PatternName) -> Self {
-            let arc: Arc<dyn UiPattern> = Arc::new(MockPattern(pattern.clone()));
+            let arc: Arc<dyn UiPattern> = Arc::new(MockPattern(pattern));
             self.patterns.register_dyn(arc);
             self
         }
@@ -444,7 +453,7 @@ mod expectation_tests {
             self.namespace
         }
 
-        fn role(&self) -> &str {
+        fn role(&self) -> &'static str {
             "Button"
         }
 

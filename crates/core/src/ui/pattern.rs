@@ -31,7 +31,7 @@ where
     T: UiPattern + 'static,
 {
     if Arc::as_ref(&pattern).as_any().is::<T>() {
-        let raw = Arc::into_raw(pattern) as *const T;
+        let raw = Arc::into_raw(pattern).cast::<T>();
         // SAFETY: `is::<T>()` verified that the concrete type behind `dyn UiPattern`
         // is `T`. `Arc::into_raw` returns a pointer whose data component points to the
         // actual `T` value, and casting to `*const T` (thin pointer) discards the
@@ -73,6 +73,7 @@ enum RegistryEntry {
 }
 
 impl PatternRegistry {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -84,6 +85,12 @@ impl PatternRegistry {
         self.register_dyn(pattern as Arc<dyn UiPattern>);
     }
 
+    /// Register a pattern instance, replacing any entry with the same name.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the registry mutex is poisoned, which requires an earlier
+    /// panic while it was held (for example a lazy probe that panicked).
     pub fn register_dyn(&self, pattern: Arc<dyn UiPattern>) {
         let mut state = self.state.lock().expect("PatternRegistry lock poisoned");
         let id = pattern.pattern_name();
@@ -95,6 +102,13 @@ impl PatternRegistry {
         }
     }
 
+    /// Register a probe that resolves the pattern on first access, replacing
+    /// any entry with the same name.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the registry mutex is poisoned, which requires an earlier
+    /// panic while it was held (for example a lazy probe that panicked).
     pub fn register_lazy<F>(&self, id: PatternName, probe: F)
     where
         F: Fn() -> Option<Arc<dyn UiPattern>> + Send + Sync + 'static,
@@ -109,6 +123,12 @@ impl PatternRegistry {
         }
     }
 
+    /// The pattern registered under `id`, resolving a lazy entry on demand.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the registry mutex is poisoned, which requires an earlier
+    /// panic while it was held (for example a lazy probe that panicked).
     pub fn get(&self, id: &PatternName) -> Option<Arc<dyn UiPattern>> {
         let mut state = self.state.lock().expect("PatternRegistry lock poisoned");
         let entry = state.entries.get_mut(id)?;
@@ -123,6 +143,13 @@ impl PatternRegistry {
         self.get(&id).and_then(downcast_pattern_arc::<T>)
     }
 
+    /// The names of all registered patterns that resolve, in registration
+    /// order; lazy entries are probed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the registry mutex is poisoned, which requires an earlier
+    /// panic while it was held (for example a lazy probe that panicked).
     pub fn supported(&self) -> Vec<PatternName> {
         let mut state = self.state.lock().expect("PatternRegistry lock poisoned");
         let order_snapshot = state.order.clone();
@@ -138,6 +165,12 @@ impl PatternRegistry {
         supported
     }
 
+    /// Whether no pattern entry is registered (lazy entries count).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the registry mutex is poisoned, which requires an earlier
+    /// panic while it was held (for example a lazy probe that panicked).
     pub fn is_empty(&self) -> bool {
         let state = self.state.lock().expect("PatternRegistry lock poisoned");
         state.entries.is_empty()
@@ -162,6 +195,7 @@ fn resolve_entry(entry: &mut RegistryEntry) -> Option<Arc<dyn UiPattern>> {
 }
 
 /// Converts a pattern list into the canonical `SupportedPatterns` value.
+#[must_use]
 pub fn supported_patterns_value(patterns: &[PatternName]) -> UiValue {
     UiValue::Array(patterns.iter().map(|id| UiValue::from(id.as_str().to_owned())).collect())
 }
@@ -212,6 +246,7 @@ impl FocusableAction {
         Self { handler: arc_action(handler) }
     }
 
+    #[must_use]
     pub fn noop() -> Self {
         Self::new(|| Ok(()))
     }
@@ -240,11 +275,16 @@ impl FocusablePattern for FocusableAction {
     }
 }
 
-/// Macro to declare a simple pure-action pattern (closure -> Result<(), PatternError>)
+/// Macro to declare a simple pure-action pattern (closure -> Result<(), `PatternError`>)
 /// together with its `*Action` builder struct.
 macro_rules! declare_action_pattern {
     ($trait_name:ident, $action_struct:ident, $method:ident, $pattern_const:ident) => {
         pub trait $trait_name: UiPattern {
+            /// Perform the action.
+            ///
+            /// # Errors
+            ///
+            /// Returns a [`PatternError`] when the action cannot be performed.
             fn $method(&self) -> Result<(), PatternError>;
         }
 
@@ -305,6 +345,11 @@ declare_action_pattern!(CloseablePattern, CloseableAction, close, CLOSEABLE);
 
 /// Pattern for window movement \u2014 places the surface at a screen point.
 pub trait MovablePattern: UiPattern {
+    /// Move the surface to `position` in desktop coordinates.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PatternError`] when the surface cannot be moved.
     fn move_to(&self, position: Point) -> Result<(), PatternError>;
 }
 
@@ -357,6 +402,11 @@ impl MovablePattern for MovableAction {
 
 /// Pattern for window resizing \u2014 changes the surface size.
 pub trait ResizablePattern: UiPattern {
+    /// Resize the surface to `size`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PatternError`] when the surface cannot be resized.
     fn resize(&self, size: Size) -> Result<(), PatternError>;
 }
 
@@ -409,6 +459,11 @@ impl ResizablePattern for ResizableAction {
 
 /// Pattern that polls whether a surface currently accepts user input.
 pub trait ResponsivePattern: UiPattern {
+    /// Whether the surface currently accepts user input; `None` when unknown.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PatternError`] when the state cannot be queried.
     fn accepts_user_input(&self) -> Result<Option<bool>, PatternError>;
 }
 
@@ -470,6 +525,7 @@ impl PatternError {
         Self { message: message.into() }
     }
 
+    #[must_use]
     pub fn message(&self) -> &str {
         &self.message
     }
@@ -489,6 +545,11 @@ impl From<PlatformError> for PatternError {
 
 /// Pattern for focus changes – requests focus via the runtime.
 pub trait FocusablePattern: UiPattern {
+    /// Request keyboard focus for the element.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PatternError`] when focus cannot be set.
     fn focus(&self) -> Result<(), PatternError>;
 }
 
@@ -570,9 +631,6 @@ mod tests {
 
     #[rstest]
     fn downcast_returns_none_for_mismatched_type() {
-        let arc: Arc<dyn UiPattern> = Arc::new(DummyPattern);
-        assert!(downcast_pattern_arc::<DummyPattern>(Arc::clone(&arc)).is_some());
-
         struct OtherPattern;
         impl UiPattern for OtherPattern {
             fn pattern_name(&self) -> PatternName {
@@ -591,6 +649,9 @@ mod tests {
             }
         }
 
+        let arc: Arc<dyn UiPattern> = Arc::new(DummyPattern);
+        assert!(downcast_pattern_arc::<DummyPattern>(Arc::clone(&arc)).is_some());
+
         assert!(downcast_pattern_arc::<OtherPattern>(arc).is_none());
     }
 
@@ -600,7 +661,7 @@ mod tests {
     fn pattern_error_exposes_message(#[case] message: &str) {
         let err = PatternError::new(message.to_string());
         assert_eq!(err.message(), message);
-        assert_eq!(format!("{}", err), message);
+        assert_eq!(format!("{err}"), message);
     }
 
     #[rstest]

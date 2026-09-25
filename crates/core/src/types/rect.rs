@@ -32,31 +32,38 @@ impl Rect {
         Rect { x, y, width: w, height: h }
     }
 
+    #[must_use]
     pub fn left(&self) -> f64 {
         self.x
     }
 
+    #[must_use]
     pub fn top(&self) -> f64 {
         self.y
     }
 
+    #[must_use]
     pub fn right(&self) -> f64 {
         self.x + self.width
     }
 
+    #[must_use]
     pub fn bottom(&self) -> f64 {
         self.y + self.height
     }
 
+    #[must_use]
     pub fn center(&self) -> Point {
         Point::new(self.x + self.width / 2.0, self.y + self.height / 2.0)
     }
 
+    #[must_use]
     pub fn contains(&self, p: Point) -> bool {
         // Inclusive left/top, exclusive right/bottom: [x, x+width) × [y, y+height)
         p.x() >= self.x && p.x() < self.x + self.width && p.y() >= self.y && p.y() < self.y + self.height
     }
 
+    #[must_use]
     pub fn intersects(&self, other: &Rect) -> bool {
         self.x < other.x + other.width
             && self.x + self.width > other.x
@@ -64,6 +71,7 @@ impl Rect {
             && self.y + self.height > other.y
     }
 
+    #[must_use]
     pub fn intersection(&self, other: &Rect) -> Option<Rect> {
         let x0 = self.x.max(other.x);
         let y0 = self.y.max(other.y);
@@ -94,18 +102,23 @@ impl Rect {
         self.inflate(-dw, -dh)
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.width <= 0.0 || self.height <= 0.0
     }
+    #[must_use]
     pub fn x(&self) -> f64 {
         self.x
     }
+    #[must_use]
     pub fn y(&self) -> f64 {
         self.y
     }
+    #[must_use]
     pub fn width(&self) -> f64 {
         self.width
     }
+    #[must_use]
     pub fn height(&self) -> f64 {
         self.height
     }
@@ -113,6 +126,7 @@ impl Rect {
         Size::new(self.width, self.height)
     }
 
+    #[must_use]
     pub fn position(&self) -> Point {
         Point::new(self.x, self.y)
     }
@@ -163,6 +177,8 @@ impl std::ops::SubAssign<Point> for Rect {
 mod tests {
     use super::*;
 
+    // Small integral values are exact in f64, so exact equality is intended.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn create_works() {
         let r = Rect::new(1.0, 2.0, 3.0, 4.0);
@@ -177,12 +193,14 @@ mod tests {
         let r1 = Rect::new(1.0, 2.0, 3.0, 4.0);
         let r2 = Rect::new(1.0, 2.0, 3.0, 4.0);
         assert_eq!(r1, r2);
-        assert!(r1 == r2);
+        assert_eq!(r1, r2);
     }
 
+    // Small integral values are exact in f64, so exact equality is intended.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn default_works() {
-        let r: Rect = Default::default();
+        let r = Rect::default();
         assert_eq!(r.x(), 0.0);
         assert_eq!(r.y(), 0.0);
         assert_eq!(r.width(), 0.0);
@@ -202,6 +220,8 @@ mod tests {
         assert_eq!(r, Rect::from((0.0, 1.0, 2.0, 3.0)));
     }
 
+    // Small integral values are exact in f64, so exact equality is intended.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn normalized_handles_negative() {
         // Rect::new normalizes negative width/height by adjusting origin.

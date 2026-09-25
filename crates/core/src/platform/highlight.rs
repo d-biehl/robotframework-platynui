@@ -39,9 +39,17 @@ impl HighlightRequest {
 pub trait HighlightProvider: Send + Sync {
     /// Draws the given highlight regions. Providers decide whether the highlight
     /// persists until cleared or fades automatically.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PlatformError`] when the overlay cannot be created or shown.
     fn highlight(&self, request: &HighlightRequest) -> Result<(), PlatformError>;
 
     /// Clears any active highlight overlays.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PlatformError`] when the overlays cannot be removed.
     fn clear(&self) -> Result<(), PlatformError>;
 }
 

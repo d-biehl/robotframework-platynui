@@ -19,23 +19,23 @@ impl Display for ProviderError {
         match self {
             Self::InitializationFailed { provider, details } => {
                 write!(f, "provider initialization failed for {provider}")?;
-                write_details(f, details)
+                write_details(f, details.as_ref())
             }
             Self::UnsupportedOperation { operation, details } => {
                 write!(f, "unsupported provider operation: {operation}")?;
-                write_details(f, details)
+                write_details(f, details.as_ref())
             }
             Self::CommunicationFailure { channel, details } => {
                 write!(f, "provider communication failure on {channel}")?;
-                write_details(f, details)
+                write_details(f, details.as_ref())
             }
             Self::InvalidArgument { argument, details } => {
                 write!(f, "invalid provider argument: {argument}")?;
-                write_details(f, details)
+                write_details(f, details.as_ref())
             }
             Self::TreeUnavailable { provider, details } => {
                 write!(f, "provider tree unavailable for {provider}")?;
-                write_details(f, details)
+                write_details(f, details.as_ref())
             }
         }
     }
@@ -43,6 +43,6 @@ impl Display for ProviderError {
 
 impl Error for ProviderError {}
 
-fn write_details(f: &mut Formatter<'_>, details: &Option<String>) -> std::fmt::Result {
+fn write_details(f: &mut Formatter<'_>, details: Option<&String>) -> std::fmt::Result {
     if let Some(details) = details { write!(f, ": {details}") } else { Ok(()) }
 }

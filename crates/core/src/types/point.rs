@@ -10,34 +10,42 @@ pub struct Point {
 
 impl Point {
     /// Create a new point
+    #[must_use]
     pub const fn new(x: f64, y: f64) -> Self {
         Point { x, y }
     }
 
     /// Convert to tuple
+    #[must_use]
     pub fn to_tuple(&self) -> (f64, f64) {
         (self.x, self.y)
     }
 
+    #[must_use]
     pub fn x(&self) -> f64 {
         self.x
     }
+    #[must_use]
     pub fn y(&self) -> f64 {
         self.y
     }
 
+    #[must_use]
     pub fn with_x(&self, x: f64) -> Self {
         Point { x, y: self.y }
     }
+    #[must_use]
     pub fn with_y(&self, y: f64) -> Self {
         Point { x: self.x, y }
     }
 
     /// Translate and return a new Point
+    #[must_use]
     pub fn translate(&self, dx: f64, dy: f64) -> Self {
         Point::new(self.x + dx, self.y + dy)
     }
 
+    #[must_use]
     pub fn is_finite(&self) -> bool {
         self.x.is_finite() && self.y.is_finite()
     }
@@ -73,6 +81,8 @@ impl Display for Point {
 mod tests {
     use super::*;
 
+    // Small integral values are exact in f64, so exact equality is intended.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn create_works() {
         let p1 = Point::new(1.0, 2.0);
@@ -81,16 +91,20 @@ mod tests {
 
         let p2 = Point::new(1.0, 2.0);
         assert_eq!(p1, p2);
-        assert!(p1 == p2);
+        assert_eq!(p1, p2);
     }
 
+    // Small integral values are exact in f64, so exact equality is intended.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn default_works() {
-        let p: Point = Default::default();
+        let p = Point::default();
         assert_eq!(p.x(), 0.0);
         assert_eq!(p.y(), 0.0);
     }
 
+    // Small integral values are exact in f64, so exact equality is intended.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn add_works() {
         let p1 = Point::new(1.0, 2.0);
@@ -100,6 +114,8 @@ mod tests {
         assert_eq!(p3.y(), 6.0);
     }
 
+    // Small integral values are exact in f64, so exact equality is intended.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn add_assign_works() {
         let p1 = Point::new(1.0, 2.0);
@@ -109,6 +125,8 @@ mod tests {
         assert_eq!(p1.y(), 6.0);
     }
 
+    // Small integral values are exact in f64, so exact equality is intended.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn sub_works() {
         let p1 = Point::new(3.0, 4.0);
@@ -118,6 +136,8 @@ mod tests {
         assert_eq!(p3.y(), 2.0);
     }
 
+    // Small integral values are exact in f64, so exact equality is intended.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn sub_assign_works() {
         let p1 = Point::new(3.0, 4.0);

@@ -26,7 +26,7 @@ mod tests {
             Namespace::Control
         }
 
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "Role"
         }
 
@@ -54,7 +54,7 @@ mod tests {
             Namespace::Control
         }
 
-        fn role(&self) -> &str {
+        fn role(&self) -> &'static str {
             "Button"
         }
 

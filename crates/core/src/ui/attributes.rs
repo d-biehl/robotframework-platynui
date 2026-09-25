@@ -1,4 +1,4 @@
-//! Canonical attribute names grouped by ClientPattern namespaces.
+//! Canonical attribute names grouped by `ClientPattern` namespaces.
 
 pub mod pattern {
     /// Attributes shared by every `control:`/`item:` node regardless of Pattern.
@@ -90,7 +90,7 @@ pub mod pattern {
 
     /// Containers managing a selection (SelectionProvider-Pattern).
     pub mod selection_provider {
-        /// RuntimeIds of the currently selected child items.
+        /// `RuntimeIds` of the currently selected child items.
         pub const SELECTED_ITEMS: &str = "SelectedItems";
         pub const CAN_SELECT_MULTIPLE: &str = "CanSelectMultiple";
     }

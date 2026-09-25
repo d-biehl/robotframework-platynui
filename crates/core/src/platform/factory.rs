@@ -54,6 +54,11 @@ pub trait PlatformFactory: Send + Sync {
     /// Build the platform bundle for this runtime, binding to the session named
     /// by `config` (falling back to the environment for any unset value). On
     /// failure the factory must release anything it already opened.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PlatformError`] when the backend cannot connect to the
+    /// session or initialize one of its devices.
     fn create(&self, config: &RuntimeConfig) -> Result<PlatformBundle, PlatformError>;
 }
 

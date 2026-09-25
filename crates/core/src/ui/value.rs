@@ -19,10 +19,12 @@ pub enum UiValue {
 }
 
 impl UiValue {
+    #[must_use]
     pub fn object() -> Self {
         UiValue::Object(BTreeMap::new())
     }
 
+    #[must_use]
     pub fn is_null(&self) -> bool {
         matches!(self, UiValue::Null)
     }
@@ -90,6 +92,8 @@ mod tests {
     use super::*;
     use crate::types::{Point, Rect, Size};
 
+    // The value is stored verbatim, so exact equality is what the test means.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn stores_point_variant() {
         if let UiValue::Point(point) = UiValue::from(Point::new(10.0, 20.0)) {
@@ -100,6 +104,8 @@ mod tests {
         }
     }
 
+    // The value is stored verbatim, so exact equality is what the test means.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn stores_rect_variant() {
         if let UiValue::Rect(rect) = UiValue::from(Rect::new(0.0, 1.0, 2.0, 3.0)) {
@@ -110,6 +116,8 @@ mod tests {
         }
     }
 
+    // The value is stored verbatim, so exact equality is what the test means.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn stores_size_variant() {
         if let UiValue::Size(size) = UiValue::from(Size::new(5.0, 6.0)) {

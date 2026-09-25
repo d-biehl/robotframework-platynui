@@ -60,14 +60,53 @@ pub enum PointerAccelerationProfile {
 
 /// Trait that platform crates implement to drive pointer events.
 pub trait PointerDevice: Send + Sync {
+    /// Current pointer position in desktop coordinates.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PlatformError`] when the platform cannot report the position.
     fn position(&self) -> Result<Point, PlatformError>;
+    /// Move the pointer to `point` in desktop coordinates.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PlatformError`] when the platform cannot move the pointer.
     fn move_to(&self, point: Point) -> Result<(), PlatformError>;
+    /// Press `button`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PlatformError`] when the platform cannot inject the press.
     fn press(&self, button: PointerButton) -> Result<(), PlatformError>;
+    /// Release `button`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PlatformError`] when the platform cannot inject the release.
     fn release(&self, button: PointerButton) -> Result<(), PlatformError>;
+    /// Scroll by `delta`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PlatformError`] when the platform cannot inject the scroll.
     fn scroll(&self, delta: ScrollDelta) -> Result<(), PlatformError>;
+    /// The platform's double-click interval, or `None` when it has none.
+    ///
+    /// # Errors
+    ///
+    /// The default implementation never fails and returns `Ok(None)`.
+    /// Implementations return a [`PlatformError`] when the setting cannot be
+    /// queried.
     fn double_click_time(&self) -> Result<Option<Duration>, PlatformError> {
         Ok(None)
     }
+    /// The platform's double-click tolerance area, or `None` when it has none.
+    ///
+    /// # Errors
+    ///
+    /// The default implementation never fails and returns `Ok(None)`.
+    /// Implementations return a [`PlatformError`] when the setting cannot be
+    /// queried.
     fn double_click_size(&self) -> Result<Option<Size>, PlatformError> {
         Ok(None)
     }

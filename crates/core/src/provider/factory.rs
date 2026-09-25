@@ -10,5 +10,11 @@ pub trait UiTreeProviderFactory: Send + Sync {
     /// `config`. The factory reads its own settings sub-map via
     /// `config.provider(self.descriptor().id)`, falling back to the environment
     /// for any value it does not find.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ProviderError`] when the provider cannot be initialized for
+    /// this session (for example because its accessibility backend is not
+    /// reachable).
     fn create(&self, config: &RuntimeConfig) -> Result<Arc<dyn UiTreeProvider>, ProviderError>;
 }

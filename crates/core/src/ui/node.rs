@@ -9,7 +9,7 @@ use std::sync::{Arc, Weak};
 pub trait UiNode: Send + Sync {
     /// Namespace of the node (control/item/app/native).
     fn namespace(&self) -> Namespace;
-    /// Normalised PascalCase role (used as local-name in XPath).
+    /// Normalised `PascalCase` role (used as local-name in `XPath`).
     fn role(&self) -> &str;
     /// Human readable name (owned string). Providers may compute this on each call
     /// or cache internally. For up-to-date values prefer the Control/Name attribute.
@@ -188,7 +188,7 @@ fn is_desktop(node: &Arc<dyn UiNode>) -> bool {
 pub trait UiAttribute: Send + Sync {
     /// Namespace of the attribute (control/item/app/native/... ).
     fn namespace(&self) -> Namespace;
-    /// PascalCase attribute name (without namespace prefix).
+    /// `PascalCase` attribute name (without namespace prefix).
     fn name(&self) -> &str;
     /// Current value. Implementations may construct fresh `UiValue`s or return
     /// cached values.
@@ -548,7 +548,7 @@ mod tests {
                 Namespace::Control
             }
 
-            fn role(&self) -> &str {
+            fn role(&self) -> &'static str {
                 "Desktop"
             }
 
@@ -602,7 +602,7 @@ mod tests {
                 Namespace::Control
             }
 
-            fn role(&self) -> &str {
+            fn role(&self) -> &'static str {
                 "Button"
             }
 

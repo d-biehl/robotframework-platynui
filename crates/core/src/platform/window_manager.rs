@@ -19,11 +19,13 @@ pub struct WindowId(pub(crate) u64);
 
 impl WindowId {
     /// Create a new `WindowId` from a raw platform handle.
+    #[must_use]
     pub fn new(raw: u64) -> Self {
         Self(raw)
     }
 
     /// Return the underlying raw value.
+    #[must_use]
     pub fn raw(self) -> u64 {
         self.0
     }
@@ -77,11 +79,13 @@ pub struct WindowState {
 
 impl WindowState {
     /// Whether the window is minimized.
+    #[must_use]
     pub fn is_minimized(&self) -> bool {
         self.visual == WindowVisualState::Minimized
     }
 
     /// Whether the window is maximized (and not minimized).
+    #[must_use]
     pub fn is_maximized(&self) -> bool {
         self.visual == WindowVisualState::Maximized
     }
@@ -102,6 +106,11 @@ pub trait WindowManager: Send + Sync {
     ///
     /// Each implementation decides which node attributes it inspects (e.g.
     /// `native:NativeWindowHandle` on Windows, PID + geometry on X11).
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PlatformError`] when no native window can be resolved for
+    /// `node`.
     fn resolve_window(&self, node: &dyn UiNode) -> Result<WindowId, PlatformError>;
 
     /// Actual screen bounds of the window as reported by the window manager.
@@ -110,9 +119,19 @@ pub trait WindowManager: Send + Sync {
     /// The optional `toolkit_hint` (e.g. `"gtk4"`) lets implementations
     /// adjust the result for toolkit-specific quirks such as CSD shadow
     /// offsets.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PlatformError`] when the window manager cannot report the
+    /// window's geometry (for example because the window no longer exists).
     fn bounds(&self, id: WindowId, toolkit_hint: Option<&str>) -> Result<Rect, PlatformError>;
 
     /// Whether this window is the currently active (foreground) window.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PlatformError`] when the window manager cannot determine
+    /// the active window.
     fn is_active(&self, id: WindowId) -> Result<bool, PlatformError>;
 
     /// The window's current state: whether it is minimized, maximized or
@@ -120,6 +139,12 @@ pub trait WindowManager: Send + Sync {
     ///
     /// The default reports the capability as unavailable, so window managers
     /// that cannot read window state never guess one.
+    ///
+    /// # Errors
+    ///
+    /// The default implementation always returns
+    /// [`PlatformError::CapabilityUnavailable`]. Implementations return a
+    /// [`PlatformError`] when the state cannot be read.
     fn state(&self, _id: WindowId) -> Result<WindowState, PlatformError> {
         Err(PlatformError::CapabilityUnavailable { capability: "window_state", details: None })
     }
@@ -131,24 +156,53 @@ pub trait WindowManager: Send + Sync {
     /// changes whether a visible window is maximized, and never moves or
     /// resizes it — returning a window to its normal state is
     /// [`restore`](WindowManager::restore)'s job.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PlatformError`] when the window manager refuses or fails
+    /// the activation.
     fn activate(&self, id: WindowId) -> Result<(), PlatformError>;
 
     /// Request the window manager to close this window.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PlatformError`] when the close request cannot be delivered.
     fn close(&self, id: WindowId) -> Result<(), PlatformError>;
 
     /// Minimise the window.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PlatformError`] when the window cannot be minimized.
     fn minimize(&self, id: WindowId) -> Result<(), PlatformError>;
 
     /// Maximise the window.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PlatformError`] when the window cannot be maximized.
     fn maximize(&self, id: WindowId) -> Result<(), PlatformError>;
 
     /// Restore the window from minimised/maximised state.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PlatformError`] when the window cannot be restored.
     fn restore(&self, id: WindowId) -> Result<(), PlatformError>;
 
     /// Move the window to a new position.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PlatformError`] when the window cannot be moved.
     fn move_to(&self, id: WindowId, position: Point) -> Result<(), PlatformError>;
 
     /// Resize the window.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`PlatformError`] when the window cannot be resized.
     fn resize(&self, id: WindowId, size: Size) -> Result<(), PlatformError>;
 
     /// Returns the frontmost top-level window at the given desktop point,
@@ -161,6 +215,12 @@ pub trait WindowManager: Send + Sync {
     /// operation as unavailable so window managers that cannot answer it (and
     /// platforms that do not need it, e.g. Windows where UIA `ElementFromPoint`
     /// resolves z-order natively) are unaffected.
+    ///
+    /// # Errors
+    ///
+    /// The default implementation always returns
+    /// [`PlatformError::CapabilityUnavailable`]. Implementations return a
+    /// [`PlatformError`] when the window stack cannot be queried.
     fn window_at_point(&self, _point: Point) -> Result<Option<WindowHit>, PlatformError> {
         Err(PlatformError::CapabilityUnavailable { capability: "window_at_point", details: None })
     }
@@ -170,11 +230,17 @@ pub trait WindowManager: Send + Sync {
     /// recently opened first.
     ///
     /// Only window managers that place popups themselves can answer this —
-    /// today the PlatynUI Wayland compositor backend, where toolkit-reported
+    /// today the `PlatynUI` Wayland compositor backend, where toolkit-reported
     /// popup extents are client-local and this query is the only source of
     /// their real screen position. The default reports the capability as
     /// unavailable so every other backend (X11, Windows, mock — where
     /// toolkit extents are already correct) keeps its existing bounds path.
+    ///
+    /// # Errors
+    ///
+    /// The default implementation always returns
+    /// [`PlatformError::CapabilityUnavailable`]. Implementations return a
+    /// [`PlatformError`] when the popup list cannot be queried.
     fn popups(&self, _pid: u32) -> Result<Vec<Rect>, PlatformError> {
         Err(PlatformError::CapabilityUnavailable { capability: "popups", details: None })
     }
@@ -188,7 +254,7 @@ mod tests {
     use crate::ui::{Namespace, PatternName, RuntimeId, UiAttribute, UiNode};
     use std::sync::{Arc, LazyLock, Weak};
 
-    /// Minimal UiNode stub for unit tests.
+    /// Minimal `UiNode` stub for unit tests.
     struct MinimalStubNode;
 
     static STUB_RUNTIME_ID: LazyLock<RuntimeId> = LazyLock::new(|| RuntimeId::from("stub"));
@@ -197,7 +263,7 @@ mod tests {
         fn namespace(&self) -> Namespace {
             Namespace::Control
         }
-        fn role(&self) -> &str {
+        fn role(&self) -> &'static str {
             "Window"
         }
         fn name(&self) -> String {
