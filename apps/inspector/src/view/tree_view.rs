@@ -1,4 +1,4 @@
-//! Generic TreeView widget for egui.
+//! Generic `TreeView` widget for egui.
 //!
 //! A self-contained, reusable tree component modelled after egui's own
 //! [`Table`](egui_extras::Table) and [`CollapsingHeader`] patterns:
@@ -49,7 +49,7 @@ pub enum TreeNavigate {
 
 /// Response returned after rendering the tree.
 ///
-/// The caller inspects these fields to update its ViewModel accordingly.
+/// The caller inspects these fields to update its `ViewModel` accordingly.
 pub struct TreeResponse {
     /// Row that was clicked to select, if any.
     pub selected: Option<usize>,
@@ -118,6 +118,8 @@ impl<'a, R: TreeRowData> TreeView<'a, R> {
     }
 
     /// Render the tree view widget. Returns a [`TreeResponse`].
+    // egui layout function: rows, keyboard focus and the click handler share one frame's state.
+    #[allow(clippy::too_many_lines)]
     pub fn show(mut self, ui: &mut egui::Ui) -> TreeResponse {
         let mut response = TreeResponse { selected: None, toggled: None, navigate: None, page_size: 15 };
 
@@ -173,6 +175,8 @@ impl<'a, R: TreeRowData> TreeView<'a, R> {
                 let frame_resp = row_frame.show(ui, |ui| {
                     ui.horizontal(|ui| {
                         // ── Indent ───────────────────────────────────
+                        // UI tree depth stays far below f32's exact integer range.
+                        #[allow(clippy::cast_precision_loss)]
                         let indent = row.depth() as f32 * self.indent_width;
                         ui.add_space(indent);
 
@@ -230,7 +234,10 @@ impl<'a, R: TreeRowData> TreeView<'a, R> {
         if let Some(first_rect) = row_rects.first() {
             let row_h = first_rect.height().max(1.0);
             let visible_h = scroll_output.inner_rect.height();
-            response.page_size = (visible_h / row_h).floor().max(1.0) as usize;
+            // Row count after `floor`, at least 1; saturating float-to-int is intended.
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let page_size = (visible_h / row_h).floor().max(1.0) as usize;
+            response.page_size = page_size;
         }
 
         // ── Single focusable + clickable widget ──────────────────────────

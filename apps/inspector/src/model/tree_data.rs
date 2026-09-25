@@ -1,7 +1,7 @@
 //! Model layer: data structures wrapping `UiNode` for the inspector.
 //!
 //! This module provides cached wrappers and display-ready types that bridge
-//! the PlatynUI runtime (`UiNode`, `UiAttribute`, `UiValue`) to the inspector
+//! the `PlatynUI` runtime (`UiNode`, `UiAttribute`, `UiValue`) to the inspector
 //! UI without coupling to any GUI framework.
 
 use platynui_core::ui::{Namespace, UiNode, UiValue};
@@ -10,7 +10,7 @@ use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-/// A single XPath search result, ready for display.
+/// A single `XPath` search result, ready for display.
 #[derive(Clone)]
 pub enum SearchResultItem {
     /// Result is a UI node (clickable — reveals in tree).
@@ -37,7 +37,7 @@ pub enum SearchResultItem {
 }
 
 impl SearchResultItem {
-    /// Create from a PlatynUI `EvaluationItem`.
+    /// Create from a `PlatynUI` `EvaluationItem`.
     pub fn from_evaluation_item(item: &EvaluationItem) -> Self {
         match item {
             EvaluationItem::Node(node) => {
@@ -111,7 +111,7 @@ impl SearchResultItem {
 pub struct DisplayAttribute {
     /// Namespace prefix (control, item, app, native).
     pub namespace: String,
-    /// Attribute name (PascalCase).
+    /// Attribute name (`PascalCase`).
     pub name: String,
     /// Formatted value string.
     pub value: String,
@@ -325,7 +325,7 @@ impl UiNodeData {
 
     /// Graft a picker-resolved live subtree under this node so the reveal can
     /// select it even when the tree's own top-down enumeration cannot reach it.
-    /// Dynamic XAML / Chromium menus hand out UIA RuntimeIds that differ between
+    /// Dynamic XAML / Chromium menus hand out UIA `RuntimeIds` that differ between
     /// the hit-test's `GetParentElement` walk and a `GetChildren` enumeration, so
     /// matching the resolved node's ancestor chain against re-enumerated children
     /// diverges. `chain` is top-down — the direct child of `self` first, down to
@@ -402,9 +402,9 @@ fn log_child_load_timing(stage: &'static str, child_count: usize, elapsed: Durat
 
 /// XPath-conformant rendering of an attribute's qualified name.
 ///
-/// `control` is the default attribute namespace in PlatynUI XPath: unprefixed
+/// `control` is the default attribute namespace in `PlatynUI` `XPath`: unprefixed
 /// `@Foo` matches control attributes, while `@control:Foo` does not (the engine
-/// follows standard XPath, where unprefixed attributes are in no namespace).
+/// follows standard `XPath`, where unprefixed attributes are in no namespace).
 /// User-facing strings (display + clipboard) therefore drop the `control:`
 /// prefix so what the user sees and copies works when pasted into a query.
 pub fn xpath_attribute_name(namespace: &str, name: &str) -> String {
@@ -546,7 +546,7 @@ pub(crate) mod test_mock {
         fn namespace(&self) -> Namespace {
             Namespace::Control
         }
-        fn role(&self) -> &str {
+        fn role(&self) -> &'static str {
             "Mock"
         }
         fn name(&self) -> String {

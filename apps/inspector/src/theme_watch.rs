@@ -24,7 +24,7 @@ pub const NO_SIGNAL: u8 = u8::MAX;
 /// Map a portal `color-scheme` value onto the egui theme used as the
 /// System-preference fallback. "Prefer light" (2) and "no preference" (0)
 /// yield the light theme — no preference means the default appearance, which
-/// is light by freedesktop/GTK convention (GNOME and DankMaterialShell report
+/// is light by freedesktop/GTK convention (GNOME and `DankMaterialShell` report
 /// their light mode as `'default'`/0 and rarely set `prefer-light`). "Prefer
 /// dark" (1), [`NO_SIGNAL`], and unknown values stay dark — identical to a
 /// session without a portal.
@@ -39,10 +39,11 @@ pub fn theme_from_color_scheme(scheme: u8) -> egui::Theme {
 /// process exit, like the picker's modifier readers). Returns the shared
 /// cell holding the latest portal value. On non-Linux platforms, and
 /// whenever no portal answers, the cell simply stays at [`NO_SIGNAL`].
-pub fn spawn(ctx: egui::Context) -> Arc<AtomicU8> {
+pub fn spawn(ctx: &egui::Context) -> Arc<AtomicU8> {
     let shared = Arc::new(AtomicU8::new(NO_SIGNAL));
     #[cfg(target_os = "linux")]
     {
+        let ctx = ctx.clone();
         let shared_for_thread = Arc::clone(&shared);
         let spawned = std::thread::Builder::new().name("theme-watch".into()).spawn(move || {
             // Failure is normal (no bus, no portal, no key): the dark

@@ -1,4 +1,4 @@
-//! ViewModel: Overall application state for the Inspector.
+//! `ViewModel`: Overall application state for the Inspector.
 
 use crate::model::tree_data::{DisplayAttribute, SearchResultItem, UiNodeData};
 use crate::viewmodel::picker::{Modifiers, PickerDecision, PickerState};
@@ -100,7 +100,7 @@ fn next_epoch(epoch: &AtomicU64) -> u64 {
     epoch.fetch_add(1, Ordering::Relaxed).wrapping_add(1)
 }
 
-/// Top-level ViewModel holding the complete inspector state.
+/// Top-level `ViewModel` holding the complete inspector state.
 pub struct InspectorViewModel {
     /// Tree view model (expand/collapse, flattened rows).
     pub tree: TreeViewModel,
@@ -108,7 +108,7 @@ pub struct InspectorViewModel {
     pub selected_index: Option<usize>,
     /// Currently focused row index (keyboard navigation).
     pub focused_index: usize,
-    /// XPath search text.
+    /// `XPath` search text.
     pub search_text: String,
     /// Whether the window should stay on top.
     pub always_on_top: bool,
@@ -116,7 +116,7 @@ pub struct InspectorViewModel {
     pub selected_attributes: Vec<DisplayAttribute>,
     /// Label for the currently selected node.
     pub selected_label: String,
-    /// Results from XPath evaluation.
+    /// Results from `XPath` evaluation.
     pub results: Vec<SearchResultItem>,
     /// Status / error message for the results panel.
     result_status: Option<ResultStatus>,
@@ -127,7 +127,7 @@ pub struct InspectorViewModel {
     /// When true, the tree view should scroll to the focused row on the next frame.
     /// Consumed (set to false) after rendering.
     pub scroll_to_focused: bool,
-    /// PlatynUI runtime (kept alive for the entire application).
+    /// `PlatynUI` runtime (kept alive for the entire application).
     runtime: Arc<Runtime>,
     /// Root node data kept for delayed initial tree loading after first paint.
     init_root: Option<Arc<UiNodeData>>,
@@ -143,7 +143,7 @@ pub struct InspectorViewModel {
     active_child_load: Option<ActiveChildLoad>,
     /// Monotonic request id to ignore stale child-load results.
     child_load_request_id: u64,
-    /// XPath search state handled by egui-async.
+    /// `XPath` search state handled by egui-async.
     search_task: Bind<async_tasks::SearchResult, String>,
     /// Shared in-flight search progress for incremental UI updates.
     search_progress: Option<async_tasks::SharedSearchProgress>,
@@ -153,7 +153,7 @@ pub struct InspectorViewModel {
     search_cancel_flag: Option<Arc<AtomicBool>>,
     /// Start time of in-flight search for live status.
     search_started_at: Option<Instant>,
-    /// Maximum XPath search results to collect for the Inspector UI.
+    /// Maximum `XPath` search results to collect for the Inspector UI.
     search_result_limit: Option<usize>,
     /// Background reveal (tree sync) state handled by egui-async.
     reveal_task: Bind<async_tasks::RevealResult, String>,
@@ -179,7 +179,7 @@ pub struct InspectorViewModel {
 }
 
 impl InspectorViewModel {
-    /// Create a new inspector ViewModel backed by the given runtime.
+    /// Create a new inspector `ViewModel` backed by the given runtime.
     pub fn new(runtime: Arc<Runtime>, root_data: Arc<UiNodeData>, search_result_limit: Option<usize>) -> Self {
         let mut tree = TreeViewModel::new(Arc::clone(&root_data));
         let init_root = if root_data.cached_children().is_some() {
@@ -782,7 +782,7 @@ impl InspectorViewModel {
         }
     }
 
-    /// Evaluate the current `search_text` as an XPath expression (non-blocking).
+    /// Evaluate the current `search_text` as an `XPath` expression (non-blocking).
     ///
     /// Cancels any in-progress search, then starts an egui-async background task.
     pub fn evaluate_xpath(&mut self) {
@@ -1009,13 +1009,14 @@ impl InspectorViewModel {
 }
 
 fn short_error_summary(error: &str) -> String {
+    const MAX_CHARS: usize = 96;
+
     let first_line = error.lines().find(|line| !line.trim().is_empty()).unwrap_or("XPath evaluation failed").trim();
     let summary_with_location = if let Some((line, column)) = extract_line_column(error) {
         format!("L{line}:C{column} {first_line}")
     } else {
         first_line.to_string()
     };
-    const MAX_CHARS: usize = 96;
     if summary_with_location.chars().count() <= MAX_CHARS {
         summary_with_location
     } else {

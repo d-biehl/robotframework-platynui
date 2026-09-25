@@ -169,6 +169,8 @@ pub enum MainToolbarAction {
 /// Render the main toolbar (a themed panel directly below the menu bar):
 /// the Pick Element toggle, the node actions, and — right-aligned — the
 /// Always-on-Top pin toggle. Returns actions to process.
+// View function: the bools are independent view-model state flags, one per toolbar control.
+#[allow(clippy::fn_params_excessive_bools)]
 pub fn show_toolbar(
     ui: &mut egui::Ui,
     style: ToolbarStyle,
@@ -225,9 +227,9 @@ pub fn show_toolbar(
 
 /// Actions emitted by the menu bar.
 pub enum MenuAction {
-    /// Evaluate XPath from the search field.
+    /// Evaluate `XPath` from the search field.
     EvaluateXPath,
-    /// Cancel active XPath search.
+    /// Cancel active `XPath` search.
     CancelSearch,
     /// Clear current search results/status.
     ClearResults,
@@ -249,7 +251,7 @@ pub enum MenuAction {
 
 /// Actions emitted by the search row.
 pub enum ToolbarAction {
-    /// User pressed Enter in the search bar — evaluate XPath.
+    /// User pressed Enter in the search bar — evaluate `XPath`.
     EvaluateXPath,
     /// User clicked Stop — cancel running search.
     CancelSearch,
@@ -257,7 +259,7 @@ pub enum ToolbarAction {
     SearchTextChanged,
 }
 
-/// Stable egui id of the XPath search input field.
+/// Stable egui id of the `XPath` search input field.
 pub fn search_field_id() -> egui::Id {
     egui::Id::new("inspector_xpath_search_field")
 }
@@ -418,11 +420,13 @@ fn show_window_controls(ui: &mut egui::Ui) {
     });
 }
 
-/// Render the search row: the XPath field and the Search/Stop button, laid
+/// Render the search row: the `XPath` field and the Search/Stop button, laid
 /// out right-to-left so the field takes all remaining row width. Returns
 /// actions to process.
 ///
 /// When `is_searching` is `true`, the Search button becomes a Stop button.
+// egui layout function: the search row's layout and key handling in one place.
+#[allow(clippy::too_many_lines)]
 pub fn show_search_bar(
     ui: &mut egui::Ui,
     search_text: &mut String,
@@ -436,6 +440,8 @@ pub fn show_search_bar(
     let desired_rows = num_lines.clamp(1, 6);
     // Approximate: line height ~18px, plus padding (4+4) and spacing.
     let line_height = 18.0;
+    // `desired_rows` is clamped to 1..=6, which f32 represents exactly.
+    #[allow(clippy::cast_precision_loss)]
     let ui_height = (desired_rows as f32 * line_height) + 16.0;
 
     // Save text before TextEdit processes events so we can undo
@@ -705,6 +711,8 @@ fn show_auto_error_preview(
     hover_text: &str,
     allow_auto_preview: bool,
 ) {
+    const AUTO_PREVIEW_SECONDS: f64 = 3.2;
+
     let state_id = search_error_auto_preview_state_id();
     let mut hasher = DefaultHasher::new();
     error_hint.hash(&mut hasher);
@@ -715,12 +723,12 @@ fn show_auto_error_preview(
         let stored_hash = data.get_temp::<u64>(state_id.with("hash")).unwrap_or_default();
         let stored_since = data.get_temp::<f64>(state_id.with("since")).unwrap_or(now);
 
-        if stored_hash != current_hash {
+        if stored_hash == current_hash {
+            (stored_hash, stored_since)
+        } else {
             data.insert_temp(state_id.with("hash"), current_hash);
             data.insert_temp(state_id.with("since"), now);
             (current_hash, now)
-        } else {
-            (stored_hash, stored_since)
         }
     });
 
@@ -728,7 +736,6 @@ fn show_auto_error_preview(
         return;
     }
 
-    const AUTO_PREVIEW_SECONDS: f64 = 3.2;
     if now - first_seen_at > AUTO_PREVIEW_SECONDS {
         return;
     }

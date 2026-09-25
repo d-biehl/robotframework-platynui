@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::time::Instant;
 
-/// Result payload for XPath search.
+/// Result payload for `XPath` search.
 pub struct SearchResult {
     pub result_count: usize,
     pub elapsed: Duration,
@@ -150,7 +150,7 @@ pub struct ChildLoadResult {
 /// including) the ancestor whose runtime id is `ancestor_id`, returned top-down
 /// (the direct child of that ancestor first, down to `target`). Used to graft a
 /// picker result into the tree when top-down enumeration can't reach it (dynamic
-/// menus with unstable RuntimeIds). Returns `None` if the ancestor is not on the
+/// menus with unstable `RuntimeIds`). Returns `None` if the ancestor is not on the
 /// chain. Bounded so a broken parent link can never loop forever.
 fn resolved_chain_below(target: &Arc<dyn UiNode>, ancestor_id: &str) -> Option<Vec<Arc<dyn UiNode>>> {
     const MAX_DEPTH: usize = 256;
@@ -172,6 +172,8 @@ fn resolved_chain_below(target: &Arc<dyn UiNode>, ancestor_id: &str) -> Option<V
 ///
 /// Walks the target node's parent chain and loads children caches along
 /// the ancestor path to make the target node cheap to expand in the UI.
+// egui-async task body: `Bind::refresh` spawns this future on its tokio runtime, off the UI thread.
+#[allow(clippy::unused_async)]
 pub async fn reveal_task(
     epoch: u64,
     latest_epoch: Arc<AtomicU64>,
@@ -212,7 +214,7 @@ pub async fn reveal_task(
     // level at a time along the ancestor path.
     let mut cursor = Arc::clone(&root);
     // If ancestors[0] matches root, skip it — we start there.
-    let start = if !ancestors.is_empty() && cursor.id() == ancestors[0] { 1 } else { 0 };
+    let start = usize::from(!ancestors.is_empty() && cursor.id() == ancestors[0]);
 
     for ancestor_id in &ancestors[start..] {
         if latest_epoch.load(Ordering::Relaxed) != epoch {
@@ -230,20 +232,19 @@ pub async fn reveal_task(
             cursor.clear_children_cache();
             next = cursor.children().into_iter().find(|child| child.id() == aid);
         }
-        match next {
-            Some(next_cursor) => cursor = next_cursor,
-            None => {
-                // Top-down enumeration can't reach the target: dynamic XAML /
-                // Chromium menus hand out unstable UIA RuntimeIds, so the ancestor
-                // from the hit-test's parent walk never matches a re-enumerated
-                // child. Graft the picker's already-resolved live chain from
-                // `cursor` down so reveal can still select it.
-                if let Some(chain) = resolved_chain_below(&target_node, &cursor.id()) {
-                    cursor.graft_chain(&chain);
-                    return Ok(RevealResult::Ready { epoch, target_id });
-                }
-                return Ok(RevealResult::Cancelled);
+        if let Some(next_cursor) = next {
+            cursor = next_cursor;
+        } else {
+            // Top-down enumeration can't reach the target: dynamic XAML /
+            // Chromium menus hand out unstable UIA RuntimeIds, so the ancestor
+            // from the hit-test's parent walk never matches a re-enumerated
+            // child. Graft the picker's already-resolved live chain from
+            // `cursor` down so reveal can still select it.
+            if let Some(chain) = resolved_chain_below(&target_node, &cursor.id()) {
+                cursor.graft_chain(&chain);
+                return Ok(RevealResult::Ready { epoch, target_id });
             }
+            return Ok(RevealResult::Cancelled);
         }
     }
 
@@ -263,6 +264,8 @@ pub async fn reveal_task(
 }
 
 /// Task for loading selected-node details.
+// egui-async task body: `Bind::refresh` spawns this future on its tokio runtime, off the UI thread.
+#[allow(clippy::unused_async)]
 pub async fn selection_task(
     request_id: u64,
     selected_label: String,
@@ -276,6 +279,8 @@ pub async fn selection_task(
 }
 
 /// Task for loading tree children without blocking the UI thread.
+// egui-async task body: `Bind::refresh` spawns this future on its tokio runtime, off the UI thread.
+#[allow(clippy::unused_async)]
 pub async fn child_load_task(
     request_id: u64,
     node_data: Arc<UiNodeData>,
@@ -316,7 +321,9 @@ pub async fn child_load_task(
     Ok(ChildLoadResult { request_id, node_id })
 }
 
-/// Task for evaluating an XPath expression.
+/// Task for evaluating an `XPath` expression.
+// egui-async task body: `Bind::refresh` spawns this future on its tokio runtime, off the UI thread.
+#[allow(clippy::unused_async)]
 pub async fn search_task(
     runtime: Arc<Runtime>,
     xpath: String,
@@ -388,6 +395,8 @@ fn is_stale_epoch(latest_epoch: &AtomicU64, epoch: u64) -> bool {
 }
 
 /// Task for showing a temporary highlight for given bounds.
+// egui-async task body: `Bind::refresh` spawns this future on its tokio runtime, off the UI thread.
+#[allow(clippy::unused_async)]
 pub async fn highlight_bounds_task(
     runtime: Arc<Runtime>,
     epoch: u64,
@@ -404,6 +413,8 @@ pub async fn highlight_bounds_task(
 }
 
 /// Task for clearing the active highlight.
+// egui-async task body: `Bind::refresh` spawns this future on its tokio runtime, off the UI thread.
+#[allow(clippy::unused_async)]
 pub async fn clear_highlight_task(
     runtime: Arc<Runtime>,
     epoch: u64,

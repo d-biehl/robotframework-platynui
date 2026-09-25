@@ -78,3 +78,6 @@ path = "src/lib.rs"
 [[bin]]
 name = "platynui-inspector-rs"
 path = "src/main.rs"
+
+[lints]
+workspace = true

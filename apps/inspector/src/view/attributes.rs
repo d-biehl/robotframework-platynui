@@ -75,6 +75,8 @@ pub enum AttributesViewMode {
 }
 
 /// Render the attributes table for the selected node.
+// egui layout function: the attributes panel's layout and column sizing in one place.
+#[allow(clippy::too_many_lines)]
 pub fn show_attributes(
     ui: &mut egui::Ui,
     selected_label: &str,
@@ -622,6 +624,8 @@ fn render_namespace_header_row(
     }
 }
 
+// egui layout function: the three cells of one table row, each with its own editor and menu.
+#[allow(clippy::too_many_lines)]
 fn render_attribute_row_cells(
     row: &mut egui_extras::TableRow<'_, '_>,
     attr: &DisplayAttribute,
@@ -748,7 +752,7 @@ fn render_attribute_row_cells(
     });
 }
 
-/// Read the selected text out of a TextEditState snapshot.
+/// Read the selected text out of a `TextEditState` snapshot.
 fn cell_selection_from_state(state: Option<&egui::text_edit::TextEditState>, cell_text: &str) -> Option<String> {
     state
         .and_then(|s| s.cursor.char_range())
@@ -782,7 +786,7 @@ struct AttributeRowMenu<'a> {
 
 /// Context menu for text cells in the attributes table.
 ///
-/// `prev_sel` is the selection captured **before** the TextEdit was rendered this
+/// `prev_sel` is the selection captured **before** the `TextEdit` was rendered this
 /// frame (see [`cell_selection_from_state`]). Passing it in means right-click no longer
 /// wipes the selection before the menu can use it.
 fn show_text_cell_context_menu(

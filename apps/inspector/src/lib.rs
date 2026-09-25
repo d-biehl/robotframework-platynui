@@ -1,4 +1,4 @@
-//! PlatynUI Inspector — egui-based GUI for exploring the UI accessibility tree.
+//! `PlatynUI` Inspector — egui-based GUI for exploring the UI accessibility tree.
 //!
 //! Architecture: Model–ViewModel–View (MVVM)
 //!
@@ -19,6 +19,10 @@
 //!     ├── attributes.rs    ← Attributes table
 //!     └── toolbar.rs       ← Menu, main toolbar, search bar
 //! ```
+
+// `platynui_link_providers!` links the real OS platform/provider crates only outside tests and
+// the `mock-provider` feature; referencing them here would register them in the test binaries.
+#![cfg_attr(any(test, feature = "mock-provider"), allow(unused_crate_dependencies))]
 
 mod model;
 mod modifiers;
@@ -139,7 +143,7 @@ struct InspectorArgs {
     #[arg(long = "glow-hardware-acceleration", value_enum)]
     glow_hardware_acceleration: Option<GlowHardwareAccelerationChoice>,
 
-    /// Maximum XPath search results to collect in the Inspector (`unlimited` disables the guard).
+    /// Maximum `XPath` search results to collect in the Inspector (`unlimited` disables the guard).
     /// Overrides the `PLATYNUI_INSPECTOR_SEARCH_RESULT_LIMIT` environment variable.
     #[arg(long = "search-result-limit", value_name = "COUNT|unlimited", value_parser = parse_search_result_limit)]
     search_result_limit: Option<SearchResultLimitChoice>,
@@ -469,7 +473,7 @@ impl std::fmt::Display for GlowHardwareAccelerationChoice {
     }
 }
 
-/// Supported Inspector XPath search result limit values.
+/// Supported Inspector `XPath` search result limit values.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SearchResultLimitChoice {
     Limited(usize),
@@ -592,7 +596,7 @@ fn system_text_scale_factor() -> Option<f32> {
     None
 }
 
-/// The eframe `App` that connects ViewModel to View.
+/// The eframe `App` that connects `ViewModel` to View.
 struct InspectorApp {
     vm: InspectorViewModel,
     attributes_sort: attributes::AttributesSortState,
@@ -687,7 +691,7 @@ impl InspectorApp {
         // theme itself on Windows/macOS, so the fallback is never consulted
         // there). The effective preference is the override, if any.
         ctx.options_mut(|options| options.fallback_theme = egui::Theme::Dark);
-        let system_scheme = theme_watch::spawn(ctx.clone());
+        let system_scheme = theme_watch::spawn(ctx);
         let effective_theme = theme_override.unwrap_or(settings.theme);
         ctx.set_theme(effective_theme.to_theme_preference());
         tracing::info!(
@@ -859,6 +863,8 @@ impl eframe::App for InspectorApp {
         self.poll_picker(ctx);
     }
 
+    // egui layout function: the whole frame's panel layout in one place.
+    #[allow(clippy::too_many_lines)]
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
 
@@ -964,7 +970,9 @@ impl eframe::App for InspectorApp {
                     }
                 }
                 results_panel::ResultAction::CopyRuntimeId(i) => {
-                    if let Some(runtime_id) = self.vm.results.get(i).and_then(|result| result.runtime_id()) {
+                    if let Some(runtime_id) =
+                        self.vm.results.get(i).and_then(model::tree_data::SearchResultItem::runtime_id)
+                    {
                         ctx.copy_text(runtime_id);
                     }
                 }
@@ -1143,11 +1151,15 @@ fn create_initial_root(runtime: &Arc<Runtime>) -> Arc<UiNodeData> {
 
 /// Run the inspector application.
 ///
-/// Creates the PlatynUI runtime, initializes tracing, and opens the egui window.
+/// Creates the `PlatynUI` runtime, initializes tracing, and opens the egui window.
 ///
 /// # Errors
 ///
-/// Returns an error if runtime creation or the GUI event loop fails.
+/// Returns an error if the GUI event loop fails.
+///
+/// # Panics
+///
+/// Panics if the `PlatynUI` runtime cannot be created.
 pub fn run() -> eframe::Result {
     let args = InspectorArgs::parse();
     init_tracing(args.log_level);

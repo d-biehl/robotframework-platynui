@@ -16,6 +16,8 @@ pub fn show_status_bar(ui: &mut egui::Ui, has_active_tasks: bool, status_text: O
             if has_active_tasks {
                 // Red rotating indicator for active background tasks.
                 let (rect, _response) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
+                // Animation phase only; f32 precision is enough and matches egui's f32 geometry.
+                #[allow(clippy::cast_possible_truncation)]
                 let time = ui.input(|i| i.time) as f32;
                 let angle = (time * 4.0) % std::f32::consts::TAU;
 

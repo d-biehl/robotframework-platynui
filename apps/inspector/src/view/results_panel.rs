@@ -1,4 +1,4 @@
-//! View: Results panel (bottom panel) for XPath search results.
+//! View: Results panel (bottom panel) for `XPath` search results.
 //!
 //! A keyboard-navigable table built on `egui_extras::TableBuilder`.
 //! Up/Down arrows move the focused row, Enter reveals the focused
@@ -35,6 +35,8 @@ pub fn focus_id() -> egui::Id {
 ///
 /// `focused_index` is the keyboard cursor position (mutable — updated
 /// by arrow key navigation inside the panel).
+// egui layout function: the results panel's layout and keyboard navigation in one place.
+#[allow(clippy::too_many_lines)]
 pub fn show_results_panel(
     ui: &mut egui::Ui,
     results: &[SearchResultItem],
@@ -111,6 +113,8 @@ pub fn show_results_panel(
             if had_focus || has_focus_now {
                 // Approximate number of visible rows for PageUp/PageDown.
                 let row_height = 20.0_f32;
+                // Row count after `floor`; saturation (negative or NaN to 0) is intended, then clamped to 1.
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let page_rows = ((focus_rect.height() / row_height).floor() as usize).max(1);
                 let events = ui.input(|i| i.events.clone());
                 for event in &events {

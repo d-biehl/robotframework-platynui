@@ -3,13 +3,13 @@
 //! The picker must know whether the activation modifiers are held while the
 //! Inspector is **not** focused (the user is hovering another app), so egui's
 //! own focus-bound input cannot supply this. Each platform reads the current
-//! global modifier state directly — the PlatynUI compositor via
+//! global modifier state directly — the `PlatynUI` compositor via
 //! `get_modifiers` on its control socket, X11 via `XQueryPointer`'s modifier
 //! mask, Windows via `GetAsyncKeyState`. This lives in the Inspector (not a
 //! shared platform trait) because it is an interactive Inspector concern only.
 //!
 //! Platforms without a reader (macOS today, generic Wayland without a
-//! PlatynUI control socket) return `None` from [`ModifierReader::new`], which
+//! `PlatynUI` control socket) return `None` from [`ModifierReader::new`], which
 //! the picker treats as "unavailable" and greys itself out.
 
 use crate::viewmodel::picker::Modifiers;
@@ -155,15 +155,19 @@ mod windows_impl {
 
     pub struct ModifierReader;
 
+    // Same interface as the Linux and unsupported readers, which can fail and use `self`.
+    #[allow(clippy::unnecessary_wraps, clippy::unused_self)]
     impl ModifierReader {
         pub fn new() -> Option<Self> {
             Some(Self)
         }
 
         pub fn read(&self) -> Option<Modifiers> {
+            // Win32 FFI: `GetAsyncKeyState` is `unsafe` by signature; it only reads key state.
+            #[allow(unsafe_code)]
             fn down(vk: VIRTUAL_KEY) -> bool {
                 // The high-order bit of GetAsyncKeyState marks the key as down.
-                (unsafe { GetAsyncKeyState(i32::from(vk.0)) } as u16 & 0x8000) != 0
+                (unsafe { GetAsyncKeyState(i32::from(vk.0)) }.cast_unsigned() & 0x8000) != 0
             }
             Some(Modifiers { ctrl: down(VK_CONTROL), alt: down(VK_MENU), shift: down(VK_SHIFT) })
         }

@@ -1,4 +1,4 @@
-//! ViewModel: Flattened tree with expand/collapse state and keyboard navigation.
+//! `ViewModel`: Flattened tree with expand/collapse state and keyboard navigation.
 
 use crate::model::tree_data::UiNodeData;
 use crate::view::tree_view::TreeRowData;
@@ -6,6 +6,8 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 /// A single visible row in the flattened tree.
+// Flag bag: independent per-row display flags, one per `TreeRowData` bool accessor.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone)]
 pub struct VisibleRow {
     /// Stable runtime ID for tree state and selection lookup.
@@ -52,7 +54,7 @@ impl TreeRowData for VisibleRow {
     }
 }
 
-/// ViewModel that maintains a flattened list of visible rows based on expansion state.
+/// `ViewModel` that maintains a flattened list of visible rows based on expansion state.
 pub struct TreeViewModel {
     root: Arc<UiNodeData>,
     expanded: HashSet<String>,
@@ -61,7 +63,7 @@ pub struct TreeViewModel {
 }
 
 impl TreeViewModel {
-    /// Create a new tree ViewModel rooted at the given node.
+    /// Create a new tree `ViewModel` rooted at the given node.
     ///
     /// The tree starts empty; call [`expand_root`] once the initial background
     /// load has populated the root's children cache.
@@ -252,12 +254,12 @@ impl TreeViewModel {
     /// Rebuild the flattened visible row list from the current expansion state.
     fn rebuild(&mut self) {
         self.visible_rows.clear();
-        Self::flatten(Arc::clone(&self.root), 0, &self.expanded, &self.loading, &mut self.visible_rows);
+        Self::flatten(&self.root, 0, &self.expanded, &self.loading, &mut self.visible_rows);
     }
 
     /// Recursively flatten the tree into visible rows.
     fn flatten(
-        node: Arc<UiNodeData>,
+        node: &Arc<UiNodeData>,
         depth: usize,
         expanded: &HashSet<String>,
         loading: &HashSet<String>,
@@ -283,7 +285,7 @@ impl TreeViewModel {
             is_expanded,
             is_valid,
             is_loading,
-            data: Arc::clone(&node),
+            data: Arc::clone(node),
         });
 
         if let Some(children) = loaded_children {
@@ -299,7 +301,7 @@ impl TreeViewModel {
         out: &mut Vec<VisibleRow>,
     ) {
         for child in children {
-            Self::flatten(child, parent_depth + 1, expanded, loading, out);
+            Self::flatten(&child, parent_depth + 1, expanded, loading, out);
         }
     }
 }
