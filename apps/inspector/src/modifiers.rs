@@ -178,7 +178,9 @@ mod windows_impl {
 mod unsupported {
     use super::Modifiers;
 
-    pub struct ModifierReader;
+    /// No reader exists on these platforms: `new` never builds one, so the type
+    /// has no values and `read` can never be called.
+    pub enum ModifierReader {}
 
     impl ModifierReader {
         pub fn new() -> Option<Self> {
@@ -186,7 +188,7 @@ mod unsupported {
         }
 
         pub fn read(&self) -> Option<Modifiers> {
-            None
+            match *self {}
         }
     }
 }
