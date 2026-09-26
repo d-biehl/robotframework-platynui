@@ -27,6 +27,7 @@ use commands::{
     window::{self, WindowArgs},
 };
 use platynui_link::platynui_link_providers;
+use platynui_log_filter::LevelFilter;
 use platynui_runtime::Runtime;
 use util::{CliResult, map_provider_error};
 
@@ -34,65 +35,26 @@ use util::{CliResult, map_provider_error};
 // OS integrations. Tests link the mock providers explicitly in their modules.
 platynui_link_providers!();
 
-/// Initialize the tracing subscriber.
-///
-/// Priority (highest wins):
-/// 1. `RUST_LOG` environment variable (fine-grained per-crate filtering)
-/// 2. `--log-level` CLI argument
-/// 3. `PLATYNUI_LOG_LEVEL` environment variable
-/// 4. Default: `warn`
-fn init_tracing(cli_level: Option<LogLevel>) {
-    use tracing_subscriber::EnvFilter;
-
-    // RUST_LOG takes highest priority (power-user override).
-    let filter = if std::env::var("RUST_LOG").is_ok() {
-        EnvFilter::from_default_env()
-    } else {
-        // Derive directive from --log-level or PLATYNUI_LOG_LEVEL, fall back to "warn".
-        let directive = if let Some(level) = cli_level {
-            log_level_directive(level)
-        } else if let Ok(val) = std::env::var("PLATYNUI_LOG_LEVEL") {
-            val
-        } else {
-            "warn".to_string()
-        };
-        EnvFilter::new(directive)
-    };
-
-    tracing_subscriber::fmt().with_env_filter(filter).with_target(true).with_writer(std::io::stderr).init();
-}
-
-fn log_level_directive(level: LogLevel) -> String {
-    match level {
-        LogLevel::Error => "error",
-        LogLevel::Warn => "warn",
-        LogLevel::Info => "info",
-        LogLevel::Debug => "debug",
-        LogLevel::Trace => "trace",
-    }
-    .to_string()
-}
-
 #[derive(Parser)]
 #[command(author, version, about = "PlatynUI command line interface", long_about = None)]
 struct Cli {
-    /// Set the log level for diagnostic output (written to stderr).
-    /// Overrides the `PLATYNUI_LOG` environment variable.
-    /// Use `RUST_LOG` for fine-grained per-crate filtering.
-    #[arg(long = "log-level", value_enum, global = true)]
-    log_level: Option<LogLevel>,
+    #[arg(
+        long = "log-level",
+        global = true,
+        value_name = "LEVEL",
+        value_parser = platynui_log_filter::parse_level,
+        help = "Level of the diagnostics on stderr: off, error, warn (the default), info, debug or trace",
+        long_help = "Level of the diagnostics on stderr: off, error, warn (the default), info, debug or \
+                     trace, in any case; warning, critical and fatal are accepted as well. warn to trace \
+                     apply to PlatynUI's own modules, while other crates stay at warn; error and off apply \
+                     to every module. Overrides the PLATYNUI_LOG_LEVEL environment variable, which takes \
+                     the same names. RUST_LOG overrides both; it takes filter directives and is the only \
+                     way to see more from third-party crates."
+    )]
+    log_level: Option<LevelFilter>,
 
     #[command(subcommand)]
     command: Commands,
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
-pub enum LogLevel {
-    Error,
-    Warn,
-    Info,
-    Debug,
-    Trace,
 }
 
 #[derive(Subcommand)]
@@ -154,7 +116,7 @@ pub enum OutputFormat {
 pub fn run() -> CliResult<()> {
     let cli = Cli::parse();
 
-    init_tracing(cli.log_level);
+    platynui_log_filter::init_stderr(cli.log_level);
 
     let mut runtime = Runtime::new().map_err(map_provider_error)?;
 
@@ -252,6 +214,36 @@ mod tests {
             Commands::Info { format } => assert!(matches!(format, OutputFormat::Text)),
             _ => panic!("unexpected command"),
         }
+    }
+
+    #[test]
+    fn log_level_is_optional_and_takes_the_shared_level_names() {
+        assert_eq!(Cli::try_parse_from(["platynui", "info"]).expect("parse").log_level, None);
+        let parsed =
+            |value: &str| Cli::try_parse_from(["platynui", "--log-level", value, "info"]).expect(value).log_level;
+        assert_eq!(parsed("WARNING"), Some(LevelFilter::WARN));
+        assert_eq!(parsed("Debug"), Some(LevelFilter::DEBUG));
+        assert_eq!(parsed("off"), Some(LevelFilter::OFF));
+        assert_eq!(parsed("critical"), Some(LevelFilter::ERROR));
+        let after_the_command = Cli::try_parse_from(["platynui", "info", "--log-level", "trace"]).expect("global");
+        assert_eq!(after_the_command.log_level, Some(LevelFilter::TRACE));
+    }
+
+    #[test]
+    fn an_unknown_log_level_exits_with_status_2_and_names_the_levels() {
+        let Err(err) = Cli::try_parse_from(["platynui", "--log-level", "verbose", "info"]) else {
+            panic!("verbose must be rejected");
+        };
+        assert_eq!(err.kind(), clap::error::ErrorKind::ValueValidation);
+        assert_eq!(err.exit_code(), 2);
+        let message = err.to_string();
+        assert!(
+            message.contains(
+                "unknown log level 'verbose'; expected one of off, error, warn (warning), info, debug, trace, \
+                 critical, fatal"
+            ),
+            "{message}"
+        );
     }
 
     #[test]

@@ -3486,6 +3486,7 @@ dependencies = [
  "owo-colors",
  "platynui-core",
  "platynui-link",
+ "platynui-log-filter",
  "platynui-platform-linux",
  "platynui-platform-macos",
  "platynui-platform-mock",
@@ -3503,6 +3504,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "tempfile",
+ "tracing",
  "tracing-subscriber",
 ]
 

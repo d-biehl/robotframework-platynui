@@ -35,7 +35,9 @@ platynui-core = { path = "../core" }
 platynui-provider-mock = { path = "../provider-mock", optional = true }
 platynui-platform-mock = { path = "../platform-mock", optional = true }
 
-tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+# The stderr subscriber and the `--log-level` names shared by every entry point.
+platynui-log-filter = { path = "../log-filter", features = ["fmt"] }
 platynui-link = { path = "../link" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -55,6 +57,7 @@ platynui-provider-macos-ax = { path = "../provider-macos-ax" }
 rstest = "0.27"
 tempfile = "3.27"
 serial_test = "4.0"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
 platynui-provider-mock = { path = "../provider-mock" }
 platynui-platform-mock = { path = "../platform-mock" }
 

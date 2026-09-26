@@ -3,7 +3,7 @@ use crate::commands::query::{QueryItemSummary, render_query_text, summarize_quer
 use crate::util::{CliResult, map_evaluate_error};
 use anyhow::anyhow;
 use clap::Args;
-use platynui_core::provider::{ProviderEvent, ProviderEventKind};
+use platynui_core::provider::{ProviderDescriptor, ProviderEvent, ProviderEventKind};
 use platynui_core::ui::UiNode;
 use platynui_runtime::Runtime;
 use platynui_runtime::provider::event::ProviderEventSink;
@@ -50,6 +50,7 @@ where
     if limit == 0 {
         return Ok(());
     }
+    report_event_sources(runtime.providers().map(|provider| provider.descriptor()));
 
     let expression = args.expression.as_deref();
     let cache = runtime.create_cache();
@@ -81,6 +82,21 @@ where
     }
 
     Ok(())
+}
+
+/// Say whether any of the active `providers` emits UI events: a warning when
+/// none does, because the command then waits without output, and a debug
+/// record naming the providers that do otherwise.
+fn report_event_sources<'a>(providers: impl IntoIterator<Item = &'a ProviderDescriptor>) {
+    let active: Vec<&ProviderDescriptor> = providers.into_iter().collect();
+    let sources: Vec<&str> =
+        active.iter().filter(|descriptor| !descriptor.event_capabilities().is_empty()).map(|d| d.id).collect();
+    if sources.is_empty() {
+        let providers: Vec<&str> = active.iter().map(|descriptor| descriptor.id).collect();
+        tracing::warn!(?providers, "no active provider emits UI events; the command waits without output");
+    } else {
+        tracing::debug!(providers = ?sources, "watching UI events");
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -249,5 +265,76 @@ mod tests {
         let line = String::from_utf8(buffer.into_inner()).expect("utf8");
         let value: serde_json::Value = serde_json::from_str(line.trim()).expect("json");
         assert_eq!(value["event"], "NodeUpdated");
+    }
+
+    /// Run `f` with its tracing output, down to debug, captured.
+    fn logged<R>(f: impl FnOnce() -> R) -> (R, String) {
+        use std::sync::Mutex;
+
+        #[derive(Clone)]
+        struct Captured(Arc<Mutex<Vec<u8>>>);
+        impl IoWrite for Captured {
+            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                self.0.lock().expect("log buffer").extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let buffer = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let writer = Captured(Arc::clone(&buffer));
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing_subscriber::filter::LevelFilter::DEBUG)
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+        let result = tracing::subscriber::with_default(subscriber, f);
+        let log = String::from_utf8(buffer.lock().expect("log buffer").clone()).expect("utf-8 log");
+        (result, log)
+    }
+
+    fn lines_at<'a>(log: &'a str, level: &str) -> Vec<&'a str> {
+        log.lines().filter(|line| line.contains(&format!(" {level} "))).collect()
+    }
+
+    #[test]
+    fn providers_without_events_give_one_warning() {
+        use platynui_core::provider::ProviderKind;
+        use platynui_core::ui::TechnologyId;
+
+        let atspi = ProviderDescriptor::new("atspi", "AT-SPI", TechnologyId::from("AT-SPI"), ProviderKind::Native);
+        let ((), log) = logged(|| report_event_sources([&atspi]));
+
+        let warnings = lines_at(&log, "WARN");
+        assert_eq!(warnings.len(), 1, "{log}");
+        for expected in ["no active provider emits UI events; the command waits without output", r#"["atspi"]"#] {
+            assert!(warnings[0].contains(expected), "the warning names `{expected}`: {}", warnings[0]);
+        }
+
+        let ((), log) = logged(|| report_event_sources([]));
+        assert_eq!(lines_at(&log, "WARN").len(), 1, "no active provider at all is warned too\n{log}");
+    }
+
+    /// The mock provider emits events: `watch` logs no warning, and a debug
+    /// record names it.
+    #[rstest]
+    fn watching_the_mock_logs_no_warning(mut runtime: Runtime) {
+        let args = WatchArgs { format: OutputFormat::Text, expression: None, limit: Some(1) };
+
+        let mut buffer = Cursor::new(Vec::new());
+        let (result, log) = logged(|| {
+            watch_with_writer_internal(&mut runtime, &args, &mut buffer, || {
+                platynui_provider_mock::emit_node_updated("mock://button/ok");
+            })
+        });
+        result.expect("watch");
+
+        assert!(lines_at(&log, "WARN").is_empty(), "no warning\n{log}");
+        let debugs: Vec<_> =
+            lines_at(&log, "DEBUG").into_iter().filter(|line| line.contains("watching UI events")).collect();
+        assert_eq!(debugs.len(), 1, "{log}");
+        assert!(debugs[0].contains(r#"["mock"]"#), "the record names the mock provider: {}", debugs[0]);
     }
 }
