@@ -167,7 +167,23 @@ impl Process {
 
         allocation.write(pid, &buffer)?;
         let thread = self.start_thread(pid, allocation.address, data_base)?;
-        thread.join(pid, timeout)
+        match thread.join(pid, timeout) {
+            Joined::Finished(exit_code) => exit_code,
+            Joined::Running(error) => {
+                // The thread may still execute the stub or read its arguments.
+                // Freeing the region under it would crash the target JVM, so the
+                // region stays allocated for the life of that process — a few
+                // kilobytes, against a crash.
+                let bytes = allocation.leak();
+                tracing::debug!(
+                    pid,
+                    bytes,
+                    timeout_ms = u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
+                    "attach thread did not finish in time; its stub memory stays allocated in the target"
+                );
+                Err(error)
+            }
+        }
     }
 
     fn start_thread(&self, pid: u32, code: usize, parameter: usize) -> Result<Thread, AgentError> {
@@ -182,8 +198,9 @@ impl Process {
         // SAFETY: `code` points at the stub we just wrote into the target with
         // PAGE_EXECUTE_READWRITE, and its signature matches a thread start
         // routine (one pointer argument, u32 return). `parameter` points at the
-        // argument block inside the same allocation, which outlives the thread
-        // because the allocation is freed only after the join below.
+        // argument block inside the same allocation, which outlives the thread:
+        // the allocation is freed only once the thread has finished, and leaked
+        // when the join gives up on it (see `run_stub`).
         let handle = unsafe {
             let start: unsafe extern "system" fn(*mut core::ffi::c_void) -> u32 = std::mem::transmute(code);
             CreateRemoteThread(self.handle, None, 0, Some(start), Some(parameter as *const core::ffi::c_void), 0, None)
@@ -210,25 +227,32 @@ struct Thread {
     handle: HANDLE,
 }
 
+/// How waiting for the remote thread ended.
+enum Joined {
+    /// The thread has finished: the stub's return value, or the failure to read it.
+    Finished(Result<u32, AgentError>),
+    /// The wait timed out or failed, so the thread may still be running.
+    Running(AgentError),
+}
+
 impl Thread {
     /// Waits for the stub to return and reports its exit code.
-    fn join(&self, pid: u32, timeout: Duration) -> Result<u32, AgentError> {
+    fn join(&self, pid: u32, timeout: Duration) -> Joined {
         let millis = u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX);
         // SAFETY: waiting on the thread handle this type owns.
         let wait = unsafe { WaitForSingleObject(self.handle, millis) };
         if wait != WAIT_OBJECT_0 {
-            return Err(AgentError::AttachFailed {
+            return Joined::Running(AgentError::AttachFailed {
                 pid,
                 details: format!("the attach thread in process {pid} did not finish within {timeout:?}"),
             });
         }
         let mut exit_code = 0u32;
         // SAFETY: the thread has terminated; `exit_code` is a valid out-pointer.
-        unsafe { GetExitCodeThread(self.handle, &raw mut exit_code) }.map_err(|e| AgentError::AttachFailed {
-            pid,
-            details: format!("cannot read the attach thread's result: {e}"),
-        })?;
-        Ok(exit_code)
+        let read = unsafe { GetExitCodeThread(self.handle, &raw mut exit_code) }.map_err(|e| {
+            AgentError::AttachFailed { pid, details: format!("cannot read the attach thread's result: {e}") }
+        });
+        Joined::Finished(read.map(|()| exit_code))
     }
 }
 
@@ -245,6 +269,7 @@ impl Drop for Thread {
 struct RemoteMemory {
     process: HANDLE,
     address: usize,
+    size: usize,
 }
 
 impl RemoteMemory {
@@ -257,7 +282,7 @@ impl RemoteMemory {
                 details: format!("cannot allocate {size} bytes in process {pid}: {}", last_error()),
             });
         }
-        Ok(Self { process, address: address as usize })
+        Ok(Self { process, address: address as usize, size })
     }
 
     fn write(&self, pid: u32, buffer: &[u8]) -> Result<(), AgentError> {
@@ -284,13 +309,23 @@ impl RemoteMemory {
         }
         Ok(())
     }
+
+    /// Gives the region up without freeing it, for a remote thread that may
+    /// still run out of it. Returns its size, for the record.
+    fn leak(self) -> usize {
+        let size = self.size;
+        std::mem::forget(self);
+        size
+    }
 }
 
 impl Drop for RemoteMemory {
     fn drop(&mut self) {
-        // SAFETY: releasing the region this type allocated. Only reached after
-        // the remote thread has been joined, so nothing in the target is still
-        // executing out of it.
+        // SAFETY: releasing the region this type allocated. Reached only when
+        // nothing in the target runs out of it: no remote thread was started,
+        // or the one that was has finished. A thread still running when the
+        // join gives up leaks the region instead (`RemoteMemory::leak`),
+        // because freeing it would pull the code out from under that thread.
         unsafe {
             let _ = VirtualFreeEx(self.process, self.address as *mut core::ffi::c_void, 0, MEM_RELEASE);
         }
