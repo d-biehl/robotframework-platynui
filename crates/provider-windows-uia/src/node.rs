@@ -566,12 +566,24 @@ impl UiNode for UiaNode {
             #[derive(Clone)]
             struct ElemSend {
                 elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
+                /// The node the patterns belong to, only to describe it in
+                /// diagnostics; weak, so a pattern never keeps its node alive.
+                owner: Option<Weak<dyn UiNode>>,
             }
             unsafe impl Send for ElemSend {}
             unsafe impl Sync for ElemSend {}
             impl ElemSend {
                 unsafe fn set_focus(&self) -> Result<(), crate::error::UiaError> {
                     crate::error::uia_api("IUIAutomationElement::SetFocus", unsafe { self.elem.SetFocus() })
+                }
+                /// The owning window in the description form of diagnostics. Asks
+                /// the application for name and id, so it is only built inside a
+                /// record's arguments, which are evaluated when the record is on.
+                fn window_description(&self) -> String {
+                    self.owner
+                        .as_ref()
+                        .and_then(Weak::upgrade)
+                        .map_or_else(|| "unknown".to_owned(), |node| platynui_core::ui::describe(&*node))
                 }
                 /// Activate the window and wait (bounded) until it is actually the
                 /// foreground window. `SetFocus`/foreground changes are asynchronous
@@ -581,24 +593,41 @@ impl UiNode for UiaNode {
                 /// A minimized window is brought back first with `SW_RESTORE`, which
                 /// returns it to the state it was minimized from (maximized stays
                 /// maximized). `SetWindowVisualState(Normal)` would un-maximize it.
+                ///
+                /// A window that is not the foreground window when the wait ends is
+                /// recorded at debug and not reported as a failure: Windows may
+                /// refuse a foreground change (focus-stealing prevention), and an
+                /// automatic activation before an action proceeds either way.
                 unsafe fn activate(&self) -> Result<(), crate::error::UiaError> {
                     use windows::Win32::UI::WindowsAndMessaging::{
                         GetForegroundWindow, IsIconic, SW_RESTORE, ShowWindow,
                     };
+                    const FOREGROUND_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1000);
                     let hwnd = unsafe { self.elem.CurrentNativeWindowHandle() }.ok().filter(|hwnd| !hwnd.0.is_null());
+                    let minimized = hwnd.is_some_and(|hwnd| unsafe { IsIconic(hwnd) }.as_bool());
+                    tracing::debug!(window = %self.window_description(), minimized, "activating window");
                     if let Some(hwnd) = hwnd
-                        && unsafe { IsIconic(hwnd) }.as_bool()
+                        && minimized
                     {
                         let _ = unsafe { ShowWindow(hwnd, SW_RESTORE) };
                     }
                     unsafe { self.set_focus()? };
                     if let Some(hwnd) = hwnd {
-                        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1000);
+                        let deadline = std::time::Instant::now() + FOREGROUND_TIMEOUT;
+                        let mut in_foreground = false;
                         while std::time::Instant::now() < deadline {
                             if unsafe { GetForegroundWindow() }.0 == hwnd.0 {
+                                in_foreground = true;
                                 break;
                             }
                             std::thread::sleep(std::time::Duration::from_millis(20));
+                        }
+                        if !in_foreground {
+                            tracing::debug!(
+                                window = %self.window_description(),
+                                timeout_ms = u64::try_from(FOREGROUND_TIMEOUT.as_millis()).unwrap_or(u64::MAX),
+                                "window did not become the foreground window after activation"
+                            );
                         }
                     }
                     Ok(())
@@ -638,7 +667,7 @@ impl UiNode for UiaNode {
                     crate::error::uia_api("IUIAutomationTransformPattern::Resize", unsafe { pat.Resize(w, h) })
                 }
             }
-            let es = ElemSend { elem: self.elem.clone() };
+            let es = ElemSend { elem: self.elem.clone(), owner: self.self_weak.get().cloned() };
 
             if pid == pattern_names::ACTIVATABLE {
                 let e = es.clone();

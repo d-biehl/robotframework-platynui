@@ -359,15 +359,41 @@ impl UiTreeProviderFactory for WindowsUiaFactory {
     }
 }
 
+/// `providers.windows-uia.honor_window_claims`: the kill switch for the
+/// window-claims cooperation (see `platynui_core::platform::window_claims`).
+const HONOR_WINDOW_CLAIMS_KEY: &str = "honor_window_claims";
+
+/// The settings `providers.windows-uia` reads.
+const KNOWN_SETTINGS: &[&str] = &[HONOR_WINDOW_CLAIMS_KEY];
+
 impl WindowsUiaFactory {
     /// Build a concrete provider from `config` — split out from `create` so
     /// the config wiring is unit-testable without a live UIA session.
+    ///
+    /// Checks its settings first: an unknown key and a value of the wrong type
+    /// are warned about, and the default applies.
     fn build(config: &RuntimeConfig) -> WindowsUiaProvider {
-        // Kill switch for the window-claims cooperation (see
-        // `platynui_core::platform::window_claims`): with `false`, windows
-        // claimed by other providers (e.g. JAB) reappear as UIA shells.
-        let honor_window_claims =
-            config.provider(PROVIDER_ID).and_then(|uia| uia.get_bool("honor_window_claims")).unwrap_or(true);
+        let settings = config.provider(PROVIDER_ID);
+        if let Some(settings) = settings {
+            for key in settings.unknown_keys(KNOWN_SETTINGS) {
+                tracing::warn!(component = "providers.windows-uia", key = %key, "unknown setting; it is ignored");
+            }
+        }
+        // With `false`, windows claimed by other providers (e.g. Java)
+        // reappear as UIA shells.
+        let honor_window_claims = match settings.map_or(Ok(None), |uia| uia.try_bool(HONOR_WINDOW_CLAIMS_KEY)) {
+            Ok(value) => value.unwrap_or(true),
+            Err(mismatch) => {
+                tracing::warn!(
+                    component = "providers.windows-uia",
+                    key = %mismatch.key,
+                    expected = mismatch.expected,
+                    found = mismatch.found,
+                    "setting has the wrong type; the default applies"
+                );
+                true
+            }
+        };
         WindowsUiaProvider::new(honor_window_claims)
     }
 }
@@ -571,6 +597,72 @@ mod tests {
         let config = RuntimeConfig::new(ConfigMap::new(), providers);
         let provider = WindowsUiaFactory::build(&config);
         assert!(!provider.honor_window_claims);
+    }
+
+    /// Runs `f` and returns what it logged, one line per record.
+    fn logged<R>(f: impl FnOnce() -> R) -> (R, String) {
+        #[derive(Clone)]
+        struct Captured(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for Captured {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().expect("log buffer").extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let buffer = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let writer = Captured(Arc::clone(&buffer));
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .with_ansi(false)
+            .without_time()
+            .with_writer(move || writer.clone())
+            .finish();
+        let result = tracing::subscriber::with_default(subscriber, f);
+        let log = String::from_utf8(buffer.lock().expect("log buffer").clone()).expect("utf-8 log");
+        (result, log)
+    }
+
+    fn warnings(log: &str) -> Vec<&str> {
+        log.lines().filter(|line| line.contains(" WARN ")).collect()
+    }
+
+    #[test]
+    fn an_unknown_setting_is_reported_once() {
+        let providers = ConfigMap::new().with(PROVIDER_ID, ConfigMap::new().with("bogus", 1_i64));
+        let config = RuntimeConfig::new(ConfigMap::new(), providers);
+        let (provider, log) = logged(|| WindowsUiaFactory::build(&config));
+
+        assert!(provider.honor_window_claims, "an unknown key changes nothing");
+        let warnings = warnings(&log);
+        assert_eq!(warnings.len(), 1, "{log}");
+        assert!(warnings[0].contains("providers.windows-uia") && warnings[0].contains("key=bogus"), "{log}");
+    }
+
+    #[test]
+    fn a_mistyped_setting_is_reported_and_the_default_applies() {
+        let providers = ConfigMap::new().with(PROVIDER_ID, ConfigMap::new().with("honor_window_claims", "False"));
+        let config = RuntimeConfig::new(ConfigMap::new(), providers);
+        let (provider, log) = logged(|| WindowsUiaFactory::build(&config));
+
+        assert!(provider.honor_window_claims, "the default applies, not the string's meaning");
+        let warnings = warnings(&log);
+        assert_eq!(warnings.len(), 1, "{log}");
+        for expected in ["providers.windows-uia", "key=honor_window_claims", "expected=\"bool\"", "found=\"string\""] {
+            assert!(warnings[0].contains(expected), "the warning names `{expected}`: {log}");
+        }
+    }
+
+    #[test]
+    fn known_settings_report_nothing() {
+        let providers = ConfigMap::new()
+            .with(PROVIDER_ID, ConfigMap::new().with("honor_window_claims", false).with("enabled", true));
+        let config = RuntimeConfig::new(ConfigMap::new(), providers);
+        let (_provider, log) = logged(|| WindowsUiaFactory::build(&config));
+        assert!(warnings(&log).is_empty(), "{log}");
     }
 
     #[test]
