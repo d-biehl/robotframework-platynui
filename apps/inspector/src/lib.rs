@@ -36,6 +36,7 @@ use eframe::egui;
 #[cfg(target_os = "windows")]
 use eframe::wgpu;
 use platynui_link::platynui_link_providers;
+use platynui_log_filter::LevelFilter;
 use platynui_runtime::Runtime;
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -127,11 +128,20 @@ const DEFAULT_SEARCH_RESULT_LIMIT: usize = 5_000;
 #[derive(Parser)]
 #[command(author, version, about = "PlatynUI Inspector", long_about = None)]
 struct InspectorArgs {
-    /// Set the log level for diagnostic output (written to stderr).
-    /// Overrides the `PLATYNUI_LOG_LEVEL` environment variable.
-    /// Use `RUST_LOG` for fine-grained per-crate filtering.
-    #[arg(long = "log-level", value_enum)]
-    log_level: Option<LogLevel>,
+    #[arg(
+        long = "log-level",
+        value_name = "LEVEL",
+        value_parser = platynui_log_filter::parse_level,
+        help = "Level of the diagnostics on stderr: off, error, warn (the default), info, debug or trace",
+        long_help = "Level of the diagnostics on stderr: off, error, warn (the default), info, debug or \
+                     trace, in any case; warning, critical and fatal are accepted as well. warn to trace \
+                     apply to PlatynUI's own modules, while other crates, the GUI stack's included, stay \
+                     at warn; error and off apply to every module. Overrides the PLATYNUI_LOG_LEVEL \
+                     environment variable, which takes the same names. RUST_LOG overrides both; it takes \
+                     filter directives and is the only way to see more from third-party crates, such as \
+                     RUST_LOG=eframe=debug."
+    )]
+    log_level: Option<LevelFilter>,
 
     /// Rendering backend to use (`wgpu` or `glow`).
     /// Overrides the `PLATYNUI_INSPECTOR_RENDERER` environment variable.
@@ -262,16 +272,6 @@ impl std::fmt::Display for WindowChrome {
             Self::Headerbar => "headerbar".fmt(formatter),
         }
     }
-}
-
-/// Supported log level values for the `--log-level` CLI flag.
-#[derive(Clone, Copy, Debug, ValueEnum)]
-pub enum LogLevel {
-    Error,
-    Warn,
-    Info,
-    Debug,
-    Trace,
 }
 
 /// Supported renderer backends for the inspector.
@@ -547,39 +547,6 @@ impl std::fmt::Display for SearchResultLimitChoice {
 fn parse_search_result_limit(value: &str) -> Result<SearchResultLimitChoice, String> {
     SearchResultLimitChoice::parse_env_value(value)
         .ok_or_else(|| format!("expected a positive integer or 'unlimited', got '{value}'"))
-}
-
-/// Initialize the tracing subscriber.
-///
-/// Priority (highest wins):
-/// 1. `RUST_LOG` environment variable (fine-grained per-crate filtering)
-/// 2. `--log-level` CLI argument
-/// 3. `PLATYNUI_LOG_LEVEL` environment variable
-/// 4. Default: `warn`
-fn init_tracing(cli_level: Option<LogLevel>) {
-    use tracing_subscriber::EnvFilter;
-
-    let filter = if std::env::var("RUST_LOG").is_ok() {
-        EnvFilter::from_default_env()
-    } else {
-        let directive = if let Some(level) = cli_level {
-            match level {
-                LogLevel::Error => "error",
-                LogLevel::Warn => "warn",
-                LogLevel::Info => "info",
-                LogLevel::Debug => "debug",
-                LogLevel::Trace => "trace",
-            }
-            .to_string()
-        } else if let Ok(val) = std::env::var("PLATYNUI_LOG_LEVEL") {
-            val
-        } else {
-            "warn".to_string()
-        };
-        EnvFilter::new(directive)
-    };
-
-    tracing_subscriber::fmt().with_env_filter(filter).with_target(true).with_writer(std::io::stderr).init();
 }
 
 #[cfg(target_os = "windows")]
@@ -1162,7 +1129,8 @@ fn create_initial_root(runtime: &Arc<Runtime>) -> Arc<UiNodeData> {
 /// Panics if the `PlatynUI` runtime cannot be created.
 pub fn run() -> eframe::Result {
     let args = InspectorArgs::parse();
-    init_tracing(args.log_level);
+    // With the `log` feature, the GUI stack's `log` records pass the same filter.
+    platynui_log_filter::init_stderr(args.log_level);
     let renderer = RendererChoice::resolve(args.renderer);
     let requested_glow_hardware_acceleration = GlowHardwareAccelerationChoice::resolve(args.glow_hardware_acceleration);
     let glow_hardware_acceleration = requested_glow_hardware_acceleration.effective_for_renderer(renderer);
@@ -1267,6 +1235,25 @@ mod tests {
         let old = "(picker_combo:(ctrl:true,alt:true,shift:true),toolbar_style:IconsAndText)";
         let loaded: PersistedSettings = ron::from_str(old).expect("old settings must still load");
         assert_eq!(loaded.theme, ThemeChoice::System);
+    }
+
+    #[test]
+    fn log_level_is_optional_and_takes_the_shared_level_names() {
+        let parsed = |args: &[&str]| InspectorArgs::try_parse_from(args).expect("parse").log_level;
+        assert_eq!(parsed(&["platynui-inspector"]), None);
+        assert_eq!(parsed(&["platynui-inspector", "--log-level", "WARNING"]), Some(LevelFilter::WARN));
+        assert_eq!(parsed(&["platynui-inspector", "--log-level", "Debug"]), Some(LevelFilter::DEBUG));
+        assert_eq!(parsed(&["platynui-inspector", "--log-level", "off"]), Some(LevelFilter::OFF));
+    }
+
+    #[test]
+    fn an_unknown_log_level_is_rejected_with_the_level_names() {
+        let Err(err) = InspectorArgs::try_parse_from(["platynui-inspector", "--log-level", "verbose"]) else {
+            panic!("verbose must be rejected");
+        };
+        assert_eq!(err.kind(), clap::error::ErrorKind::ValueValidation);
+        assert_eq!(err.exit_code(), 2);
+        assert!(err.to_string().contains("unknown log level 'verbose'; expected one of off, error"), "{err}");
     }
 
     #[test]

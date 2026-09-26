@@ -30,7 +30,10 @@ clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 tracing = { version = "0.1", default-features = false, features = ["std"] }
-tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
+# The stderr subscriber and the `--log-level` names shared by every entry point;
+# `log` forwards the records of the GUI stack (eframe, winit, wgpu), which logs
+# through the `log` crate, into the same filter.
+platynui-log-filter = { path = "../../crates/log-filter", features = ["fmt", "log"] }
 
 # Mock providers (optional)
 platynui-provider-mock = { path = "../../crates/provider-mock", optional = true }
