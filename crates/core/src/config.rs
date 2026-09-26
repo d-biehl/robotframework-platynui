@@ -5,17 +5,36 @@
 //! capability). It carries two open, id-keyed sections — `platform` and
 //! `providers` — and each platform/provider factory reads only its own slice.
 //!
-//! The type is deliberately schema-less. Unknown ids and keys are retained but
-//! never required, so a single dictionary can carry settings for every
-//! operating system and a component simply ignores what it does not recognise
-//! (the runtime debug-logs the leftovers). An absent or empty config resolves
-//! to today's behaviour: every backend falls back to the environment.
+//! The type is deliberately schema-less. Unknown ids are retained but never
+//! required, so a single dictionary can carry settings for every operating
+//! system (the runtime debug-logs ids no component claims). A component that
+//! is built checks its own section: it warns for keys it does not read
+//! ([`ConfigMap::unknown_keys`]) and for values of the wrong type (the `try_*`
+//! accessors), and applies its default. Core only returns the facts; the
+//! component logs them (see `dev-docs/logging.md`). An absent or empty config
+//! resolves to today's behaviour: every backend falls back to the environment.
 
 use std::collections::BTreeMap;
 
 /// Reserved key inside the `platform` section that forces a specific backend id
 /// (e.g. `platform.backend = "x11"`), overriding environment auto-detection.
 pub const PLATFORM_BACKEND_KEY: &str = "backend";
+
+/// Key reserved in every provider's section to switch the provider off;
+/// [`ConfigMap::unknown_keys`] always treats it as known.
+pub const ENABLED_KEY: &str = "enabled";
+
+/// A setting whose value has another type than the component reads.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("setting `{key}` expects a {expected}, found a {found}")]
+pub struct ConfigTypeMismatch {
+    /// The key, relative to the component's section.
+    pub key: String,
+    /// The type the component reads (`bool`, `integer`, `string`, `map`).
+    pub expected: &'static str,
+    /// The type the value has.
+    pub found: &'static str,
+}
 
 /// A single configuration value inside a [`ConfigMap`].
 ///
@@ -30,6 +49,21 @@ pub enum ConfigValue {
     Bool(bool),
     List(Vec<ConfigValue>),
     Map(ConfigMap),
+}
+
+impl ConfigValue {
+    /// The name of this value's type, as configuration diagnostics give it.
+    #[must_use]
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            ConfigValue::Str(_) => "string",
+            ConfigValue::Int(_) => "integer",
+            ConfigValue::Float(_) => "float",
+            ConfigValue::Bool(_) => "bool",
+            ConfigValue::List(_) => "list",
+            ConfigValue::Map(_) => "map",
+        }
+    }
 }
 
 impl From<&str> for ConfigValue {
@@ -71,9 +105,10 @@ impl From<ConfigMap> for ConfigValue {
 /// An open string-keyed map of [`ConfigValue`]s — one component's settings, or
 /// a whole config section.
 ///
-/// The typed accessors return `None` both when a key is absent and when it
-/// holds the wrong type, so a mistyped value degrades to the fallback rather
-/// than erroring (matching the tolerant-resolution rule).
+/// The `get_*` accessors return `None` both when a key is absent and when it
+/// holds the wrong type. A component reads its own settings with the `try_*`
+/// accessors instead, which tell a mistyped value apart so it can be reported
+/// before the default applies.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ConfigMap(BTreeMap<String, ConfigValue>);
 
@@ -144,6 +179,65 @@ impl ConfigMap {
         }
     }
 
+    /// The value at `key` if it is a string; a mismatch if it has another type.
+    ///
+    /// # Errors
+    ///
+    /// [`ConfigTypeMismatch`] when the value is not a string.
+    pub fn try_str(&self, key: &str) -> Result<Option<&str>, ConfigTypeMismatch> {
+        match self.0.get(key) {
+            None => Ok(None),
+            Some(ConfigValue::Str(value)) => Ok(Some(value.as_str())),
+            Some(other) => Err(mismatch(key, "string", other)),
+        }
+    }
+
+    /// The value at `key` if it is a boolean; a mismatch if it has another type.
+    ///
+    /// # Errors
+    ///
+    /// [`ConfigTypeMismatch`] when the value is not a boolean.
+    pub fn try_bool(&self, key: &str) -> Result<Option<bool>, ConfigTypeMismatch> {
+        match self.0.get(key) {
+            None => Ok(None),
+            Some(ConfigValue::Bool(value)) => Ok(Some(*value)),
+            Some(other) => Err(mismatch(key, "bool", other)),
+        }
+    }
+
+    /// The value at `key` if it is an integer; a mismatch if it has another type.
+    ///
+    /// # Errors
+    ///
+    /// [`ConfigTypeMismatch`] when the value is not an integer.
+    pub fn try_i64(&self, key: &str) -> Result<Option<i64>, ConfigTypeMismatch> {
+        match self.0.get(key) {
+            None => Ok(None),
+            Some(ConfigValue::Int(value)) => Ok(Some(*value)),
+            Some(other) => Err(mismatch(key, "integer", other)),
+        }
+    }
+
+    /// The value at `key` if it is a nested map; a mismatch if it has another type.
+    ///
+    /// # Errors
+    ///
+    /// [`ConfigTypeMismatch`] when the value is not a map.
+    pub fn try_map(&self, key: &str) -> Result<Option<&ConfigMap>, ConfigTypeMismatch> {
+        match self.0.get(key) {
+            None => Ok(None),
+            Some(ConfigValue::Map(value)) => Ok(Some(value)),
+            Some(other) => Err(mismatch(key, "map", other)),
+        }
+    }
+
+    /// The keys that are not in `known`, in key order. [`ENABLED_KEY`] is
+    /// always known, because it is reserved on every provider.
+    #[must_use]
+    pub fn unknown_keys(&self, known: &[&str]) -> Vec<&str> {
+        self.keys().filter(|key| *key != ENABLED_KEY && !known.contains(key)).collect()
+    }
+
     pub fn keys(&self) -> impl Iterator<Item = &str> {
         self.0.keys().map(String::as_str)
     }
@@ -157,6 +251,10 @@ impl ConfigMap {
     pub fn len(&self) -> usize {
         self.0.len()
     }
+}
+
+fn mismatch(key: &str, expected: &'static str, found: &ConfigValue) -> ConfigTypeMismatch {
+    ConfigTypeMismatch { key: key.to_owned(), expected, found: found.type_name() }
 }
 
 impl FromIterator<(String, ConfigValue)> for ConfigMap {
@@ -187,6 +285,16 @@ impl RuntimeConfig {
     #[must_use]
     pub fn platform_backend(&self) -> Option<&str> {
         self.platform.get_str(PLATFORM_BACKEND_KEY)
+    }
+
+    /// The forced platform backend id, or a mismatch when `platform.backend`
+    /// is not a string, so the runtime can report it.
+    ///
+    /// # Errors
+    ///
+    /// [`ConfigTypeMismatch`] when `platform.backend` is not a string.
+    pub fn try_platform_backend(&self) -> Result<Option<&str>, ConfigTypeMismatch> {
+        self.platform.try_str(PLATFORM_BACKEND_KEY)
     }
 
     /// The settings sub-map for platform backend `id` (`platform.<id>`).
@@ -286,5 +394,47 @@ mod tests {
         assert!(config.platform("windows").is_some());
         let ids: Vec<_> = config.platform_component_ids().collect();
         assert!(ids.contains(&"windows"));
+    }
+
+    #[test]
+    fn unknown_keys_are_listed_and_enabled_is_always_known() {
+        let map = ConfigMap::new().with("display", ":1").with("dispaly", ":2").with("enabled", false).with("zz", 1_i64);
+        assert_eq!(map.unknown_keys(&["display"]), ["dispaly", "zz"]);
+        assert!(ConfigMap::new().unknown_keys(&["display"]).is_empty());
+    }
+
+    #[test]
+    fn try_accessors_tell_absent_present_and_mistyped_apart() {
+        let map = ConfigMap::new()
+            .with("flag", true)
+            .with("count", 3_i64)
+            .with("name", ":1")
+            .with("nested", ConfigMap::new().with("inner", 1_i64))
+            .with("text_flag", "False");
+        assert_eq!(map.try_bool("missing"), Ok(None));
+        assert_eq!(map.try_bool("flag"), Ok(Some(true)));
+        assert_eq!(map.try_i64("count"), Ok(Some(3)));
+        assert_eq!(map.try_str("name"), Ok(Some(":1")));
+        assert_eq!(map.try_map("nested").map(|m| m.map(ConfigMap::len)), Ok(Some(1)));
+        assert_eq!(
+            map.try_bool("text_flag"),
+            Err(ConfigTypeMismatch { key: "text_flag".to_owned(), expected: "bool", found: "string" })
+        );
+        assert_eq!(
+            map.try_str("count"),
+            Err(ConfigTypeMismatch { key: "count".to_owned(), expected: "string", found: "integer" })
+        );
+        assert_eq!(map.try_i64("flag").unwrap_err().found, "bool");
+        assert_eq!(map.try_map("name").unwrap_err().expected, "map");
+        let message = map.try_bool("text_flag").unwrap_err().to_string();
+        assert!(message.contains("text_flag") && message.contains("bool") && message.contains("string"), "{message}");
+    }
+
+    #[test]
+    fn a_mistyped_backend_selector_is_a_mismatch() {
+        let config = RuntimeConfig::new(ConfigMap::new().with(PLATFORM_BACKEND_KEY, 1_i64), ConfigMap::new());
+        assert_eq!(config.try_platform_backend().unwrap_err().key, PLATFORM_BACKEND_KEY);
+        assert_eq!(sample().try_platform_backend(), Ok(Some("x11")));
+        assert_eq!(RuntimeConfig::default().try_platform_backend(), Ok(None));
     }
 }
