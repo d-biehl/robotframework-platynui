@@ -6,6 +6,7 @@ User-facing documentation lives in [`../docs/`](../docs/).
 **Architecture & conventions**
 - [architecture.md](architecture.md) — overall system design
 - [error-handling.md](error-handling.md) — error type conventions
+- [logging.md](logging.md) — logging concept: levels, log-or-return, once per episode, Python loggers, the level knob
 
 **Platform internals**
 - [platform-linux.md](platform-linux.md), [platform-linux-wayland.md](platform-linux-wayland.md), [platform-windows.md](platform-windows.md)

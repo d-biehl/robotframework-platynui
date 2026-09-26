@@ -765,4 +765,4 @@ This document covers the Rust core and the cross-platform model that everything 
 - **Python Bindings** — how the Rust core is exposed to Python via PyO3, how types are mapped across the boundary, and how threading is handled: [`dev-docs/python-bindings.md`](python-bindings.md)
 - **CLI** — the available commands and the snapshot model the CLI works against: [`dev-docs/cli.md`](cli.md)
 - **Inspector** — the architecture of the Inspector's TreeView: [`dev-docs/inspector.md`](inspector.md)
-- **Logging & Tracing** — how the system emits diagnostics: [`.github/instructions/tracing.instructions.md`](../.github/instructions/tracing.instructions.md)
+- **Logging** — the logging concept for Rust and Python: what each level means, where a failure is logged, once-per-episode reporting, the Python loggers and the level knob: [`dev-docs/logging.md`](logging.md); the checklist for code is [`.github/instructions/logging.instructions.md`](../.github/instructions/logging.instructions.md)

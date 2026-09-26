@@ -173,7 +173,7 @@ Logging and returned errors serve different purposes.
 - Do not rely on logs as the only place where failure context exists.
 - Do not bloat the error variant itself with every diagnostic detail.
 
-If both are useful, do both: emit a trace or warning and still return the typed boundary error.
+If both are useful, record the context at debug and return the typed error; only the layer that swallows a failure or decides its consequence logs it above debug (see `dev-docs/logging.md`).
 
 ## Testing Guidance
 

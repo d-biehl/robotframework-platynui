@@ -37,7 +37,14 @@ Runtime({
 })
 ```
 
-Leaf values convert `str`→string, `bool`→boolean (checked *before* `int`, since Python `bool` subclasses `int`), `int`→integer, `float`→float, `dict`→nested map, `list`/`tuple`→list. Keys, ids, or whole sections a backend does not recognize — another OS's block, a typo, a non-dict section — are ignored with a debug-level log rather than raising, so one dict stays portable across platforms. The config is consumed once at construction and is immutable for the runtime's life; there is no re-bind. The Robot Framework surface exposes it as `BareMetal(config=…)`.
+Leaf values convert `str`→string, `bool`→boolean (checked *before* `int`, since Python `bool` subclasses `int`), `int`→integer, `float`→float, `dict`→nested map, `list`/`tuple`→list. What cannot be used is ignored rather than raised, so one dict stays portable across platforms, but it is not ignored in silence:
+
+- a top-level key other than `platform` and `providers` (such as `platfrom`) is ignored with a warning naming the key and the accepted buckets, and a bucket that is not a dict with a warning naming the bucket and its Python type;
+- a key that is not a string, and a value of a type the config cannot hold (such as a `pathlib.Path`), are dropped with a warning naming the dotted path and the Python type;
+- a setting key that an active component does not recognize is reported as a warning naming the component and the key (`platform.x11`, `dispaly`), and a setting of the wrong type is warned about by its component, which then applies its default;
+- a component id that no active component claims — typically another OS's block, such as `platform.windows` on Linux — is ignored with a debug-level record only.
+
+The first two are reported by the binding, before any component could see the value; the others by the component that reads the setting ([`logging.md`](logging.md) §9). The config is consumed once at construction and is immutable for the runtime's life; there is no re-bind. The Robot Framework surface exposes it as `BareMetal(config=…)`.
 
 ## Threading & GIL
 
@@ -47,28 +54,33 @@ Leaf values convert `str`→string, `bool`→boolean (checked *before* `int`, si
 
 ## Logging
 
-The Rust core logs through `tracing`. From Python, those diagnostics go to the standard `logging` module and, when PlatynUI runs under Robot Framework, into the Robot Framework log of the keyword during which they happened. The implementation is `packages/native/src/log_bridge.rs` on the Rust side and `src/PlatynUI/core/native_logging.py` on the library side.
+The Rust core logs through `tracing`. From Python, those diagnostics go to the standard `logging` module and, when PlatynUI runs under Robot Framework, into the Robot Framework log of the keyword during which they happened. The implementation is `packages/native/src/log_bridge.rs` on the Rust side and `src/PlatynUI/core/native_logging.py` on the library side. This section describes the bridge; what each level means, when a record is written and what it contains is the logging concept, [`logging.md`](logging.md).
 
-**Where records go.** Each record is emitted under a logger named after the Rust module that logged it, below `platynui.native`: an event from `platynui_provider_atspi::extents` arrives on `platynui.native.provider_atspi.extents`, one from zbus on `platynui.native.zbus.…`. So `logging.getLogger("platynui")` covers both the Python-side loggers (`platynui.devices`, …) and the native ones, and a single subsystem can be filtered on its own. Rust levels map one to one onto Python's (`error`→`ERROR`, `warn`→`WARNING`, `info`→`INFO`, `debug`→`DEBUG`). `trace` becomes level 5, named `TRACE` unless something else has already named it. Robot Framework shows level 5 as `TRACE` under `--loglevel TRACE`. The message text carries the module, the message and the structured fields (`[provider_atspi.extents] … window=… call=…`), because Robot Framework shows only the text. The fields are also attached to the record as `native_fields` for Python handlers.
+**Where records go.** Each record is emitted under a logger named after the Rust module that logged it, below `platynui.native`: an event from `platynui_provider_atspi::extents` arrives on `platynui.native.provider_atspi.extents`, one from zbus on `platynui.native.zbus.…`. So `logging.getLogger("platynui")` covers both the Python-side loggers (`platynui.core.adapter_devices`, `platynui.baremetal`, …) and the native ones, and a single subsystem can be filtered on its own. Rust levels map one to one onto Python's (`error`→`ERROR`, `warn`→`WARNING`, `info`→`INFO`, `debug`→`DEBUG`). `trace` becomes level 5, named `TRACE` unless something else has already named it. Robot Framework shows level 5 as `TRACE` under `--loglevel TRACE`. The message text carries the module, the message and the structured fields (`[provider_atspi.extents] … window=… call=…`), because Robot Framework shows only the text. The fields are also attached to the record as `native_fields` for Python handlers.
 
-**When records are delivered, and why on the calling thread.** The subscriber the extension installs at import does nothing but queue: it never calls Python from the thread that logged. That is a requirement, not a detail. Robot Framework records library messages only from the thread that runs the keyword and silently drops the rest, and several native threads log — the Wayland event loop, the AT-SPI popup watcher, zbus executors. Native calls also hold the GIL for their whole duration, and some of them join such a thread while holding it, so a logging thread that waited for the GIL would deadlock the call. Queued records are delivered on the calling thread instead, at three points:
+**When records are delivered, and why on the calling thread.** The subscriber the extension installs at import does nothing but queue: it never calls Python from the thread that logged. That is a requirement, not a detail. Robot Framework records library messages only from the thread that runs the keyword and silently drops the rest, and several native threads log — the Wayland event loop, the AT-SPI popup watcher, zbus executors. Native calls also hold the GIL for their whole duration, and some of them join such a thread while holding it, so a logging thread that waited for the GIL would deadlock the call. Queued records are delivered on the calling thread instead, at these points:
 
 - after every `Runtime` method, once the runtime's lock has been released, so a log handler may call back into the same runtime;
+- before `Runtime(...)`, `Runtime.new_with_mock()` and `Runtime.shutdown()` return or raise, so a warning logged while a runtime is built or shut down reaches Python without waiting for the next call;
 - around every keyword of the Robot Framework libraries, before it runs and after it returns (`OurDynamicCore.run_keyword`), so a record appears in the keyword during which it was logged, or at the latest in the next PlatynUI keyword;
 - on `platynui_native.flush_logs()`.
 
 Node and pattern methods do not deliver; their records wait for the next delivery point. Plain Python code that works mostly with nodes calls `flush_logs()` when it wants to see them. A record from another thread than the one delivering it names that thread and the time it was logged in its message, because Robot Framework stamps a message with its delivery time. The queue holds 10 000 records. When it is full, newer records are dropped, and the next delivery reports how many were lost.
 
-**How much is produced.** By default only `warn` and `error`, independent of Robot Framework's own `--loglevel`. More detail is requested explicitly, with the command-line tool's sources and precedence:
+**How much is produced.** By default only `warn` and `error`, independent of Robot Framework's own `--loglevel`. More detail is requested explicitly, with the same sources and precedence as the command-line tool and the Inspector ([`logging.md`](logging.md) §17):
 
-1. `RUST_LOG` — filter directives, used verbatim;
-2. the requested level — the `PlatynUI.BareMetal` import argument `native_log_level`, or `platynui_native.set_log_level()` from plain Python. It lowers PlatynUI's own crates only (`warn,platynui=<level>`); third-party crates stay at `warn`;
-3. `PLATYNUI_LOG_LEVEL` — filter directives, used verbatim;
+1. `RUST_LOG` — filter directives, used verbatim. It is the only source of directives, and the only way to make third-party crates more verbose;
+2. the requested level — the `PlatynUI.BareMetal` import argument `native_log_level`, or `platynui_native.set_log_level()` from plain Python. It is a single level;
+3. `PLATYNUI_LOG_LEVEL` — a single level, with the same meaning as the requested level;
 4. `warn`.
 
-An environment value that does not parse is skipped as though absent and reported as a warning naming the variable. The environment is read again whenever the level changes. The level is process-wide, because the subscriber is. Each library instance registers its `native_log_level` as a request, and while several are live, the most verbose one applies. An instance's request ends when Robot Framework closes the instance's scope (the library listener's `close()`), and that also delivers what its runtime logged last. To see native debug output in Robot Framework, both are needed: `native_log_level=debug` and an RF log level that keeps `DEBUG`.
+A single level of `warn`, `info`, `debug` or `trace` lowers PlatynUI's own crates only (`warn,platynui=<level>`); third-party crates stay at `warn`. A level of `error` or `off` applies to every module. Level names are case-insensitive, and the Python spellings are understood: `warning` means `warn`, `critical` and `fatal` mean `error`.
 
-A native `warn` becomes a Robot Framework warning and so also appears on the console and among the run's errors. That is intended for warnings a user should act on. Messages that are expected in a healthy session belong at `debug` (see `.github/instructions/tracing.instructions.md`).
+An environment value that is rejected — a `RUST_LOG` that does not parse, or a `PLATYNUI_LOG_LEVEL` that is not a single level, directive syntax included — is skipped as though absent, so the next source applies. It is reported as a warning naming the variable and the value, once per process, although the environment is read again whenever the level changes. A blank value counts as absent without a report. An invalid `native_log_level` fails the library import with a message naming the argument and the accepted values.
+
+The level is process-wide, because the subscriber is. Each library instance registers its `native_log_level` as a request, and while several are live, the most verbose one applies. An instance's request ends when Robot Framework closes the instance's scope (the library listener's `close()`), and that also delivers what its runtime logged last. To see native debug output in Robot Framework, both are needed: `native_log_level=debug` and an RF log level that keeps `DEBUG`.
+
+A native `warn` becomes a Robot Framework warning and so also appears on the console and among the run's errors. That is intended for warnings a user should act on: a warning never fires in a healthy session, and a fallback that is normal in some sessions is recorded at `debug`. The level meanings and the rules that follow from them are in [`logging.md`](logging.md).
 
 ## Exceptions
 

@@ -1,5 +1,11 @@
 # PlatynUI Python Library — Design & Migrationsplan
 
+> **English summary:** The design and migration plan for porting the Python layer — the Robot
+> Framework library `PlatynUI` with its `core` and `ui` packages — from the legacy project onto the
+> Rust-based core. It is a living discussion document, still in German, and is slated for English
+> translation when it migrates to OpenSpec. Where it touches logging, the English
+> [`logging.md`](logging.md) is authoritative.
+
 <!-- Living document. Diskussionsgrundlage für die Portierung der Python-Schicht
      aus dem Altprojekt (`/home/daniel/develop/tmp/robotframework-PlatynUI`) auf
      den neuen Rust-basierten Kern. Keine Entscheidung ist final. -->
@@ -3449,7 +3455,7 @@ class AdapterMouseProxy(MouseProxy):
 
     def __init__(self, adapter: Adapter) -> None:
         self._adapter = adapter
-        self._logger = logging.getLogger("platynui.devices")
+        self._logger = logging.getLogger("platynui.core.adapter_devices")
 
     @property
     def base_rect(self) -> Rect:
@@ -3524,12 +3530,12 @@ Element-Schicht hängt sich später per Subclass oder Override ein.
 
 #### A.9.7 Logging
 
-`AdapterMouseProxy` nutzt den Standard-Python-Logger
-`platynui.devices`. Wenn ein Element ein `ActivationTarget`-Pattern
-mit nicht-leerem `activation_hint` bietet, wird dieser auf DEBUG-Level
-vor jeder Maus-Aktion geloggt. Default-Level ist WARNING — User müssen
-explizit `logging.getLogger("platynui.devices").setLevel(logging.DEBUG)`
-setzen, um die Hints zu sehen.
+> **English summary:** Logging in the Python library follows the logging concept,
+> [`logging.md`](logging.md), which is authoritative; this section only points there.
+> `AdapterMouseProxy` logs a non-empty `activation_hint` at DEBUG before each mouse action,
+> through `logging.getLogger("platynui.core.adapter_devices")`. Under Robot Framework the root
+> logger follows `--loglevel`, so `--loglevel DEBUG` shows the hints; no `setLevel` call is
+> needed.
 
 ### A.10 Pattern-Default-Implementierungen — *gestrichen (Rev. 37)*
 

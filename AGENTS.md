@@ -11,6 +11,7 @@ PlatynUI is a cross-platform UI automation toolkit for Robot Framework, built on
 	- `crates/platform-{windows,linux-x11,linux,macos,mock}`
 	- `crates/provider-{windows-uia,java,java-jab,atspi,macos-ax,mock}` (`provider-java` = the single registered Java provider, a router over toolkit backends; `provider-java-jab` = its Java Access Bridge backend for Swing/AWT on Windows — a library crate, not a provider)
 	- `crates/java-agent` — JVM attach transport, handshake discovery and RPC client for the in-JVM Java agent; provider-neutral, depends on no other PlatynUI crate
+	- `crates/log-filter` (package `platynui-log-filter`) — the shared log-filter builder for the CLI, the Inspector and the Python extension
 	- `crates/cli`, `crates/xkb-util`, `crates/playground`
 	- `apps/inspector`, `apps/wayland-compositor`, `apps/wayland-compositor-ctl`, `apps/test-app-egui`, `apps/eis-test-client`
 - Java workspace (Gradle, self-contained per project):
@@ -64,6 +65,7 @@ Don't guess conventions — the design docs are authoritative. Consult them befo
 
 - [`dev-docs/architecture.md`](dev-docs/architecture.md) — overall system design
 - [`dev-docs/error-handling.md`](dev-docs/error-handling.md) — error type conventions
+- [`dev-docs/logging.md`](dev-docs/logging.md) — logging concept for Rust and Python: levels, log-or-return, once per episode, Python loggers, the level knob (checklist: [`.github/instructions/logging.instructions.md`](.github/instructions/logging.instructions.md))
 - [`dev-docs/testing-strategy.md`](dev-docs/testing-strategy.md) — test layout, mock-provider usage
 - [`dev-docs/platform-linux.md`](dev-docs/platform-linux.md), [`dev-docs/platform-linux-wayland.md`](dev-docs/platform-linux-wayland.md), [`dev-docs/platform-windows.md`](dev-docs/platform-windows.md) — platform specifics
 - [`dev-docs/java-toolkits.md`](dev-docs/java-toolkits.md) — Java UI toolkit (Swing/SWT/JavaFX) detection and accessibility coverage across platforms

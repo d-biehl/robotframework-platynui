@@ -112,14 +112,21 @@ For Unicode characters:
 | `\u00FC` | ü |
 | `\x41` | A (hex value) |
 
-Beyond these specific escapes, a backslash followed by **any other character** simply yields that character literally — so `\a` types `a` and `\ ` types a space. This means a stray backslash is never an error.
+`\x` needs exactly two hex digits and `\u` exactly four. Anything else is an error that names the escape and its position, and nothing is typed. `C:\users` fails at position 3: `\u` starts a Unicode escape, and `sers` are not hex digits. Write `C:\\users` to type `C:\users`.
+
+A backslash at the end of the text, or directly before a line break, escapes nothing and fails as well; write `\\` to type a backslash there.
+
+A backslash before **any other character** is dropped, and the character is typed as it is: `\a` types `a`, `\ ` types a space, and `C:\Users` types `C:Users`. Double every backslash you want to see typed.
 
 **Example:**
 
 ```
 Price: 5 \< 10         →  types "Price: 5 < 10"
 C:\\Users\\test        →  types "C:\Users\test"
+C:\users               →  fails at position 3 (invalid \u escape)
 ```
+
+**When a sequence cannot be typed**, the error says why and where, without repeating the text: the position counts characters of the text PlatynUI receives, starting at 1, and the error names what is wrong there — an invalid escape, a `<` whose key block is never closed with `>` (`Qz7<Kq9` fails at position 4), a missing key name, or a character or key name the keyboard backend cannot produce, with the backend's reason. Text inside `<…>` is always read as key names, so `pa<ss>wd` fails on the key name `ss`, with the hint that a literal `<` is written `\<`. Because the whole sequence is checked before the first key is sent, a sequence that fails this way types nothing. These rules apply unchanged to the value of a Robot Framework `Secret`; for a `Secret`, the error gives only the position and the kind of failure ([`logging.md`](logging.md) §16).
 
 > **Robot Framework note:** RF processes `\` before the string reaches PlatynUI. Double the backslash in `.robot` files:
 >

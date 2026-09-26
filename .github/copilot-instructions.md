@@ -115,7 +115,8 @@ Maturin complaints: re-run `uv sync` to ensure it’s installed; invoke through 
 `uv sync` warm: ~<0.1s, `cargo build` dev: ~0.03–0.08s incremental, full test run: ~15s. These fast cycles justify running full sequence before every commit.
 
 ## 12. Logging & Tracing
-Use the `tracing` crate for all Rust diagnostic output. Each crate specifies its own dep: `tracing = { version = "0.1", default-features = false, features = ["std"] }`. Binary crates (CLI, Inspector) add `tracing-subscriber` and are the only places that initialize a subscriber. Log levels: `error` (unexpected failures not in Result), `warn` (degraded/fallbacks), `info` (one-time lifecycle), `debug` (operational details), `trace` (hot-path per-item). Log output goes to stderr. See `.github/instructions/tracing.instructions.md` for full conventions.
+Use the `tracing` crate for all Rust diagnostic output. Each crate specifies its own dep: `tracing = { version = "0.1", default-features = false, features = ["std"] }`.
+Rules and concept: `.github/instructions/logging.instructions.md` (checklist) and `dev-docs/logging.md` — library crates never install a subscriber (the CLI and the Inspector do so through `platynui-log-filter`, the Python extension installs a queueing subscriber that feeds Python `logging`), a failure that is returned is logged at most at `debug`, and fallbacks that are normal in some sessions are `debug`, not `warn`.
 
 ## 13. Search Guidance
 Only search when: a referenced symbol/path here is missing; a documented command fails; or you need to inspect an existing pattern before extending functionality. Otherwise rely on this file to minimize noisy scanning.

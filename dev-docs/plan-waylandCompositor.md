@@ -1,5 +1,10 @@
 ## Plan: PlatynUI Wayland Compositor + Platform-Crate (Final, priorisiert)
 
+> **English summary:** The phased plan for the Smithay-based PlatynUI Wayland compositor
+> (`apps/wayland-compositor`), the Wayland platform crate (`crates/platform-linux-wayland`) and a
+> PlatynUI GNOME Shell extension. It is a living planning document, still in German, and is slated
+> for English translation when it migrates to OpenSpec.
+
 **TL;DR:** Smithay-basierter Compositor (`apps/wayland-compositor/`, aktuell ~15.240 LoC, 1905 Tests, 43 Protokoll-Globals) + Wayland Platform-Crate (`crates/platform-linux-wayland/`, aktuell ~3.790 LoC) + PlatynUI GNOME Shell Extension. Die Implementierung folgt einer klaren Reihenfolge: erst smithay-fertige Core-Protokolle verdrahten (lauffähiger Compositor in Phase 1 ✅), dann SSD + XWayland + DRM + Test-Control (Phase 2 ✅), dann Automation-Protokolle für PlatynUI (Phase 3: Layer-Shell, Foreign-Toplevel, Virtual-Input, Screencopy — Kern abgeschlossen ✅), dann Härtung & Code-Qualität (Phase 3a ✅), dann Bugfixes & Window-Management-Verbesserungen (Phase 3a+ ✅), dann verbleibende Automation-Protokolle (Phase 3b ✅: Tier 1+2+3 + Stubs komplett, EIS-Server komplett mit Keyboard/Pointer/Touch/Regions/XKB-Keymap, EIS-Test-Client komplett mit `type-text` + Compose-Support + XKB-Reverse-Lookup, Erkenntnisse in `dev-docs/eis-libei.md`), dann Desktop-Integration & Projekt-Tooling (Phase 3c ✅: Winit-Fenster, App-IDs, `.desktop`-Dateien, Justfile), dann Touch-Input & SSD-Touch-Interaktion (Phase 3d ✅: Touch-Handler, Touch-Grabs, deferred SSD-Buttons, Multi-Slot-Isolation), dann Platform-Linux-Mediator (Phase 3e ✅: `crates/platform-linux/` als delegierender Mediator mit Laufzeit-Session-Erkennung, einmaliger Backend-Auflösung in `initialize()` via `Resolved`-Struct, Wayland-Sessions nutzen die Wayland-Backends direkt, Sub-Platforms als Libraries ohne Selbstregistrierung), dann das Wayland-Platform-Crate (Phase 4 🔄: Phase 4a Fundament ✅ — Connection/Compositor-Erkennung/DesktopInfo/Background-Event-Loop, Phase 4b Input-Backends ✅ — alle 4 Backends: ControlSocket + EIS + Portal + VirtualInput mit XKB-Modifier-Tracking; Phase 4d ✅ erster PlatynUI-spezifischer WindowManager inkl. AT-SPI-Anbindung; Phase 4e ✅ erster PlatynUI-Highlight-Pfad; Phase 4c Screenshots + weitere Compositor-Backends noch offen), dann optional ein eingebauter VNC/RDP-Server für Headless-Debugging (Phase 5, aktuell noch offen; Remote-Zugriff heute extern via `wayvnc`). Panel, Portal/PipeWire und Doku kommen danach bei Bedarf. Jede Phase endet mit einem testbaren Meilenstein.
 
 ---
@@ -1190,7 +1195,7 @@ crates/platform-linux-wayland/src/
 
 25d. **XWayland-Overlay** (`src/highlight/overlay_window.rs`): Letzter Fallback: XWayland-Fenster als undekoriertes, semi-transparentes Overlay. Einschränkungen: Z-Order **nicht garantiert** (kann hinter anderen Fenstern landen), verursacht Fokus-Wechsel, braucht WM-spezifische Hints (`_NET_WM_WINDOW_TYPE_DOCK`). Nur als Notlösung für unbekannte Compositors oder wenn Extension/showOutline nicht verfügbar. (~140 LoC)
 
-> **Design-Entscheidung:** Wenn kein Highlight-Backend verfügbar ist (z.B. unbekannter Compositor ohne Layer-Shell/Extension), wird **kein Fehler** geworfen sondern eine `warn!`-Meldung geloggt. Highlight ist eine Debug-/Diagnose-Hilfe, kein kritisches Feature — fehlende Highlights sollen Tests nicht blockieren.
+> **Design decision:** When no highlight backend is available (for example an unknown compositor without layer-shell or extension), highlighting fails with `PlatformError::CapabilityUnavailable`, whose message names the detected compositor, instead of reporting a success that shows nothing. The failure is returned, so it is not logged as a warning as well (log-or-return, [`logging.md`](logging.md) §4). Clearing a highlight succeeds there, because nothing is shown afterwards, which is all clearing promises.
 
 #### Phase 4f: Integration (~200 LoC)
 
