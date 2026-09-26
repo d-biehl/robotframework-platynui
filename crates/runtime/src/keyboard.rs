@@ -39,9 +39,17 @@ impl<'a> KeyboardEngine<'a> {
             KeyboardMode::Type => self.type_sequence(sequence),
         };
 
-        if result.is_err() {
-            tracing::warn!(stuck_keys = self.pressed.len(), "keyboard error — releasing stuck keys");
-            let _ = self.release_all_pressed();
+        // The failure itself is returned; only keys left held are this layer's
+        // to report. Key codes are opaque here and may belong to a secret, so
+        // the records give the number of keys only.
+        if result.is_err() && !self.pressed.is_empty() {
+            tracing::debug!(keys = self.pressed.len(), "keyboard input failed; releasing the keys it pressed");
+            if self.release_all_pressed().is_err() {
+                tracing::error!(
+                    keys = self.pressed.len(),
+                    "releasing keys after a keyboard error failed; these keys may remain held down"
+                );
+            }
         }
 
         if self.started {
@@ -188,9 +196,12 @@ impl<'a> KeyboardEngine<'a> {
         Ok(())
     }
 
+    /// Releases the pressed keys, most recent first. A key whose release fails
+    /// stays in `pressed`, so the count left afterwards is the keys still held.
     fn release_all_pressed(&mut self) -> Result<(), KeyboardError> {
-        while let Some(code) = self.pressed.pop() {
-            self.device.send_key_event(KeyboardEvent { code: code.clone(), state: KeyState::Release })?;
+        while let Some(code) = self.pressed.last().cloned() {
+            self.device.send_key_event(KeyboardEvent { code, state: KeyState::Release })?;
+            self.pressed.pop();
             self.sleep(self.profile.release_delay);
         }
         Ok(())
@@ -258,4 +269,78 @@ pub fn resolve_profile(base: &KeyboardProfile, overrides: &KeyboardOverrides) ->
         profile.after_text_delay = value;
     }
     profile
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::keyboard_sequence::KeyboardSequence;
+    use crate::test_support::{logged, records};
+    use platynui_core::platform::PlatformError;
+
+    /// A device that fails to press `X`, and optionally fails every release.
+    struct FailingKeyboard {
+        fail_release: bool,
+    }
+
+    impl KeyboardDevice for FailingKeyboard {
+        fn key_to_code(&self, name: &str) -> Result<KeyCode, KeyboardError> {
+            Ok(KeyCode::new(name.to_owned()))
+        }
+
+        fn send_key_event(&self, event: KeyboardEvent) -> Result<(), KeyboardError> {
+            let name = event.code.downcast_ref::<String>().map(String::as_str);
+            let fails = match event.state {
+                KeyState::Press => name == Some("X"),
+                KeyState::Release => self.fail_release,
+            };
+            if fails {
+                Err(KeyboardError::Platform(PlatformError::OperationFailed {
+                    operation: "stub send",
+                    details: Some("Jv5 wire cut".into()),
+                }))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    fn run(device: &FailingKeyboard, sequence: &str, mode: KeyboardMode) -> (Result<(), KeyboardError>, String) {
+        let resolved = KeyboardSequence::parse(sequence).expect("parses").resolve(device).expect("resolves");
+        logged(|| {
+            KeyboardEngine::new(device, KeyboardProfile::default(), &|_| {}).expect("starts").execute(&resolved, mode)
+        })
+    }
+
+    #[test]
+    fn a_failure_with_keys_held_releases_them_and_records_the_count_at_debug() {
+        let (result, log) = run(&FailingKeyboard { fail_release: false }, "<Ctrl+Shift+X>", KeyboardMode::Press);
+
+        assert!(result.is_err());
+        assert!(records(&log, "WARN").is_empty() && records(&log, "ERROR").is_empty(), "{log}");
+        let releasing: Vec<_> = records(&log, "DEBUG").into_iter().filter(|line| line.contains("releasing")).collect();
+        assert_eq!(releasing.len(), 1, "{log}");
+        assert!(releasing[0].contains("keys=2"), "{log}");
+        assert!(!log.contains("Jv5"), "the device's error text is not recorded below trace: {log}");
+    }
+
+    #[test]
+    fn a_failure_without_keys_held_records_nothing_about_releasing() {
+        let (result, log) = run(&FailingKeyboard { fail_release: false }, "X", KeyboardMode::Type);
+
+        assert!(result.is_err());
+        assert!(!log.contains("releasing"), "{log}");
+        assert!(records(&log, "WARN").is_empty() && records(&log, "ERROR").is_empty(), "{log}");
+    }
+
+    #[test]
+    fn keys_that_cannot_be_released_are_an_error_with_their_count() {
+        let (result, log) = run(&FailingKeyboard { fail_release: true }, "<Ctrl+Shift+X>", KeyboardMode::Press);
+
+        assert!(result.is_err(), "the keyboard error is returned");
+        let errors = records(&log, "ERROR");
+        assert_eq!(errors.len(), 1, "{log}");
+        assert!(errors[0].contains("keys=2") && errors[0].contains("held down"), "{log}");
+        assert!(!log.contains("Jv5"), "{log}");
+    }
 }

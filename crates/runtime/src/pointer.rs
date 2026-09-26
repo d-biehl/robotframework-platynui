@@ -254,7 +254,7 @@ impl PointerOverrides {
 
 #[derive(Debug, Error)]
 pub enum PointerError {
-    #[error("no PointerDevice registered")]
+    #[error("{}", crate::runtime::NO_PLATFORM_BACKEND)]
     MissingDevice,
     #[error("pointer action failed: {0}")]
     Platform(#[from] PlatformError),
@@ -523,7 +523,17 @@ impl<'a> PointerEngine<'a> {
         let bottom = self.desktop_bounds.bottom();
         let x = point.x().clamp(left, right);
         let y = point.y().clamp(top, bottom);
-        Point::new(x, y)
+        let clamped = Point::new(x, y);
+        if clamped != point {
+            tracing::warn!(
+                requested_x = point.x(),
+                requested_y = point.y(),
+                x,
+                y,
+                "pointer target is outside the desktop; the pointer moves to the nearest point on its edge instead"
+            );
+        }
+        clamped
     }
 
     fn perform_move(&self, start: Point, target: Point, effective: &EffectiveProfile) -> Result<(), PointerError> {
@@ -1053,6 +1063,33 @@ mod tests {
 
         engine.move_to(Point::new(10.0, 0.0), None).unwrap();
         assert!(device.moves.load(Ordering::SeqCst) >= 1);
+    }
+
+    #[rstest]
+    fn a_target_outside_the_desktop_is_clamped_with_a_warning() {
+        let device = Arc::new(RecordingPointer::new());
+        let mut profile = PointerProfile::named_default();
+        profile.after_move_delay = Duration::ZERO;
+        profile.ensure_move_position = false;
+        profile.acceleration_profile = PointerAccelerationProfile::Constant;
+        let mut engine = PointerEngine::new(
+            device,
+            Rect::new(0.0, 0.0, 100.0, 100.0),
+            PointerSettings::default(),
+            profile,
+            &noop_sleep,
+        );
+
+        let (reached, log) = crate::test_support::logged(|| engine.move_to(Point::new(150.0, -20.0), None));
+        assert_eq!(reached.unwrap(), Point::new(100.0, 0.0));
+        let warnings = crate::test_support::records(&log, "WARN");
+        assert_eq!(warnings.len(), 1, "{log}");
+        for expected in ["requested_x=150", "requested_y=-20", "x=100", "y=0", "outside the desktop"] {
+            assert!(warnings[0].contains(expected), "missing {expected}: {log}");
+        }
+
+        let (_, log) = crate::test_support::logged(|| engine.move_to(Point::new(50.0, 50.0), None));
+        assert!(crate::test_support::records(&log, "WARN").is_empty(), "a target inside is not reported: {log}");
     }
 
     /// A device that cannot report the physical pointer position — models the

@@ -30,6 +30,26 @@ use crate::provider::event::{ProviderEventDispatcher, ProviderEventSink};
 
 use desktop::DesktopNode;
 
+/// What an action that needs the platform says on a runtime without one.
+pub(crate) const NO_PLATFORM_BACKEND: &str =
+    "runtime has no platform backend (none could serve this session, or the runtime is shut down)";
+
+/// The error of an action that needs the platform, on a runtime without one.
+fn no_platform_backend() -> PlatformError {
+    PlatformError::UnsupportedPlatform { platform: NO_PLATFORM_BACKEND, details: None }
+}
+
+/// Construction options that change how a runtime reports what it built, not
+/// what it builds.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RuntimeOptions {
+    /// The caller has already reported why this runtime can have no platform
+    /// backend and no provider, such as a test build of the Python extension
+    /// used without its mock backend. The runtime then records a missing
+    /// platform backend and a missing provider at debug instead of warning.
+    pub missing_backends_reported: bool,
+}
+
 /// Central orchestrator that owns provider instances, its per-runtime platform
 /// bundle, and the provider event dispatcher.
 ///
@@ -85,7 +105,7 @@ impl Runtime {
     /// cannot be selected or built, or its desktop information cannot be read.
     pub fn new() -> Result<Self, ProviderError> {
         let registry = ProviderRegistry::discover();
-        Self::from_registry_with_config(registry, RuntimeConfig::default())
+        Self::from_registry(registry, RuntimeConfig::default(), RuntimeOptions::default())
     }
 
     /// Builds a Runtime that only includes providers with the given `ids`.
@@ -98,7 +118,7 @@ impl Runtime {
     /// cannot be selected or built, or its desktop information cannot be read.
     pub fn new_with_provider_ids(ids: &[&str]) -> Result<Self, ProviderError> {
         let registry = ProviderRegistry::discover().filter_by_ids(ids);
-        Self::from_registry_with_config(registry, RuntimeConfig::default())
+        Self::from_registry(registry, RuntimeConfig::default(), RuntimeOptions::default())
     }
 
     /// Builds a Runtime from an explicit list of provider factories.
@@ -111,7 +131,7 @@ impl Runtime {
     /// cannot be selected or built, or its desktop information cannot be read.
     pub fn new_with_factories(factories: &[&'static dyn UiTreeProviderFactory]) -> Result<Self, ProviderError> {
         let registry = ProviderRegistry::with_factories(factories);
-        Self::from_registry_with_config(registry, RuntimeConfig::default())
+        Self::from_registry(registry, RuntimeConfig::default(), RuntimeOptions::default())
     }
 
     /// Discovers all registered providers and binds the runtime to the session
@@ -123,8 +143,19 @@ impl Runtime {
     /// subscribe to events, and [`ProviderError::InitializationFailed`] if the platform backend
     /// cannot be selected or built, or its desktop information cannot be read.
     pub fn new_with_config(config: RuntimeConfig) -> Result<Self, ProviderError> {
+        Self::new_with_config_and_options(config, RuntimeOptions::default())
+    }
+
+    /// [`new_with_config`](Self::new_with_config) with construction `options`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`ProviderError`] of the first provider that fails to instantiate or to
+    /// subscribe to events, and [`ProviderError::InitializationFailed`] if the platform backend
+    /// cannot be selected or built, or its desktop information cannot be read.
+    pub fn new_with_config_and_options(config: RuntimeConfig, options: RuntimeOptions) -> Result<Self, ProviderError> {
         let registry = ProviderRegistry::discover();
-        Self::from_registry_with_config(registry, config)
+        Self::from_registry(registry, config, options)
     }
 
     /// Builds a Runtime from an explicit list of provider factories bound to the
@@ -140,23 +171,38 @@ impl Runtime {
         config: RuntimeConfig,
     ) -> Result<Self, ProviderError> {
         let registry = ProviderRegistry::with_factories(factories);
-        Self::from_registry_with_config(registry, config)
+        Self::from_registry(registry, config, RuntimeOptions::default())
     }
 
-    fn from_registry_with_config(registry: ProviderRegistry, config: RuntimeConfig) -> Result<Self, ProviderError> {
+    fn from_registry(
+        registry: ProviderRegistry,
+        config: RuntimeConfig,
+        options: RuntimeOptions,
+    ) -> Result<Self, ProviderError> {
+        // The runtime's own setting, checked before anything can fail.
+        let forced_backend = forced_backend(&config);
+
         let dispatcher = Arc::new(ProviderEventDispatcher::new());
         let provider_instances = registry.instantiate_all(&config)?;
-        tracing::debug!(count = provider_instances.len(), "instantiated providers");
         let mut providers: Vec<Arc<dyn UiTreeProvider>> = Vec::with_capacity(provider_instances.len());
         for provider in provider_instances {
             let listener = Arc::new(RuntimeEventListener::new(dispatcher.clone()));
             provider.subscribe_events(listener)?;
             providers.push(provider);
         }
+        if providers.is_empty() {
+            if options.missing_backends_reported {
+                tracing::debug!("no UI tree provider is active; queries find only the desktop node");
+            } else {
+                tracing::warn!("no UI tree provider is active; queries find only the desktop node");
+            }
+        }
 
         // Select and build the per-runtime platform bundle for this session.
-        let platform = select_platform(&config)?;
-        tracing::debug!(platform = platform.is_some(), "platform bundle selected");
+        let (backend, platform) = match select_platform(&config, forced_backend.as_deref(), options)? {
+            Some((backend, bundle)) => (Some(backend), Some(bundle)),
+            None => (None, None),
+        };
 
         // Thread this session's window manager into every provider so provider
         // nodes target this runtime's session, not a process-global one.
@@ -199,7 +245,6 @@ impl Runtime {
 
         let providers_for_desktop: Vec<Arc<dyn UiTreeProvider>> = providers.clone();
 
-        let provider_count = providers.len();
         let runtime = Self {
             registry,
             providers,
@@ -219,24 +264,41 @@ impl Runtime {
             is_shutdown: AtomicBool::new(false),
         };
 
-        // Surface config sections that no registered backend / active provider
-        // claimed — a portability aid (a dict may carry every OS's keys) and a
-        // typo hint. Tolerant by design: unclaimed ids are ignored, not errors.
-        let registered_platform_ids: Vec<&str> =
-            platform_factories().map(platynui_core::platform::PlatformFactory::id).collect();
-        for id in runtime.config.platform_component_ids() {
-            if !registered_platform_ids.contains(&id) {
-                tracing::debug!(id, "config platform.<id> matched no registered platform backend");
-            }
-        }
-        for id in runtime.config.provider_component_ids() {
-            if !runtime.providers.iter().any(|provider| provider.descriptor().id == id) {
-                tracing::debug!(id, "config providers.<id> matched no active provider");
-            }
-        }
-
-        tracing::info!(providers = provider_count, "Runtime initialized");
+        runtime.log_unclaimed_settings(backend);
+        let provider_ids: Vec<&str> = runtime.providers.iter().map(|provider| provider.descriptor().id).collect();
+        let desktop_info = runtime.desktop.info();
+        tracing::info!(
+            backend = backend.unwrap_or("none"),
+            forced = forced_backend.is_some(),
+            providers = ?provider_ids,
+            desktop = %desktop_info.bounds,
+            monitors = desktop_info.monitors.len(),
+            "runtime initialized"
+        );
         Ok(runtime)
+    }
+
+    /// Records the config sections that neither the chosen platform `backend`
+    /// nor an active provider claimed. They stay silent above debug, because
+    /// a dict may carry every OS's blocks; a component that is built checks
+    /// its own section for unknown keys and types.
+    fn log_unclaimed_settings(&self, backend: Option<&str>) {
+        for id in self.config.platform_component_ids() {
+            if backend != Some(id) {
+                tracing::debug!(
+                    component = %format_args!("platform.{id}"),
+                    "settings match no platform backend of this runtime; they are ignored"
+                );
+            }
+        }
+        for id in self.config.provider_component_ids() {
+            if !self.providers.iter().any(|provider| provider.descriptor().id == id) {
+                tracing::debug!(
+                    component = %format_args!("providers.{id}"),
+                    "settings match no active provider; they are ignored"
+                );
+            }
+        }
     }
 
     /// Returns a reference to the provider registry (discovered entries including metadata).
@@ -300,17 +362,40 @@ impl Drop for Runtime {
     }
 }
 
-/// Selects and builds the per-runtime [`PlatformBundle`] for this session.
+/// The backend `platform.backend` forces, if any. A value that is not a
+/// string is reported, and auto-detection applies.
+fn forced_backend(config: &RuntimeConfig) -> Option<String> {
+    match config.try_platform_backend() {
+        Ok(forced) => forced.map(str::to_owned),
+        Err(mismatch) => {
+            tracing::warn!(
+                component = "platform",
+                key = %mismatch.key,
+                expected = mismatch.expected,
+                found = mismatch.found,
+                "setting has the wrong type; the default applies"
+            );
+            None
+        }
+    }
+}
+
+/// Selects and builds the per-runtime [`PlatformBundle`] for this session, and
+/// returns it with the id of the backend that built it.
 ///
-/// When `config` forces a backend (`platform.backend`), that backend must be
+/// When `forced` names a backend (`platform.backend`), that backend must be
 /// registered and able to serve the environment, or construction fails. Without
 /// a forced backend, the first factory whose `can_serve` accepts the environment
 /// wins; if none does, the runtime has no platform (`Ok(None)`) — e.g. a headless
-/// provider-only test.
-fn select_platform(config: &RuntimeConfig) -> Result<Option<PlatformBundle>, ProviderError> {
+/// provider-only test — and says what that costs.
+fn select_platform(
+    config: &RuntimeConfig,
+    forced: Option<&str>,
+    options: RuntimeOptions,
+) -> Result<Option<(&'static str, PlatformBundle)>, ProviderError> {
     let factories: Vec<_> = platform_factories().collect();
 
-    if let Some(id) = config.platform_backend() {
+    if let Some(id) = forced {
         let Some(factory) = factories.iter().find(|factory| factory.id() == id) else {
             return Err(ProviderError::InitializationFailed {
                 provider: "runtime",
@@ -327,7 +412,7 @@ fn select_platform(config: &RuntimeConfig) -> Result<Option<PlatformBundle>, Pro
             provider: "runtime",
             details: Some(err.to_string()),
         })?;
-        Ok(Some(bundle))
+        Ok(Some((factory.id(), bundle)))
     } else {
         for factory in &factories {
             if factory.can_serve(config) {
@@ -335,8 +420,21 @@ fn select_platform(config: &RuntimeConfig) -> Result<Option<PlatformBundle>, Pro
                     provider: "runtime",
                     details: Some(err.to_string()),
                 })?;
-                return Ok(Some(bundle));
+                return Ok(Some((factory.id(), bundle)));
             }
+            tracing::debug!(backend = factory.id(), "platform backend cannot serve this session");
+        }
+        let backends: Vec<&str> = factories.iter().map(|factory| factory.id()).collect();
+        if options.missing_backends_reported {
+            tracing::debug!(
+                backends = ?backends,
+                "no platform backend can serve this session; pointer, keyboard, screenshot, highlight and window control are unavailable"
+            );
+        } else {
+            tracing::warn!(
+                backends = ?backends,
+                "no platform backend can serve this session; pointer, keyboard, screenshot, highlight and window control are unavailable"
+            );
         }
         Ok(None)
     }
@@ -346,8 +444,9 @@ fn map_desktop_error(err: &PlatformError) -> ProviderError {
     ProviderError::InitializationFailed { provider: "desktop", details: Some(err.to_string()) }
 }
 
+/// The desktop of a runtime without platform backend, which
+/// [`select_platform`] has already reported.
 fn fallback_desktop_info() -> DesktopInfo {
-    tracing::warn!("using fallback desktop info — no DesktopInfoProvider available");
     let os_name = std::env::consts::OS;
     let os_version = fallback_os_version();
     DesktopInfo {
@@ -382,6 +481,9 @@ pub(super) fn default_sleep(duration: Duration) {
 mod tests {
     use super::test_fixtures::*;
     use super::*;
+    use crate::test_support::{logged, records, runtime_with_factories_and_mock_platform as rt_with_pf};
+    use platynui_core::config::ConfigMap;
+    use platynui_core::platform::{HighlightRequest, ScreenshotRequest};
     use platynui_core::provider::{
         ProviderDescriptor, ProviderEvent, ProviderEventKind, ProviderEventListener, ProviderKind,
         UiTreeProviderFactory,
@@ -543,5 +645,221 @@ mod tests {
         assert_eq!(app.namespace(), Namespace::Control);
         let parent = app.parent().and_then(|weak| weak.upgrade()).expect("desktop parent");
         assert_eq!(parent.runtime_id().as_str(), runtime.desktop_info().runtime_id.as_str());
+    }
+
+    // --- Configuration checks, decisions and the initialization record ---
+
+    fn config(platform: ConfigMap) -> RuntimeConfig {
+        RuntimeConfig::new(platform, ConfigMap::new())
+    }
+
+    fn build(
+        factories: &[&'static dyn UiTreeProviderFactory],
+        config: RuntimeConfig,
+        options: RuntimeOptions,
+    ) -> (Runtime, String) {
+        let (runtime, log) =
+            logged(|| Runtime::from_registry(ProviderRegistry::with_factories(factories), config, options));
+        (runtime.expect("runtime"), log)
+    }
+
+    #[test]
+    fn an_unknown_setting_of_the_mock_platform_warns_once() {
+        let platform = ConfigMap::new().with("backend", "mock").with("mock", ConfigMap::new().with("bogus", 1_i64));
+        let (_runtime, log) = build(&[&RUNTIME_FACTORY], config(platform), RuntimeOptions::default());
+
+        let warnings = records(&log, "WARN");
+        assert_eq!(warnings.len(), 1, "{log}");
+        assert!(warnings[0].contains("platform.mock") && warnings[0].contains("bogus"), "{log}");
+    }
+
+    #[test]
+    fn a_block_of_a_platform_that_is_not_built_is_recorded_at_debug_only() {
+        let platform = ConfigMap::new().with("backend", "mock").with("windows", ConfigMap::new().with("bogus", 1_i64));
+        let (_runtime, log) = build(&[&RUNTIME_FACTORY], config(platform), RuntimeOptions::default());
+
+        assert!(records(&log, "WARN").is_empty(), "{log}");
+        assert!(records(&log, "DEBUG").iter().any(|line| line.contains("platform.windows")), "{log}");
+    }
+
+    #[test]
+    fn a_mistyped_backend_selector_warns_and_auto_detection_applies() {
+        let platform = ConfigMap::new().with("backend", 1_i64);
+        let (runtime, log) = build(&[&RUNTIME_FACTORY], config(platform), RuntimeOptions::default());
+
+        let mismatches: Vec<_> = records(&log, "WARN").into_iter().filter(|line| line.contains("wrong type")).collect();
+        assert_eq!(mismatches.len(), 1, "{log}");
+        for expected in ["component=\"platform\"", "key=backend", "expected=\"string\"", "found=\"integer\""] {
+            assert!(mismatches[0].contains(expected), "missing {expected}: {log}");
+        }
+        assert!(runtime.platform.is_none(), "no backend serves this test binary without a selector");
+    }
+
+    #[test]
+    fn initialization_is_one_info_record_naming_backend_providers_and_desktop() {
+        let (runtime, log) = build(&[&RUNTIME_FACTORY], config(mock_platform()), RuntimeOptions::default());
+
+        let infos = records(&log, "INFO");
+        assert_eq!(infos.len(), 1, "{log}");
+        let monitors = format!("monitors={}", runtime.desktop_info().monitors.len());
+        let desktop = format!("desktop={}", runtime.desktop_info().bounds);
+        for expected in [
+            "runtime initialized",
+            "backend=\"mock\"",
+            "forced=true",
+            "providers=[\"runtime-stub\"]",
+            desktop.as_str(),
+            monitors.as_str(),
+        ] {
+            assert!(infos[0].contains(expected), "missing {expected}: {log}");
+        }
+    }
+
+    #[test]
+    fn a_runtime_without_provider_warns_that_queries_find_only_the_desktop() {
+        let (_runtime, log) = build(&[], config(mock_platform()), RuntimeOptions::default());
+
+        let warnings = records(&log, "WARN");
+        assert_eq!(warnings.len(), 1, "{log}");
+        assert!(warnings[0].contains("no UI tree provider is active"), "{log}");
+        assert!(warnings[0].contains("only the desktop node"), "{log}");
+    }
+
+    #[test]
+    fn a_session_no_backend_serves_warns_naming_the_candidates_and_what_is_lost() {
+        let (runtime, log) = build(&[&RUNTIME_FACTORY], RuntimeConfig::default(), RuntimeOptions::default());
+
+        assert!(runtime.platform.is_none());
+        let warnings = records(&log, "WARN");
+        assert_eq!(warnings.len(), 1, "{log}");
+        assert!(warnings[0].contains("no platform backend can serve this session"), "{log}");
+        assert!(warnings[0].contains("pointer, keyboard, screenshot, highlight and window control"), "{log}");
+        assert!(warnings[0].contains("\"mock\""), "the candidates are named: {log}");
+        let infos = records(&log, "INFO");
+        assert!(infos.len() == 1 && infos[0].contains("backend=\"none\""), "{log}");
+    }
+
+    #[test]
+    fn a_reported_test_build_records_the_missing_backends_at_debug() {
+        let options = RuntimeOptions { missing_backends_reported: true };
+        let (_runtime, log) = build(&[], RuntimeConfig::default(), options);
+
+        assert!(records(&log, "WARN").is_empty(), "{log}");
+        let debug = records(&log, "DEBUG");
+        assert!(debug.iter().any(|line| line.contains("no UI tree provider is active")), "{log}");
+        assert!(debug.iter().any(|line| line.contains("no platform backend can serve this session")), "{log}");
+    }
+
+    fn mock_platform() -> ConfigMap {
+        ConfigMap::new().with("backend", "mock")
+    }
+
+    // --- A provider that fails to list its elements ---
+
+    static FLAKY_FAILS: AtomicBool = AtomicBool::new(true);
+
+    struct FlakyProvider;
+    impl UiTreeProvider for FlakyProvider {
+        fn descriptor(&self) -> &ProviderDescriptor {
+            FlakyFactory::descriptor_static()
+        }
+        fn get_nodes(
+            &self,
+            _parent: Arc<dyn UiNode>,
+        ) -> Result<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>, ProviderError> {
+            if FLAKY_FAILS.load(Ordering::SeqCst) {
+                Err(ProviderError::CommunicationFailure { channel: "stub bus", details: Some("bus went away".into()) })
+            } else {
+                Ok(Box::new(std::iter::empty()))
+            }
+        }
+        fn subscribe_events(&self, _listener: Arc<dyn ProviderEventListener>) -> Result<(), ProviderError> {
+            Ok(())
+        }
+    }
+    struct FlakyFactory;
+    impl FlakyFactory {
+        fn descriptor_static() -> &'static ProviderDescriptor {
+            static DESCRIPTOR: LazyLock<ProviderDescriptor> = LazyLock::new(|| {
+                ProviderDescriptor::new(
+                    "runtime-flaky",
+                    "Runtime Flaky",
+                    TechnologyId::from("Runtime"),
+                    ProviderKind::Native,
+                )
+            });
+            &DESCRIPTOR
+        }
+    }
+    impl UiTreeProviderFactory for FlakyFactory {
+        fn descriptor(&self) -> &ProviderDescriptor {
+            Self::descriptor_static()
+        }
+        fn create(&self, _config: &RuntimeConfig) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
+            Ok(Arc::new(FlakyProvider))
+        }
+    }
+    static FLAKY_FACTORY: FlakyFactory = FlakyFactory;
+
+    #[test]
+    fn a_provider_that_keeps_failing_is_reported_once_per_episode() {
+        FLAKY_FAILS.store(true, Ordering::SeqCst);
+        let runtime = rt_with_pf(&[&FLAKY_FACTORY]);
+        let desktop = runtime.desktop_node();
+        let enumerate = || desktop.children().count();
+
+        let ((), log) = logged(|| {
+            for _ in 0..10 {
+                enumerate();
+            }
+            FLAKY_FAILS.store(false, Ordering::SeqCst);
+            enumerate();
+            enumerate();
+            FLAKY_FAILS.store(true, Ordering::SeqCst);
+            enumerate();
+        });
+
+        let errors = records(&log, "ERROR");
+        assert_eq!(errors.len(), 2, "one error per episode: {log}");
+        for error in &errors {
+            assert!(error.contains("provider=\"runtime-flaky\""), "{log}");
+            assert!(error.contains("its elements are missing from query results"), "{log}");
+            assert!(error.contains("bus went away"), "{log}");
+        }
+        let debug = records(&log, "DEBUG");
+        let continuing = debug.iter().filter(|line| line.contains("still fails")).count();
+        assert_eq!(continuing, 9, "{log}");
+        let recovered: Vec<_> = debug.iter().filter(|line| line.contains("again")).collect();
+        assert_eq!(recovered.len(), 1, "the recovery is recorded once: {log}");
+        assert!(recovered[0].contains("runtime-flaky"), "{log}");
+    }
+
+    // --- A runtime without a platform backend ---
+
+    #[test]
+    fn a_runtime_without_platform_names_the_missing_backend_not_internal_types() {
+        let (mut runtime, _) = build(&[&RUNTIME_FACTORY], RuntimeConfig::default(), RuntimeOptions::default());
+        let expected = "runtime has no platform backend (none could serve this session, or the runtime is shut down)";
+
+        let check = |runtime: &Runtime| {
+            let request = HighlightRequest::new(Rect::new(0.0, 0.0, 10.0, 10.0));
+            let messages = [
+                runtime.highlight(&request).unwrap_err().to_string(),
+                runtime.clear_highlight().unwrap_err().to_string(),
+                runtime.screenshot(&ScreenshotRequest::entire_display()).unwrap_err().to_string(),
+                runtime.pointer_position().unwrap_err().to_string(),
+                runtime.pointer_click(None, None, None).unwrap_err().to_string(),
+            ];
+            for message in messages {
+                assert!(message.contains(expected), "{message}");
+                assert!(!message.contains("Provider") && !message.contains("Device"), "{message}");
+            }
+        };
+        check(&runtime);
+
+        let mut mock = rt_with_pf(&[&RUNTIME_FACTORY]);
+        mock.shutdown();
+        check(&mock);
+        runtime.shutdown();
     }
 }

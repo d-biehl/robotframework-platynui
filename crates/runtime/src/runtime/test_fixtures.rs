@@ -2,7 +2,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, Weak};
 use std::time::Duration;
 
-use platynui_core::platform::KeyboardOverrides;
+use platynui_core::config::{ConfigMap, RuntimeConfig};
+use platynui_core::platform::{
+    KeyCode, KeyboardDevice, KeyboardError, KeyboardEvent, KeyboardOverrides, PlatformBundle, PlatformError,
+    PlatformFactory,
+};
 use platynui_core::provider::UiTreeProvider;
 use platynui_core::provider::{
     ProviderDescriptor, ProviderError, ProviderEvent, ProviderEventKind, ProviderEventListener, ProviderKind,
@@ -14,7 +18,7 @@ use platynui_core::ui::{
     ActivatableAction, FocusableAction, Namespace, PatternError, PatternName, RuntimeId, UiAttribute, UiNode,
     UiPattern, UiValue, pattern_names,
 };
-use platynui_platform_mock as _;
+use platynui_platform_mock::create_mock_bundle;
 use platynui_provider_mock as _;
 use rstest::fixture;
 
@@ -428,6 +432,91 @@ impl UiTreeProviderFactory for RejectingWindowFactory {
     }
 }
 pub static REJECTING_WINDOW_FACTORY: RejectingWindowFactory = RejectingWindowFactory;
+
+// --- A platform whose keyboard rejects some keys ---
+
+/// The one character the stub keyboard cannot type.
+pub const REJECTED_CHAR: char = 'é';
+/// A character the stub keyboard maps, but fails to send.
+pub const UNSENDABLE_CHAR: char = '#';
+/// A fragment of the stub keyboard's send failure, which only the normal
+/// rendering of an error may contain.
+pub const SEND_FAILURE_TEXT: &str = "Vb8 wire cut";
+
+/// A keyboard that rejects [`REJECTED_CHAR`] and every multi-character name
+/// except `Ctrl`, and fails to send [`UNSENDABLE_CHAR`]. With `busy`, it
+/// cannot start an input.
+pub struct StubKeyboard {
+    busy: bool,
+}
+
+impl KeyboardDevice for StubKeyboard {
+    fn key_to_code(&self, name: &str) -> Result<KeyCode, KeyboardError> {
+        let mut chars = name.chars();
+        let single = chars.next().is_some() && chars.next().is_none();
+        let rejected = if single { name.starts_with(REJECTED_CHAR) } else { name != "Ctrl" };
+        if rejected {
+            return Err(KeyboardError::UnsupportedKey(name.to_owned()));
+        }
+        Ok(KeyCode::new(name.to_owned()))
+    }
+
+    fn start_input(&self) -> Result<(), KeyboardError> {
+        if self.busy {
+            Err(KeyboardError::Platform(PlatformError::OperationFailed {
+                operation: "stub start",
+                details: Some(SEND_FAILURE_TEXT.into()),
+            }))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn send_key_event(&self, event: KeyboardEvent) -> Result<(), KeyboardError> {
+        if event.code.downcast_ref::<String>().is_some_and(|name| name.starts_with(UNSENDABLE_CHAR)) {
+            return Err(KeyboardError::Platform(PlatformError::OperationFailed {
+                operation: "stub send",
+                details: Some(SEND_FAILURE_TEXT.into()),
+            }));
+        }
+        Ok(())
+    }
+}
+
+/// Platform backend `stub-keyboard` (and `stub-keyboard-busy`): the mock
+/// devices with a [`StubKeyboard`], served only when a config selects it.
+pub struct StubKeyboardPlatform {
+    id: &'static str,
+    busy: bool,
+}
+
+impl PlatformFactory for StubKeyboardPlatform {
+    fn id(&self) -> &'static str {
+        self.id
+    }
+
+    fn can_serve(&self, config: &RuntimeConfig) -> bool {
+        config.platform_backend() == Some(self.id)
+    }
+
+    fn create(&self, _config: &RuntimeConfig) -> Result<PlatformBundle, PlatformError> {
+        Ok(PlatformBundle { keyboard: Arc::new(StubKeyboard { busy: self.busy }), ..create_mock_bundle() })
+    }
+}
+
+static STUB_KEYBOARD_PLATFORM: StubKeyboardPlatform = StubKeyboardPlatform { id: "stub-keyboard", busy: false };
+static BUSY_KEYBOARD_PLATFORM: StubKeyboardPlatform = StubKeyboardPlatform { id: "stub-keyboard-busy", busy: true };
+platynui_core::register_platform_factory!(&STUB_KEYBOARD_PLATFORM);
+platynui_core::register_platform_factory!(&BUSY_KEYBOARD_PLATFORM);
+
+/// A runtime whose keyboard is a [`StubKeyboard`] without delays.
+pub fn runtime_with_stub_keyboard(busy: bool) -> Runtime {
+    let id = if busy { BUSY_KEYBOARD_PLATFORM.id } else { STUB_KEYBOARD_PLATFORM.id };
+    let config = RuntimeConfig::new(ConfigMap::new().with("backend", id), ConfigMap::new());
+    let runtime = Runtime::new_with_factories_and_config(&[&RUNTIME_FACTORY], config).expect("runtime");
+    configure_keyboard_for_tests(&runtime);
+    runtime
+}
 
 // --- Keyboard test helpers ---
 

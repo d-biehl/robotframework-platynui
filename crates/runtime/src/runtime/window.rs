@@ -124,10 +124,7 @@ impl Runtime {
     pub fn highlight(&self, request: &HighlightRequest) -> Result<(), PlatformError> {
         match self.platform.as_ref() {
             Some(bundle) => bundle.highlight.highlight(request),
-            None => Err(PlatformError::UnsupportedPlatform {
-                platform: "highlight provider registry",
-                details: Some("no HighlightProvider registered".into()),
-            }),
+            None => Err(super::no_platform_backend()),
         }
     }
 
@@ -140,10 +137,7 @@ impl Runtime {
     pub fn clear_highlight(&self) -> Result<(), PlatformError> {
         match self.platform.as_ref() {
             Some(bundle) => bundle.highlight.clear(),
-            None => Err(PlatformError::UnsupportedPlatform {
-                platform: "highlight provider registry",
-                details: Some("no HighlightProvider registered".into()),
-            }),
+            None => Err(super::no_platform_backend()),
         }
     }
 
@@ -156,10 +150,7 @@ impl Runtime {
     pub fn screenshot(&self, request: &ScreenshotRequest) -> Result<Screenshot, PlatformError> {
         match self.platform.as_ref() {
             Some(bundle) => bundle.screenshot.capture(request),
-            None => Err(PlatformError::UnsupportedPlatform {
-                platform: "screenshot provider registry",
-                details: Some("no ScreenshotProvider registered".into()),
-            }),
+            None => Err(super::no_platform_backend()),
         }
     }
 }

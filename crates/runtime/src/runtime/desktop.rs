@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock, Weak};
 
+use platynui_core::diagnostics::{Episode, Transitions};
 use platynui_core::platform::{DesktopInfo, MonitorInfo};
 use platynui_core::provider::UiTreeProvider;
 use platynui_core::ui::attribute_names;
@@ -14,6 +15,9 @@ pub(super) struct DesktopNode {
     attributes: Vec<Arc<dyn UiAttribute>>,
     supported: Vec<PatternName>,
     providers: Vec<Arc<dyn UiTreeProvider>>,
+    /// Providers whose listing of top-level elements is failing, keyed by
+    /// provider id; an episode ends when the provider lists them again.
+    failures: Arc<Transitions<String>>,
     self_weak: OnceLock<Weak<dyn UiNode>>,
 }
 
@@ -60,7 +64,14 @@ impl DesktopNode {
             UiValue::Array(info.monitors.iter().map(monitor_to_value).collect()),
         ));
 
-        Arc::new(Self { info, attributes, supported, providers, self_weak: OnceLock::new() })
+        Arc::new(Self {
+            info,
+            attributes,
+            supported,
+            providers,
+            failures: Arc::new(Transitions::new()),
+            self_weak: OnceLock::new(),
+        })
     }
 
     pub(super) fn info(&self) -> &DesktopInfo {
@@ -107,6 +118,7 @@ impl UiNode for DesktopNode {
     fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
         struct DesktopChildrenIter {
             providers: Vec<Arc<dyn UiTreeProvider>>,
+            failures: Arc<Transitions<String>>,
             idx: usize,
             parent: Arc<dyn UiNode>,
             current: Option<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>>,
@@ -126,20 +138,35 @@ impl UiNode for DesktopNode {
                     }
                     let prov = &self.providers[self.idx];
                     self.idx += 1;
+                    let provider = prov.descriptor().id;
                     match prov.get_nodes(Arc::clone(&self.parent)) {
                         Ok(iter) => {
+                            if self.failures.recovered(provider) {
+                                tracing::debug!(provider, "provider lists its top-level elements again");
+                            }
                             self.current = Some(iter);
                         }
-                        Err(err) => {
-                            tracing::error!(%err, "DesktopNode: provider get_nodes failed, skipping");
-                        }
+                        // Swallowed here, so reported here: once per episode.
+                        Err(err) => match self.failures.failed(provider) {
+                            Episode::Started => tracing::error!(
+                                provider,
+                                error = %err,
+                                "provider failed to list its top-level elements; its elements are missing from query results"
+                            ),
+                            Episode::Continuing => tracing::debug!(
+                                provider,
+                                error = %err,
+                                "provider still fails to list its top-level elements"
+                            ),
+                        },
                     }
                 }
             }
         }
         let parent = self.self_weak.get().and_then(std::sync::Weak::upgrade).expect("desktop self weak set");
         let providers = self.providers.clone();
-        Box::new(DesktopChildrenIter { providers, idx: 0, parent, current: None })
+        let failures = Arc::clone(&self.failures);
+        Box::new(DesktopChildrenIter { providers, failures, idx: 0, parent, current: None })
     }
 
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {

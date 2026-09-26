@@ -308,63 +308,60 @@ impl Runtime {
     ///
     /// # Errors
     ///
-    /// Returns [`KeyboardActionError::Sequence`] if `sequence` does not parse, and
-    /// [`KeyboardActionError::Keyboard`] if the runtime has no keyboard device, a key cannot be
-    /// mapped, or the device reports an error while sending the input.
+    /// See [`keyboard_type`](Self::keyboard_type).
     pub fn keyboard_press(
         &self,
         sequence: &str,
         overrides: Option<KeyboardOverrides>,
     ) -> Result<(), KeyboardActionError> {
-        let device = self.keyboard_device()?;
-        let parsed = KeyboardSequence::parse(sequence)?;
-        let resolved = parsed.resolve(device.as_ref())?;
-        let overrides = overrides.unwrap_or_default();
-        let profile = resolve_keyboard_profile(&self.keyboard_profile(), &overrides);
-        KeyboardEngine::new(device.as_ref(), profile, &default_sleep)?.execute(&resolved, KeyboardMode::Press)?;
-        Ok(())
+        self.run_keyboard(sequence, overrides, KeyboardMode::Press)
     }
 
     /// Releases the keys of `sequence`.
     ///
     /// # Errors
     ///
-    /// Returns [`KeyboardActionError::Sequence`] if `sequence` does not parse, and
-    /// [`KeyboardActionError::Keyboard`] if the runtime has no keyboard device, a key cannot be
-    /// mapped, or the device reports an error while sending the input.
+    /// See [`keyboard_type`](Self::keyboard_type).
     pub fn keyboard_release(
         &self,
         sequence: &str,
         overrides: Option<KeyboardOverrides>,
     ) -> Result<(), KeyboardActionError> {
-        let device = self.keyboard_device()?;
-        let parsed = KeyboardSequence::parse(sequence)?;
-        let resolved = parsed.resolve(device.as_ref())?;
-        let overrides = overrides.unwrap_or_default();
-        let profile = resolve_keyboard_profile(&self.keyboard_profile(), &overrides);
-        KeyboardEngine::new(device.as_ref(), profile, &default_sleep)?.execute(&resolved, KeyboardMode::Release)?;
-        Ok(())
+        self.run_keyboard(sequence, overrides, KeyboardMode::Release)
     }
 
     /// Types `sequence`: presses and releases each key in turn.
     ///
     /// # Errors
     ///
-    /// Returns [`KeyboardActionError::Sequence`] if `sequence` does not parse, and
-    /// [`KeyboardActionError::Keyboard`] if the runtime has no keyboard device, a key cannot be
-    /// mapped, or the device reports an error while sending the input.
+    /// - [`KeyboardActionError::Keyboard`] if the runtime has no keyboard device.
+    /// - [`KeyboardActionError::Sequence`] if `sequence` does not parse.
+    /// - [`KeyboardActionError::Key`] if the device cannot map a character or key name.
+    /// - [`KeyboardActionError::Start`] if the device cannot start the input.
+    /// - [`KeyboardActionError::Send`] if the device reports an error while sending the input.
     pub fn keyboard_type(
         &self,
         sequence: &str,
         overrides: Option<KeyboardOverrides>,
+    ) -> Result<(), KeyboardActionError> {
+        self.run_keyboard(sequence, overrides, KeyboardMode::Type)
+    }
+
+    fn run_keyboard(
+        &self,
+        sequence: &str,
+        overrides: Option<KeyboardOverrides>,
+        mode: KeyboardMode,
     ) -> Result<(), KeyboardActionError> {
         let device = self.keyboard_device()?;
         let parsed = KeyboardSequence::parse(sequence)?;
         let resolved = parsed.resolve(device.as_ref())?;
         let overrides = overrides.unwrap_or_default();
         let profile = resolve_keyboard_profile(&self.keyboard_profile(), &overrides);
-        KeyboardEngine::new(device.as_ref(), profile, &default_sleep)?.execute(&resolved, KeyboardMode::Type)?;
-        Ok(())
+        KeyboardEngine::new(device.as_ref(), profile, &default_sleep)
+            .map_err(KeyboardActionError::Start)?
+            .execute(&resolved, mode)
+            .map_err(KeyboardActionError::Send)
     }
 
     /// Returns the list of known key names exposed by the active keyboard device.
@@ -561,5 +558,161 @@ mod tests {
         assert_eq!(scrolls.len(), 3);
         let total: f64 = scrolls.iter().map(|delta| delta.vertical).sum();
         assert!((total + 25.0).abs() < f64::EPSILON);
+    }
+}
+
+/// Typed text: errors say why and where, without repeating the text, and
+/// their sensitive rendering names no part of it.
+#[cfg(test)]
+mod typed_text_tests {
+    use rstest::rstest;
+
+    use super::Runtime;
+    use crate::runtime::test_fixtures::*;
+    use crate::{KeyboardActionError, SyntaxHint};
+
+    fn typing_error(sequence: &str) -> KeyboardActionError {
+        runtime_with_stub_keyboard(false).keyboard_type(sequence, None).expect_err("typing fails")
+    }
+
+    #[track_caller]
+    fn assert_hidden(rendering: &str, fragments: &[&str]) {
+        for fragment in fragments {
+            assert!(!rendering.contains(fragment), "{rendering:?} contains {fragment:?}");
+        }
+    }
+
+    #[track_caller]
+    fn assert_shows(rendering: &str, parts: &[&str]) {
+        for part in parts {
+            assert!(rendering.contains(part), "{rendering:?} lacks {part:?}");
+        }
+    }
+
+    #[test]
+    fn a_character_that_cannot_be_typed_is_named_with_its_position_and_the_reason() {
+        let err = typing_error(&format!("Qz7{REJECTED_CHAR}"));
+
+        let message = err.to_string();
+        assert_shows(&message, &["position 4", "'é'", "cannot be typed", "unsupported key: é"]);
+        assert_hidden(&message, &["Qz7"]);
+        let sensitive = err.sensitive().to_string();
+        assert_shows(&sensitive, &["position 4", "cannot be typed"]);
+        assert_hidden(&sensitive, &["Qz7", "é", "unsupported"]);
+        assert_eq!(err.syntax_hint(), None);
+    }
+
+    #[test]
+    fn an_escaped_character_is_reported_at_its_backslash() {
+        let err = typing_error("Qz7\\u00E9");
+
+        assert_shows(&err.to_string(), &["position 4", "'é'"]);
+        assert_hidden(&err.to_string(), &["Qz7"]);
+        assert_hidden(&err.sensitive().to_string(), &["Qz7", "é", "00E9"]);
+    }
+
+    #[test]
+    fn a_key_name_that_is_not_known_hints_at_the_escape() {
+        let runtime = runtime_with_stub_keyboard(false);
+        for err in [
+            runtime.keyboard_type("Qz7<Kq9>w", None).expect_err("typing fails"),
+            runtime.keyboard_press("Qz7<Kq9>w", None).expect_err("pressing fails"),
+        ] {
+            let message = err.to_string();
+            assert_shows(&message, &["'Kq9'", "position 5", "cannot be typed", "unsupported key: Kq9", "\\<"]);
+            assert_hidden(&message, &["Qz7"]);
+            let sensitive = err.sensitive().to_string();
+            assert_shows(&sensitive, &["position 5", "cannot be typed", "\\<"]);
+            assert_hidden(&sensitive, &["Qz7", "Kq9", "unsupported"]);
+            assert_eq!(err.syntax_hint(), Some(SyntaxHint::LiteralLessThan));
+        }
+    }
+
+    #[rstest]
+    #[case::unclosed(
+        "Qz7<Kq9",
+        4,
+        "the < at position 4 opens a key block that is not closed with >",
+        SyntaxHint::LiteralLessThan
+    )]
+    #[case::unclosed_at_start("<Ctrl A", 1, "opens a key block that is not closed with >", SyntaxHint::LiteralLessThan)]
+    #[case::unclosed_at_end(
+        "Qz7<Kq9 ",
+        9,
+        "a key name is expected at position 9, and the key block is not closed with >",
+        SyntaxHint::LiteralLessThan
+    )]
+    #[case::trailing_backslash("Qz7\\", 4, "the \\ at position 4 escapes nothing", SyntaxHint::LiteralBackslash)]
+    #[case::backslash_before_line_break("ab\\\ncd", 3, "escapes nothing", SyntaxHint::LiteralBackslash)]
+    #[case::empty_key_block("Qz7<>", 5, "a key name is expected at position 5", SyntaxHint::LiteralLessThan)]
+    #[case::lt_in_key_block("a<<b>", 3, "a key name is expected at position 3", SyntaxHint::LiteralLessThan)]
+    #[case::non_ascii("äöü<Kq9", 4, "opens a key block that is not closed with >", SyntaxHint::LiteralLessThan)]
+    #[case::second_line("ab\ncd<Kq9", 6, "opens a key block that is not closed with >", SyntaxHint::LiteralLessThan)]
+    fn a_sequence_that_does_not_parse_gives_the_position_and_why(
+        #[case] input: &str,
+        #[case] position: usize,
+        #[case] explanation: &str,
+        #[case] hint: SyntaxHint,
+    ) {
+        let err = typing_error(input);
+        let position = format!("position {position}");
+        let fragments = [input, "Qz7", "Kq9", "Ctrl", "äöü", "\n", "EOI", "segment", "sequence"];
+
+        let message = err.to_string();
+        assert_shows(&message, &[&position, explanation]);
+        assert_hidden(&message, &fragments);
+        assert_hidden(&format!("{err:?}"), &fragments[..6]);
+        let sensitive = err.sensitive().to_string();
+        assert_shows(&sensitive, &[&position, explanation]);
+        assert_hidden(&sensitive, &fragments);
+        assert_eq!(err.syntax_hint(), Some(hint));
+        let written = if hint == SyntaxHint::LiteralLessThan { "\\<" } else { "\\\\" };
+        assert_shows(&message, &[written]);
+    }
+
+    #[rstest]
+    #[case::hex("Kw\\xQz", "position 3", "\\xQz", &["Kw", "Qz"])]
+    #[case::unicode("C:\\users", "position 3", "\\users", &["C:", "sers"])]
+    fn an_invalid_escape_is_named_with_its_position(
+        #[case] input: &str,
+        #[case] position: &str,
+        #[case] escape: &str,
+        #[case] hidden_when_sensitive: &[&str],
+    ) {
+        let err = typing_error(input);
+
+        let message = err.to_string();
+        assert_shows(&message, &[position, escape]);
+        assert_hidden(&message, &hidden_when_sensitive[..1]);
+        let sensitive = err.sensitive().to_string();
+        assert_shows(&sensitive, &[position, "invalid"]);
+        assert_hidden(&sensitive, hidden_when_sensitive);
+        assert_eq!(err.syntax_hint(), None);
+    }
+
+    #[test]
+    fn a_send_failure_keeps_the_reason_and_its_sensitive_rendering_only_says_sending_failed() {
+        let err = typing_error(&format!("Qz7{UNSENDABLE_CHAR}"));
+
+        assert_shows(&err.to_string(), &[SEND_FAILURE_TEXT]);
+        assert_hidden(&err.to_string(), &["Qz7", "position"]);
+        assert_eq!(err.sensitive().to_string(), "sending the keyboard input failed");
+    }
+
+    #[test]
+    fn a_device_that_cannot_start_the_input_says_so() {
+        let err = runtime_with_stub_keyboard(true).keyboard_type("Qz7", None).expect_err("starting fails");
+
+        assert_shows(&err.to_string(), &["starting the keyboard input failed", SEND_FAILURE_TEXT]);
+        assert_eq!(err.sensitive().to_string(), "starting the keyboard input failed");
+    }
+
+    #[test]
+    fn a_runtime_without_platform_has_no_keyboard_device_ready() {
+        let runtime = Runtime::new_with_factories(&[&RUNTIME_FACTORY]).expect("runtime");
+        let err = runtime.keyboard_type("Qz7", None).expect_err("no keyboard");
+
+        assert_eq!(err.sensitive().to_string(), "no keyboard device is ready");
+        assert_hidden(&err.to_string(), &["Qz7"]);
     }
 }

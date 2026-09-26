@@ -38,6 +38,7 @@ rstest = "0.27"
 platynui-platform-mock = { path = "../platform-mock" }
 platynui-provider-mock = { path = "../provider-mock" }
 serial_test = "4.0"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
 
 [lints]
 workspace = true

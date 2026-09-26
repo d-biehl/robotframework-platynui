@@ -18,9 +18,9 @@ const _: () = {
 // link their desired providers (Windows/Linux/macOS) explicitly. This keeps
 // unit tests simple and predictable.
 
-pub use keyboard_sequence::{KeyboardSequence, KeyboardSequenceError};
+pub use keyboard_sequence::{KeyboardSequence, KeyboardSequenceError, SyntaxHint, SyntaxProblem};
 pub use pointer::{PointerError, PointerOverrides, PointerProfile, PointerSettings};
-pub use runtime::{FocusError, Runtime};
+pub use runtime::{FocusError, KeyboardActionError, Runtime, RuntimeOptions};
 pub use xpath::{
     EvaluateError, EvaluateOptions, EvaluatedAttribute, EvaluationItem, EvaluationStream, NodeResolver, XdmCache,
     evaluate, is_context_dependent,
