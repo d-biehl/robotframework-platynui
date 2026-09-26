@@ -25,6 +25,9 @@ tracing = { version = "0.1", default-features = false, features = ["std"] }
 # Forwards native diagnostics to Python `logging` (src/log_bridge.rs); the
 # extension is the one place outside the binaries that installs a subscriber.
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "env-filter", "std"] }
+# The level knob shared with the command-line tools: level names, sources and
+# their precedence. Without `fmt`: the extension installs its own layer.
+platynui-log-filter = { path = "../../crates/log-filter" }
 
 
 # Internal crates

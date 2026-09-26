@@ -228,6 +228,23 @@ impl PyNode {
         self.inner.is_valid()
     }
 
+    /// Describes the element in one line: its role, its name in double quotes
+    /// and, when it has an id, ``#`` and the id — for example ``Button "OK" #ok``.
+    ///
+    /// The name is cut to 60 characters and escaped, so the description never
+    /// spans more than one line. This asks the application for the name and
+    /// the id; ``repr()`` does not, and shows the runtime id instead.
+    fn describe(&self) -> String {
+        core_rs::ui::describe(self.inner.as_ref())
+    }
+
+    /// Shows the node's runtime id. Asks the application for nothing, because
+    /// Robot Framework converts every value it assigns to text.
+    fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+        let runtime_id = PyString::new(py, self.inner.runtime_id().as_str()).repr()?;
+        Ok(format!("UiNode(runtime_id={runtime_id})"))
+    }
+
     /// Returns ``True`` when the node advertises support for the given pattern.
     ///
     /// Accepts either a Reverse-DNS pattern name string (e.g.
@@ -737,6 +754,42 @@ impl Drop for RuntimeAccess<'_> {
     }
 }
 
+/// Delivers the queued native log records when dropped: at the end of a call
+/// that does not go through [`RuntimeAccess`], such as a constructor, whether
+/// the call returns or raises.
+struct DeliverOnReturn;
+
+impl Drop for DeliverOnReturn {
+    fn drop(&mut self) {
+        crate::log_bridge::deliver_attached();
+    }
+}
+
+/// In a test build (feature `mock-provider`), which links no real platform or
+/// provider, a runtime without the mock backend can do nothing: that is
+/// reported once per process, and it is the one report, so the runtime records
+/// the missing backend and providers at debug.
+#[cfg(feature = "mock-provider")]
+fn test_build_options(config: &core_rs::config::RuntimeConfig) -> runtime_rs::RuntimeOptions {
+    static REPORTED: std::sync::Once = std::sync::Once::new();
+    if config.platform_backend() == Some("mock") {
+        return runtime_rs::RuntimeOptions::default();
+    }
+    REPORTED.call_once(|| {
+        tracing::warn!(
+            "this build of platynui_native is a test build that links no real platform or providers; \
+             a runtime without the mock backend finds only the desktop node and has no input, screenshots \
+             or highlight (install the released package, or build it without the mock-provider feature)"
+        );
+    });
+    runtime_rs::RuntimeOptions { missing_backends_reported: true }
+}
+
+#[cfg(not(feature = "mock-provider"))]
+fn test_build_options(_config: &core_rs::config::RuntimeConfig) -> runtime_rs::RuntimeOptions {
+    runtime_rs::RuntimeOptions::default()
+}
+
 impl PyRuntime {
     fn runtime(&self) -> PyResult<RuntimeAccess<'_>> {
         let guard = self.inner.lock().map_err(|_| PyException::new_err("runtime mutex poisoned"))?;
@@ -759,14 +812,22 @@ impl PyRuntime {
     /// keyed by a backend/provider id (for example
     /// ``{'platform': {'backend': 'x11', 'x11': {'display': ':1'}},
     /// 'providers': {'atspi': {'bus_address': '...'}}}``). Absent or empty ⇒
-    /// today's environment-driven behaviour. Unknown buckets/ids/keys are
-    /// tolerated (ignored). The configuration is fixed at construction time.
+    /// today's environment-driven behaviour. The blocks of backends and
+    /// providers that do not run are ignored, so one dict can carry every
+    /// operating system's settings. The backend and providers that do run warn
+    /// about a key they do not know and a value of the wrong type, and apply
+    /// their default; a top-level key other than ``platform`` and
+    /// ``providers``, a bucket that is not a dict, and a value this binding
+    /// cannot pass on are warned about as well. The configuration is fixed at
+    /// construction time.
     fn new(config: Option<&Bound<'_, PyDict>>) -> PyResult<Self> {
+        let _deliver = DeliverOnReturn;
         let cfg = match config {
             Some(dict) => parse_runtime_config(dict),
             None => core_rs::config::RuntimeConfig::default(),
         };
-        runtime_rs::Runtime::new_with_config(cfg).map(Self::new_from).map_err(map_provider_err)
+        let options = test_build_options(&cfg);
+        runtime_rs::Runtime::new_with_config_and_options(cfg, options).map(Self::new_from).map_err(map_provider_err)
     }
 
     /// Returns this runtime's process-unique instance id.
@@ -787,6 +848,7 @@ impl PyRuntime {
     /// ``mock-provider`` feature. Useful for unit testing on any host.
     #[staticmethod]
     fn new_with_mock() -> PyResult<Self> {
+        let _deliver = DeliverOnReturn;
         #[cfg(feature = "mock-provider")]
         {
             // Link the mock platform crate so its `PlatformFactory` (id "mock")
@@ -880,10 +942,12 @@ impl PyRuntime {
     /// Calling this ensures deterministic cleanup; otherwise the runtime will
     /// dispose its resources later when Python garbage collection drops the
     /// last reference.
-    fn shutdown(&mut self) {
+    fn shutdown(&self, py: Python<'_>) {
         if let Ok(mut runtime) = self.inner.lock() {
             runtime.shutdown();
         }
+        // After releasing the lock, so a log handler may call back into this runtime.
+        crate::log_bridge::deliver(py);
     }
 
     fn clear_cache(&self) {
@@ -1158,29 +1222,57 @@ impl PyRuntime {
     // ---------------- Keyboard minimal API ----------------
 
     /// Types the provided sequence using the runtime keyboard DSL.
-    #[pyo3(signature = (sequence, overrides=None), text_signature = "(self, sequence, overrides=None)")]
-    fn keyboard_type(&self, sequence: &str, overrides: Option<KeyboardOverridesLike>) -> PyResult<()> {
+    ///
+    /// ``sensitive=True`` keeps the sequence out of the error: it then gives
+    /// only the position and the kind of failure, for a secret.
+    #[pyo3(
+        signature = (sequence, overrides=None, *, sensitive=false),
+        text_signature = "(self, sequence, overrides=None, *, sensitive=False)"
+    )]
+    fn keyboard_type(&self, sequence: &str, overrides: Option<KeyboardOverridesLike>, sensitive: bool) -> PyResult<()> {
         let ov = overrides.map(Into::into);
         let runtime = self.runtime()?;
-        runtime.keyboard_type(sequence, ov).map_err(map_keyboard_err)?;
+        runtime.keyboard_type(sequence, ov).map_err(|err| map_keyboard_err(&err, sensitive))?;
         Ok(())
     }
 
     /// Presses all keys from ``sequence`` without releasing them.
-    #[pyo3(signature = (sequence, overrides=None), text_signature = "(self, sequence, overrides=None)")]
-    fn keyboard_press(&self, sequence: &str, overrides: Option<KeyboardOverridesLike>) -> PyResult<()> {
+    ///
+    /// ``sensitive=True`` keeps the sequence out of the error: it then gives
+    /// only the position and the kind of failure, for a secret.
+    #[pyo3(
+        signature = (sequence, overrides=None, *, sensitive=false),
+        text_signature = "(self, sequence, overrides=None, *, sensitive=False)"
+    )]
+    fn keyboard_press(
+        &self,
+        sequence: &str,
+        overrides: Option<KeyboardOverridesLike>,
+        sensitive: bool,
+    ) -> PyResult<()> {
         let ov = overrides.map(Into::into);
         let runtime = self.runtime()?;
-        runtime.keyboard_press(sequence, ov).map_err(map_keyboard_err)?;
+        runtime.keyboard_press(sequence, ov).map_err(|err| map_keyboard_err(&err, sensitive))?;
         Ok(())
     }
 
     /// Releases the keys listed in ``sequence``.
-    #[pyo3(signature = (sequence, overrides=None), text_signature = "(self, sequence, overrides=None)")]
-    fn keyboard_release(&self, sequence: &str, overrides: Option<KeyboardOverridesLike>) -> PyResult<()> {
+    ///
+    /// ``sensitive=True`` keeps the sequence out of the error: it then gives
+    /// only the position and the kind of failure, for a secret.
+    #[pyo3(
+        signature = (sequence, overrides=None, *, sensitive=false),
+        text_signature = "(self, sequence, overrides=None, *, sensitive=False)"
+    )]
+    fn keyboard_release(
+        &self,
+        sequence: &str,
+        overrides: Option<KeyboardOverridesLike>,
+        sensitive: bool,
+    ) -> PyResult<()> {
         let ov = overrides.map(Into::into);
         let runtime = self.runtime()?;
-        runtime.keyboard_release(sequence, ov).map_err(map_keyboard_err)?;
+        runtime.keyboard_release(sequence, ov).map_err(|err| map_keyboard_err(&err, sensitive))?;
         Ok(())
     }
 
@@ -1409,25 +1501,46 @@ fn encode_png(shot: &core_rs::platform::Screenshot) -> PyResult<Vec<u8>> {
 
 // ---------------- RuntimeConfig parsing ----------------
 
+/// The top-level buckets of the construction-time ``config`` dict.
+const CONFIG_BUCKETS: [&str; 2] = ["platform", "providers"];
+
 /// Parse the construction-time ``config`` dict into a [`RuntimeConfig`].
 ///
-/// Reads the two top-level buckets ``platform`` and ``providers``; any other
-/// top-level key is ignored. An absent bucket yields an empty section, so an
-/// empty (or `None`) dict is equivalent to [`RuntimeConfig::default`] — today's
-/// environment-driven behaviour.
+/// Reads the two top-level buckets ``platform`` and ``providers``. What it
+/// cannot pass on to the components is dropped with a warning: another
+/// top-level key, a bucket that is not a dict, a key that is not a string and
+/// a value of an unsupported type. An absent bucket yields an empty section,
+/// so an empty (or `None`) dict is equivalent to [`RuntimeConfig::default`] —
+/// the environment-driven behaviour.
 fn parse_runtime_config(config: &Bound<'_, PyDict>) -> core_rs::config::RuntimeConfig {
-    core_rs::config::RuntimeConfig::new(config_section(config, "platform"), config_section(config, "providers"))
+    for key in config.keys() {
+        match key.extract::<String>() {
+            Ok(name) if CONFIG_BUCKETS.contains(&name.as_str()) => {}
+            Ok(name) => tracing::warn!(
+                key = %name,
+                "unknown top-level configuration key; it is ignored (the buckets are platform and providers)"
+            ),
+            Err(_) => warn_non_string_config_key(None, &key),
+        }
+    }
+    let [platform, providers] = CONFIG_BUCKETS.map(|bucket| config_section(config, bucket));
+    core_rs::config::RuntimeConfig::new(platform, providers)
 }
 
 /// Read one top-level bucket (`platform` / `providers`) as a [`ConfigMap`].
 /// A missing bucket, or one whose value is not a dict, yields an empty map.
-fn config_section(config: &Bound<'_, PyDict>, key: &str) -> core_rs::config::ConfigMap {
-    match config.get_item(key) {
+fn config_section(config: &Bound<'_, PyDict>, bucket: &str) -> core_rs::config::ConfigMap {
+    match config.get_item(bucket) {
         Ok(Some(value)) => {
             if let Ok(dict) = value.cast::<PyDict>() {
-                pydict_to_config_map(dict)
+                pydict_to_config_map(dict, bucket)
             } else {
-                tracing::debug!(key, "runtime config: top-level section is not a dict; ignoring");
+                tracing::warn!(
+                    key = %bucket,
+                    expected = "dict",
+                    found = %py_type_name(&value),
+                    "configuration bucket is not a dict; it is ignored"
+                );
                 core_rs::config::ConfigMap::new()
             }
         }
@@ -1435,29 +1548,59 @@ fn config_section(config: &Bound<'_, PyDict>, key: &str) -> core_rs::config::Con
     }
 }
 
-/// Convert a Python `dict` into a [`ConfigMap`], recursively.
+/// Convert a Python `dict` found at the dotted `path` into a [`ConfigMap`],
+/// recursively.
 ///
 /// Non-string keys and values of an unsupported type are skipped with a
-/// debug-level log — tolerant resolution, never an error.
-fn pydict_to_config_map(dict: &Bound<'_, PyDict>) -> core_rs::config::ConfigMap {
+/// warning that names their dotted path and Python type, never an error.
+fn pydict_to_config_map(dict: &Bound<'_, PyDict>, path: &str) -> core_rs::config::ConfigMap {
     let mut map = core_rs::config::ConfigMap::new();
     for (key, value) in dict.iter() {
         let Ok(key) = key.extract::<String>() else {
-            tracing::debug!("runtime config: skipping non-string dict key");
+            warn_non_string_config_key(Some(path), &key);
             continue;
         };
-        if let Some(parsed) = py_to_config_value(&value) {
+        let key_path = format!("{path}.{key}");
+        if let Some(parsed) = py_to_config_value(&value, &key_path) {
             map.insert(key, parsed);
         } else {
-            tracing::debug!(key, "runtime config: skipping value of unsupported type");
+            warn_unsupported_config_value(&key_path, &value);
         }
     }
     map
 }
 
-/// Convert a single Python value into a [`ConfigValue`], or `None` when the type
-/// is not representable.
-fn py_to_config_value(value: &Bound<'_, PyAny>) -> Option<core_rs::config::ConfigValue> {
+/// The name of a Python value's type, as `type(value).__name__` gives it.
+fn py_type_name(value: &Bound<'_, PyAny>) -> String {
+    value.get_type().name().map_or_else(|_| "?".to_owned(), |name| name.to_string())
+}
+
+/// A Python value's `repr()`, for messages.
+fn py_repr(value: &Bound<'_, PyAny>) -> String {
+    value.repr().map_or_else(|_| "?".to_owned(), |text| text.to_string())
+}
+
+fn warn_non_string_config_key(parent: Option<&str>, key: &Bound<'_, PyAny>) {
+    let shown = py_repr(key);
+    let path = parent.map_or_else(|| shown.clone(), |parent| format!("{parent}.{shown}"));
+    tracing::warn!(
+        key = %path,
+        found = %py_type_name(key),
+        "configuration key is not a string; its setting is ignored"
+    );
+}
+
+fn warn_unsupported_config_value(path: &str, value: &Bound<'_, PyAny>) {
+    tracing::warn!(
+        key = %path,
+        found = %py_type_name(value),
+        "configuration value has an unsupported type; the setting is ignored"
+    );
+}
+
+/// Convert a single Python value found at the dotted `path` into a
+/// [`ConfigValue`], or `None` when the type is not representable.
+fn py_to_config_value(value: &Bound<'_, PyAny>, path: &str) -> Option<core_rs::config::ConfigValue> {
     use core_rs::config::ConfigValue;
     // `str`
     if let Ok(text) = value.cast::<PyString>() {
@@ -1478,28 +1621,32 @@ fn py_to_config_value(value: &Bound<'_, PyAny>) -> Option<core_rs::config::Confi
     }
     // nested `dict`
     if let Ok(dict) = value.cast::<PyDict>() {
-        return Some(ConfigValue::Map(pydict_to_config_map(dict)));
+        return Some(ConfigValue::Map(pydict_to_config_map(dict, path)));
     }
     // `list` / `tuple`
     if let Ok(list) = value.cast::<PyList>() {
-        return Some(ConfigValue::List(py_sequence_to_config_values(list.iter())));
+        return Some(ConfigValue::List(py_sequence_to_config_values(list.iter(), path)));
     }
     if let Ok(tuple) = value.cast::<PyTuple>() {
-        return Some(ConfigValue::List(py_sequence_to_config_values(tuple.iter())));
+        return Some(ConfigValue::List(py_sequence_to_config_values(tuple.iter(), path)));
     }
     None
 }
 
-/// Convert an iterator of Python values into a `Vec<ConfigValue>`, skipping
-/// elements of an unsupported type (debug-logged).
+/// Convert the elements of the sequence at the dotted `path` into a
+/// `Vec<ConfigValue>`, skipping elements of an unsupported type with a warning
+/// that names `path[index]` and the Python type.
 fn py_sequence_to_config_values<'py>(
     items: impl Iterator<Item = Bound<'py, PyAny>>,
+    path: &str,
 ) -> Vec<core_rs::config::ConfigValue> {
     items
-        .filter_map(|item| {
-            let parsed = py_to_config_value(&item);
+        .enumerate()
+        .filter_map(|(index, item)| {
+            let item_path = format!("{path}[{index}]");
+            let parsed = py_to_config_value(&item, &item_path);
             if parsed.is_none() {
-                tracing::debug!("runtime config: skipping sequence element of unsupported type");
+                warn_unsupported_config_value(&item_path, &item);
             }
             parsed
         })
@@ -1523,10 +1670,15 @@ fn map_eval_err(err: runtime_rs::EvaluateError) -> PyErr {
 fn map_pointer_err(err: runtime_rs::PointerError) -> PyErr {
     PointerError::new_err(err.to_string())
 }
-// `map_err` callback; it receives the error by value.
-#[allow(clippy::needless_pass_by_value)]
-fn map_keyboard_err(err: runtime_rs::runtime::KeyboardActionError) -> PyErr {
-    KeyboardError::new_err(err.to_string())
+/// A keyboard failure as a Python `KeyboardError`: with the character or key
+/// and the device's reason, or, for a secret (`sensitive`), only the position
+/// and the kind of failure.
+fn map_keyboard_err(err: &runtime_rs::runtime::KeyboardActionError, sensitive: bool) -> PyErr {
+    if sensitive {
+        KeyboardError::new_err(err.sensitive().to_string())
+    } else {
+        KeyboardError::new_err(err.to_string())
+    }
 }
 
 // `map_err` callback; it receives the error by value.
@@ -1709,6 +1861,107 @@ impl From<RectLike<'_>> for core_rs::types::Rect {
 
 fn dict_get<'py>(d: &Bound<'py, PyDict>, key: &str) -> Option<Bound<'py, PyAny>> {
     d.get_item(key).ok().flatten()
+}
+
+/// Reads the values of a profile, settings or overrides dict.
+///
+/// Each read names its key. A value of the wrong type raises `TypeError`
+/// naming the key and the expected type; `None` counts as absent.
+/// [`ProfileDict::unknown_keys`] lists the keys no read named.
+struct ProfileDict<'a, 'py> {
+    dict: &'a Bound<'py, PyDict>,
+    read: Vec<&'static str>,
+}
+
+impl<'a, 'py> ProfileDict<'a, 'py> {
+    fn new(dict: &'a Bound<'py, PyDict>) -> Self {
+        Self { dict, read: Vec::new() }
+    }
+
+    /// The value under `key`; `None` when it is absent or `None`.
+    fn get(&mut self, key: &'static str) -> Option<Bound<'py, PyAny>> {
+        self.read.push(key);
+        dict_get(self.dict, key).filter(|value| !value.is_none())
+    }
+
+    /// The value under `key` as a `T`, described to the user as `expected`.
+    fn typed<T>(&mut self, key: &'static str, expected: &str) -> PyResult<Option<T>>
+    where
+        T: for<'b> FromPyObject<'b, 'py>,
+    {
+        self.get(key)
+            .map(|value| {
+                value.extract::<T>().map_err(|_| {
+                    PyTypeError::new_err(format!(
+                        "{key} must be {expected}, got {} {}",
+                        py_type_name(&value),
+                        py_repr(&value)
+                    ))
+                })
+            })
+            .transpose()
+    }
+
+    fn number(&mut self, key: &'static str) -> PyResult<Option<f64>> {
+        self.typed(key, "a number")
+    }
+
+    fn flag(&mut self, key: &'static str) -> PyResult<Option<bool>> {
+        self.typed(key, "a bool")
+    }
+
+    fn count(&mut self, key: &'static str) -> PyResult<Option<u32>> {
+        self.typed(key, "a non-negative integer")
+    }
+
+    fn pair(&mut self, key: &'static str) -> PyResult<Option<(f64, f64)>> {
+        self.typed(key, "a tuple of two numbers")
+    }
+
+    /// The keys no read named, as given; a key that is not a string in its
+    /// `repr()` form.
+    fn unknown_keys(&self) -> Vec<String> {
+        self.dict
+            .keys()
+            .iter()
+            .filter_map(|key| match key.extract::<String>() {
+                Ok(name) if self.read.contains(&name.as_str()) => None,
+                Ok(name) => Some(name),
+                Err(_) => Some(py_repr(&key)),
+            })
+            .collect()
+    }
+}
+
+/// Warns for each key of a [`ProfileDict`] that no read named, and delivers the
+/// warnings at once, from the call that received the dict.
+macro_rules! warn_unknown_profile_keys {
+    ($reader:expr, $message:literal) => {{
+        let unknown = $reader.unknown_keys();
+        for key in &unknown {
+            tracing::warn!(key = %key, $message);
+        }
+        if !unknown.is_empty() {
+            crate::log_bridge::deliver($reader.dict.py());
+        }
+    }};
+}
+
+/// Extracts a `*Like` argument: a dict through its reader, whose errors name
+/// the key, and anything else as the class.
+macro_rules! dict_or_class {
+    ($like:ident, $input:ty) => {
+        impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for $like<'py> {
+            type Error = PyErr;
+            fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+                if ob.is_instance_of::<PyDict>() {
+                    <$input as pyo3::FromPyObject<'a, 'py>>::extract(ob).map(Self::Dict)
+                } else {
+                    ob.extract().map(Self::Class).map_err(Into::into)
+                }
+            }
+        }
+    };
 }
 
 // -------- Like helpers for Point/Rect (tuple/list/dict/instances) --------
@@ -2820,34 +3073,37 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerOverridesInput {
     type Error = PyErr;
     fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         let d_borrowed = ob.cast::<PyDict>()?;
-        let d: &Bound<'py, PyDict> = &d_borrowed;
-        Ok(Self {
-            origin: dict_get(d, "origin").map(|v| OriginInput::extract((&v).into())).transpose()?,
-            motion: dict_get(d, "motion").map(|v| PointerMotionModeInput::extract((&v).into())).transpose()?,
-            steps_per_pixel: dict_get(d, "steps_per_pixel").and_then(|v| v.extract().ok()),
-            speed_factor: dict_get(d, "speed_factor").and_then(|v| v.extract().ok()),
-            acceleration_profile: dict_get(d, "acceleration_profile")
+        let mut d = ProfileDict::new(&d_borrowed);
+        let input = Self {
+            origin: d.get("origin").map(|v| OriginInput::extract((&v).into())).transpose()?,
+            motion: d.get("motion").map(|v| PointerMotionModeInput::extract((&v).into())).transpose()?,
+            steps_per_pixel: d.number("steps_per_pixel")?,
+            speed_factor: d.number("speed_factor")?,
+            acceleration_profile: d
+                .get("acceleration_profile")
                 .map(|v| PointerAccelerationInput::extract((&v).into()))
                 .transpose()?,
-            max_move_duration_ms: dict_get(d, "max_move_duration_ms").and_then(|v| v.extract().ok()),
-            move_time_per_pixel_us: dict_get(d, "move_time_per_pixel_us").and_then(|v| v.extract().ok()),
-            after_move_delay_ms: dict_get(d, "after_move_delay_ms").and_then(|v| v.extract().ok()),
-            after_input_delay_ms: dict_get(d, "after_input_delay_ms").and_then(|v| v.extract().ok()),
-            press_release_delay_ms: dict_get(d, "press_release_delay_ms").and_then(|v| v.extract().ok()),
-            after_click_delay_ms: dict_get(d, "after_click_delay_ms").and_then(|v| v.extract().ok()),
-            before_next_click_delay_ms: dict_get(d, "before_next_click_delay_ms").and_then(|v| v.extract().ok()),
-            multi_click_delay_ms: dict_get(d, "multi_click_delay_ms").and_then(|v| v.extract().ok()),
-            overshoot_ratio: dict_get(d, "overshoot_ratio").and_then(|v| v.extract().ok()),
-            overshoot_settle_steps: dict_get(d, "overshoot_settle_steps").and_then(|v| v.extract().ok()),
-            curve_amplitude: dict_get(d, "curve_amplitude").and_then(|v| v.extract().ok()),
-            jitter_amplitude: dict_get(d, "jitter_amplitude").and_then(|v| v.extract().ok()),
-            jitter_frequency: dict_get(d, "jitter_frequency").and_then(|v| v.extract().ok()),
-            ensure_move_position: dict_get(d, "ensure_move_position").and_then(|v| v.extract().ok()),
-            ensure_move_threshold: dict_get(d, "ensure_move_threshold").and_then(|v| v.extract().ok()),
-            ensure_move_timeout_ms: dict_get(d, "ensure_move_timeout_ms").and_then(|v| v.extract().ok()),
-            scroll_step: dict_get(d, "scroll_step").and_then(|v| v.extract().ok()),
-            scroll_delay_ms: dict_get(d, "scroll_delay_ms").and_then(|v| v.extract().ok()),
-        })
+            max_move_duration_ms: d.number("max_move_duration_ms")?,
+            move_time_per_pixel_us: d.number("move_time_per_pixel_us")?,
+            after_move_delay_ms: d.number("after_move_delay_ms")?,
+            after_input_delay_ms: d.number("after_input_delay_ms")?,
+            press_release_delay_ms: d.number("press_release_delay_ms")?,
+            after_click_delay_ms: d.number("after_click_delay_ms")?,
+            before_next_click_delay_ms: d.number("before_next_click_delay_ms")?,
+            multi_click_delay_ms: d.number("multi_click_delay_ms")?,
+            overshoot_ratio: d.number("overshoot_ratio")?,
+            overshoot_settle_steps: d.count("overshoot_settle_steps")?,
+            curve_amplitude: d.number("curve_amplitude")?,
+            jitter_amplitude: d.number("jitter_amplitude")?,
+            jitter_frequency: d.number("jitter_frequency")?,
+            ensure_move_position: d.flag("ensure_move_position")?,
+            ensure_move_threshold: d.number("ensure_move_threshold")?,
+            ensure_move_timeout_ms: d.number("ensure_move_timeout_ms")?,
+            scroll_step: d.pair("scroll_step")?,
+            scroll_delay_ms: d.number("scroll_delay_ms")?,
+        };
+        warn_unknown_profile_keys!(d, "unknown pointer overrides key; it is ignored");
+        Ok(input)
     }
 }
 
@@ -2928,11 +3184,12 @@ impl From<PointerOverridesInput> for runtime_rs::PointerOverrides {
 }
 
 #[allow(clippy::large_enum_variant)]
-#[derive(FromPyObject)]
 pub enum PointerOverridesLike<'py> {
     Dict(PointerOverridesInput),
     Class(PyRef<'py, PyPointerOverrides>),
 }
+
+dict_or_class!(PointerOverridesLike, PointerOverridesInput);
 
 impl From<PointerOverridesLike<'_>> for runtime_rs::PointerOverrides {
     fn from(v: PointerOverridesLike<'_>) -> Self {
@@ -2954,12 +3211,14 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerSettingsInput {
     type Error = PyErr;
     fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         let d_borrowed = ob.cast::<PyDict>()?;
-        let d: &Bound<'py, PyDict> = &d_borrowed;
-        Ok(Self {
-            double_click_time_ms: dict_get(d, "double_click_time_ms").and_then(|v| v.extract().ok()),
-            double_click_size: dict_get(d, "double_click_size").map(|v| SizeInput::extract((&v).into())).transpose()?,
-            default_button: dict_get(d, "default_button").and_then(|v| v.extract().ok()),
-        })
+        let mut d = ProfileDict::new(&d_borrowed);
+        let input = Self {
+            double_click_time_ms: d.number("double_click_time_ms")?,
+            double_click_size: d.get("double_click_size").map(|v| SizeInput::extract((&v).into())).transpose()?,
+            default_button: d.typed("default_button", "a PointerButton or a button number")?,
+        };
+        warn_unknown_profile_keys!(d, "unknown pointer settings key; it is ignored");
+        Ok(input)
     }
 }
 
@@ -2985,11 +3244,12 @@ impl PointerSettingsInput {
     }
 }
 
-#[derive(FromPyObject)]
 pub enum PointerSettingsLike<'py> {
     Dict(PointerSettingsInput),
     Class(PyRef<'py, PyPointerSettings>),
 }
+
+dict_or_class!(PointerSettingsLike, PointerSettingsInput);
 
 impl From<PointerSettingsLike<'_>> for runtime_rs::PointerSettings {
     fn from(value: PointerSettingsLike<'_>) -> Self {
@@ -3030,33 +3290,36 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerProfileInput {
     type Error = PyErr;
     fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         let d_borrowed = ob.cast::<PyDict>()?;
-        let d: &Bound<'py, PyDict> = &d_borrowed;
-        Ok(Self {
-            motion: dict_get(d, "motion").map(|v| PointerMotionModeInput::extract((&v).into())).transpose()?,
-            steps_per_pixel: dict_get(d, "steps_per_pixel").and_then(|v| v.extract().ok()),
-            max_move_duration_ms: dict_get(d, "max_move_duration_ms").and_then(|v| v.extract().ok()),
-            speed_factor: dict_get(d, "speed_factor").and_then(|v| v.extract().ok()),
-            acceleration_profile: dict_get(d, "acceleration_profile")
+        let mut d = ProfileDict::new(&d_borrowed);
+        let input = Self {
+            motion: d.get("motion").map(|v| PointerMotionModeInput::extract((&v).into())).transpose()?,
+            steps_per_pixel: d.number("steps_per_pixel")?,
+            max_move_duration_ms: d.number("max_move_duration_ms")?,
+            speed_factor: d.number("speed_factor")?,
+            acceleration_profile: d
+                .get("acceleration_profile")
                 .map(|v| PointerAccelerationInput::extract((&v).into()))
                 .transpose()?,
-            overshoot_ratio: dict_get(d, "overshoot_ratio").and_then(|v| v.extract().ok()),
-            overshoot_settle_steps: dict_get(d, "overshoot_settle_steps").and_then(|v| v.extract().ok()),
-            curve_amplitude: dict_get(d, "curve_amplitude").and_then(|v| v.extract().ok()),
-            jitter_amplitude: dict_get(d, "jitter_amplitude").and_then(|v| v.extract().ok()),
-            jitter_frequency: dict_get(d, "jitter_frequency").and_then(|v| v.extract().ok()),
-            after_move_delay_ms: dict_get(d, "after_move_delay_ms").and_then(|v| v.extract().ok()),
-            after_input_delay_ms: dict_get(d, "after_input_delay_ms").and_then(|v| v.extract().ok()),
-            press_release_delay_ms: dict_get(d, "press_release_delay_ms").and_then(|v| v.extract().ok()),
-            after_click_delay_ms: dict_get(d, "after_click_delay_ms").and_then(|v| v.extract().ok()),
-            before_next_click_delay_ms: dict_get(d, "before_next_click_delay_ms").and_then(|v| v.extract().ok()),
-            multi_click_delay_ms: dict_get(d, "multi_click_delay_ms").and_then(|v| v.extract().ok()),
-            ensure_move_position: dict_get(d, "ensure_move_position").and_then(|v| v.extract().ok()),
-            ensure_move_threshold: dict_get(d, "ensure_move_threshold").and_then(|v| v.extract().ok()),
-            ensure_move_timeout_ms: dict_get(d, "ensure_move_timeout_ms").and_then(|v| v.extract().ok()),
-            scroll_step: dict_get(d, "scroll_step").and_then(|v| v.extract().ok()),
-            scroll_delay_ms: dict_get(d, "scroll_delay_ms").and_then(|v| v.extract().ok()),
-            move_time_per_pixel_us: dict_get(d, "move_time_per_pixel_us").and_then(|v| v.extract().ok()),
-        })
+            overshoot_ratio: d.number("overshoot_ratio")?,
+            overshoot_settle_steps: d.count("overshoot_settle_steps")?,
+            curve_amplitude: d.number("curve_amplitude")?,
+            jitter_amplitude: d.number("jitter_amplitude")?,
+            jitter_frequency: d.number("jitter_frequency")?,
+            after_move_delay_ms: d.number("after_move_delay_ms")?,
+            after_input_delay_ms: d.number("after_input_delay_ms")?,
+            press_release_delay_ms: d.number("press_release_delay_ms")?,
+            after_click_delay_ms: d.number("after_click_delay_ms")?,
+            before_next_click_delay_ms: d.number("before_next_click_delay_ms")?,
+            multi_click_delay_ms: d.number("multi_click_delay_ms")?,
+            ensure_move_position: d.flag("ensure_move_position")?,
+            ensure_move_threshold: d.number("ensure_move_threshold")?,
+            ensure_move_timeout_ms: d.number("ensure_move_timeout_ms")?,
+            scroll_step: d.pair("scroll_step")?,
+            scroll_delay_ms: d.number("scroll_delay_ms")?,
+            move_time_per_pixel_us: d.number("move_time_per_pixel_us")?,
+        };
+        warn_unknown_profile_keys!(d, "unknown pointer profile key; it is ignored");
+        Ok(input)
     }
 }
 
@@ -3140,11 +3403,12 @@ impl PointerProfileInput {
 }
 
 #[allow(clippy::large_enum_variant)]
-#[derive(FromPyObject)]
 pub enum PointerProfileLike<'py> {
     Dict(PointerProfileInput),
     Class(PyRef<'py, PyPointerProfile>),
 }
+
+dict_or_class!(PointerProfileLike, PointerProfileInput);
 
 impl From<PointerProfileLike<'_>> for runtime_rs::PointerProfile {
     fn from(value: PointerProfileLike<'_>) -> Self {
@@ -3172,15 +3436,18 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for KeyboardProfileInput {
     type Error = PyErr;
     fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         let dict = ob.cast::<PyDict>()?;
-        Ok(Self {
-            press_delay_ms: dict_get(&dict, "press_delay_ms").and_then(|v| v.extract().ok()),
-            release_delay_ms: dict_get(&dict, "release_delay_ms").and_then(|v| v.extract().ok()),
-            between_keys_delay_ms: dict_get(&dict, "between_keys_delay_ms").and_then(|v| v.extract().ok()),
-            chord_press_delay_ms: dict_get(&dict, "chord_press_delay_ms").and_then(|v| v.extract().ok()),
-            chord_release_delay_ms: dict_get(&dict, "chord_release_delay_ms").and_then(|v| v.extract().ok()),
-            after_sequence_delay_ms: dict_get(&dict, "after_sequence_delay_ms").and_then(|v| v.extract().ok()),
-            after_text_delay_ms: dict_get(&dict, "after_text_delay_ms").and_then(|v| v.extract().ok()),
-        })
+        let mut d = ProfileDict::new(&dict);
+        let input = Self {
+            press_delay_ms: d.number("press_delay_ms")?,
+            release_delay_ms: d.number("release_delay_ms")?,
+            between_keys_delay_ms: d.number("between_keys_delay_ms")?,
+            chord_press_delay_ms: d.number("chord_press_delay_ms")?,
+            chord_release_delay_ms: d.number("chord_release_delay_ms")?,
+            after_sequence_delay_ms: d.number("after_sequence_delay_ms")?,
+            after_text_delay_ms: d.number("after_text_delay_ms")?,
+        };
+        warn_unknown_profile_keys!(d, "unknown keyboard profile key; it is ignored");
+        Ok(input)
     }
 }
 
@@ -3218,11 +3485,12 @@ impl KeyboardProfileInput {
     }
 }
 
-#[derive(FromPyObject)]
 pub enum KeyboardProfileLike<'py> {
     Dict(KeyboardProfileInput),
     Class(PyRef<'py, PyKeyboardProfile>),
 }
+
+dict_or_class!(KeyboardProfileLike, KeyboardProfileInput);
 
 impl From<KeyboardProfileLike<'_>> for core_rs::platform::KeyboardProfile {
     fn from(value: KeyboardProfileLike<'_>) -> Self {
@@ -3285,16 +3553,18 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for KeyboardOverridesInput {
     type Error = PyErr;
     fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         let d_borrowed = ob.cast::<PyDict>()?;
-        let d: &Bound<'py, PyDict> = &d_borrowed;
-        Ok(Self {
-            press_delay_ms: dict_get(d, "press_delay_ms").and_then(|v| v.extract().ok()),
-            release_delay_ms: dict_get(d, "release_delay_ms").and_then(|v| v.extract().ok()),
-            between_keys_delay_ms: dict_get(d, "between_keys_delay_ms").and_then(|v| v.extract().ok()),
-            chord_press_delay_ms: dict_get(d, "chord_press_delay_ms").and_then(|v| v.extract().ok()),
-            chord_release_delay_ms: dict_get(d, "chord_release_delay_ms").and_then(|v| v.extract().ok()),
-            after_sequence_delay_ms: dict_get(d, "after_sequence_delay_ms").and_then(|v| v.extract().ok()),
-            after_text_delay_ms: dict_get(d, "after_text_delay_ms").and_then(|v| v.extract().ok()),
-        })
+        let mut d = ProfileDict::new(&d_borrowed);
+        let input = Self {
+            press_delay_ms: d.number("press_delay_ms")?,
+            release_delay_ms: d.number("release_delay_ms")?,
+            between_keys_delay_ms: d.number("between_keys_delay_ms")?,
+            chord_press_delay_ms: d.number("chord_press_delay_ms")?,
+            chord_release_delay_ms: d.number("chord_release_delay_ms")?,
+            after_sequence_delay_ms: d.number("after_sequence_delay_ms")?,
+            after_text_delay_ms: d.number("after_text_delay_ms")?,
+        };
+        warn_unknown_profile_keys!(d, "unknown keyboard overrides key; it is ignored");
+        Ok(input)
     }
 }
 
@@ -3327,11 +3597,12 @@ impl From<KeyboardOverridesInput> for core_rs::platform::KeyboardOverrides {
     }
 }
 
-#[derive(FromPyObject)]
 pub enum KeyboardOverridesLike<'py> {
     Dict(KeyboardOverridesInput),
     Class(PyRef<'py, PyKeyboardOverrides>),
 }
+
+dict_or_class!(KeyboardOverridesLike, KeyboardOverridesInput);
 
 impl From<KeyboardOverridesLike<'_>> for core_rs::platform::KeyboardOverrides {
     fn from(v: KeyboardOverridesLike<'_>) -> Self {

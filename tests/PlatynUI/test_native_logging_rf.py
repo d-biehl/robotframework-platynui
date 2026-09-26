@@ -20,6 +20,8 @@ from robot.result import Keyword, Message, Result, TestCase as RobotTestCase
 
 FIXTURE = Path(__file__).parent / 'robot' / 'native_logging.robot'
 TIME = re.compile(r'\d{2}:\d{2}:\d{2}\.\d{3}')
+# A native record's text starts with its module, such as ``[runtime.xpath] ``.
+NATIVE_MESSAGE = re.compile(r'^\[[\w.]+\] ')
 
 
 def run_fixture(tmp_path: Path, *, native_log_level: str | None, loglevel: str) -> Result:
@@ -106,4 +108,31 @@ def test_without_native_log_level_only_warnings_are_produced(native_default: Res
 def test_an_invalid_native_log_level_fails_the_import_by_name(tmp_path: Path) -> None:
     result = run_fixture(tmp_path, native_log_level='verbose', loglevel='INFO')
     errors = [text(m) for m in result.errors.messages if m.level == 'ERROR']
-    assert any('native_log_level' in e and 'error, warn, info, debug, trace' in e for e in errors), errors
+    accepted = 'off, error, warn (warning), info, debug, trace, critical, fatal'
+    assert any('native_log_level' in e and accepted in e for e in errors), errors
+
+
+def test_the_python_spelling_warning_imports_and_produces_only_warnings_and_errors(tmp_path: Path) -> None:
+    result = run_fixture(tmp_path, native_log_level='WARNING', loglevel='DEBUG')
+    assert not any(m.level == 'ERROR' for m in result.errors.messages), [text(m) for m in result.errors.messages]
+    [query] = keywords(case_named(result, 'A Native Trace Is Logged Inside The Query That Evaluated It'), 'Query')
+    assert not any('fn:trace' in text(m) for m in messages(query))
+    [evaluate] = keywords(case_named(result, 'A Warning On The Calling Thread Is An RF Warning'), 'Evaluate')
+    assert any(m.level == 'WARN' and 'warning on the calling thread' in text(m) for m in messages(evaluate))
+
+
+def test_off_imports_and_produces_no_platynui_record(tmp_path: Path) -> None:
+    result = run_fixture(tmp_path, native_log_level='off', loglevel='DEBUG')
+    assert not any(m.level == 'ERROR' for m in result.errors.messages), [text(m) for m in result.errors.messages]
+    [evaluate] = keywords(case_named(result, 'A Warning On The Calling Thread Is An RF Warning'), 'Evaluate')
+    assert not any('warning on the calling thread' in text(m) for m in messages(evaluate))
+    native = [
+        text(m)
+        for case in result.suite.all_tests
+        for keyword in case.body
+        if isinstance(keyword, Keyword)
+        for m in messages(keyword)
+        if NATIVE_MESSAGE.match(text(m))
+    ]
+    assert native == []
+    assert not any('warning' in text(m) for m in result.errors.messages)

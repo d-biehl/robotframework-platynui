@@ -3872,6 +3872,7 @@ version = "0.13.0-dev.2"
 dependencies = [
  "platynui-core",
  "platynui-link",
+ "platynui-log-filter",
  "platynui-platform-linux",
  "platynui-platform-macos",
  "platynui-platform-mock",

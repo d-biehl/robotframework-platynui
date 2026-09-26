@@ -26,6 +26,8 @@ NATIVE = 'platynui.native'
 emit = getattr(_native, '_emit_log_for_tests')  # noqa: B009
 # The emitter lives in the extension's own logging module.
 EMITTER_LOGGER = 'platynui.native.native.log_bridge'
+# The runtime crate's loggers.
+RUNTIME = 'platynui.native.runtime'
 
 
 @pytest.fixture(autouse=True)
@@ -88,8 +90,35 @@ def test_only_warnings_and_errors_are_produced_by_default(caplog: pytest.LogCapt
 
 
 def test_an_unknown_level_is_rejected_by_name() -> None:
-    with pytest.raises(ValueError, match=r'verbose.*error, warn, info, debug, trace'):
+    with pytest.raises(
+        ValueError,
+        match=r"^unknown log level 'verbose'; expected one of off, error, warn \(warning\), info, debug, trace, "
+        r'critical, fatal$',
+    ):
         pn.set_log_level('verbose')
+
+
+def test_the_python_spellings_are_levels(caplog: pytest.LogCaptureFixture) -> None:
+    pn.set_log_level('WARNING')
+    emit('info', 'below WARNING')
+    emit('warn', 'at WARNING')
+    pn.set_log_level('Critical')
+    emit('warn', 'below Critical')
+    emit('error', 'at Critical')
+    pn.set_log_level('fatal')
+
+    shown = ' | '.join(messages(caplog))
+    assert 'at WARNING' in shown
+    assert 'at Critical' in shown
+    assert 'below' not in shown
+
+
+def test_off_produces_nothing(caplog: pytest.LogCaptureFixture) -> None:
+    pn.set_log_level('off')
+    for level in ('trace', 'debug', 'info', 'warn', 'error'):
+        emit(level, f'at {level}')
+
+    assert native_records(caplog) == []
 
 
 def test_the_xpath_trace_function_is_visible(caplog: pytest.LogCaptureFixture, rt_mock_platform: pn.Runtime) -> None:
@@ -187,15 +216,67 @@ def test_the_requested_level_takes_precedence_over_platynui_log_level(
 def test_an_invalid_environment_value_keeps_the_default_and_is_named(
     caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Directive syntax, which PLATYNUI_LOG_LEVEL no longer takes. A value no
+    # other test in this process uses: each is reported once per process.
     monkeypatch.setenv('PLATYNUI_LOG_LEVEL', 'platynui=loud')
     pn.set_log_level(None)
     emit('info', 'not produced')
+    emit('warn', 'produced')
 
     records = native_records(caplog)
     [rejected] = [r for r in records if 'PLATYNUI_LOG_LEVEL' in r.getMessage()]
     assert rejected.levelno == logging.WARNING
     assert 'platynui=loud' in rejected.getMessage()
+    assert 'RUST_LOG' in rejected.getMessage(), 'the rejection says where directives belong'
     assert not any('not produced' in r.getMessage() for r in records)
+    assert any('produced' in r.getMessage() for r in records)
+
+
+def test_platynui_log_level_warning_acts_like_warn(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv('PLATYNUI_LOG_LEVEL', 'WARNING')
+    pn.set_log_level(None)
+    emit('info', 'below warn')
+    emit('warn', 'at warn')
+
+    records = messages(caplog)
+    assert not any('PLATYNUI_LOG_LEVEL' in m for m in records), 'WARNING is a level, not a rejected value'
+    assert not any('below warn' in m for m in records)
+    assert any('at warn' in m for m in records)
+
+
+def test_platynui_log_level_debug_produces_a_native_debug_record(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv('PLATYNUI_LOG_LEVEL', 'debug')
+    pn.set_log_level(None)
+    emit('debug', 'debug through PLATYNUI_LOG_LEVEL')
+
+    [record] = [r for r in native_records(caplog) if 'debug through PLATYNUI_LOG_LEVEL' in r.getMessage()]
+    assert record.levelno == logging.DEBUG
+
+
+def test_the_constructor_delivers_its_records_before_it_returns(caplog: pytest.LogCaptureFixture) -> None:
+    pn.set_log_level('info')
+    runtime = pn.Runtime.new_with_mock()
+    try:
+        # No flush and no other runtime call before this point.
+        assert any(r.levelno == logging.INFO and r.name.startswith(RUNTIME) for r in native_records(caplog))
+    finally:
+        runtime.shutdown()
+
+
+def test_shutdown_delivers_its_record_before_it_returns(caplog: pytest.LogCaptureFixture) -> None:
+    pn.set_log_level('info')
+    runtime = pn.Runtime.new_with_mock()
+    caplog.clear()
+
+    runtime.shutdown()
+
+    # No flush and no other call after the shutdown.
+    infos = [r.getMessage() for r in native_records(caplog) if r.levelno == logging.INFO and r.name.startswith(RUNTIME)]
+    assert any('shut' in message.lower() for message in infos), infos
 
 
 def test_the_environment_is_honoured_from_import_on() -> None:

@@ -8,7 +8,8 @@
 //! into the extension:
 //!
 //! - when a runtime call returns ([`crate::runtime`]'s runtime guard delivers
-//!   after releasing the runtime lock);
+//!   after releasing the runtime lock), including a runtime's construction,
+//!   successful or not, and its shutdown;
 //! - on [`flush_logs`], which the Robot Framework library calls around every
 //!   keyword, so Robot Framework — which drops messages from any other thread —
 //!   records them in the keyword they belong to.
@@ -16,9 +17,11 @@
 //! A record keeps the time and thread it was emitted on; a record from another
 //! thread names both in its message, because Robot Framework stamps a message
 //! with its delivery time. By default only `WARN` and `ERROR` are produced;
-//! [`set_log_level`] and the environment variables the command-line tool uses
-//! (`RUST_LOG`, `PLATYNUI_LOG_LEVEL`) lower that, with the tool's precedence.
-//! See `dev-docs/python-bindings.md` for the whole picture.
+//! [`set_log_level`] and the environment variables `RUST_LOG` and
+//! `PLATYNUI_LOG_LEVEL` change that. The filter comes from
+//! `platynui-log-filter`, so a level means the same here as in the
+//! command-line tool and the Inspector. See `dev-docs/python-bindings.md` for
+//! the whole picture.
 
 use std::cell::Cell;
 use std::collections::VecDeque;
@@ -27,6 +30,7 @@ use std::sync::{Arc, LazyLock, Mutex, OnceLock, PoisonError};
 use std::thread::ThreadId;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use platynui_log_filter::{LevelFilter, Rejection};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
@@ -41,8 +45,6 @@ const CAPACITY: usize = 10_000;
 const ROOT_LOGGER: &str = "platynui.native";
 /// Python's level for native `trace` events: below `DEBUG`.
 const TRACE_LEVEL: u8 = 5;
-/// The levels `set_log_level` accepts, most severe first.
-const LEVEL_NAMES: &str = "error, warn, info, debug, trace";
 /// Delivery passes per delivery point: the records present, plus what a log
 /// handler that calls back into `PlatynUI` queued meanwhile — bounded, so such a
 /// handler cannot keep a delivery going forever.
@@ -72,9 +74,20 @@ impl Record {
             .with_location(metadata.file(), metadata.line())
     }
 
-    /// A record the bridge itself produces, bypassing the level filter.
-    fn from_bridge(message: String) -> Self {
-        Self::on_this_thread(Level::WARN, module_path!(), message, Vec::new())
+    /// A warning the bridge itself produces, bypassing the level filter.
+    fn from_bridge(message: String, fields: Vec<(String, String)>) -> Self {
+        Self::on_this_thread(Level::WARN, module_path!(), message, fields)
+    }
+
+    /// The report of an environment value the filter skipped, with the fields
+    /// the command-line tools log for it.
+    fn from_rejection(rejection: &Rejection) -> Self {
+        let fields = vec![
+            ("variable".to_owned(), format!("{:?}", rejection.variable)),
+            ("value".to_owned(), rejection.value.clone()),
+            ("reason".to_owned(), format!("{:?}", rejection.reason())),
+        ];
+        Self::from_bridge("log setting ignored; the next source applies".to_owned(), fields)
     }
 
     fn on_this_thread(level: Level, target: &str, message: String, fields: Vec<(String, String)>) -> Self {
@@ -191,42 +204,12 @@ pub(crate) fn render_message(
     text
 }
 
-/// The filter directives in effect, and the environment values that were
-/// consulted but did not parse.
-#[derive(Debug)]
-pub(crate) struct FilterSpec {
-    pub(crate) directives: String,
-    pub(crate) rejected: Vec<(&'static str, String)>,
-}
-
-/// Build the filter with the command-line tool's precedence: `RUST_LOG`, then
-/// the requested level (`PlatynUI`'s own modules only), then
-/// `PLATYNUI_LOG_LEVEL`, then `warn`. An environment value that does not
-/// parse counts as absent and is reported.
-pub(crate) fn filter_spec(env: impl Fn(&str) -> Option<String>, requested: Option<Level>) -> FilterSpec {
-    let mut rejected = Vec::new();
-    let mut from_env = |name: &'static str| {
-        let value = env(name).filter(|value| !value.trim().is_empty())?;
-        if EnvFilter::builder().parse(&value).is_ok() {
-            Some(value)
-        } else {
-            rejected.push((name, value));
-            None
-        }
-    };
-    let directives = from_env("RUST_LOG")
-        .or_else(|| requested.map(|level| format!("warn,platynui={}", level.as_str().to_ascii_lowercase())))
-        .or_else(|| from_env("PLATYNUI_LOG_LEVEL"))
-        .unwrap_or_else(|| "warn".to_owned());
-    FilterSpec { directives, rejected }
-}
-
 /// Records waiting for delivery, process-wide.
 static QUEUE: LazyLock<Arc<Mutex<Queue>>> = LazyLock::new(|| Arc::new(Mutex::new(Queue::with_capacity(CAPACITY))));
 /// Swaps the installed filter; unset when another subscriber was already installed.
 static FILTER: OnceLock<reload::Handle<EnvFilter, Registry>> = OnceLock::new();
 /// The level requested through [`set_log_level`].
-static REQUESTED: Mutex<Option<Level>> = Mutex::new(None);
+static REQUESTED: Mutex<Option<LevelFilter>> = Mutex::new(None);
 
 thread_local! {
     /// Set while this thread delivers, so a handler that calls back into
@@ -234,19 +217,20 @@ thread_local! {
     static DELIVERING: Cell<bool> = const { Cell::new(false) };
 }
 
-fn queue_bridge_warning(message: String) {
-    QUEUE.lock().unwrap_or_else(PoisonError::into_inner).push(Record::from_bridge(message));
+fn queue_bridge_record(record: Record) {
+    QUEUE.lock().unwrap_or_else(PoisonError::into_inner).push(record);
 }
 
-/// The filter for the current environment and request; reports rejected
-/// environment values into the queue.
+/// The filter for the current environment and request. Reports a rejected
+/// environment value into the queue, each (variable, value) pair once per
+/// process, although the filter is rebuilt whenever the requested level changes.
 fn current_filter() -> EnvFilter {
     let requested = *REQUESTED.lock().unwrap_or_else(PoisonError::into_inner);
-    let spec = filter_spec(|name| std::env::var(name).ok(), requested);
-    for (name, value) in spec.rejected {
-        queue_bridge_warning(format!("ignoring {name}={value:?}: not a valid log filter directive"));
+    let spec = platynui_log_filter::filter_spec(|name| std::env::var(name).ok(), requested);
+    for rejection in &spec.rejected {
+        queue_bridge_record(Record::from_rejection(rejection));
     }
-    EnvFilter::builder().parse_lossy(spec.directives)
+    spec.env_filter()
 }
 
 /// Install the queueing subscriber; called once when the extension is imported.
@@ -261,10 +245,11 @@ pub(crate) fn install(py: Python<'_>) -> PyResult<()> {
     if tracing::subscriber::set_global_default(subscriber).is_ok() {
         let _ = FILTER.set(handle);
     } else {
-        queue_bridge_warning(
+        queue_bridge_record(Record::from_bridge(
             "another tracing subscriber is already installed in this process; native diagnostics do not reach Python"
                 .to_owned(),
-        );
+            Vec::new(),
+        ));
     }
     Ok(())
 }
@@ -301,10 +286,13 @@ pub(crate) fn deliver(py: Python<'_>) {
             Err(err) => return err.write_unraisable(py, None),
         };
         let dropped_report = (dropped > 0).then(|| {
-            Record::from_bridge(format!(
-                "{dropped} native log records were dropped: more were emitted than the queue holds \
-                 ({CAPACITY}) before they could be delivered"
-            ))
+            Record::from_bridge(
+                format!(
+                    "{dropped} native log records were dropped: more were emitted than the queue holds \
+                     ({CAPACITY}) before they could be delivered"
+                ),
+                Vec::new(),
+            )
         });
         for record in records.iter().chain(dropped_report.iter()) {
             if let Err(err) = deliver_one(py, &logging, record) {
@@ -388,15 +376,10 @@ fn thread_number(thread: ThreadId) -> u64 {
     format!("{thread:?}").trim_start_matches("ThreadId(").trim_end_matches(')').parse().unwrap_or(0)
 }
 
-fn parse_level(level: &str) -> PyResult<Level> {
-    match level.to_ascii_lowercase().as_str() {
-        "error" => Ok(Level::ERROR),
-        "warn" => Ok(Level::WARN),
-        "info" => Ok(Level::INFO),
-        "debug" => Ok(Level::DEBUG),
-        "trace" => Ok(Level::TRACE),
-        _ => Err(PyValueError::new_err(format!("unknown native log level {level:?}; expected one of {LEVEL_NAMES}"))),
-    }
+/// A level name as the command-line tools read it, or a `ValueError` that
+/// names the accepted ones.
+fn parse_level(level: &str) -> PyResult<LevelFilter> {
+    platynui_log_filter::parse_level(level).map_err(|err| PyValueError::new_err(err.to_string()))
 }
 
 /// Deliver every queued native log record to Python `logging` now.
@@ -408,13 +391,19 @@ fn flush_logs(py: Python<'_>) {
     deliver(py);
 }
 
-/// Set the level down to which the extension's own native modules produce log records.
+/// Set the level down to which PlatynUI's native modules produce log records.
 ///
-/// ``None`` returns to the default, ``warn``. Accepts ``error``, ``warn``,
-/// ``info``, ``debug`` and ``trace`` (case-insensitive). ``RUST_LOG`` in the
-/// environment takes precedence; ``PLATYNUI_LOG_LEVEL`` applies when no level
-/// is set. Third-party modules stay at ``warn`` unless the environment says
-/// otherwise.
+/// Accepts ``off``, ``error``, ``warn``, ``info``, ``debug`` and ``trace``, the
+/// Python spelling ``warning`` (``warn``), and ``critical`` and ``fatal``
+/// (``error``), in any case; anything else raises ``ValueError``. ``warn`` to
+/// ``trace`` apply to PlatynUI's own modules while third-party modules stay at
+/// ``warn``; ``error`` and ``off`` apply to every module. ``None`` withdraws the
+/// level, so that ``PLATYNUI_LOG_LEVEL`` (a single level of the same names)
+/// applies, or else the default, ``warn``. ``RUST_LOG`` in the environment
+/// takes precedence over both; it is the only way to pass filter directives
+/// and to make third-party modules more verbose.
+// The docstring is reST for Python, where `PlatynUI` in backticks would render as a reference.
+#[allow(clippy::doc_markdown)]
 #[pyfunction]
 #[pyo3(signature = (level=None))]
 fn set_log_level(level: Option<&str>) -> PyResult<()> {
@@ -440,7 +429,7 @@ fn _emit_log_for_tests(
     on_background_thread: bool,
     count: usize,
 ) -> PyResult<()> {
-    let level = parse_level(level)?;
+    let level = parse_level(level)?.into_level().ok_or_else(|| PyValueError::new_err("cannot emit at level off"))?;
     let emit = move || {
         for index in 0..count {
             let text = if count > 1 { format!("{message} #{index}") } else { message.clone() };
@@ -572,45 +561,23 @@ mod tests {
     }
 
     #[test]
-    fn a_requested_level_lowers_platynui_modules_only() {
-        let q = queue(8);
-        let spec = filter_spec(|_| None, Some(tracing::Level::DEBUG));
-        assert_eq!(spec.directives, "warn,platynui=debug");
-        with_queueing(&q, &spec.directives, || {
-            tracing::debug!(target: "platynui_provider_atspi::extents", "ours");
-            tracing::debug!(target: "zbus::connection", "theirs");
-            tracing::warn!(target: "zbus::connection", "their warning");
-        });
-        let (records, _) = taken(&q);
-        let messages: Vec<_> = records.iter().map(|r| r.message.as_str()).collect();
-        assert_eq!(messages, ["ours", "their warning"]);
-    }
+    fn a_rejected_environment_value_becomes_a_warning_naming_variable_and_value() {
+        // A value no other test uses: each pair is reported once per process.
+        let env = |name: &str| (name == "PLATYNUI_LOG_LEVEL").then(|| "bridge-test-verbose".to_owned());
+        let spec = platynui_log_filter::filter_spec(env, None);
+        let [rejection] = spec.rejected.as_slice() else { panic!("expected one rejection: {spec:?}") };
 
-    #[test]
-    fn the_filter_follows_the_command_line_precedence() {
-        let env = |rust_log: Option<&'static str>, platynui: Option<&'static str>| {
-            move |name: &str| match name {
-                "RUST_LOG" => rust_log.map(str::to_owned),
-                "PLATYNUI_LOG_LEVEL" => platynui.map(str::to_owned),
-                _ => None,
-            }
-        };
-        let debug = Some(tracing::Level::DEBUG);
-        assert_eq!(filter_spec(env(None, None), None).directives, "warn");
-        assert_eq!(filter_spec(env(None, Some("info")), None).directives, "info");
-        assert_eq!(filter_spec(env(None, Some("info")), debug).directives, "warn,platynui=debug");
-        assert_eq!(filter_spec(env(Some("zbus=debug"), Some("info")), debug).directives, "zbus=debug");
-    }
-
-    #[test]
-    fn an_unparsable_environment_value_is_skipped_and_named() {
-        let spec = filter_spec(|name| (name == "PLATYNUI_LOG_LEVEL").then(|| "platynui=loud".to_owned()), None);
-        assert_eq!(spec.directives, "warn");
-        assert_eq!(spec.rejected, [("PLATYNUI_LOG_LEVEL", "platynui=loud".to_owned())]);
-
-        let spec = filter_spec(|name| (name == "RUST_LOG").then(|| "zbus=loud".to_owned()), Some(tracing::Level::INFO));
-        assert_eq!(spec.directives, "warn,platynui=info", "a rejected RUST_LOG falls through to the next source");
-        assert_eq!(spec.rejected, [("RUST_LOG", "zbus=loud".to_owned())]);
+        let record = Record::from_rejection(rejection);
+        assert_eq!(record.level, tracing::Level::WARN);
+        let text = render_message(&record, std::thread::current().id(), |_| unreachable!("same thread"));
+        assert!(
+            text.starts_with(
+                "[native.log_bridge] log setting ignored; the next source applies \
+                 variable=\"PLATYNUI_LOG_LEVEL\" value=bridge-test-verbose reason="
+            ),
+            "{text}"
+        );
+        assert!(text.contains("RUST_LOG"), "the reason points to RUST_LOG for directives: {text}");
     }
 
     #[test]

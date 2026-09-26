@@ -16,15 +16,23 @@ from typing import Final
 
 import platynui_native
 
-#: The accepted levels, least verbose first.
-NATIVE_LOG_LEVELS: Final = ('error', 'warn', 'info', 'debug', 'trace')
+#: The levels, least verbose first.
+NATIVE_LOG_LEVELS: Final = ('off', 'error', 'warn', 'info', 'debug', 'trace')
+#: Further spellings, as the native extension and the command-line tools accept them.
+_ALIASES: Final = {'warning': 'warn', 'critical': 'error', 'fatal': 'error'}
+#: Every accepted name, as the native extension lists them.
+_ACCEPTED: Final = 'off, error, warn (warning), info, debug, trace, critical, fatal'
 
 
 def validate_native_log_level(value: str) -> str:
-    """Return ``value`` in canonical lower case, or raise naming the accepted levels."""
-    level = value.lower()
+    """Return ``value`` as one of `NATIVE_LOG_LEVELS`, or raise naming the accepted names.
+
+    Case-insensitive; ``warning`` means ``warn``, and ``critical`` and ``fatal`` mean ``error``.
+    """
+    level = value.strip().lower()
+    level = _ALIASES.get(level, level)
     if level not in NATIVE_LOG_LEVELS:
-        raise ValueError(f'native_log_level must be one of {", ".join(NATIVE_LOG_LEVELS)}, got {value!r}')
+        raise ValueError(f'native_log_level must be one of {_ACCEPTED}, got {value!r}')
     return level
 
 
