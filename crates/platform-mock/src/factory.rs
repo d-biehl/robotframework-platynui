@@ -17,6 +17,12 @@ use crate::pointer::MockPointerDevice;
 use crate::screenshot::MockScreenshot;
 use crate::window_manager::MockWindowManager;
 
+/// The mock platform's settings as diagnostics name them.
+const COMPONENT: &str = "platform.mock";
+
+/// The settings the mock platform reads: none.
+const KNOWN_KEYS: &[&str] = &[];
+
 /// Mock platform backend (id `"mock"`).
 pub struct MockPlatformFactory;
 
@@ -30,7 +36,12 @@ impl PlatformFactory for MockPlatformFactory {
         config.platform_backend() == Some("mock")
     }
 
-    fn create(&self, _config: &RuntimeConfig) -> Result<PlatformBundle, PlatformError> {
+    fn create(&self, config: &RuntimeConfig) -> Result<PlatformBundle, PlatformError> {
+        if let Some(settings) = config.platform(self.id()) {
+            for key in settings.unknown_keys(KNOWN_KEYS) {
+                tracing::warn!(component = COMPONENT, key = %key, "unknown setting; it is ignored");
+            }
+        }
         Ok(create_mock_bundle())
     }
 }
@@ -52,3 +63,54 @@ pub fn create_mock_bundle() -> PlatformBundle {
 /// Registered mock platform factory.
 pub static MOCK_PLATFORM_FACTORY: MockPlatformFactory = MockPlatformFactory;
 register_platform_factory!(&MOCK_PLATFORM_FACTORY);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use platynui_core::config::ConfigMap;
+    use std::sync::Mutex;
+
+    /// Runs `f` and returns the warnings it logged on this thread.
+    fn warnings(f: impl FnOnce()) -> Vec<String> {
+        #[derive(Clone)]
+        struct Captured(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for Captured {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().expect("log buffer").extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let buffer = Arc::new(Mutex::new(Vec::new()));
+        let writer = Captured(Arc::clone(&buffer));
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .without_time()
+            .with_writer(move || writer.clone())
+            .finish();
+        tracing::subscriber::with_default(subscriber, f);
+        let log = String::from_utf8(buffer.lock().expect("log buffer").clone()).expect("utf-8 log");
+        log.lines().filter(|line| line.trim_start().starts_with("WARN")).map(str::to_owned).collect()
+    }
+
+    #[test]
+    fn an_unknown_setting_warns_once_and_the_build_proceeds() {
+        let config = RuntimeConfig::new(
+            ConfigMap::new().with("backend", "mock").with("mock", ConfigMap::new().with("bogus", 1_i64)),
+            ConfigMap::new(),
+        );
+
+        let warnings = warnings(|| {
+            MOCK_PLATFORM_FACTORY.create(&config).expect("the mock bundle builds");
+        });
+
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("component=\"platform.mock\""), "{warnings:?}");
+        assert!(warnings[0].contains("key=bogus"), "{warnings:?}");
+        assert!(warnings[0].contains("unknown setting; it is ignored"), "{warnings:?}");
+    }
+}

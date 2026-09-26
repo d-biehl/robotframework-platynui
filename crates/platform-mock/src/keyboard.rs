@@ -1,7 +1,7 @@
 use platynui_core::platform::{KeyCode, KeyState, KeyboardDevice, KeyboardError, KeyboardEvent};
 use std::sync::LazyLock;
 use std::sync::Mutex;
-use tracing::debug;
+use tracing::{debug, trace};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeyboardLogEntry {
@@ -110,13 +110,14 @@ impl KeyboardDevice for MockKeyboardDevice {
             return Err(KeyboardError::UnsupportedKey("foreign key code".to_string()));
         };
         let name = mock.display_name();
+        // A record that names a key is trace-level: the key may belong to a secret.
         match event.state {
             KeyState::Press => {
-                debug!(key = %name, "mock-keyboard: press");
+                trace!(key = %name, "mock-keyboard: press");
                 state.push(KeyboardLogEntry::Press(name));
             }
             KeyState::Release => {
-                debug!(key = %name, "mock-keyboard: release");
+                trace!(key = %name, "mock-keyboard: release");
                 state.push(KeyboardLogEntry::Release(name));
             }
         }

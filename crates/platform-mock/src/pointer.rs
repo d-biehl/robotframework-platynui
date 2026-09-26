@@ -2,7 +2,7 @@ use platynui_core::platform::{PlatformError, PointerButton, PointerDevice, Scrol
 use platynui_core::types::{Point, Size};
 use std::sync::Mutex;
 use std::time::Duration;
-use tracing::debug;
+use tracing::{debug, trace};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum PointerLogEntry {
@@ -55,7 +55,7 @@ impl PointerDevice for MockPointerDevice {
         let mut state = POINTER_STATE.lock().unwrap();
         state.position = (point.x(), point.y());
         state.push(PointerLogEntry::Move(point));
-        debug!(x = point.x(), y = point.y(), "mock-pointer: move");
+        trace!(x = point.x(), y = point.y(), "pointer moved");
         Ok(())
     }
 
