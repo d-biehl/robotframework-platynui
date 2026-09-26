@@ -6,7 +6,7 @@
 
 ## 1. The concept and the rules
 
-- [ ] 1.1 Write `dev-docs/logging.md` (design decisions 1–11) as normative, explanatory prose with examples. Cover:
+- [x] 1.1 Write `dev-docs/logging.md` (design decisions 1–11) as normative, explanatory prose with examples. Cover:
   - the channels: native diagnostics, and the Python library's own records including the keyword lines; plus a short paragraph on diagnostics inside a target JVM that links `dev-docs/java-toolkits.md` and `AgentLog` instead of restating them;
   - the level table and who sees each level (proposal, *The levels*), including that PlatynUI's Python code logs no diagnostic at info;
   - slow calls: debug per call against one threshold constant per call class, a warning once per episode for a subject that stays slow;
@@ -23,7 +23,7 @@
   - how to look at a run's warnings (`robotcode results log --level WARN --execution-messages`), and that a healthy run has none from PlatynUI.
 
   It states rules, not the review's counts. Verify it names every requirement of `diagnostic-logging`.
-- [ ] 1.2 Replace `.github/instructions/tracing.instructions.md` with `.github/instructions/logging.instructions.md` (`applyTo: '**/*.rs,**/*.py'`), a checklist that links `dev-docs/logging.md`. It contains:
+- [x] 1.2 Replace `.github/instructions/tracing.instructions.md` with `.github/instructions/logging.instructions.md` (`applyTo: '**/*.rs,**/*.py'`), a checklist that links `dev-docs/logging.md`. It contains:
   - §1 (dependencies), with the feature sets of `platynui-log-filter` (`fmt` for the CLI and the Inspector, `log` for the Inspector only, with the reason);
   - §4 (import style, structured fields, field formatting, the naming pitfall), with examples that follow the message style and log-or-return: `error = %err` instead of `%err` (`:143`), and no warning for a returned failure (`:127-128`);
   - one line per level;
@@ -39,7 +39,7 @@
   - AGENTS.md's Design Docs list gains `dev-docs/logging.md` (levels, log-or-return, once per episode, Python loggers, the level knob).
 
   Verify with `grep -rn "tracing.instructions" --exclude-dir=openspec --exclude-dir=target --exclude-dir=.venv --exclude-dir=.git .` that nothing points to the old name.
-- [ ] 1.3 Correct the contradicting developer documents:
+- [x] 1.3 Correct the contradicting developer documents:
   - `dev-docs/python-library-design.md` §A.9.7 (`:3525-3532`) becomes a pointer to the concept, with an English summary line; `:3452` names `platynui.core.adapter_devices`;
   - `dev-docs/python-bindings.md`: the Logging section keeps the bridge mechanics and links the concept; `:40` says that an unknown top-level bucket, a bucket that is not a dict and an unknown setting key of an active component are reported as warnings, that a non-string key and a value of an unsupported type are warned about with their dotted path and Python type, that a wrongly typed setting is warned about by its component, which applies its default, and that unclaimed component ids stay debug; `:52` names `platynui.core.adapter_devices`; `:64-67` say that `PLATYNUI_LOG_LEVEL` takes a single level with the same meaning as the requested level, that `RUST_LOG` is the only source of directives, and that `error` and `off` apply to every module while `warn` to `trace` lower only PlatynUI's own crates; `:69` says that a rejected value is reported once per process, naming the variable and the value;
   - `dev-docs/error-handling.md:176`: "If both are useful, record the context at debug and return the typed error; only the layer that swallows a failure or decides its consequence logs it above debug (see `dev-docs/logging.md`).";
@@ -50,7 +50,7 @@
 
 ## 2. Failing tests first — building blocks
 
-- [ ] 2.1 Add unit tests in `crates/core` for the not-yet-existing `diagnostics::Transitions<K>` (design decision 3):
+- [x] 2.1 Add unit tests in `crates/core` for the not-yet-existing `diagnostics::Transitions<K>` (design decision 3):
   - `Started` then `Continuing`;
   - `recovered` re-arms, and is false for a key that never failed;
   - independent keys;
@@ -59,7 +59,7 @@
   - `failed` and `recovered` accept a borrowed key, such as `&str` for `String` keys.
 
   Verify `just test-crate platynui-core` fails to compile.
-- [ ] 2.2 Add unit tests in `crates/core` for `ui::describe` with stub nodes (design decision 4):
+- [x] 2.2 Add unit tests in `crates/core` for `ui::describe` with stub nodes (design decision 4):
   - `Button "OK"` without id;
   - `Button "OK" #ok` with id;
   - an id that is empty after trimming is treated as absent;
@@ -69,7 +69,7 @@
   - a name of 61 characters with a line break at position 59 ends in `\n…`, because the name is cut before it is escaped.
 
   Verify they fail to compile.
-- [ ] 2.3 Create `crates/log-filter` (package `platynui-log-filter`) with tests only (design decision 5).
+- [x] 2.3 Create `crates/log-filter` (package `platynui-log-filter`) with tests only (design decision 5).
 
   `parse_level`:
   - is case-insensitive;
@@ -92,17 +92,17 @@
 
 ## 3. Building blocks
 
-- [ ] 3.1 Implement `platynui_core::diagnostics::Transitions<K>` and `platynui_core::ui::describe` without a `tracing` dependency. Verify:
+- [x] 3.1 Implement `platynui_core::diagnostics::Transitions<K>` and `platynui_core::ui::describe` without a `tracing` dependency. Verify:
   - 2.1 and 2.2 pass;
   - `cargo tree -p platynui-core -e normal --prefix none | grep -c '^tracing '` prints `0`.
-- [ ] 3.2 Implement `crates/log-filter` with:
+- [x] 3.2 Implement `crates/log-filter` with:
   - `parse_level(&str) -> Result<LevelFilter, UnknownLevel>`, where `UnknownLevel` implements `Error` and `Display`, so that it serves directly as a clap `value_parser`;
   - `filter_spec`, reporting each rejected (variable, value) pair once per process;
   - the `fmt` feature: `init_stderr(requested)`, using `try_init` and reporting rejected values and an init failure without panicking;
   - the `log` feature, which enables `tracing-subscriber/tracing-log` and lets `try_init` install `LogTracer`, with no manual `LogTracer::init`.
 
   Declare dependencies per crate. Add the crate to AGENTS.md's crate list and `platynui-log-filter` to `windows_rust_packages` and `macos_rust_packages` in the justfile. Verify 2.3 passes and `just cross-target-checks` builds it.
-- [ ] 3.3 Switch the extension to `platynui-log-filter`:
+- [x] 3.3 Switch the extension to `platynui-log-filter`:
   - move `filter_spec` and its tests out of `packages/native/src/log_bridge.rs`, and use `parse_level` in `set_log_level`;
   - make `Runtime(...)`, `Runtime.new_with_mock()` and `Runtime.shutdown()` deliver queued records before they return or raise (`shutdown` after releasing the lock) (design decision 12);
   - in `src/PlatynUI/core/native_logging.py`, normalize `native_log_level` case-insensitively (`warning`→`warn`, `critical`/`fatal`→`error`), accept `off` and rank it below `error`, before ranking;
@@ -118,7 +118,7 @@
   - at `native_log_level=info`, `rt.shutdown()` delivers its record before it returns.
 
   Verify with `just test-crate platynui_native` and `just test-python`.
-- [ ] 3.4 Switch the CLI and the Inspector to `init_stderr`:
+- [x] 3.4 Switch the CLI and the Inspector to `init_stderr`:
   - `crates/cli/src/lib.rs:44-74`;
   - `apps/inspector/src/lib.rs:559-579` (`log`).
 
@@ -131,7 +131,7 @@
   - `RUST_LOG=zbus` shows zbus records.
 
   Also verify the Inspector: a test in `crates/log-filter`, built with `--features fmt,log` in its own test binary, shows that after `init_stderr(Some(DEBUG))` a `log::debug!` record under a `platynui_*` target is emitted and one under another target is not; an argument test shows that the Inspector's `--log-level WARNING` parses and `--log-level verbose` is rejected; and in the X11 session, the Inspector started with `RUST_LOG=eframe=debug` prints eframe's "Using the … renderer" record on stderr, while with `--log-level debug` alone it prints `platynui_*` debug records and no `eframe` record.
-- [ ] 3.5 Expose `UiNode.describe()` in `packages/native/src/runtime.rs` and `_native.pyi`, and give `__repr__`/`__str__` a form without provider calls that shows the runtime id (design decision 4). Add pytest cases against the mock:
+- [x] 3.5 Expose `UiNode.describe()` in `packages/native/src/runtime.rs` and `_native.pyi`, and give `__repr__`/`__str__` a form without provider calls that shows the runtime id (design decision 4). Add pytest cases against the mock:
   - `node.describe() == 'Button "OK"'` for the OK button;
   - `repr(node)` contains its runtime id.
 
@@ -139,7 +139,7 @@
 
 ## 4. Failing tests first — configuration, keyboard and the Python library
 
-- [ ] 4.1 Add Rust tests for configuration reporting (design decision 8). Add `tracing-subscriber` (`fmt`) as a dev-dependency of `platynui-runtime`, as `provider-atspi` has. Cover:
+- [x] 4.1 Add Rust tests for configuration reporting (design decision 8). Add `tracing-subscriber` (`fmt`) as a dev-dependency of `platynui-runtime`, as `provider-atspi` has. Cover:
   - `ConfigMap::unknown_keys(known)` lists the keys not in `known` and always treats `enabled` as known;
   - `ConfigMap::try_bool/try_i64/try_str/try_map` return `Ok(None)`, `Ok(Some)` or `Err(ConfigTypeMismatch { key, expected, found })`;
   - a runtime with `config={'platform': {'backend': 'mock', 'mock': {'bogus': 1}}}` logs one warning naming `platform.mock` and `bogus`;
@@ -149,12 +149,12 @@
   - the X11 factory with `display = 1` warns naming `platform.x11` and `display`, although the build then fails for lack of an X server, because the check runs first.
 
   Verify they fail today.
-- [ ] 4.2 Add pytest cases in `packages/native/tests`:
+- [x] 4.2 Add pytest cases in `packages/native/tests`:
   - the profile extractors: `{'after_click_delay_ms': '100ms'}` raises `TypeError` naming the key and "number"; `{'speed_factr': 2}` produces one warning naming `speed_factr` through the log bridge, and the call proceeds;
   - the configuration binding, in the mock build with `{'platform': {'backend': 'mock'}}`: an added top-level key `platfrom` warns naming it and the accepted buckets `platform` and `providers`; `{'providers': 'atspi'}` warns naming `providers` and `str`; a non-string key such as `{'platform': {'backend': 'mock', 1: {}}}` warns naming the key and `int`; a leaf of an unsupported type such as a `pathlib.Path` warns naming its dotted path and the Python type.
 
   Verify they fail today.
-- [ ] 4.3 Add runtime unit tests for typed text (design decision 7), with a stub keyboard device that rejects one character, rejects every multi-character name except `Ctrl`, and can fail sending. Use fragments that cannot occur in a message by chance, such as `Qz7`. Positions are 1-based characters of the text the runtime receives:
+- [x] 4.3 Add runtime unit tests for typed text (design decision 7), with a stub keyboard device that rejects one character, rejects every multi-character name except `Ctrl`, and can fail sending. Use fragments that cannot occur in a message by chance, such as `Qz7`. Positions are 1-based characters of the text the runtime receives:
   - a text `Qz7` followed by the rejected character fails with an error naming the position, the character and the device's reason, and without `Qz7`;
   - the rejected character written as a `\u` escape is reported at its backslash;
   - `Qz7<Kq9>w` names `Kq9`, its position and how to write a literal `<`, without `Qz7`;
@@ -165,7 +165,7 @@
   - a send failure keeps the device's reason, and its sensitive rendering says only that sending failed; the sensitive rendering of a runtime without a platform says that no keyboard device is ready.
 
   The existing test that matches `Parse(_)` (`keyboard_sequence.rs:330`) follows the new variant shape. Verify all fail today (`crates/runtime/src/keyboard_sequence.rs:16-23`, `:96-110`, `crates/runtime/src/runtime/error.rs:21-27`).
-- [ ] 4.4 Add the RF-level tests for the keyword layer. Use a fixture suite under `tests/PlatynUI/robot/`, following the `robot-test-style` skill, run with `python -m robot` in a subprocess and read with `ExecutionResult`, as `test_native_logging_rf.py` does. Assert, against the mock:
+- [x] 4.4 Add the RF-level tests for the keyword layer. Use a fixture suite under `tests/PlatynUI/robot/`, following the `robot-test-style` skill, run with `python -m robot` in a subprocess and read with `ExecutionResult`, as `test_native_logging_rf.py` does. Assert, against the mock:
   - `Pointer Click` on the OK button at `--loglevel DEBUG` logs one DEBUG line in the form of design decision 6, with `Button "OK"`, the coordinates, the point source and `LEFT`, and there is no such line at `--loglevel INFO`;
   - without `native_log_level`, a run that creates the runtime and clicks contains no native INFO record; with `native_log_level=info`, the runtime's initialization record is at INFO and names the backend `mock` and the provider id `mock`, and the ten `Pointer Click` keywords contain no native INFO record. The fixture creates the runtime with an earlier keyword that needs it, and counts native INFO records only inside the ten `Pointer Click` keywords, because runtime shutdown also logs at INFO;
   - `Keyboard Type` at `native_log_level=debug` and `--loglevel TRACE` logs the length of the text as written, no native `[module]` message or keyword line in `output.xml` contains the text, and no message contains `mock-keyboard: press` or `mock-keyboard: release`. A second run at `native_log_level=trace` shows those records, spelling the typed keys in order, which proves they moved to trace and were not removed;
@@ -183,7 +183,7 @@
   - a subprocess (`sys.executable -c …`) that replaces `sys.modules["robot.api.types"]` with a stub module that carries `KeywordArgument` and `KeywordName` but no `Secret` (as on RF < 7.4) before it imports `PlatynUI.BareMetal`, asserts that `get_type_hints(BareMetal.keyboard_type)["text"] is str`, types a plain string on the mock, and checks that a failing plain string still names the key. The test process itself is not changed.
 
   Verify all fail today, except the older-RF subprocess test, which guards the fallback and passes before and after the change.
-- [ ] 4.5 Update `tests/PlatynUI/test_devices.py:330-360` to the logger name `platynui.core.adapter_devices`. Verify it fails until the rename lands.
+- [x] 4.5 Update `tests/PlatynUI/test_devices.py:330-360` to the logger name `platynui.core.adapter_devices`. Verify it fails until the rename lands.
 
 ## 5. The high-priority findings and typed text
 
@@ -203,7 +203,7 @@ Each item names the verified location. Where the path is reachable without a dis
   - 4.1 and the configuration cases of 4.2 pass;
   - every PlatynUI factory has a unit test that builds it with a bogus key and asserts one warning;
   - the Java and UIA checks run on Windows (6.3).
-- [ ] 5.2 Runtime:
+- [x] 5.2 Runtime:
   - `desktop.rs:134`: runtime-owned latch per provider — `error!` naming the provider on `Started`, `debug!` on `Continuing`, re-armed on the next Ok, which records one debug naming the provider. Test with a failing fake provider over repeated enumerations: one error, the debug record of the recovery, and after a successful and then a failing enumeration, a second error.
   - `mod.rs:149`: warn when no provider is active.
   - `mod.rs:341`, removing the warn at `:350`: warn naming the candidate backends and what stops working.
@@ -214,7 +214,7 @@ Each item names the verified location. Where the path is reachable without a dis
   - `pointer.rs:519`: `warn!` with the requested and clamped coordinates.
 
   Verify each with a unit test using a scoped subscriber; for the missing-platform errors, that highlight, screenshot and pointer on a runtime without a platform return the new text.
-- [ ] 5.3 AT-SPI (design decisions 3 and 12):
+- [x] 5.3 AT-SPI (design decisions 3 and 12):
   - a provider-owned `Arc<Transitions<String>>` keyed by bus name, and a map from bus name to application name and pid, filled during enumeration (`crates/provider-atspi/src/lib.rs:202-254`, `identity::peer_of`); both are pruned with `retain` against the registry's applications at each enumeration, and passed into `AtspiNode::new` like the popup registry;
   - a latch-aware helper that takes the latch, the bus name, the call name and its timeout (`block_on_timeout_call` passes `TIMEOUT_CALL`). The first timeout of a bus warns with `application`, `pid` (when known), `bus_name`, `call` and `timeout_ms`; later timeouts are debug; a successful call never re-arms. It serves the 26 per-node call sites of `node.rs` (all 28 except the two proxy builds), the per-application reads of the enumeration (`lib.rs:243-254`: child count, interfaces, role, name) and `popup_is_live` (`popups.rs:179`), each keyed by the application's bus name. When the first timeout of an episode makes enumeration skip an application, its warning says that the application's elements are missing from query results;
   - calls without an application subject keep a latch-free helper that logs at debug: the proxy builds (`node.rs:453`, `:511`, `lib.rs:231`), `popups.rs:225`, `identity.rs:259`, the registry calls at `lib.rs:190-204` (`block_on_timeout_init`) and the registry reads of `application_for_pid` (`lib.rs:359-369`);
@@ -229,7 +229,7 @@ Each item names the verified location. Where the path is reachable without a dis
   - a unit test with a scoped subscriber showing no warning on a returned timeout;
   - `just test-crate platynui-provider-atspi` green;
   - after the X11 lane, `robotcode results log --level WARN --execution-messages` shows no timeout warning.
-- [ ] 5.4 Typed text (design decision 7):
+- [x] 5.4 Typed text (design decision 7):
   - positions: convert pest's byte offsets to character positions; `SequenceSegment::Text` holds `(char, position)` pairs, and shortcut keys keep their positions;
   - errors: give `KeyboardActionError` (`crates/runtime/src/runtime/error.rs:21-27`) the positioned variant with the character or key name, the shortcut flag and the device error, raised while resolving (`keyboard_sequence.rs:99`, `:109`); `ResolvedKeyboardSequence`, `KeyboardEngine::execute` and core's `KeyboardError` stay unchanged;
   - the parse error stores the position and the explanation instead of pest's error; escape errors add the position;
@@ -241,7 +241,7 @@ Each item names the verified location. Where the path is reachable without a dis
   - 4.3 and the keyboard cases of 4.4 pass;
   - a pytest on `Runtime.new_with_mock()`: `keyboard_type('Qz7<Kq9>w')` raises a `KeyboardError` naming `Kq9` without `Qz7`, and `keyboard_type('Qz7<ab')` one naming the position and the unclosed `<` without `Qz7`; with `sensitive=True`, neither contains a fragment;
   - once by hand in the X11 session: a suite that imports BareMetal with `native_log_level=debug` and runs at `--loglevel TRACE` types a `Secret`, read from an environment variable, that contains a character outside the `de` layout (such as `鍵`). `output.xml` contains no `will use dynamic remap` record and not that character, while the runtime's `keyboard execute` record of the same keyword is there.
-- [ ] 5.5 Wayland input (`crates/platform-linux-wayland/src/input/mod.rs:105`): the `try_*` helpers (`:173-223`) return their failure. When a later backend succeeds, `initialize` records each rejected one with its reason at debug, and the record of the chosen backend also names the `compositor` type that fixed the order of the attempts; when none succeeds, the final warning names each backend with its reason. Verify with a unit test of both summaries, and in the sidecar harness with a dead control socket and no EIS.
+- [x] 5.5 Wayland input (`crates/platform-linux-wayland/src/input/mod.rs:105`): the `try_*` helpers (`:173-223`) return their failure. When a later backend succeeds, `initialize` records each rejected one with its reason at debug, and the record of the chosen backend also names the `compositor` type that fixed the order of the attempts; when none succeeds, the final warning names each backend with its reason. Verify with a unit test of both summaries, and in the sidecar harness with a dead control socket and no EIS.
 - [ ] 5.6 Java agent (Windows):
   - `crates/provider-java/src/agent/session.rs:213`: an answer with an error resets the failure count and logs debug; only timeouts and transport, protocol and no-agent errors count toward degraded;
   - `agent/backend.rs:177`: version mismatch warned once per pid through the latch, with `retain` against the live handshakes next to `retire_dead_sessions`; a JVM that `retain` forgets records one debug naming its pid.
@@ -253,13 +253,13 @@ Each item names the verified location. Where the path is reachable without a dis
   - `crates/provider-windows-uia/src/node.rs:596`: after activation, debug when the window did not become the foreground window (decision 10), plus a debug at entry.
 
   Verify with `just clippy-windows` and `cargo clippy --target <windows target> -p platynui-java-agent`. Behavior on Windows (6.3), including an agent-served Swing application without the DLL, which logs no warning about the bridge.
-- [ ] 5.8 Double reports (design decision 12):
+- [x] 5.8 Double reports (design decision 12):
   - `crates/platform-windows/src/pointer.rs:98-99`: read the error first, then log it at debug, then return it (`let err = last_error("SendInput"); tracing::debug!(error = %err, …); return Err(err);`), so that no subscriber runs between `SendInput` and `GetLastError`;
   - `crates/platform-windows/src/screenshot.rs:89-96`: put the `windows::core::Error` into the returned details and log it at debug after building the error;
   - `crates/platform-linux-x11/src/screenshot.rs:41-42`: debug.
 
   Verify with `just clippy-windows`, and a unit test or review that each failure is still returned with its code.
-- [ ] 5.9 macOS, mock and test builds:
+- [x] 5.9 macOS, mock and test builds:
   - `crates/provider-macos-ax/src/lib.rs:29`: warn once per process;
   - `crates/platform-mock/src/pointer.rs:58`: `trace!` per move;
   - `packages/native/src/runtime.rs:769`: in a `mock-provider` build, warn once per process when a runtime is created without the mock backend; that construction records no other warning (5.2).
@@ -268,9 +268,9 @@ Each item names the verified location. Where the path is reachable without a dis
   - a unit test in `crates/provider-macos-ax`, which builds on Linux: two provider creations give one warning; and `just check-macos-arm`;
   - a pytest that runs in a subprocess: two `Runtime()` constructions in the mock build log exactly one warning in total, the test-build one, which has reached Python `logging` when the first constructor returns (3.3), and `Runtime.new_with_mock()` logs none;
   - the mock lane unchanged.
-- [ ] 5.10 CLI (`crates/cli/src/commands/watch.rs:46`): warn when no active provider has event capabilities, otherwise debug. Verify with a unit test of the provider check (no event providers gives the warning) and a CLI test against the mock (which has events) with no warning.
-- [ ] 5.11 Extension profile extractors (`packages/native/src/runtime.rs:2819`, `:2953`, `:3029`, `:3171`, `:3284`): `TypeError` for a wrong type, warn for an unknown key. Rebuild the mock module. Verify the profile cases of 4.2 pass.
-- [ ] 5.12 Python library:
+- [x] 5.10 CLI (`crates/cli/src/commands/watch.rs:46`): warn when no active provider has event capabilities, otherwise debug. Verify with a unit test of the provider check (no event providers gives the warning) and a CLI test against the mock (which has events) with no warning.
+- [x] 5.11 Extension profile extractors (`packages/native/src/runtime.rs:2819`, `:2953`, `:3029`, `:3171`, `:3284`): `TypeError` for a wrong type, warn for an unknown key. Rebuild the mock module. Verify the profile cases of 4.2 pass.
+- [x] 5.12 Python library:
   - rename the logger (4.5); BareMetal logs through `logging.getLogger("platynui.baremetal")`, and `robot.api.logger` stays only for the screenshot embedding (`src/PlatynUI/BareMetal/__init__.py:2375`, `:2393`); `:2441` (Highlight skips an element whose bounds cannot be read) logs through `platynui.baremetal` at debug instead of `logger.trace`;
   - add `_log_action(verb, descriptions, **details)`, which takes descriptions, never nodes; each action keyword of design decision 6 builds them before it acts, only when the logger is enabled for DEBUG, and logs the line in decision 6's form after success; `_resolve_screen_point` returns the point source;
   - `Secret` support in `Keyboard Type`, `Keyboard Press` and `Keyboard Release` with the conditional import and the `KeyboardText` annotation of design decision 7, passing a `str` with `sensitive=False` and a `Secret`'s `.value` with `sensitive=True`; for a plain `str`, an error that carries the `\<` hint adds the Robot Framework form `\\<` (and `\\\\` for a backslash);
@@ -282,7 +282,7 @@ Each item names the verified location. Where the path is reachable without a dis
   - 4.4 and 4.5 pass under `just test-python`;
   - `just test-baremetal` stays green;
   - `just mypy` is clean.
-- [ ] 5.13 User-facing documentation:
+- [x] 5.13 User-facing documentation:
   - the BareMetal library introduction (`src/PlatynUI/BareMetal/__init__.py:938`, `:953-955`, `:960-973`): the level names (`off`, `error`, `warn`/`warning`, `info`, `debug`, `trace`, `critical`, `fatal`); that a single level raises only PlatynUI's own detail, while `error` and `off` apply to every module, and `RUST_LOG` is the way into third-party modules and the only source of filter directives; that an unknown setting key of the active backend or provider and a misspelled top-level key are reported as warnings, while blocks for other platforms stay silent; that a profile value of the wrong type fails;
   - a short "Reporting a problem" paragraph there: `native_log_level=debug` with `--loglevel DEBUG`, attach `output.xml`; `trace` names every typed key, a `Secret`'s included, so a trace log of a run that types secrets is not for sharing; the same caveat in `Keyboard Type`'s documentation;
   - the `Runtime` docstring (`packages/native/src/runtime.rs:760-763`) and its stub, and `src/PlatynUI/core/adapter_devices.py:45`.
@@ -291,8 +291,8 @@ Each item names the verified location. Where the path is reachable without a dis
 
 ## 6. Verification
 
-- [ ] 6.1 Run `just check`, `just test`, `just test-python`, `just cross-target-checks`, then `just build-native`. Verify everything is green.
-- [ ] 6.2 Run `just test-baremetal`, `just headless=true test-acceptance-x11` and `just headless=true test-acceptance-compositor`. After each lane, run `just test-summary` and `uv run --no-sync robotcode results log --level WARN --execution-messages`. Verify:
+- [x] 6.1 Run `just check`, `just test`, `just test-python`, `just cross-target-checks`, then `just build-native`. Verify everything is green.
+- [x] 6.2 Run `just test-baremetal`, `just headless=true test-acceptance-x11` and `just headless=true test-acceptance-compositor`. After each lane, run `just test-summary` and `uv run --no-sync robotcode results log --level WARN --execution-messages`. Verify:
   - all lanes are green;
   - no warning or error comes from PlatynUI;
   - any entry is fixed in this change or recorded as a follow-up;
@@ -305,7 +305,7 @@ Each item names the verified location. Where the path is reachable without a dis
 
 ## 7. Commit (only when the user asks)
 
-- [ ] 7.1 Commit in reviewable steps, each lint-clean on its own:
+- [x] 7.1 Commit in reviewable steps, each lint-clean on its own:
   - concept and rules;
   - core building blocks and `platynui-log-filter`;
   - extension and binaries;

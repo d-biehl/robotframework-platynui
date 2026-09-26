@@ -193,7 +193,7 @@ Reports that happen once per process rather than per subject use a process-wide 
 - `Role "Name"`, with the role's local name (`Button`);
 - plus ` #Id` when `UiNode::id()` is set and not empty after trimming;
 - with the name cut at 60 characters: a longer name keeps its first 59 characters, cut at a character boundary, followed by `…`;
-- with name and id escaped like Rust's `char::escape_debug` (quotes, backslashes and control characters such as a line break), so that a description is always one line. The name is cut first, counting its own characters, and escaped afterwards, so that an escape is never split.
+- with name and id escaped as Rust's `Debug` escapes a string (double quotes, backslashes and control characters such as a line break; single quotes stay as they are), so that a description is always one line. The name is cut first, counting its own characters, and escaped afterwards, so that an escape is never split.
 
 Where it is used:
 
