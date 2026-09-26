@@ -135,7 +135,7 @@ impl AgentSession {
             match self.reconnect() {
                 Ok(client) => *slot = Some(client),
                 Err(error) => {
-                    self.note_failure(method, &error);
+                    self.note_error(method, &error);
                     return Err(error);
                 }
             }
@@ -158,7 +158,7 @@ impl AgentSession {
                     debug!(pid = self.pid, method, "dropping the connection; it can no longer be trusted");
                     *slot = None;
                 }
-                self.note_failure(method, &error);
+                self.note_error(method, &error);
                 Err(error)
             }
         }
@@ -210,6 +210,35 @@ impl AgentSession {
         }
     }
 
+    /// Whether a failed call counts toward degraded: only a failure that says
+    /// the agent may be wedged or gone — a timeout, a connection that broke or
+    /// fell out of step, or no agent at all.
+    ///
+    /// Anything else is an answer, and an agent that answers is alive: an
+    /// element that no longer exists, an unsupported method, a refused token.
+    /// Counting those would condemn a healthy JVM whose test merely asks about
+    /// vanished elements, and make all its calls fail fast.
+    fn counts_toward_degraded(error: &AgentError) -> bool {
+        matches!(
+            error,
+            AgentError::Timeout { .. }
+                | AgentError::Transport { .. }
+                | AgentError::Protocol { .. }
+                | AgentError::NoAgent { .. }
+        )
+    }
+
+    fn note_error(&self, method: &str, error: &AgentError) {
+        if Self::counts_toward_degraded(error) {
+            self.note_failure(method, error);
+        } else {
+            // The failure is the caller's to report; that the agent is alive is
+            // the session's.
+            debug!(pid = self.pid, call = method, error = %error, "agent answered the call with an error");
+            self.note_success();
+        }
+    }
+
     fn note_failure(&self, method: &str, error: &AgentError) {
         let failures = self.failures.fetch_add(1, Ordering::AcqRel) + 1;
         if failures >= DEGRADED_THRESHOLD && !self.degraded.swap(true, Ordering::AcqRel) {
@@ -249,3 +278,89 @@ impl AgentSession {
 // one deadline per interval rather than one per node.
 const _: () = assert!(DEGRADED_THRESHOLD > 1);
 const _: () = assert!(PROBE_INTERVAL.as_millis() >= 1_000);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A session without a connection, for the failure bookkeeping; a call on
+    /// it looks for a handshake file to reconnect with.
+    fn unconnected(pid: u32) -> AgentSession {
+        AgentSession {
+            pid,
+            version: String::new(),
+            toolkits: Vec::new(),
+            client: Mutex::new(None),
+            config: ClientConfig::default(),
+            failures: AtomicU64::new(0),
+            degraded: AtomicBool::new(false),
+            started: Instant::now(),
+            last_probe_ms: AtomicU64::new(0),
+            closed: AtomicBool::new(false),
+        }
+    }
+
+    fn timeout() -> AgentError {
+        AgentError::Timeout { method: "ui/windows".into(), timeout_ms: 5_000 }
+    }
+
+    fn answer() -> AgentError {
+        AgentError::Call { method: "element/attributes".into(), code: -32000, message: "no such element".into() }
+    }
+
+    #[test]
+    fn only_a_sign_that_the_agent_is_gone_counts_toward_degraded() {
+        for error in [
+            timeout(),
+            AgentError::Transport { details: "connection reset".into() },
+            AgentError::Protocol { details: "crossed ids".into() },
+            AgentError::NoAgent { pid: 4711 },
+        ] {
+            assert!(AgentSession::counts_toward_degraded(&error), "{error}");
+        }
+        for error in [
+            answer(),
+            AgentError::Unauthenticated { pid: 4711 },
+            AgentError::VersionMismatch { pid: 4711, agent: "1".into(), client: "2".into() },
+        ] {
+            assert!(!AgentSession::counts_toward_degraded(&error), "{error}");
+        }
+    }
+
+    /// An answer proves the agent alive, so it breaks a run of timeouts: a JVM
+    /// is condemned only by failures in a row that say it is not answering.
+    #[test]
+    fn an_answer_with_an_error_resets_the_failure_count() {
+        let session = unconnected(4711);
+        session.note_error("ui/windows", &timeout());
+        session.note_error("ui/windows", &timeout());
+        session.note_error("element/attributes", &answer());
+        session.note_error("ui/windows", &timeout());
+        session.note_error("ui/windows", &timeout());
+        assert!(!session.is_degraded(), "the answer in between must have reset the count");
+        session.note_error("ui/windows", &timeout());
+        assert!(session.is_degraded(), "three timeouts in a row condemn the JVM");
+    }
+
+    #[test]
+    fn an_answer_with_an_error_ends_a_degraded_state() {
+        let session = unconnected(4711);
+        for _ in 0..DEGRADED_THRESHOLD {
+            session.note_error("ui/windows", &timeout());
+        }
+        assert!(session.is_degraded());
+        session.note_error("element/attributes", &answer());
+        assert!(!session.is_degraded(), "an agent that answers is not degraded");
+    }
+
+    #[test]
+    fn a_session_whose_agent_is_gone_becomes_degraded() {
+        // No handshake file exists for this pid, so every call's reconnect
+        // finds no agent, which counts.
+        let session = unconnected(u32::MAX);
+        for _ in 0..DEGRADED_THRESHOLD {
+            assert!(matches!(session.call("ui/windows", json!({})), Err(AgentError::NoAgent { .. })));
+        }
+        assert!(session.is_degraded());
+    }
+}

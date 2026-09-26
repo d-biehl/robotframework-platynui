@@ -5,7 +5,7 @@
 //! its nodes through untouched — `@Technology = "JAB"`, patterns, node
 //! validity and RuntimeIds stay exactly what that crate produces.
 
-use crate::backend::{Enumeration, ForeignWindows, JavaBackend, UnservedJavaWindow};
+use crate::backend::{Enumeration, ForeignWindows, JavaBackend, UnservedCause, UnservedJavaWindow};
 use platynui_core::config::ConfigMap;
 use platynui_core::platform::WindowManager;
 use platynui_core::provider::ProviderError;
@@ -54,6 +54,10 @@ impl JavaBackend for JabBackend {
                     window: window.window,
                     pid: window.pid,
                     class_name: window.class_name,
+                    cause: match window.cause {
+                        platynui_provider_java_jab::UnservedCause::BridgeNotEnabled => UnservedCause::BridgeNotEnabled,
+                        platynui_provider_java_jab::UnservedCause::DllNotFound => UnservedCause::BridgeDllNotFound,
+                    },
                 })
                 .collect(),
             java_processes: pass.java_processes,

@@ -140,7 +140,8 @@ impl ForeignWindows {
 }
 
 /// A Java-looking top-level window a backend cannot reach — on Windows the
-/// signature of a Swing application whose Access Bridge is not enabled.
+/// signature of a Swing application whose Access Bridge is not enabled, or of
+/// any Swing application when the Access Bridge DLL is missing.
 pub struct UnservedJavaWindow {
     /// Native window handle, in the raw form the claims and diagnostic
     /// registries key on.
@@ -150,4 +151,18 @@ pub struct UnservedJavaWindow {
     /// Platform window class; the toolkit discriminator
     /// (`platynui_core::platform::java::JavaToolkit::from_window_class`).
     pub class_name: String,
+    /// Why the backend cannot reach it, which decides what the user is told.
+    pub cause: UnservedCause,
+}
+
+/// Why a backend cannot reach a Java-looking window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnservedCause {
+    /// The channel is there, but the window's JVM does not use it: on Windows,
+    /// the Access Bridge is not enabled in that JVM. Reported per window, with
+    /// how to enable it.
+    BridgeNotEnabled,
+    /// The Access Bridge client DLL was not found, so the bridge reaches no
+    /// window at all. Reported once per process, with where to put the DLL.
+    BridgeDllNotFound,
 }

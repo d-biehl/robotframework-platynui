@@ -35,7 +35,7 @@ mod jab;
 mod provider;
 
 #[cfg(windows)]
-pub use backend::{Enumeration, JavaBackend, UnservedJavaWindow};
+pub use backend::{Enumeration, JavaBackend, UnservedCause, UnservedJavaWindow};
 #[cfg(windows)]
 pub use provider::{JAVA_FACTORY, JavaFactory, PROVIDER_ID, PROVIDER_NAME, TECHNOLOGY};
 

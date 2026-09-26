@@ -23,11 +23,16 @@
 //! not aliased and not diagnosed. The config layer ignores sections nobody
 //! claims, which is the right answer here: there is no released version that
 //! ever read those keys.
+//!
+//! Each part checks the settings it reads when it is built: the provider its
+//! own keys, each backend its sub-map. An unknown key and a value of the wrong
+//! type are warned about under `providers.java`, a backend's keys dotted
+//! (`agent.call_timeout_ms`), and the default applies.
 
 use crate::agent::AgentBackend;
-use crate::backend::{BackendOwnership, JavaBackend};
+use crate::backend::{BackendOwnership, JavaBackend, UnservedCause, UnservedJavaWindow};
 use crate::jab::JabBackend;
-use platynui_core::config::RuntimeConfig;
+use platynui_core::config::{ConfigMap, ConfigTypeMismatch, ENABLED_KEY, RuntimeConfig};
 use platynui_core::platform::{WindowManager, window_claims};
 use platynui_core::provider::{ProviderDescriptor, ProviderError, ProviderKind, UiTreeProvider, UiTreeProviderFactory};
 use platynui_core::register_provider;
@@ -44,8 +49,15 @@ pub const PROVIDER_NAME: &str = "Java";
 /// *backend's* `@Technology` (`"JAB"`, …) — this names the umbrella.
 pub const TECHNOLOGY: &str = "Java";
 
-/// Umbrella kill switch (`providers.java.enabled`).
-const ENABLED_KEY: &str = "enabled";
+/// The component the provider's settings are reported under.
+const COMPONENT: &str = "providers.java";
+
+/// The provider's own settings, besides the umbrella kill switch
+/// ([`ENABLED_KEY`], `providers.java.enabled`): the backends' sub-maps.
+const KNOWN_SETTINGS: &[&str] = &[crate::agent::BACKEND_ID, crate::jab::BACKEND_ID];
+
+/// Whether the missing Access Bridge DLL has been reported in this process.
+static BRIDGE_DLL_MISSING_REPORTED: AtomicBool = AtomicBool::new(false);
 
 static DESCRIPTOR: LazyLock<ProviderDescriptor> = LazyLock::new(|| {
     ProviderDescriptor::new(PROVIDER_ID, PROVIDER_NAME, TechnologyId::from(TECHNOLOGY), ProviderKind::Native)
@@ -73,26 +85,27 @@ impl JavaFactory {
     /// agent backend first and by nothing else.
     fn build(config: &RuntimeConfig) -> JavaProvider {
         let settings = config.provider(PROVIDER_ID);
+        if let Some(settings) = settings {
+            check_unknown_settings(settings, None, KNOWN_SETTINGS);
+        }
+        let enabled = settings.and_then(|java| setting(java.try_bool(ENABLED_KEY), None)).unwrap_or(true);
+        let agent_settings = settings.and_then(|java| setting(java.try_map(crate::agent::BACKEND_ID), None));
+        let jab_settings = settings.and_then(|java| setting(java.try_map(crate::jab::BACKEND_ID), None));
+
         let ownership = Arc::new(BackendOwnership::default());
         let mut backends: Vec<Box<dyn JavaBackend>> = Vec::new();
         let mut agent: Option<Arc<AgentBackend>> = None;
         // Umbrella off: build nothing at all, so no backend can load anything
         // and Java windows stay with the platform's native provider.
-        if settings.and_then(|java| java.get_bool(ENABLED_KEY)).unwrap_or(true) {
+        if enabled {
             // The agent goes first, and that single fact *is* the routing rule
             // (design 4): the agent only reports windows of JVMs that carry an
             // agent, so "prefer the agent when one is present, else the Access
             // Bridge" needs no condition anywhere — it is the order.
-            let backend = Arc::new(AgentBackend::from_config(
-                settings.and_then(|java| java.get_map(crate::agent::BACKEND_ID)),
-                Some(ownership.view(backends.len())),
-            ));
+            let backend = Arc::new(AgentBackend::from_config(agent_settings, Some(ownership.view(backends.len()))));
             agent = Some(Arc::clone(&backend));
             backends.push(Box::new(ArcBackend(backend)));
-            backends.push(Box::new(JabBackend::from_config(
-                settings.and_then(|java| java.get_map(crate::jab::BACKEND_ID)),
-                ownership.view(backends.len()),
-            )));
+            backends.push(Box::new(JabBackend::from_config(jab_settings, ownership.view(backends.len()))));
         }
         debug!(backends = ?backends.iter().map(|backend| backend.id()).collect::<Vec<_>>(), "Java provider built");
         JavaProvider::new(backends, ownership, agent)
@@ -266,10 +279,11 @@ impl UiTreeProvider for JavaProvider {
 
         self.sync_window_claims(&sweep.served);
         // "Tell the user this JVM is unreachable" turns on *no* backend reaching
-        // the window, which is the router's own knowledge.
-        let unreachable: Vec<crate::backend::UnservedJavaWindow> =
+        // the window, which is the router's own knowledge. Taken from the final
+        // sweep, so a window the agent took over after attaching is not reported.
+        let unreachable: Vec<UnservedJavaWindow> =
             sweep.unserved.into_iter().filter(|window| !sweep.served.contains(&window.window)).collect();
-        emit_enablement_diagnostics(&unreachable);
+        emit_enablement_diagnostics(&unreachable, &BRIDGE_DLL_MISSING_REPORTED);
 
         Ok(Box::new(sweep.nodes.into_iter()))
     }
@@ -307,14 +321,38 @@ fn unsupported_at_point(details: &str) -> ProviderError {
     ProviderError::UnsupportedOperation { operation: "element_at_point", details: Some(details.into()) }
 }
 
-/// Emit the shared "JVM window absent from native accessibility" diagnostic
-/// (see `platynui_core::platform::java`) for the Java-looking windows no
-/// backend serves — on Windows the "bridge not enabled" case. The shared
-/// registry de-duplicates per window, process-wide. Never mutates any
-/// target-side configuration; it only tells the user how to.
-fn emit_enablement_diagnostics(unreachable: &[crate::backend::UnservedJavaWindow]) {
+/// Tell the user why the Java-looking windows no backend serves stay unserved.
+/// Never mutates any target-side configuration; it only tells the user how to.
+///
+/// - The Access Bridge DLL is missing: one warning per process for all such
+///   windows (`dll_missing_reported` holds whether it was given), naming where
+///   the DLL can come from. Most Windows machines have no JDK, so the missing
+///   DLL is worth a warning only now that a window is left without a backend.
+/// - The bridge is not enabled in the window's JVM: the shared "JVM window
+///   absent from native accessibility" diagnostic (see
+///   `platynui_core::platform::java`), with how to enable it, which the shared
+///   registry de-duplicates per window, process-wide.
+fn emit_enablement_diagnostics(unreachable: &[UnservedJavaWindow], dll_missing_reported: &AtomicBool) {
     use platynui_core::platform::java::{JavaToolkit, jvm_unreachable_diagnostic_once};
-    for window in unreachable {
+    let without_dll: Vec<u32> = unreachable
+        .iter()
+        .filter(|window| window.cause == UnservedCause::BridgeDllNotFound)
+        .map(|window| window.pid)
+        .fold(Vec::new(), |mut pids, pid| {
+            if !pids.contains(&pid) {
+                pids.push(pid);
+            }
+            pids
+        });
+    if !without_dll.is_empty() && !dll_missing_reported.swap(true, Ordering::AcqRel) {
+        warn!(
+            pids = ?without_dll,
+            "Java Access Bridge DLL not found; the elements of Swing and AWT windows that the PlatynUI agent \
+             does not serve are missing from query results (set providers.java.jab.dll_path or PLATYNUI_JAB_DLL \
+             to the WindowsAccessBridge-64.dll of a 64-bit JDK, or put a 64-bit JDK on PATH)"
+        );
+    }
+    for window in unreachable.iter().filter(|window| window.cause == UnservedCause::BridgeNotEnabled) {
         let toolkit = JavaToolkit::from_window_class(&window.class_name).unwrap_or(JavaToolkit::Unknown);
         if let Some(hint) = jvm_unreachable_diagnostic_once(window.window, toolkit) {
             warn!(
@@ -324,6 +362,44 @@ fn emit_enablement_diagnostics(unreachable: &[crate::backend::UnservedJavaWindow
                 toolkit = toolkit.label(),
                 "JVM window is absent from native accessibility. {hint}"
             );
+        }
+    }
+}
+
+/// Warns for each key of `settings` that `known` does not list. `section` is
+/// the backend whose sub-map the settings are (`agent` for
+/// `providers.java.agent`), so that the key is reported dotted under the
+/// provider; `None` for the provider's own keys.
+pub(crate) fn check_unknown_settings(settings: &ConfigMap, section: Option<&str>, known: &[&str]) {
+    for key in settings.unknown_keys(known) {
+        warn!(component = COMPONENT, key = %SettingKey(section, key), "unknown setting; it is ignored");
+    }
+}
+
+/// The value of a setting, or `None` after a warning when it has the wrong
+/// type, so that the caller applies the default. `section` as for
+/// [`check_unknown_settings`].
+pub(crate) fn setting<T>(read: Result<Option<T>, ConfigTypeMismatch>, section: Option<&str>) -> Option<T> {
+    read.unwrap_or_else(|mismatch| {
+        warn!(
+            component = COMPONENT,
+            key = %SettingKey(section, &mismatch.key),
+            expected = mismatch.expected,
+            found = mismatch.found,
+            "setting has the wrong type; the default applies"
+        );
+        None
+    })
+}
+
+/// A setting's key relative to `providers.java`: `enabled`, `agent.jar`.
+struct SettingKey<'a>(Option<&'a str>, &'a str);
+
+impl std::fmt::Display for SettingKey<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            Some(section) => write!(f, "{section}.{}", self.1),
+            None => f.write_str(self.1),
         }
     }
 }
@@ -385,6 +461,7 @@ mod tests {
         id: &'static str,
         served: Arc<Mutex<Vec<u64>>>,
         unserved: Vec<u64>,
+        unserved_cause: UnservedCause,
         foreign: Option<Arc<crate::backend::ForeignWindows>>,
         shut_down: Arc<AtomicBool>,
     }
@@ -404,10 +481,21 @@ mod tests {
         unserved: &[u64],
         foreign: Option<Arc<crate::backend::ForeignWindows>>,
     ) -> (Box<dyn JavaBackend>, StubHandle) {
+        stub_with_cause(id, served, unserved, UnservedCause::BridgeNotEnabled, foreign)
+    }
+
+    fn stub_with_cause(
+        id: &'static str,
+        served: &[u64],
+        unserved: &[u64],
+        unserved_cause: UnservedCause,
+        foreign: Option<Arc<crate::backend::ForeignWindows>>,
+    ) -> (Box<dyn JavaBackend>, StubHandle) {
         let backend = StubBackend {
             id,
             served: Arc::new(Mutex::new(served.to_vec())),
             unserved: unserved.to_vec(),
+            unserved_cause,
             foreign,
             shut_down: Arc::new(AtomicBool::new(false)),
         };
@@ -434,7 +522,12 @@ mod tests {
                 unserved: self
                     .unserved
                     .iter()
-                    .map(|window| UnservedJavaWindow { window: *window, pid: 1, class_name: "SunAwtFrame".into() })
+                    .map(|window| UnservedJavaWindow {
+                        window: *window,
+                        pid: 1,
+                        class_name: "SunAwtFrame".into(),
+                        cause: self.unserved_cause,
+                    })
                     .collect(),
                 java_processes: Vec::new(),
             }
@@ -590,5 +683,150 @@ mod tests {
         let provider = JavaProvider::new(vec![backend], Arc::new(BackendOwnership::default()), None);
         let answer = provider.element_at_point(Point::new(10.0, 10.0));
         assert!(matches!(answer, Err(ProviderError::UnsupportedOperation { .. })));
+    }
+
+    fn warnings(log: &str) -> Vec<&str> {
+        log.lines().filter(|line| line.contains(" WARN ")).collect()
+    }
+
+    fn java_settings(settings: ConfigMap) -> RuntimeConfig {
+        RuntimeConfig::new(ConfigMap::new(), ConfigMap::new().with(PROVIDER_ID, settings))
+    }
+
+    #[test]
+    fn an_unknown_setting_is_reported_once() {
+        let (_provider, log) = logged(|| JavaFactory::build(&java_settings(ConfigMap::new().with("bogus", 1_i64))));
+        let warnings = warnings(&log);
+        assert_eq!(warnings.len(), 1, "{log}");
+        assert!(warnings[0].contains("providers.java") && warnings[0].contains("key=bogus"), "{log}");
+    }
+
+    /// The backends check their own sub-maps and report their keys dotted
+    /// under the provider, so the user finds the key where they wrote it.
+    #[test]
+    fn a_backends_unknown_setting_is_reported_dotted() {
+        let settings = ConfigMap::new()
+            .with(crate::agent::BACKEND_ID, ConfigMap::new().with("bogus", 1_i64))
+            .with(crate::jab::BACKEND_ID, ConfigMap::new().with("bogus", 1_i64));
+        let (_provider, log) = logged(|| JavaFactory::build(&java_settings(settings)));
+        let warnings = warnings(&log);
+        assert_eq!(warnings.len(), 2, "{log}");
+        assert!(warnings.iter().any(|line| line.contains("key=agent.bogus")), "{log}");
+        assert!(warnings.iter().any(|line| line.contains("key=jab.bogus")), "{log}");
+        assert!(warnings.iter().all(|line| line.contains("providers.java")), "{log}");
+    }
+
+    /// The diagnostic-logging scenario "a string where a flag was expected, Java".
+    #[test]
+    fn a_string_where_a_flag_was_expected_is_reported_and_the_default_applies() {
+        let settings = ConfigMap::new().with(crate::agent::BACKEND_ID, ConfigMap::new().with("enabled", "False"));
+        let (provider, log) = logged(|| JavaFactory::build(&java_settings(settings)));
+        let warnings = warnings(&log);
+        assert_eq!(warnings.len(), 1, "{log}");
+        for expected in ["providers.java", "key=agent.enabled", "expected=\"bool\"", "found=\"string\""] {
+            assert!(warnings[0].contains(expected), "the warning names `{expected}`: {log}");
+        }
+        assert_eq!(provider.backends.len(), 2, "the default applies: the agent backend stays on");
+    }
+
+    #[test]
+    fn a_mistyped_umbrella_setting_is_reported_and_the_default_applies() {
+        let settings = ConfigMap::new().with(ENABLED_KEY, "False").with(crate::jab::BACKEND_ID, true);
+        let (provider, log) = logged(|| JavaFactory::build(&java_settings(settings)));
+        let warnings = warnings(&log);
+        assert_eq!(warnings.len(), 2, "{log}");
+        assert!(
+            warnings.iter().any(|line| line.contains("key=enabled") && line.contains("expected=\"bool\"")),
+            "{log}"
+        );
+        assert!(warnings.iter().any(|line| line.contains("key=jab") && line.contains("expected=\"map\"")), "{log}");
+        assert_eq!(provider.backends.len(), 2, "the umbrella stays on by default");
+    }
+
+    #[test]
+    fn known_settings_report_nothing() {
+        let settings = ConfigMap::new()
+            .with(ENABLED_KEY, true)
+            .with(
+                crate::agent::BACKEND_ID,
+                ConfigMap::new().with("enabled", true).with("auto_attach", false).with("call_timeout_ms", 750_i64),
+            )
+            .with(crate::jab::BACKEND_ID, ConfigMap::new().with("enabled", false).with("call_timeout_ms", 500_i64));
+        let (_provider, log) = logged(|| JavaFactory::build(&java_settings(settings)));
+        assert!(warnings(&log).is_empty(), "{log}");
+    }
+
+    /// A missing Access Bridge DLL is said once per process, for all windows
+    /// it leaves unserved, with the DLL remedy instead of the `jabswitch`
+    /// hint, and without using up the per-window diagnostic.
+    #[test]
+    fn a_missing_bridge_dll_is_reported_once_per_process() {
+        use platynui_core::platform::java::jvm_unreachable_diagnostic_emitted;
+
+        let reported = AtomicBool::new(false);
+        let window = |window: u64, pid: u32| UnservedJavaWindow {
+            window,
+            pid,
+            class_name: "SunAwtFrame".into(),
+            cause: UnservedCause::BridgeDllNotFound,
+        };
+        let ((), log) = logged(|| {
+            emit_enablement_diagnostics(&[window(0xC700, 41), window(0xC701, 42), window(0xC702, 41)], &reported);
+            emit_enablement_diagnostics(&[window(0xC703, 43)], &reported);
+        });
+
+        let warnings = warnings(&log);
+        assert_eq!(warnings.len(), 1, "{log}");
+        for expected in ["providers.java.jab.dll_path", "PLATYNUI_JAB_DLL", "64-bit JDK", "pids=[41, 42]"] {
+            assert!(warnings[0].contains(expected), "the warning names `{expected}`: {log}");
+        }
+        assert!(!warnings[0].contains("jabswitch"), "enabling the bridge does not help without its DLL: {log}");
+        assert!(
+            !jvm_unreachable_diagnostic_emitted(0xC700),
+            "the per-window diagnostic stays for a bridge that is there"
+        );
+    }
+
+    /// Without the DLL, a Swing window the agent serves is served: no warning
+    /// about the bridge, even though the bridge side reports it as unserved.
+    #[test]
+    fn an_agent_served_window_is_not_reported_without_the_bridge_dll() {
+        let ownership = Arc::new(BackendOwnership::default());
+        let (agent, _agent_handle) = named_stub("agent", &[0xC800], &[], Some(ownership.view(0)));
+        let (bridge, _bridge_handle) =
+            stub_with_cause("jab", &[], &[0xC800], UnservedCause::BridgeDllNotFound, Some(ownership.view(1)));
+        let provider = JavaProvider::new(vec![agent, bridge], Arc::clone(&ownership), None);
+
+        let (_, log) = logged(|| provider.get_nodes(desktop()).map(Iterator::count));
+
+        assert!(warnings(&log).is_empty(), "{log}");
+        provider.shutdown();
+    }
+
+    /// Runs `f` and returns what it logged, one line per record.
+    fn logged<R>(f: impl FnOnce() -> R) -> (R, String) {
+        #[derive(Clone)]
+        struct Captured(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for Captured {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().expect("log buffer").extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let buffer = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let writer = Captured(Arc::clone(&buffer));
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .with_ansi(false)
+            .without_time()
+            .with_writer(move || writer.clone())
+            .finish();
+        let result = tracing::subscriber::with_default(subscriber, f);
+        let log = String::from_utf8(buffer.lock().expect("log buffer").clone()).expect("utf-8 log");
+        (result, log)
     }
 }

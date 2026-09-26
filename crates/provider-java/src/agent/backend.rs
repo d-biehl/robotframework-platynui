@@ -23,7 +23,9 @@ use super::element::Element;
 use super::node::AgentNode;
 use super::session::AgentSession;
 use crate::backend::{Enumeration, ForeignWindows, JavaBackend};
-use platynui_core::config::ConfigMap;
+use crate::provider::{check_unknown_settings, setting};
+use platynui_core::config::{ConfigMap, ENABLED_KEY};
+use platynui_core::diagnostics::{Episode, Transitions};
 use platynui_core::platform::WindowManager;
 use platynui_core::provider::ProviderError;
 use platynui_core::types::Point;
@@ -42,6 +44,14 @@ pub(crate) const BACKEND_ID: &str = "agent";
 
 /// Default per-call deadline (`providers.java.agent.call_timeout_ms`).
 const DEFAULT_CALL_TIMEOUT_MS: u64 = 5_000;
+/// `providers.java.agent.auto_attach`: inject the agent into JVMs that carry none.
+const AUTO_ATTACH_KEY: &str = "auto_attach";
+/// `providers.java.agent.jar`: an explicit agent JAR.
+const JAR_KEY: &str = "jar";
+/// `providers.java.agent.call_timeout_ms`: the per-call deadline.
+const CALL_TIMEOUT_MS_KEY: &str = "call_timeout_ms";
+/// The settings the backend reads; [`ENABLED_KEY`] is always known.
+const KNOWN_SETTINGS: &[&str] = &[AUTO_ATTACH_KEY, JAR_KEY, CALL_TIMEOUT_MS_KEY];
 /// How long one automatic attach may take before it is abandoned.
 const ATTACH_TIMEOUT: Duration = attach::DEFAULT_ATTACH_TIMEOUT;
 
@@ -87,6 +97,10 @@ pub(crate) struct AgentBackend {
     /// the agent is not attacked once per enumeration pass — while a JVM that
     /// merely was not ready yet still gets another chance.
     attach_attempts: Mutex<HashMap<u32, u32>>,
+    /// JVMs whose agent is from another PlatynUI version, by pid. Every
+    /// enumeration meets them again, and nothing but restarting the
+    /// application helps, so each is warned about once, for as long as it runs.
+    version_mismatches: Transitions<u32>,
     window_manager: Mutex<Option<Arc<dyn WindowManager>>>,
     foreign: Option<Arc<ForeignWindows>>,
     /// Guards the one-off stale-file cleanup; see `prune_stale_handshakes_once`.
@@ -97,13 +111,21 @@ pub(crate) struct AgentBackend {
 impl AgentBackend {
     /// Build the backend from its sub-map of the Java provider's config, plus its
     /// view of what stronger backends serve.
+    ///
+    /// Checks the settings first: an unknown key and a value of the wrong type
+    /// are warned about as `agent.<key>` of `providers.java`, and the default
+    /// applies.
     pub(crate) fn from_config(settings: Option<&ConfigMap>, foreign: Option<Arc<ForeignWindows>>) -> Self {
-        let enabled = settings.and_then(|agent| agent.get_bool("enabled")).unwrap_or(true);
+        if let Some(settings) = settings {
+            check_unknown_settings(settings, Some(BACKEND_ID), KNOWN_SETTINGS);
+        }
+        let section = Some(BACKEND_ID);
+        let enabled = settings.and_then(|agent| setting(agent.try_bool(ENABLED_KEY), section)).unwrap_or(true);
         // Default **on**: see the module docs on where the consent actually lives.
-        let auto_attach = settings.and_then(|agent| agent.get_bool("auto_attach")).unwrap_or(true);
-        let jar = settings.and_then(|agent| agent.get_str("jar")).map(PathBuf::from);
+        let auto_attach = settings.and_then(|agent| setting(agent.try_bool(AUTO_ATTACH_KEY), section)).unwrap_or(true);
+        let jar = settings.and_then(|agent| setting(agent.try_str(JAR_KEY), section)).map(PathBuf::from);
         let call_timeout_ms = settings
-            .and_then(|agent| agent.get_i64("call_timeout_ms"))
+            .and_then(|agent| setting(agent.try_i64(CALL_TIMEOUT_MS_KEY), section))
             .and_then(|ms| u64::try_from(ms).ok())
             .filter(|ms| *ms > 0)
             .unwrap_or(DEFAULT_CALL_TIMEOUT_MS);
@@ -117,6 +139,7 @@ impl AgentBackend {
             },
             sessions: Mutex::new(HashMap::new()),
             attach_attempts: Mutex::new(HashMap::new()),
+            version_mismatches: Transitions::new(),
             window_manager: Mutex::new(None),
             foreign,
             pruned: AtomicBool::new(false),
@@ -158,6 +181,11 @@ impl AgentBackend {
         }
         match AgentSession::connect(info, self.client_config) {
             Ok(session) => {
+                if self.version_mismatches.recovered(&info.pid) {
+                    // Only a new JVM under a recycled pid gets here: an agent
+                    // cannot be unloaded from the one that had the mismatch.
+                    debug!(pid = info.pid, "the agent in this JVM matches this PlatynUI version now");
+                }
                 let facts = ProcessFacts::read(&session);
                 info!(
                     pid = info.pid,
@@ -169,22 +197,34 @@ impl AgentBackend {
                 sessions.insert(info.pid, Arc::clone(&served));
                 Some(served)
             }
-            Err(error) => {
-                // A version mismatch is the one that needs saying out loud: an
-                // agent cannot be unloaded, so the only remedy is restarting the
-                // application, and silence here would look like "no Java support".
-                if matches!(&error, AgentError::VersionMismatch { .. }) {
-                    warn!(pid = info.pid, %error, "cannot serve this JVM");
-                } else {
-                    debug!(pid = info.pid, %error, "agent unreachable");
+            // A version mismatch is the one that needs saying out loud: an agent
+            // cannot be unloaded, so the only remedy is restarting the
+            // application, and silence here would look like "no Java support".
+            // Once per JVM, though: every enumeration meets it again.
+            Err(error @ AgentError::VersionMismatch { .. }) => {
+                match self.version_mismatches.failed(&info.pid) {
+                    Episode::Started => warn!(
+                        pid = info.pid,
+                        error = %error,
+                        "the agent in this JVM is from another PlatynUI version; \
+                         the JVM is served without the agent until the application is restarted"
+                    ),
+                    Episode::Continuing => {
+                        debug!(pid = info.pid, error = %error, "the agent in this JVM is still from another PlatynUI version");
+                    }
                 }
+                None
+            }
+            Err(error) => {
+                debug!(pid = info.pid, %error, "agent unreachable");
                 None
             }
         }
     }
 
     /// Drops sessions whose JVM is gone, so a long run does not accumulate dead
-    /// connections and a recycled pid cannot inherit one.
+    /// connections and a recycled pid cannot inherit one, and forgets the
+    /// version mismatches of JVMs that are gone, which ends their episodes.
     fn retire_dead_sessions(&self, live: &HashSet<u32>) {
         let mut sessions = self.sessions.lock().expect("sessions mutex poisoned");
         sessions.retain(|pid, served| {
@@ -195,6 +235,10 @@ impl AgentBackend {
             }
             keep
         });
+        drop(sessions);
+        for pid in self.version_mismatches.retain(|pid| live.contains(pid)) {
+            debug!(pid, "the JVM whose agent is from another PlatynUI version is gone");
+        }
     }
 
     /// Injects the agent into JVMs that have none.
@@ -549,6 +593,110 @@ mod tests {
         let settings = ConfigMap::new().with("call_timeout_ms", -1_i64);
         let backend = AgentBackend::from_config(Some(&settings), None);
         assert_eq!(backend.client_config.call_timeout, Duration::from_millis(DEFAULT_CALL_TIMEOUT_MS));
+    }
+
+    /// Runs `f` and returns what it logged, one line per record.
+    fn logged<R>(f: impl FnOnce() -> R) -> (R, String) {
+        #[derive(Clone)]
+        struct Captured(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for Captured {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().expect("log buffer").extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let buffer = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let writer = Captured(Arc::clone(&buffer));
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .with_ansi(false)
+            .without_time()
+            .with_writer(move || writer.clone())
+            .finish();
+        let result = tracing::subscriber::with_default(subscriber, f);
+        let log = String::from_utf8(buffer.lock().expect("log buffer").clone()).expect("utf-8 log");
+        (result, log)
+    }
+
+    /// The records at `level`: the formatter starts each line with the level.
+    fn lines_at<'a>(log: &'a str, level: &str) -> Vec<&'a str> {
+        log.lines().filter(|line| line.split_whitespace().next() == Some(level)).collect()
+    }
+
+    #[test]
+    fn an_unknown_setting_is_reported_under_the_java_provider() {
+        let settings = ConfigMap::new().with("bogus", 1_i64);
+        let (_backend, log) = logged(|| AgentBackend::from_config(Some(&settings), None));
+        let warnings = lines_at(&log, "WARN");
+        assert_eq!(warnings.len(), 1, "{log}");
+        assert!(warnings[0].contains("providers.java") && warnings[0].contains("key=agent.bogus"), "{log}");
+    }
+
+    #[test]
+    fn a_mistyped_setting_is_reported_and_the_default_applies() {
+        let settings = ConfigMap::new().with("call_timeout_ms", "750").with("jar", 1_i64);
+        let (backend, log) = logged(|| AgentBackend::from_config(Some(&settings), None));
+        assert_eq!(backend.client_config.call_timeout, Duration::from_millis(DEFAULT_CALL_TIMEOUT_MS));
+        assert!(backend.jar.is_none());
+        let warnings = lines_at(&log, "WARN");
+        assert_eq!(warnings.len(), 2, "{log}");
+        assert!(
+            warnings
+                .iter()
+                .any(|line| line.contains("key=agent.call_timeout_ms") && line.contains("expected=\"integer\"")),
+            "{log}"
+        );
+        assert!(
+            warnings.iter().any(|line| line.contains("key=agent.jar") && line.contains("found=\"integer\"")),
+            "{log}"
+        );
+    }
+
+    /// Every enumeration meets a JVM whose agent is from another version, and
+    /// only restarting the application helps: warned once per JVM, debug while
+    /// it runs, one debug when it is gone, and a new JVM warns again.
+    #[test]
+    fn a_version_mismatch_is_warned_once_per_jvm() {
+        let backend = AgentBackend::from_config(None, None);
+        // The version is compared before any connection is made, so this needs
+        // no agent: a handshake that names another version is enough.
+        let info = handshake::HandshakeInfo {
+            protocol: handshake::SUPPORTED_PROTOCOL,
+            pid: 4711,
+            port: 9,
+            token: "token".into(),
+            toolkits: Vec::new(),
+            agent_version: "0.0.0-another-version".into(),
+        };
+
+        let ((), log) = logged(|| {
+            for _ in 0..3 {
+                assert!(backend.session_for(&info).is_none(), "a mismatched agent is not served");
+            }
+        });
+        let warnings = lines_at(&log, "WARN");
+        assert_eq!(warnings.len(), 1, "{log}");
+        assert!(warnings[0].contains("pid=4711") && warnings[0].contains("another PlatynUI version"), "{log}");
+        assert_eq!(lines_at(&log, "DEBUG").iter().filter(|line| line.contains("still")).count(), 2, "{log}");
+
+        // The JVM still runs: the episode goes on.
+        let ((), log) = logged(|| backend.retire_dead_sessions(&HashSet::from([4711])));
+        assert!(!log.contains("is gone"), "{log}");
+
+        // The JVM is gone: its episode ends, once, at debug.
+        let ((), log) = logged(|| backend.retire_dead_sessions(&HashSet::new()));
+        let ended: Vec<&str> = lines_at(&log, "DEBUG").into_iter().filter(|line| line.contains("is gone")).collect();
+        assert_eq!(ended.len(), 1, "{log}");
+        assert!(ended[0].contains("pid=4711"), "{log}");
+        assert!(lines_at(&log, "WARN").is_empty(), "{log}");
+
+        // A new JVM under that pid with a mismatched agent is a new episode.
+        let (_, log) = logged(|| backend.session_for(&info));
+        assert_eq!(lines_at(&log, "WARN").len(), 1, "{log}");
     }
 
     /// A disabled backend must cost nothing: no directory scan, no connection,

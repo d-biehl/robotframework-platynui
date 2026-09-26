@@ -36,3 +36,6 @@ windows = { version = "0.62", features = [
 
 [target.'cfg(windows)'.dev-dependencies]
 tempfile = "3.27"
+# Captures the warnings of the configuration check and the missing-DLL record
+# in unit tests.
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }

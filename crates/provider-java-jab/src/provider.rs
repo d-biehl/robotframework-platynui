@@ -12,7 +12,7 @@ use crate::ffi::VmId;
 use crate::handle::JabObject;
 use crate::node::{IdScope, JabAppNode, JabNode};
 use crate::pump::DegradedTracker;
-use platynui_core::config::ConfigMap;
+use platynui_core::config::{ConfigMap, ConfigTypeMismatch, ENABLED_KEY};
 use platynui_core::platform::WindowManager;
 use platynui_core::provider::ProviderError;
 use platynui_core::types::Point;
@@ -31,6 +31,15 @@ pub const BACKEND_ID: &str = "jab";
 
 /// Default per-call deadline (`providers.java.jab.call_timeout_ms`).
 const DEFAULT_CALL_TIMEOUT_MS: u64 = 2000;
+/// `providers.java.jab.dll_path`: an explicit `WindowsAccessBridge-64.dll`.
+const DLL_PATH_KEY: &str = "dll_path";
+/// `providers.java.jab.call_timeout_ms`: the per-call deadline.
+const CALL_TIMEOUT_MS_KEY: &str = "call_timeout_ms";
+/// The settings the backend reads; [`ENABLED_KEY`] is always known.
+const KNOWN_SETTINGS: &[&str] = &[DLL_PATH_KEY, CALL_TIMEOUT_MS_KEY];
+/// The component the backend's settings are reported under. They are a nested
+/// map of the Java provider, so their keys are reported as `jab.<key>`.
+const COMPONENT: &str = "providers.java";
 /// How long the first enumeration after connect waits for the asynchronous
 /// bridge rendezvous before reporting "no Java windows". The spike measured
 /// 16 ms on a warm machine; the budget is generous because it is paid at most
@@ -56,10 +65,9 @@ pub struct JabEnumeration {
     pub java_processes: Vec<u32>,
 }
 
-/// A visible top-level window whose class says AWT (`SunAwt*`) but which the
-/// bridge does not recognise — the signature of a JVM without the bridge
-/// enabled. Reported outward rather than diagnosed here: only the Java provider
-/// knows whether another backend serves the window.
+/// A visible top-level window whose class says AWT (`SunAwt*`) but which this
+/// backend cannot serve. Reported outward rather than diagnosed here: only the
+/// Java provider knows whether another backend serves the window.
 pub struct UnservedWindow {
     /// Native window handle, in the raw form the claims and diagnostic
     /// registries key on.
@@ -67,6 +75,28 @@ pub struct UnservedWindow {
     pub pid: u32,
     /// Platform window class — the toolkit discriminator.
     pub class_name: String,
+    /// Why the backend cannot serve it; the remedies differ.
+    pub cause: UnservedCause,
+}
+
+/// Why the backend cannot serve a Java-looking window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnservedCause {
+    /// The bridge is loaded but does not recognise the window: the signature
+    /// of a JVM without the Access Bridge enabled.
+    BridgeNotEnabled,
+    /// The Access Bridge client DLL was not found, so no window can be served
+    /// through the bridge at all.
+    DllNotFound,
+}
+
+impl std::fmt::Display for UnservedCause {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::BridgeNotEnabled => "Access Bridge not enabled in the JVM",
+            Self::DllNotFound => "Access Bridge DLL not found",
+        })
+    }
 }
 
 /// Native windows this backend must leave alone because something else serves
@@ -86,10 +116,14 @@ pub trait WindowExclusions: Send + Sync {
     fn excludes(&self, window: u64) -> bool;
 }
 
-/// Lazily established bridge connection; `Unavailable` remembers that the one
-/// actionable discovery/load diagnostic has already been logged.
+/// Lazily established bridge connection; `DllNotFound` and `Unavailable`
+/// remember that discovery or loading has been tried and recorded already.
 enum ClientState {
     Untried,
+    /// No client DLL was found. Kept apart from `Unavailable`: without a DLL
+    /// the backend still reports the AWT windows it sees, so that the Java
+    /// provider can say why nobody serves them and offer their JVMs the agent.
+    DllNotFound,
     Unavailable,
     Ready(Arc<JabClient>),
 }
@@ -117,12 +151,21 @@ impl JabProvider {
     /// `exclusions` is the Java provider's answer to "another backend serves
     /// this window"; `None` means this backend is alone with the Java windows it
     /// can reach.
+    ///
+    /// Checks the settings first: an unknown key and a value of the wrong type
+    /// are warned about as `jab.<key>` of `providers.java`, and the default
+    /// applies.
     #[must_use]
     pub fn from_config(settings: Option<&ConfigMap>, exclusions: Option<Arc<dyn WindowExclusions>>) -> Self {
-        let enabled = settings.and_then(|jab| jab.get_bool("enabled")).unwrap_or(true);
-        let dll_path = settings.and_then(|jab| jab.get_str("dll_path")).map(PathBuf::from);
-        let call_timeout_ms = settings
-            .and_then(|jab| jab.get_i64("call_timeout_ms"))
+        let Some(settings) = settings else {
+            return Self::new(true, None, Duration::from_millis(DEFAULT_CALL_TIMEOUT_MS), exclusions);
+        };
+        for key in settings.unknown_keys(KNOWN_SETTINGS) {
+            warn!(component = COMPONENT, key = %format_args!("{BACKEND_ID}.{key}"), "unknown setting; it is ignored");
+        }
+        let enabled = setting(settings.try_bool(ENABLED_KEY)).unwrap_or(true);
+        let dll_path = setting(settings.try_str(DLL_PATH_KEY)).map(PathBuf::from);
+        let call_timeout_ms = setting(settings.try_i64(CALL_TIMEOUT_MS_KEY))
             .and_then(|ms| u64::try_from(ms).ok())
             .filter(|ms| *ms > 0)
             .unwrap_or(DEFAULT_CALL_TIMEOUT_MS);
@@ -150,9 +193,13 @@ impl JabProvider {
         }
     }
 
-    /// The connected client, establishing the connection on first use. The
-    /// kill switch and a missing/unloadable DLL yield `Err` — after logging
-    /// exactly one actionable diagnostic — and the provider stays inert.
+    /// The connected client, establishing the connection on first use. A
+    /// missing or unloadable DLL yields `Err`, and the backend serves nothing.
+    ///
+    /// A missing DLL is recorded at debug only: most Windows machines have no
+    /// JDK, and nothing is lost until a Swing or AWT window turns up that no
+    /// other backend serves — which the Java provider reports, from the
+    /// windows [`Self::enumerate`] lists as unserved.
     fn client(&self) -> Result<Arc<JabClient>, JabError> {
         if self.is_shutdown.load(Ordering::Acquire) {
             return Err(JabError::Shutdown);
@@ -160,14 +207,15 @@ impl JabProvider {
         let mut state = self.client.lock().expect("client state mutex poisoned");
         match &*state {
             ClientState::Ready(client) => Ok(Arc::clone(client)),
+            ClientState::DllNotFound => Err(JabError::ClientUnavailable(UnservedCause::DllNotFound.to_string())),
             ClientState::Unavailable => Err(JabError::ClientUnavailable("previously failed".into())),
             ClientState::Untried => {
                 let inputs = DiscoveryInputs::from_environment(self.dll_path.clone());
                 let dll = match discover_dll(&inputs) {
                     Ok(dll) => dll,
                     Err(failure) => {
-                        warn!("JAB backend inactive: {failure}");
-                        *state = ClientState::Unavailable;
+                        debug!(tried = ?failure.tried, "Access Bridge DLL not found; the JAB backend serves no window");
+                        *state = ClientState::DllNotFound;
                         return Err(JabError::ClientUnavailable(failure.to_string()));
                     }
                 };
@@ -259,14 +307,18 @@ impl JabProvider {
     /// serve, the nodes for them, and the Java-looking windows it cannot serve.
     ///
     /// Inert — an empty pass, no failure — when the backend is disabled, shut
-    /// down, or the bridge is unavailable; in the last case `client()` has
-    /// logged the one actionable diagnostic already.
+    /// down, or the bridge cannot be loaded. Without a client DLL it serves
+    /// nothing either, but still reports the AWT windows it sees as unserved,
+    /// with [`UnservedCause::DllNotFound`] and their processes.
     #[must_use]
     pub fn enumerate(&self, parent: &Arc<dyn UiNode>) -> JabEnumeration {
         if self.is_shutdown.load(Ordering::Acquire) || !self.enabled {
             return JabEnumeration::default();
         }
         let Ok(client) = self.client() else {
+            if self.dll_not_found() {
+                return self.unserved_without_bridge();
+            }
             return JabEnumeration::default();
         };
 
@@ -310,6 +362,22 @@ impl JabProvider {
             }
         }
         JabEnumeration { served_windows, nodes, unserved: discovery.sunawt_suspects, java_processes }
+    }
+
+    fn dll_not_found(&self) -> bool {
+        matches!(*self.client.lock().expect("client state mutex poisoned"), ClientState::DllNotFound)
+    }
+
+    /// The pass of a backend without a client DLL: no nodes and no served
+    /// windows, but the visible `SunAwt*` windows that no stronger backend
+    /// serves, as unserved with [`UnservedCause::DllNotFound`], and their
+    /// processes. Window enumeration and class names only, no bridge call.
+    ///
+    /// Reporting them is what keeps a machine without a JDK usable: the Java
+    /// provider offers those JVMs the agent, and says why a window stays
+    /// unserved only when no backend serves it.
+    fn unserved_without_bridge(&self) -> JabEnumeration {
+        awt_windows_without_bridge(enumerate_visible_top_level_windows(), self.exclusions.as_deref())
     }
 
     /// Point-based hit-test of Java windows (design decisions 1–3 and 5 of
@@ -396,6 +464,51 @@ fn unsupported_at_point(details: &str) -> ProviderError {
     ProviderError::UnsupportedOperation { operation: "element_at_point", details: Some(details.into()) }
 }
 
+/// The value of a setting, or `None` after a warning when it has the wrong
+/// type, so that the caller applies the default.
+fn setting<T>(read: Result<Option<T>, ConfigTypeMismatch>) -> Option<T> {
+    read.unwrap_or_else(|mismatch| {
+        warn!(
+            component = COMPONENT,
+            key = %format_args!("{BACKEND_ID}.{}", mismatch.key),
+            expected = mismatch.expected,
+            found = mismatch.found,
+            "setting has the wrong type; the default applies"
+        );
+        None
+    })
+}
+
+/// The pass of [`JabProvider::unserved_without_bridge`] over the given
+/// top-level windows, split out so that it is testable without a desktop.
+fn awt_windows_without_bridge(
+    candidates: Vec<WindowCandidate>,
+    exclusions: Option<&dyn WindowExclusions>,
+) -> JabEnumeration {
+    let mut pass = JabEnumeration::default();
+    for candidate in candidates {
+        if candidate.pid == *SELF_PID || !candidate.class_name.starts_with("SunAwt") {
+            continue;
+        }
+        let window = hwnd_as_claim(candidate.hwnd);
+        // A window a stronger backend serves is served: not this backend's to
+        // report, and its JVM already carries what attaching would bring.
+        if exclusions.is_some_and(|excluded| excluded.excludes(window)) {
+            continue;
+        }
+        if !pass.java_processes.contains(&candidate.pid) {
+            pass.java_processes.push(candidate.pid);
+        }
+        pass.unserved.push(UnservedWindow {
+            window,
+            pid: candidate.pid,
+            class_name: candidate.class_name,
+            cause: UnservedCause::DllNotFound,
+        });
+    }
+    pass
+}
+
 /// Top-level window under `point` (`WindowFromPoint` → `GetAncestor(GA_ROOT)`)
 /// and its owning process id.
 #[allow(unsafe_code)]
@@ -479,6 +592,7 @@ fn discover_java_windows(
                     window: hwnd_as_claim(candidate.hwnd),
                     pid: candidate.pid,
                     class_name: candidate.class_name,
+                    cause: UnservedCause::BridgeNotEnabled,
                 });
             }
             continue;
@@ -569,6 +683,155 @@ mod tests {
         let settings = ConfigMap::new().with("call_timeout_ms", -1_i64);
         let provider = JabProvider::from_config(Some(&settings), None);
         assert_eq!(provider.call_timeout, Duration::from_millis(DEFAULT_CALL_TIMEOUT_MS));
+    }
+
+    /// Runs `f` and returns what it logged, one line per record.
+    fn logged<R>(f: impl FnOnce() -> R) -> (R, String) {
+        #[derive(Clone)]
+        struct Captured(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for Captured {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().expect("log buffer").extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let buffer = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let writer = Captured(Arc::clone(&buffer));
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .with_ansi(false)
+            .without_time()
+            .with_writer(move || writer.clone())
+            .finish();
+        let result = tracing::subscriber::with_default(subscriber, f);
+        let log = String::from_utf8(buffer.lock().expect("log buffer").clone()).expect("utf-8 log");
+        (result, log)
+    }
+
+    fn warnings(log: &str) -> Vec<&str> {
+        log.lines().filter(|line| line.contains(" WARN ")).collect()
+    }
+
+    #[test]
+    fn an_unknown_setting_is_reported_once_under_the_java_provider() {
+        let settings = ConfigMap::new().with("bogus", 1_i64);
+        let (_provider, log) = logged(|| JabProvider::from_config(Some(&settings), None));
+
+        let warnings = warnings(&log);
+        assert_eq!(warnings.len(), 1, "{log}");
+        assert!(warnings[0].contains("providers.java") && warnings[0].contains("key=jab.bogus"), "{log}");
+    }
+
+    #[test]
+    fn a_mistyped_setting_is_reported_and_the_default_applies() {
+        let settings = ConfigMap::new().with("enabled", "False").with("call_timeout_ms", "500");
+        let (provider, log) = logged(|| JabProvider::from_config(Some(&settings), None));
+
+        assert!(provider.enabled, "the default applies, not the string's meaning");
+        assert_eq!(provider.call_timeout, Duration::from_millis(DEFAULT_CALL_TIMEOUT_MS));
+        let warnings = warnings(&log);
+        assert_eq!(warnings.len(), 2, "{log}");
+        for expected in ["providers.java", "key=jab.enabled", "expected=\"bool\"", "found=\"string\""] {
+            assert!(warnings.iter().any(|line| line.contains(expected)), "a warning names `{expected}`: {log}");
+        }
+        assert!(warnings.iter().any(|line| line.contains("key=jab.call_timeout_ms")), "{log}");
+    }
+
+    #[test]
+    fn known_settings_report_nothing() {
+        let settings = ConfigMap::new()
+            .with("enabled", true)
+            .with("dll_path", "C:\\bridge\\WindowsAccessBridge-64.dll")
+            .with("call_timeout_ms", 500_i64);
+        let (_provider, log) = logged(|| JabProvider::from_config(Some(&settings), None));
+        assert!(warnings(&log).is_empty(), "{log}");
+    }
+
+    /// Without the DLL nothing is served, but the AWT windows are still
+    /// reported, so the Java provider can offer their JVMs the agent and say
+    /// why a window stays unserved.
+    #[test]
+    fn without_a_dll_awt_windows_are_reported_unserved_with_their_processes() {
+        struct ExcludeOne(u64);
+        impl WindowExclusions for ExcludeOne {
+            fn excludes(&self, window: u64) -> bool {
+                window == self.0
+            }
+        }
+        let candidate =
+            |hwnd: isize, pid: u32, class_name: &str| WindowCandidate { hwnd, pid, class_name: class_name.into() };
+        let candidates = vec![
+            candidate(0x10, 4100, "SunAwtFrame"),
+            candidate(0x11, 4100, "SunAwtDialog"),
+            candidate(0x20, 4200, "Notepad"),
+            candidate(0x30, *SELF_PID, "SunAwtFrame"),
+            candidate(0x40, 4300, "SunAwtFrame"),
+        ];
+
+        let pass = awt_windows_without_bridge(candidates, Some(&ExcludeOne(0x40)));
+
+        assert!(pass.nodes.is_empty() && pass.served_windows.is_empty(), "without a DLL nothing is served");
+        let windows: Vec<u64> = pass.unserved.iter().map(|window| window.window).collect();
+        assert_eq!(windows, [0x10, 0x11], "AWT windows only; not the host's own, not one a stronger backend serves");
+        assert!(pass.unserved.iter().all(|window| window.cause == UnservedCause::DllNotFound));
+        assert_eq!(pass.java_processes, [4100], "each process once, so that the agent can be offered to it");
+        assert_eq!(UnservedCause::DllNotFound.to_string(), "Access Bridge DLL not found");
+    }
+
+    /// A missing DLL is nothing to warn about by itself: the enumeration serves
+    /// nothing and reports what it sees, and warning is the Java provider's call.
+    #[test]
+    fn a_backend_without_a_dll_serves_nothing_and_warns_about_nothing() {
+        let provider = JabProvider::from_config(None, None);
+        *provider.client.lock().expect("state") = ClientState::DllNotFound;
+        let parent: Arc<dyn UiNode> = Arc::new(desktop_stub());
+
+        let (pass, log) = logged(|| provider.enumerate(&parent));
+
+        assert!(pass.nodes.is_empty() && pass.served_windows.is_empty());
+        assert!(pass.unserved.iter().all(|window| window.cause == UnservedCause::DllNotFound));
+        assert!(warnings(&log).is_empty(), "{log}");
+        assert!(matches!(provider.client(), Err(JabError::ClientUnavailable(_))));
+    }
+
+    fn desktop_stub() -> impl UiNode {
+        use platynui_core::ui::{Namespace, PatternName, RuntimeId, UiAttribute};
+        use std::sync::Weak;
+
+        struct DesktopStub(RuntimeId);
+        #[allow(clippy::unnecessary_literal_bound)] // signatures fixed by the UiNode trait
+        impl UiNode for DesktopStub {
+            fn namespace(&self) -> Namespace {
+                Namespace::Control
+            }
+            fn role(&self) -> &str {
+                "Desktop"
+            }
+            fn name(&self) -> String {
+                "Desktop".into()
+            }
+            fn runtime_id(&self) -> &RuntimeId {
+                &self.0
+            }
+            fn parent(&self) -> Option<Weak<dyn UiNode>> {
+                None
+            }
+            fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
+                Box::new(std::iter::empty())
+            }
+            fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
+                Box::new(std::iter::empty())
+            }
+            fn supported_patterns(&self) -> Vec<PatternName> {
+                Vec::new()
+            }
+            fn invalidate(&self) {}
+        }
+        DesktopStub(RuntimeId::from("desktop"))
     }
 
     /// The exclusion hook has to reach every place a window can enter the tree.
