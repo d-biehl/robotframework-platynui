@@ -85,17 +85,18 @@ impl ScreenshotProvider for WindowsScreenshotProvider {
             let old = SelectObject(mem_dc, bitmap.into());
 
             // Copy from screen DC into memory DC
-            let res = BitBlt(mem_dc, 0, 0, width, height, Some(screen_dc), left, top, SRCCOPY);
-            if res.is_err() {
-                tracing::error!("BitBlt screenshot failed");
+            if let Err(cause) = BitBlt(mem_dc, 0, 0, width, height, Some(screen_dc), left, top, SRCCOPY) {
                 let _ = SelectObject(mem_dc, old);
                 let _ = DeleteObject(bitmap.into());
                 let _ = DeleteDC(mem_dc);
                 let _ = ReleaseDC(None, screen_dc);
-                return Err(PlatformError::CapabilityUnavailable {
+                // The failure is returned with its cause, so it is recorded at debug only.
+                let error = PlatformError::CapabilityUnavailable {
                     capability: "BitBlt",
-                    details: Some("failed".into()),
-                });
+                    details: Some(format!("failed: {cause}")),
+                };
+                tracing::debug!(error = %error, "BitBlt could not copy the screen");
+                return Err(error);
             }
 
             // Copy pixels from DIBSection memory

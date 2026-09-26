@@ -35,5 +35,10 @@ windows = { version = "0.62", features = [
     "Win32_Devices_Display",
 ] }
 
+# Captures the warnings of the configuration check in a unit test. Windows-only
+# like everything it tests, or `unused_crate_dependencies` fires elsewhere.
+[target.'cfg(target_os = "windows")'.dev-dependencies]
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
+
 [lints]
 workspace = true

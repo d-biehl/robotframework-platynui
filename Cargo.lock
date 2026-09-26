@@ -3677,6 +3677,7 @@ dependencies = [
  "platynui-core",
  "platynui-java-agent",
  "tracing",
+ "tracing-subscriber",
  "windows",
 ]
 

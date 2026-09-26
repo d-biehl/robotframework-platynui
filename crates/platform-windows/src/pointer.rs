@@ -96,8 +96,12 @@ fn send_mouse_input(flags: MOUSE_EVENT_FLAGS, data: u32, dx: i32, dy: i32) -> Re
     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
     let sent = unsafe { SendInput(&[input], size_of::<INPUT>() as i32) };
     if sent == 0 {
-        tracing::error!("SendInput failed for mouse event");
-        Err(last_error("SendInput"))
+        // Read the thread's last error before anything else runs: a subscriber
+        // that handles the record could overwrite it. The failure is returned,
+        // so it is recorded at debug only.
+        let error = last_error("SendInput");
+        tracing::debug!(error = %error, "SendInput sent no mouse event");
+        Err(error)
     } else {
         Ok(())
     }
