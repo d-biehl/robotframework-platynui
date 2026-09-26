@@ -1,0 +1,37 @@
+[package]
+name = "platynui-log-filter"
+description = "The log filter shared by PlatynUI's entry points"
+version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+repository.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+# `init_stderr` for the command-line binaries.
+fmt = ["dep:tracing", "tracing-subscriber/fmt"]
+# Forward `log` records into the same filter (the Inspector's GUI stack logs
+# through `log`); `try_init` installs the `LogTracer` itself.
+log = ["fmt", "tracing-subscriber/tracing-log"]
+
+[dependencies]
+tracing = { version = "0.1", default-features = false, features = ["std"], optional = true }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "env-filter"] }
+
+[dev-dependencies]
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "env-filter", "registry"] }
+log = "0.4"
+
+[[test]]
+name = "log_records"
+required-features = ["fmt", "log"]
+
+[lints]
+workspace = true
