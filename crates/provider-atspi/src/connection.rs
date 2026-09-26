@@ -2,7 +2,7 @@ use atspi_connection::AccessibilityConnection;
 use zbus::Address;
 
 use crate::error::AtspiError;
-use crate::timeout::block_on_timeout_connect;
+use crate::timeout::{TIMEOUT_CONNECT, block_on_timeout_connect, millis};
 
 const A11Y_BUS_ENV: &str = "AT_SPI_BUS_ADDRESS";
 
@@ -27,13 +27,14 @@ pub fn connect_a11y_bus() -> Result<AccessibilityConnection, AtspiError> {
     }
 
     tracing::debug!("connecting to AT-SPI bus via default session");
+    // Both failures are returned; the layer that swallows them reports them.
     let conn = block_on_timeout_connect(AccessibilityConnection::new())
         .ok_or_else(|| {
-            tracing::error!("AT-SPI connection timed out");
+            tracing::debug!(timeout_ms = millis(TIMEOUT_CONNECT), "AT-SPI connection timed out");
             AtspiError::timeout("a11y connection")
         })?
         .map_err(|err| {
-            tracing::error!(%err, "AT-SPI connection failed");
+            tracing::debug!(error = %err, "AT-SPI connection failed");
             AtspiError::ConnectionFailed(err.to_string())
         })?;
     tracing::info!("AT-SPI accessibility bus connected");

@@ -18,6 +18,8 @@ mod node;
 mod pidns_harness;
 mod popups;
 mod process;
+#[cfg(test)]
+mod test_log;
 mod timeout;
 
 use crate::clearable_cell::ClearableCell;
@@ -29,17 +31,21 @@ use crate::popups::{PopupRegistry, PopupWatcher, popup_is_live};
 use atspi_common::{ObjectRefOwned, Role};
 use atspi_connection::AccessibilityConnection;
 use atspi_proxies::accessible::AccessibleProxy;
-use platynui_core::config::RuntimeConfig;
+use platynui_core::config::{ConfigMap, ConfigTypeMismatch, RuntimeConfig};
 use platynui_core::platform::{WindowId, WindowManager};
 use platynui_core::provider::{ProviderDescriptor, ProviderError, ProviderKind, UiTreeProvider, UiTreeProviderFactory};
 use platynui_core::types::{Point, Rect};
 use platynui_core::ui::{TechnologyId, UiNode};
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use tracing::{debug, info, trace, warn};
 use zbus::proxy::CacheProperties;
 
-use crate::timeout::{block_on_timeout_call, block_on_timeout_init};
+use crate::timeout::{
+    AppTimeouts, Loss, TIMEOUT_CALL, block_on_app_call, block_on_timeout_call, block_on_timeout_init,
+    block_on_timeout_unlatched,
+};
 
 pub const PROVIDER_ID: &str = "atspi";
 pub const PROVIDER_NAME: &str = "AT-SPI2";
@@ -64,17 +70,49 @@ impl UiTreeProviderFactory for AtspiFactory {
     }
 }
 
+/// This provider's section of the configuration, in the form diagnostics name it.
+const COMPONENT: &str = "providers.atspi";
+/// `providers.atspi.bus_address`: the accessibility bus to connect to.
+const BUS_ADDRESS_KEY: &str = "bus_address";
+/// `providers.atspi.surface_popups`: event-driven popup surfacing.
+const SURFACE_POPUPS_KEY: &str = "surface_popups";
+
 impl AtspiFactory {
     /// Build a concrete provider from `config` — split out from `create` so the
     /// config → `bus_address` wiring is unit-testable without a live bus.
+    ///
+    /// The section is checked first, before anything is built: an unknown key
+    /// and a value of the wrong type are warned about, and the default applies.
     fn build(config: &RuntimeConfig) -> AtspiProvider {
-        let atspi_config = config.provider(PROVIDER_ID);
-        let bus_address = atspi_config.and_then(|atspi| atspi.get_str("bus_address")).map(str::to_owned);
+        let settings = config.provider(PROVIDER_ID);
+        let unknown = settings.map(|settings| settings.unknown_keys(&[BUS_ADDRESS_KEY, SURFACE_POPUPS_KEY]));
+        for key in unknown.unwrap_or_default() {
+            warn!(component = COMPONENT, key = %key, "unknown setting; it is ignored");
+        }
+        let bus_address = setting(settings, |settings| settings.try_str(BUS_ADDRESS_KEY)).map(str::to_owned);
         // Rollback switch for event-driven popup surfacing: `providers.atspi.
         // surface_popups = false` reverts to pure top-down traversal.
-        let surface_popups = atspi_config.and_then(|atspi| atspi.get_bool("surface_popups")).unwrap_or(true);
+        let surface_popups = setting(settings, |settings| settings.try_bool(SURFACE_POPUPS_KEY)).unwrap_or(true);
         AtspiProvider::new(bus_address, surface_popups)
     }
+}
+
+/// One setting of this provider's section, or `None` — absent, or of the wrong
+/// type, which is warned about so the default can apply.
+fn setting<'a, T>(
+    settings: Option<&'a ConfigMap>,
+    read: impl FnOnce(&'a ConfigMap) -> Result<Option<T>, ConfigTypeMismatch>,
+) -> Option<T> {
+    read(settings?).unwrap_or_else(|mismatch| {
+        warn!(
+            component = COMPONENT,
+            key = %mismatch.key,
+            expected = mismatch.expected,
+            found = mismatch.found,
+            "setting has the wrong type; the default applies"
+        );
+        None
+    })
 }
 
 pub struct AtspiProvider {
@@ -102,6 +140,10 @@ pub struct AtspiProvider {
     /// Whether starting the worker was already attempted; a failed start is
     /// logged once and not retried on every call.
     popup_watcher_started: AtomicBool,
+    /// The applications whose calls time out, and what enumeration learned
+    /// about each of them, keyed by bus name. Handed to every node like
+    /// `popups`, and pruned against the registry at each enumeration.
+    timeouts: Arc<AppTimeouts>,
 }
 
 impl AtspiProvider {
@@ -116,6 +158,7 @@ impl AtspiProvider {
             popups: Arc::new(PopupRegistry::new()),
             popup_watcher: Mutex::new(None),
             popup_watcher_started: AtomicBool::new(false),
+            timeouts: Arc::new(AppTimeouts::new()),
         }
     }
 
@@ -188,6 +231,7 @@ impl UiTreeProvider for AtspiProvider {
     ) -> Result<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>, ProviderError> {
         let conn = self.connection()?;
         let proxy = block_on_timeout_init(
+            "build registry AccessibleProxy",
             AccessibleProxy::builder(conn.connection())
                 .cache_properties(CacheProperties::No)
                 .destination(REGISTRY_BUS)
@@ -199,14 +243,20 @@ impl UiTreeProvider for AtspiProvider {
         .ok_or_else(|| AtspiError::timeout("registry proxy build"))?
         .map_err(|err| AtspiError::dbus("registry proxy", &err))?;
 
-        let children = block_on_timeout_init(proxy.get_children())
+        let children = block_on_timeout_init("Registry Accessible.GetChildren", proxy.get_children())
             .ok_or_else(|| AtspiError::timeout("registry children"))?
             .map_err(|err| AtspiError::dbus("registry children", &err))?;
+
+        // An application instance that left the registry ends its timeout
+        // episode; unique bus names are not reused, so a restart is new.
+        let registered: HashSet<&str> = children.iter().filter_map(ObjectRefOwned::name_as_str).collect();
+        self.timeouts.retain(|bus_name| registered.contains(bus_name));
 
         let parent = Arc::clone(&parent);
         let conn = conn.clone();
         let window_manager = self.window_manager.get();
         let popups = self.popups_handle();
+        let timeouts = Arc::clone(&self.timeouts);
         Ok(Box::new(children.into_iter().filter_map(move |child| {
             if AtspiNode::is_null_object(&child) {
                 return None;
@@ -221,6 +271,7 @@ impl UiTreeProvider for AtspiProvider {
                 debug!(app = %app_bus, pid = ?peer.number, "skipped own process");
                 return None;
             }
+            timeouts.learned(&app_bus, None, peer.number);
 
             // Build a single proxy per registered application and
             // pre-resolve the essential properties (child_count,
@@ -228,7 +279,9 @@ impl UiTreeProvider for AtspiProvider {
             // duplicate proxy builds and D-Bus roundtrips later when
             // the tree view queries has_children / label / role.
             let name = child.name_as_str()?;
-            let proxy = block_on_timeout_call(
+            let proxy = block_on_timeout_unlatched(
+                "build AccessibleProxy",
+                TIMEOUT_CALL,
                 AccessibleProxy::builder(conn.connection())
                     .cache_properties(CacheProperties::No)
                     .destination(name)
@@ -239,8 +292,17 @@ impl UiTreeProvider for AtspiProvider {
             )?
             .ok()?;
 
-            // Filter zombie registrations / empty toolkits.
-            let child_count = block_on_timeout_call(proxy.child_count())?.ok()?;
+            // Filter zombie registrations / empty toolkits. A timeout here
+            // leaves the application out of this enumeration.
+            let child_count = block_on_app_call(
+                &timeouts,
+                name,
+                "Accessible.ChildCount",
+                TIMEOUT_CALL,
+                Loss::Application,
+                proxy.child_count(),
+            )?
+            .ok()?;
             if child_count == 0 {
                 trace!(app = %app_bus, "skipped (0 children)");
                 return None;
@@ -248,15 +310,25 @@ impl UiTreeProvider for AtspiProvider {
 
             // Pre-resolve interfaces, role, and name using the same
             // proxy so that AtspiNode caches are warm on first access.
-            let interfaces = block_on_timeout_call(proxy.get_interfaces()).and_then(std::result::Result::ok);
-            let role =
-                block_on_timeout_call(proxy.get_role()).and_then(std::result::Result::ok).unwrap_or(Role::Invalid);
-            let node_name = block_on_timeout_call(proxy.name())
+            let interfaces = block_on_timeout_call(&timeouts, name, "Accessible.GetInterfaces", proxy.get_interfaces())
+                .and_then(std::result::Result::ok);
+            let role = block_on_timeout_call(&timeouts, name, "Accessible.GetRole", proxy.get_role())
+                .and_then(std::result::Result::ok)
+                .unwrap_or(Role::Invalid);
+            let node_name = block_on_timeout_call(&timeouts, name, "Accessible.Name", proxy.name())
                 .and_then(std::result::Result::ok)
                 .as_deref()
                 .and_then(node::normalize_value);
+            timeouts.learned(name, node_name.as_deref(), None);
 
-            let node = AtspiNode::new(conn.clone(), child, Some(&parent), window_manager.clone(), popups.clone());
+            let node = AtspiNode::new(
+                conn.clone(),
+                child,
+                Some(&parent),
+                window_manager.clone(),
+                popups.clone(),
+                Arc::clone(&timeouts),
+            );
             // Seed caches directly — no additional D-Bus calls inside.
             node.cached_child_count.set(Some(child_count));
             node.interfaces.set(interfaces);
@@ -277,11 +349,7 @@ impl UiTreeProvider for AtspiProvider {
                 "get_nodes: resolved app",
             );
             if elapsed.as_millis() > 1000 {
-                warn!(
-                    app = %app_bus,
-                    elapsed_ms,
-                    "get_nodes: SLOW app resolution (>1000ms)",
-                );
+                debug!(bus_name = %app_bus, elapsed_ms, "application resolution was slow");
             }
 
             Some(node as Arc<dyn UiNode>)
@@ -326,18 +394,34 @@ impl UiTreeProvider for AtspiProvider {
         // undo that decision, and under a PID collision it did.
 
         let conn = self.connection()?;
-        let Some(app_obj) = application_for_pid(&conn, pid) else {
+        let Some(app_obj) = application_for_pid(&conn, &self.timeouts, pid) else {
             debug!(pid, ?point, "no AT-SPI application matched the window PID");
             return Ok(None);
         };
 
         let window_manager = Some(window_manager);
         let popups = self.popups_handle();
-        let app_node: Arc<dyn UiNode> =
-            AtspiNode::new(conn.clone(), app_obj.clone(), None, window_manager.clone(), popups.clone());
+        let timeouts = &self.timeouts;
+        let app_node: Arc<dyn UiNode> = AtspiNode::new(
+            conn.clone(),
+            app_obj.clone(),
+            None,
+            window_manager.clone(),
+            popups.clone(),
+            Arc::clone(timeouts),
+        );
         // Geometric subtree search within the WM-selected application, scoped to
         // the hit window's frame when one matches (see `descend_to_point`).
-        Ok(Some(descend_to_point(&conn, window_manager.as_ref(), popups.as_ref(), &app_node, app_obj, point, hit.id)))
+        Ok(Some(descend_to_point(
+            &conn,
+            window_manager.as_ref(),
+            popups.as_ref(),
+            timeouts,
+            &app_node,
+            app_obj,
+            point,
+            hit.id,
+        )))
     }
 }
 
@@ -352,11 +436,16 @@ impl UiTreeProvider for AtspiProvider {
 /// valid in ours; requiring a locally valid number here would stop resolving the
 /// co-located application of a sidecar deployment. A side with no number never
 /// matches, and `0` is no number.
-fn application_for_pid(conn: &Arc<AccessibilityConnection>, target_pid: u32) -> Option<ObjectRefOwned> {
+fn application_for_pid(
+    conn: &Arc<AccessibilityConnection>,
+    timeouts: &AppTimeouts,
+    target_pid: u32,
+) -> Option<ObjectRefOwned> {
     if target_pid == 0 {
         return None;
     }
     let proxy = block_on_timeout_init(
+        "build registry AccessibleProxy",
         AccessibleProxy::builder(conn.connection())
             .cache_properties(CacheProperties::No)
             .destination(REGISTRY_BUS)
@@ -366,7 +455,7 @@ fn application_for_pid(conn: &Arc<AccessibilityConnection>, target_pid: u32) -> 
             .build(),
     )?
     .ok()?;
-    let children = block_on_timeout_init(proxy.get_children())?.ok()?;
+    let children = block_on_timeout_init("Registry Accessible.GetChildren", proxy.get_children())?.ok()?;
     // A single process can register more than one AT-SPI application root
     // (Qt notably registers an empty/transient root alongside the real one).
     // Prefer the populated registration — the same reason `get_nodes` skips
@@ -385,7 +474,7 @@ fn application_for_pid(conn: &Arc<AccessibilityConnection>, target_pid: u32) -> 
         if app_pid != Some(target_pid) {
             continue;
         }
-        if node::accessible_children(conn.as_ref(), &child).is_empty() {
+        if node::accessible_children(conn.as_ref(), timeouts, &child).is_empty() {
             fallback.get_or_insert(child);
         } else {
             return Some(child);
@@ -418,6 +507,7 @@ fn descend_to_point(
     conn: &Arc<AccessibilityConnection>,
     window_manager: Option<&InjectedWindowManager>,
     popups: Option<&Arc<PopupRegistry>>,
+    timeouts: &Arc<AppTimeouts>,
     app_node: &Arc<dyn UiNode>,
     app_obj: ObjectRefOwned,
     point: Point,
@@ -431,18 +521,18 @@ fn descend_to_point(
     // is override-redirect and not in the managed client list, so
     // `window_at_point` reports the frame *beneath* the popup and the scoped
     // frame search below would resolve the widget under the menu instead.
-    if let Some(hit) = popup_at_point(conn, window_manager, popups, app_node, &app_obj, point, &mut budget) {
+    if let Some(hit) = popup_at_point(conn, window_manager, popups, timeouts, app_node, &app_obj, point, &mut budget) {
         return hit;
     }
 
-    let (root_node, root_obj) = match frame_for_window(conn, window_manager, popups, app_node, &app_obj, target_window)
-    {
-        Some(frame) => frame,
-        None => (Arc::clone(app_node), app_obj),
-    };
+    let (root_node, root_obj) =
+        match frame_for_window(conn, window_manager, popups, timeouts, app_node, &app_obj, target_window) {
+            Some(frame) => frame,
+            None => (Arc::clone(app_node), app_obj),
+        };
 
     let mut best: Option<SubtreeHit> = None;
-    search_subtree(conn, window_manager, popups, &root_node, &root_obj, point, 0, &mut budget, &mut best);
+    search_subtree(conn, window_manager, popups, timeouts, &root_node, &root_obj, point, 0, &mut budget, &mut best);
     best.map_or(root_node, |hit| hit.node)
 }
 
@@ -454,6 +544,7 @@ fn popup_at_point(
     conn: &Arc<AccessibilityConnection>,
     window_manager: Option<&InjectedWindowManager>,
     popups: Option<&Arc<PopupRegistry>>,
+    timeouts: &Arc<AppTimeouts>,
     app_node: &Arc<dyn UiNode>,
     app_obj: &ObjectRefOwned,
     point: Point,
@@ -461,7 +552,7 @@ fn popup_at_point(
 ) -> Option<Arc<dyn UiNode>> {
     let registry = popups?;
     let mut popup_objs = Vec::new();
-    registry.merge_into(app_obj, &mut popup_objs, |popup| popup_is_live(conn.as_ref(), popup));
+    registry.merge_into(app_obj, &mut popup_objs, |popup| popup_is_live(conn.as_ref(), timeouts, popup));
 
     let mut best: Option<SubtreeHit> = None;
     for popup_obj in popup_objs {
@@ -472,6 +563,7 @@ fn popup_at_point(
                 Some(app_node),
                 window_manager.cloned(),
                 popups.cloned(),
+                Arc::clone(timeouts),
             );
             n.hold_parent(Arc::clone(app_node));
             n
@@ -485,7 +577,7 @@ fn popup_at_point(
                 best = Some(SubtreeHit { node: Arc::clone(&popup_node), area, depth: 0 });
             }
         }
-        search_subtree(conn, window_manager, popups, &popup_node, &popup_obj, point, 0, budget, &mut best);
+        search_subtree(conn, window_manager, popups, timeouts, &popup_node, &popup_obj, point, 0, budget, &mut best);
     }
     best.map(|hit| hit.node)
 }
@@ -509,12 +601,13 @@ fn frame_for_window(
     conn: &Arc<AccessibilityConnection>,
     window_manager: Option<&InjectedWindowManager>,
     popups: Option<&Arc<PopupRegistry>>,
+    timeouts: &Arc<AppTimeouts>,
     app_node: &Arc<dyn UiNode>,
     app_obj: &ObjectRefOwned,
     target_window: WindowId,
 ) -> Option<(Arc<dyn UiNode>, ObjectRefOwned)> {
     let wm = window_manager?;
-    for frame_obj in node::accessible_children(conn.as_ref(), app_obj) {
+    for frame_obj in node::accessible_children(conn.as_ref(), timeouts, app_obj) {
         if AtspiNode::is_null_object(&frame_obj) {
             continue;
         }
@@ -525,6 +618,7 @@ fn frame_for_window(
                 Some(app_node),
                 window_manager.cloned(),
                 popups.cloned(),
+                Arc::clone(timeouts),
             );
             node.hold_parent(Arc::clone(app_node));
             node
@@ -545,6 +639,7 @@ fn search_subtree(
     conn: &Arc<AccessibilityConnection>,
     window_manager: Option<&InjectedWindowManager>,
     popups: Option<&Arc<PopupRegistry>>,
+    timeouts: &Arc<AppTimeouts>,
     node: &Arc<dyn UiNode>,
     obj: &ObjectRefOwned,
     point: Point,
@@ -552,12 +647,12 @@ fn search_subtree(
     budget: &mut u32,
     best: &mut Option<SubtreeHit>,
 ) {
-    let mut child_objs = node::accessible_children(conn.as_ref(), obj);
+    let mut child_objs = node::accessible_children(conn.as_ref(), timeouts, obj);
     // Include event-discovered transient popups grafted under this node (e.g.
     // an open context menu), so the hit-test reaches their items exactly like
     // tree enumeration does.
     if let Some(registry) = popups {
-        registry.merge_into(obj, &mut child_objs, |popup| popup_is_live(conn.as_ref(), popup));
+        registry.merge_into(obj, &mut child_objs, |popup| popup_is_live(conn.as_ref(), timeouts, popup));
     }
     for child_obj in child_objs {
         if *budget == 0 {
@@ -568,8 +663,14 @@ fn search_subtree(
         }
         *budget -= 1;
         let child_node: Arc<dyn UiNode> = {
-            let n =
-                AtspiNode::new(conn.clone(), child_obj.clone(), Some(node), window_manager.cloned(), popups.cloned());
+            let n = AtspiNode::new(
+                conn.clone(),
+                child_obj.clone(),
+                Some(node),
+                window_manager.cloned(),
+                popups.cloned(),
+                Arc::clone(timeouts),
+            );
             n.hold_parent(Arc::clone(node));
             n
         };
@@ -590,7 +691,18 @@ fn search_subtree(
                 *best = Some(SubtreeHit { node: Arc::clone(&child_node), area, depth: child_depth });
             }
         }
-        search_subtree(conn, window_manager, popups, &child_node, &child_obj, point, child_depth, budget, best);
+        search_subtree(
+            conn,
+            window_manager,
+            popups,
+            timeouts,
+            &child_node,
+            &child_obj,
+            point,
+            child_depth,
+            budget,
+            best,
+        );
     }
 }
 
@@ -632,6 +744,7 @@ platynui_core::register_provider!(&ATSPI_FACTORY);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_log::{logged, warnings};
     use platynui_core::config::{ConfigMap, RuntimeConfig};
     use platynui_core::ui::{Namespace, PatternName, RuntimeId, UiAttribute};
     use std::sync::Weak;
@@ -672,6 +785,9 @@ mod tests {
     /// empty bus*. The provider must surface the failure, naming the bus, rather
     /// than enumerate nothing — which the runtime could not tell from a bus with
     /// no applications on it.
+    ///
+    /// Spec: *A failure returned to the caller is not reported again*. The
+    /// failure is returned, so the provider logs no warning or error for it.
     #[test]
     fn an_unreachable_bus_is_an_error_naming_it_not_an_empty_tree() {
         let path = std::env::temp_dir().join(format!("platynui-no-a11y-bus-provider-{}", std::process::id()));
@@ -681,10 +797,15 @@ mod tests {
         let provider = AtspiFactory::build(&RuntimeConfig::new(ConfigMap::new(), providers));
         let desktop: Arc<dyn UiNode> = Arc::new(DesktopStub(RuntimeId::from("desktop")));
 
-        let Err(err) = provider.get_nodes(desktop) else {
+        let (result, log) = logged(|| provider.get_nodes(desktop));
+        let Err(err) = result else {
             panic!("an unreachable bus must not enumerate as an empty tree");
         };
         assert!(err.to_string().contains(&path.display().to_string()), "the error must name the bus: {err}");
+        assert!(
+            warnings(&log).is_empty() && !log.contains(" ERROR "),
+            "a returned failure is not logged above debug: {log}"
+        );
     }
 
     #[test]
@@ -712,5 +833,44 @@ mod tests {
         // Disabled → nodes get no registry handle → enumeration stays on the
         // exact pre-event top-down code path (the rollback guarantee).
         assert!(provider.popups_handle().is_none());
+    }
+
+    // Spec: *Configuration mistakes are reported*. The check runs before
+    // anything is built, so neither test needs a bus.
+
+    fn built_with(settings: ConfigMap) -> (AtspiProvider, String) {
+        let config = RuntimeConfig::new(ConfigMap::new(), ConfigMap::new().with("atspi", settings));
+        logged(|| AtspiFactory::build(&config))
+    }
+
+    #[test]
+    fn a_string_where_a_flag_was_expected_is_reported_and_the_default_applies() {
+        let (provider, log) = built_with(ConfigMap::new().with("surface_popups", "False"));
+
+        let warnings = warnings(&log);
+        assert_eq!(warnings.len(), 1, "{log}");
+        for expected in ["providers.atspi", "surface_popups", "bool", "string", "the default applies"] {
+            assert!(warnings[0].contains(expected), "the warning names `{expected}`: {}", warnings[0]);
+        }
+        assert!(provider.surface_popups, "the default applies");
+    }
+
+    #[test]
+    fn an_unknown_setting_is_reported_once() {
+        let (provider, log) = built_with(ConfigMap::new().with("bogus", 1_i64).with("bus_address", "unix:path=/x"));
+
+        let warnings = warnings(&log);
+        assert_eq!(warnings.len(), 1, "{log}");
+        for expected in ["providers.atspi", "bogus", "unknown setting"] {
+            assert!(warnings[0].contains(expected), "the warning names `{expected}`: {}", warnings[0]);
+        }
+        assert_eq!(provider.bus_address.as_deref(), Some("unix:path=/x"), "the known settings still apply");
+    }
+
+    #[test]
+    fn well_formed_settings_are_not_reported() {
+        let settings = ConfigMap::new().with("bus_address", "unix:path=/x").with("surface_popups", false);
+        let (_, log) = built_with(settings.with("enabled", true));
+        assert!(warnings(&log).is_empty(), "{log}");
     }
 }

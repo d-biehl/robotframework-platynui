@@ -9,16 +9,17 @@
 //! client does not know its position. Nothing in that rectangle says it is a
 //! substitute, so the substitution is logged instead: a warning the first
 //! time for each window, `debug` for as long as the window manager keeps
-//! failing for it, and a warning again once it has answered in between.
+//! failing for it, one `debug` when it answers again, and a warning again
+//! when it fails after that.
 //!
 //! Nodes inside a window are placed relative to their ancestors and are
 //! covered by their window's warning; grafted popups keep the window
 //! manager's popup geometry. Neither is a substitute, so neither is logged.
 
-use std::collections::HashSet;
 use std::ops::Deref;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 
+use platynui_core::diagnostics::{Episode, Transitions};
 use platynui_core::platform::{PlatformError, WindowId, WindowManager};
 use platynui_core::types::Rect;
 use platynui_core::ui::UiNode;
@@ -95,13 +96,21 @@ pub(crate) struct TopLevelKey {
 /// with the runtime.
 #[derive(Default)]
 pub(crate) struct Substitutions {
-    failing: Mutex<HashSet<TopLevelKey>>,
+    failing: Transitions<TopLevelKey>,
 }
 
 impl Substitutions {
-    /// The window manager answered for `key`: its next failure is news again.
-    fn answered(&self, key: &TopLevelKey) {
-        self.failing.lock().unwrap_or_else(PoisonError::into_inner).remove(key);
+    /// The window manager answered for `key`: the end of its episode is
+    /// recorded once, and its next failure is news again.
+    fn answered(&self, key: &TopLevelKey, describe: impl FnOnce() -> String) {
+        if self.failing.recovered(key) {
+            debug!(
+                window = %describe(),
+                bus_name = %key.bus_name,
+                path = %key.path,
+                "window manager answers for this top-level window again; its bounds come from the window manager"
+            );
+        }
     }
 
     /// `key`'s bounds are the toolkit's geometry `used`, because the window
@@ -113,10 +122,10 @@ impl Substitutions {
         failure: &WindowManagerFailure,
         used: Option<Rect>,
     ) {
-        let first = self.failing.lock().unwrap_or_else(PoisonError::into_inner).insert(key.clone());
+        let episode = self.failing.failed(key);
         let window_id = failure.window.map_or_else(|| "unresolved".to_string(), |id| id.to_string());
         let used = used.map_or_else(|| "none".to_string(), |rect| rect.to_string());
-        if first {
+        if episode == Episode::Started {
             warn!(
                 window = %describe(),
                 bus_name = %key.bus_name,
@@ -154,7 +163,7 @@ pub(crate) trait ExtentSources {
     fn window_manager_bounds(&self) -> Option<Result<Rect, WindowManagerFailure>>;
     /// Where this node's substitutions are recorded, and under which key.
     fn substitutions(&self) -> Option<(&Substitutions, TopLevelKey)>;
-    /// How the log names this node.
+    /// How the log names this node: its description (`Role "Name" #Id`).
     fn describe(&self) -> String;
     /// Absolute extents summed from parent-relative positions up the tree.
     fn parent_chain_extents(&self) -> Option<Rect>;
@@ -171,7 +180,7 @@ pub(crate) fn resolve_extents(node: &impl ExtentSources) -> Option<Rect> {
         match node.window_manager_bounds() {
             Some(Ok(bounds)) => {
                 if let Some((substitutions, key)) = node.substitutions() {
-                    substitutions.answered(&key);
+                    substitutions.answered(&key, || node.describe());
                 }
                 return Some(bounds);
             }
@@ -230,10 +239,11 @@ fn toolkit_extents(node: &impl ExtentSources) -> Option<Rect> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_log::{at_level, logged, warnings};
     use platynui_core::types::{Point, Size};
     use platynui_core::ui::{Namespace, PatternName, RuntimeId, UiAttribute};
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{LazyLock, Weak};
+    use std::sync::{LazyLock, Mutex, Weak};
 
     // Spec: *A substituted window geometry is visible in the log*. A node's
     // toolkit extents need the accessibility bus, so these tests drive the
@@ -410,36 +420,6 @@ mod tests {
         }
     }
 
-    /// Run `f` with its tracing output captured.
-    fn logged<R>(f: impl FnOnce() -> R) -> (R, String) {
-        #[derive(Clone)]
-        struct Captured(Arc<Mutex<Vec<u8>>>);
-        impl std::io::Write for Captured {
-            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().expect("log buffer").extend_from_slice(buf);
-                Ok(buf.len())
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-
-        let buffer = Arc::new(Mutex::new(Vec::<u8>::new()));
-        let writer = Captured(Arc::clone(&buffer));
-        let subscriber = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .with_ansi(false)
-            .with_writer(move || writer.clone())
-            .finish();
-        let result = tracing::subscriber::with_default(subscriber, f);
-        let log = String::from_utf8(buffer.lock().expect("log buffer").clone()).expect("utf-8 log");
-        (result, log)
-    }
-
-    fn warnings(log: &str) -> Vec<&str> {
-        log.lines().filter(|line| line.contains(" WARN ")).collect()
-    }
-
     #[test]
     fn a_top_level_the_window_manager_cannot_find_keeps_the_toolkit_geometry_and_says_so() {
         let (_, wm) = StubWindowManager::injected(Failing::Lookup);
@@ -505,6 +485,31 @@ mod tests {
 
         assert_eq!(reads, [Some(toolkit_rect()), Some(wm_rect()), Some(toolkit_rect())]);
         assert_eq!(warnings(&log).len(), 2, "{log}");
+    }
+
+    #[test]
+    fn a_window_the_window_manager_answers_for_again_is_recorded_once() {
+        let (stub, wm) = StubWindowManager::injected(Failing::Lookup);
+        let node = Node::top_level("/org/a11y/atspi/accessible/1", &wm);
+        let ((), log) = logged(|| {
+            resolve_extents(&node);
+            stub.fail(Failing::Nothing);
+            resolve_extents(&node);
+            resolve_extents(&node);
+        });
+
+        let recovered: Vec<_> = at_level(&log, "DEBUG").into_iter().filter(|line| line.contains("again")).collect();
+        assert_eq!(recovered.len(), 1, "one record ends the episode: {log}");
+        for expected in [r#"Frame "Sidecar App""#, ":1.42", "/org/a11y/atspi/accessible/1"] {
+            assert!(recovered[0].contains(expected), "the record names `{expected}`: {}", recovered[0]);
+        }
+    }
+
+    #[test]
+    fn a_window_the_window_manager_always_answered_for_records_no_recovery() {
+        let (_, wm) = StubWindowManager::injected(Failing::Nothing);
+        let (_, log) = logged(|| resolve_extents(&Node::top_level("/org/a11y/atspi/accessible/1", &wm)));
+        assert!(log.is_empty(), "{log}");
     }
 
     #[test]

@@ -256,10 +256,14 @@ impl Credentials for BusDaemon<'_> {
             // Not a bus name at all; asking again would not change that.
             return Answer::Definitive(None);
         };
-        let replied = crate::timeout::block_on_timeout_call(async {
-            let dbus = zbus::fdo::DBusProxy::new(self.conn).await?;
-            dbus.get_connection_credentials(name).await
-        });
+        let replied = crate::timeout::block_on_timeout_unlatched(
+            "DBus.GetConnectionCredentials",
+            crate::timeout::TIMEOUT_CALL,
+            async {
+                let dbus = zbus::fdo::DBusProxy::new(self.conn).await?;
+                dbus.get_connection_credentials(name).await
+            },
+        );
         match replied {
             // The daemon replied. For a peer it cannot see, it reports `0` or
             // leaves the process ID out, depending on the implementation, and

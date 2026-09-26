@@ -35,7 +35,7 @@ use crate::clearable_cell::ClearableCell;
 use crate::error::AtspiError;
 use crate::extents::{self, ExtentSources, InjectedWindowManager, Substitutions, TopLevelKey, WindowManagerFailure};
 use crate::popups::{PopupRegistry, popup_is_live};
-use crate::timeout::block_on_timeout_call;
+use crate::timeout::{AppTimeouts, TIMEOUT_CALL, block_on_timeout_call, block_on_timeout_unlatched};
 
 const NULL_PATH: &str = "/org/a11y/atspi/accessible/null";
 const ALT_NULL_PATH: &str = "/org/a11y/atspi/null";
@@ -83,6 +83,10 @@ pub struct AtspiNode {
     /// `None` when popup surfacing is disabled; propagated to every descendant
     /// node, exactly like `conn` and `window_manager`.
     popups: Option<Arc<PopupRegistry>>,
+    /// The provider's per-application timeout latch: every read of this node
+    /// that times out counts against its application's bus name. Propagated
+    /// to every descendant node, exactly like `popups`.
+    timeouts: Arc<AppTimeouts>,
 }
 
 impl AtspiNode {
@@ -92,12 +96,14 @@ impl AtspiNode {
         parent: Option<&Arc<dyn UiNode>>,
         window_manager: Option<InjectedWindowManager>,
         popups: Option<Arc<PopupRegistry>>,
+        timeouts: Arc<AppTimeouts>,
     ) -> Arc<Self> {
         let parent_is_application = parent.is_some_and(|p| p.namespace() == Namespace::App);
         let node = Arc::new(Self {
             conn,
             window_manager,
             popups,
+            timeouts,
             obj,
             parent: Mutex::new(parent.map(Arc::downgrade)),
             parent_is_application,
@@ -133,6 +139,11 @@ impl AtspiNode {
         accessible_proxy(self.conn.as_ref(), &self.obj)
     }
 
+    /// A read of this node, whose timeout counts against its application.
+    fn call<F: std::future::Future>(&self, call: &'static str, future: F) -> Option<F::Output> {
+        block_on_timeout_call(&self.timeouts, bus_name(&self.obj), call, future)
+    }
+
     fn resolve_role(&self) {
         if self.role.get().is_some() {
             return;
@@ -144,11 +155,15 @@ impl AtspiNode {
         };
         // Resolve interfaces via the same proxy when not yet cached.
         if !self.interfaces.is_set() {
-            let ifaces = block_on_timeout_call(proxy.get_interfaces()).and_then(std::result::Result::ok);
+            let ifaces =
+                self.call("Accessible.GetInterfaces", proxy.get_interfaces()).and_then(std::result::Result::ok);
             self.interfaces.set(ifaces);
         }
         let interfaces = self.interfaces.get().flatten();
-        let role = block_on_timeout_call(proxy.get_role()).and_then(std::result::Result::ok).unwrap_or(Role::Invalid);
+        let role = self
+            .call("Accessible.GetRole", proxy.get_role())
+            .and_then(std::result::Result::ok)
+            .unwrap_or(Role::Invalid);
         let (namespace, role_name) = map_role_with_interfaces(role, interfaces);
         let _ = self.namespace.set(namespace);
         let _ = self.role.set(role_name);
@@ -157,19 +172,20 @@ impl AtspiNode {
     fn resolve_state(&self) -> Option<StateSet> {
         self.state.get_or_init(|| {
             self.accessible()
-                .and_then(|proxy| block_on_timeout_call(proxy.get_state()).and_then(std::result::Result::ok))
+                .and_then(|proxy| self.call("Accessible.GetState", proxy.get_state()).and_then(std::result::Result::ok))
         })
     }
 
     fn resolve_interfaces(&self) -> Option<InterfaceSet> {
         self.interfaces.get_or_init(|| {
-            self.accessible()
-                .and_then(|proxy| block_on_timeout_call(proxy.get_interfaces()).and_then(std::result::Result::ok))
+            self.accessible().and_then(|proxy| {
+                self.call("Accessible.GetInterfaces", proxy.get_interfaces()).and_then(std::result::Result::ok)
+            })
         })
     }
 
     fn resolve_name(&self) -> Option<String> {
-        self.cached_name.get_or_init(|| resolve_name(self.conn.as_ref(), &self.obj))
+        self.cached_name.get_or_init(|| resolve_name(self.conn.as_ref(), &self.timeouts, &self.obj))
     }
 
     fn supports_component(&self) -> bool {
@@ -272,13 +288,15 @@ impl UiNode for AtspiNode {
         // For Application nodes the process ID is the stable identifier, since
         // the accessible-id is typically empty.
         if self.is_application() {
-            return application_id(self.resolve_process_id(), || resolve_id(self.conn.as_ref(), &self.obj));
+            return application_id(self.resolve_process_id(), || {
+                resolve_id(self.conn.as_ref(), &self.timeouts, &self.obj)
+            });
         }
-        resolve_id(self.conn.as_ref(), &self.obj)
+        resolve_id(self.conn.as_ref(), &self.timeouts, &self.obj)
     }
 
     fn description(&self) -> Option<String> {
-        resolve_description(self.conn.as_ref(), &self.obj)
+        resolve_description(self.conn.as_ref(), &self.timeouts, &self.obj)
     }
 
     fn parent(&self) -> Option<Weak<dyn UiNode>> {
@@ -287,8 +305,9 @@ impl UiNode for AtspiNode {
 
     fn has_children(&self) -> bool {
         let count = self.cached_child_count.get_or_init(|| {
-            self.accessible()
-                .and_then(|proxy| block_on_timeout_call(proxy.child_count()).and_then(std::result::Result::ok))
+            self.accessible().and_then(|proxy| {
+                self.call("Accessible.ChildCount", proxy.child_count()).and_then(std::result::Result::ok)
+            })
         });
         count.is_some_and(|c| c > 0)
     }
@@ -298,12 +317,11 @@ impl UiNode for AtspiNode {
         let parent_bus = self.obj.name_as_str().unwrap_or("<unknown>").to_string();
         let children_start = std::time::Instant::now();
 
-        let Some(mut children) = self
-            .accessible()
-            .and_then(|proxy| block_on_timeout_call(proxy.get_children()).and_then(std::result::Result::ok))
-        else {
+        let Some(mut children) = self.accessible().and_then(|proxy| {
+            self.call("Accessible.GetChildren", proxy.get_children()).and_then(std::result::Result::ok)
+        }) else {
             // A node that vanished between enumeration and this call is normal in a
-            // live tree; a call that timed out has already warned in `block_on_timeout`.
+            // live tree; a call that timed out is on its application's timeout latch.
             debug!(bus = %parent_bus, path = %parent_path, "children: get_children failed or timed out");
             return Box::new(std::iter::empty());
         };
@@ -313,7 +331,7 @@ impl UiNode for AtspiNode {
         // popups.rs. A no-op unless a popup is currently recorded for this node.
         if let Some(popups) = &self.popups {
             let conn = self.conn.clone();
-            popups.merge_into(&self.obj, &mut children, |popup| popup_is_live(conn.as_ref(), popup));
+            popups.merge_into(&self.obj, &mut children, |popup| popup_is_live(conn.as_ref(), &self.timeouts, popup));
         }
 
         let child_count = children.len();
@@ -341,12 +359,19 @@ impl UiNode for AtspiNode {
         let conn = self.conn.clone();
         let window_manager = self.window_manager.clone();
         let popups = self.popups.clone();
+        let timeouts = Arc::clone(&self.timeouts);
         Box::new(children.into_iter().filter_map(move |child| {
             if AtspiNode::is_null_object(&child) {
                 return None;
             }
-            Some(AtspiNode::new(conn.clone(), child, parent.as_ref(), window_manager.clone(), popups.clone())
-                as Arc<dyn UiNode>)
+            Some(AtspiNode::new(
+                conn.clone(),
+                child,
+                parent.as_ref(),
+                window_manager.clone(),
+                popups.clone(),
+                Arc::clone(&timeouts),
+            ) as Arc<dyn UiNode>)
         }))
     }
 
@@ -416,6 +441,7 @@ impl UiNode for AtspiNode {
                 conn: self.conn.clone(),
                 obj: self.obj.clone(),
                 window_manager: self.window_manager.clone(),
+                timeouts: Arc::clone(&self.timeouts),
             });
             Some(make_window_pattern(id, &core))
         } else {
@@ -427,7 +453,7 @@ impl UiNode for AtspiNode {
         // Cheap liveness probe: if we can still read the role, the D-Bus peer
         // is alive.  Returns `false` for zombie nodes (e.g. crashed apps).
         self.accessible()
-            .and_then(|proxy| block_on_timeout_call(proxy.get_role()))
+            .and_then(|proxy| self.call("Accessible.GetRole", proxy.get_role()))
             .and_then(std::result::Result::ok)
             .is_some()
     }
@@ -450,7 +476,8 @@ macro_rules! make_proxy {
                 .ok()?
                 .path(obj.path_as_str())
                 .ok()?;
-            block_on_timeout_call(builder.build()).and_then(|r| r.ok())
+            block_on_timeout_unlatched(concat!("build ", stringify!($proxy)), TIMEOUT_CALL, builder.build())
+                .and_then(|r| r.ok())
         }
     };
 }
@@ -469,12 +496,23 @@ make_proxy!(table_cell_proxy, TableCellProxy);
 make_proxy!(text_proxy, TextProxy);
 make_proxy!(value_proxy, ValueProxy);
 
+/// The bus name of the application `obj` belongs to, which keys its timeouts.
+pub(crate) fn bus_name(obj: &ObjectRefOwned) -> &str {
+    obj.name_as_str().unwrap_or_default()
+}
+
 /// Child object references of an accessible.
-pub(crate) fn accessible_children(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Vec<ObjectRefOwned> {
+pub(crate) fn accessible_children(
+    conn: &AccessibilityConnection,
+    timeouts: &AppTimeouts,
+    obj: &ObjectRefOwned,
+) -> Vec<ObjectRefOwned> {
     let Some(proxy) = accessible_proxy(conn, obj) else {
         return Vec::new();
     };
-    block_on_timeout_call(proxy.get_children()).and_then(std::result::Result::ok).unwrap_or_default()
+    block_on_timeout_call(timeouts, bus_name(obj), "Accessible.GetChildren", proxy.get_children())
+        .and_then(std::result::Result::ok)
+        .unwrap_or_default()
 }
 
 /// Resolve the toolkit identifier for the application owning the given
@@ -488,7 +526,11 @@ pub(crate) fn accessible_children(conn: &AccessibilityConnection, obj: &ObjectRe
 /// Successful results are cached per D-Bus bus name so the calls happen
 /// at most once per application.  Failures are **not** cached so that
 /// transient D-Bus timeouts can recover on the next attempt.
-fn resolve_toolkit_name(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Option<String> {
+fn resolve_toolkit_name(
+    conn: &AccessibilityConnection,
+    timeouts: &AppTimeouts,
+    obj: &ObjectRefOwned,
+) -> Option<String> {
     let bus_name = obj.name_as_str()?;
 
     // Fast path: return cached successful result without holding the lock
@@ -508,10 +550,14 @@ fn resolve_toolkit_name(conn: &AccessibilityConnection, obj: &ObjectRefOwned) ->
             .ok()?
             .path(ATSPI_ROOT_PATH)
             .ok()?;
-        let proxy = block_on_timeout_call(proxy.build()).and_then(std::result::Result::ok)?;
-        let name = block_on_timeout_call(proxy.toolkit_name()).and_then(std::result::Result::ok)?.to_lowercase();
+        let proxy = block_on_timeout_unlatched("build ApplicationProxy", TIMEOUT_CALL, proxy.build())
+            .and_then(std::result::Result::ok)?;
+        let name = block_on_timeout_call(timeouts, bus_name, "Application.ToolkitName", proxy.toolkit_name())
+            .and_then(std::result::Result::ok)?
+            .to_lowercase();
         // Append the major version number if available (e.g. "gtk" + "4" → "gtk4").
-        let version = block_on_timeout_call(proxy.version()).and_then(std::result::Result::ok);
+        let version = block_on_timeout_call(timeouts, bus_name, "Application.Version", proxy.version())
+            .and_then(std::result::Result::ok);
         match version.as_deref().and_then(|v| v.split('.').next()) {
             Some(major) if !major.is_empty() => Some(format!("{name}{major}")),
             _ => Some(name),
@@ -534,7 +580,9 @@ fn resolve_toolkit_name(conn: &AccessibilityConnection, obj: &ObjectRefOwned) ->
 
 fn grab_focus(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Result<(), AtspiError> {
     let proxy = component_proxy(conn, obj).ok_or(AtspiError::InterfaceMissing("Component"))?;
-    let ok = block_on_timeout_call(proxy.grab_focus())
+    // The timeout is returned to the caller, so it is recorded at debug only
+    // and does not count against the application.
+    let ok = block_on_timeout_unlatched("Component.GrabFocus", TIMEOUT_CALL, proxy.grab_focus())
         .ok_or(AtspiError::timeout("grab_focus"))?
         .map_err(|e| AtspiError::dbus("grab_focus", &e))?;
     if ok { Ok(()) } else { Err(AtspiError::FocusFailed) }
@@ -553,6 +601,8 @@ struct AtspiWindowSurface {
     /// Per-runtime window manager cloned from the owning node; `None` yields
     /// [`AtspiError::NoWindowManager`] from [`AtspiWindowSurface::resolve`].
     window_manager: Option<InjectedWindowManager>,
+    /// The owning node's per-application timeout latch.
+    timeouts: Arc<AppTimeouts>,
 }
 
 impl AtspiWindowSurface {
@@ -565,8 +615,10 @@ impl AtspiWindowSurface {
     }
 
     fn resolve_state(&self) -> Option<StateSet> {
-        accessible_proxy(self.conn.as_ref(), &self.obj)
-            .and_then(|proxy| block_on_timeout_call(proxy.get_state()).and_then(std::result::Result::ok))
+        accessible_proxy(self.conn.as_ref(), &self.obj).and_then(|proxy| {
+            block_on_timeout_call(&self.timeouts, bus_name(&self.obj), "Accessible.GetState", proxy.get_state())
+                .and_then(std::result::Result::ok)
+        })
     }
 
     fn activate(&self) -> Result<(), PatternError> {
@@ -677,21 +729,29 @@ fn pick_attr_value(attrs: &[(String, String)], keys: &[&str]) -> Option<String> 
     None
 }
 
-fn resolve_attributes(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Option<Vec<(String, String)>> {
+fn resolve_attributes(
+    conn: &AccessibilityConnection,
+    timeouts: &AppTimeouts,
+    obj: &ObjectRefOwned,
+) -> Option<Vec<(String, String)>> {
     let proxy = accessible_proxy(conn, obj)?;
     let mut pairs: Vec<(String, String)> =
-        block_on_timeout_call(proxy.get_attributes()).and_then(std::result::Result::ok)?.into_iter().collect();
+        block_on_timeout_call(timeouts, bus_name(obj), "Accessible.GetAttributes", proxy.get_attributes())
+            .and_then(std::result::Result::ok)?
+            .into_iter()
+            .collect();
     pairs.sort_by(|a, b| a.0.cmp(&b.0));
     Some(pairs)
 }
 
-fn resolve_name(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Option<String> {
-    if let Some(Ok(name)) = accessible_proxy(conn, obj).and_then(|p| block_on_timeout_call(p.name()))
+fn resolve_name(conn: &AccessibilityConnection, timeouts: &AppTimeouts, obj: &ObjectRefOwned) -> Option<String> {
+    if let Some(Ok(name)) = accessible_proxy(conn, obj)
+        .and_then(|p| block_on_timeout_call(timeouts, bus_name(obj), "Accessible.Name", p.name()))
         && let Some(value) = normalize_value(&name)
     {
         return Some(value);
     }
-    resolve_attributes(conn, obj)
+    resolve_attributes(conn, timeouts, obj)
         .and_then(|attrs| pick_attr_value(&attrs, &["accessible-name", "name", "label", "title"]))
 }
 
@@ -699,20 +759,24 @@ fn resolve_name(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Option<
 /// source for `control:Description`. Empty/whitespace values normalize to
 /// `None` so the attribute is emitted only when non-empty. Deliberately does
 /// NOT fall back to `HelpText`.
-fn resolve_description(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Option<String> {
-    if let Some(Ok(description)) = accessible_proxy(conn, obj).and_then(|p| block_on_timeout_call(p.description())) {
+fn resolve_description(conn: &AccessibilityConnection, timeouts: &AppTimeouts, obj: &ObjectRefOwned) -> Option<String> {
+    if let Some(Ok(description)) = accessible_proxy(conn, obj)
+        .and_then(|p| block_on_timeout_call(timeouts, bus_name(obj), "Accessible.Description", p.description()))
+    {
         return normalize_value(&description);
     }
     None
 }
 
-fn resolve_id(conn: &AccessibilityConnection, obj: &ObjectRefOwned) -> Option<String> {
-    if let Some(Ok(id)) = accessible_proxy(conn, obj).and_then(|p| block_on_timeout_call(p.accessible_id()))
+fn resolve_id(conn: &AccessibilityConnection, timeouts: &AppTimeouts, obj: &ObjectRefOwned) -> Option<String> {
+    if let Some(Ok(id)) = accessible_proxy(conn, obj)
+        .and_then(|p| block_on_timeout_call(timeouts, bus_name(obj), "Accessible.AccessibleId", p.accessible_id()))
         && let Some(value) = normalize_value(&id)
     {
         return Some(value);
     }
-    resolve_attributes(conn, obj).and_then(|attrs| pick_attr_value(&attrs, &["accessible-id", "accessible_id", "id"]))
+    resolve_attributes(conn, timeouts, obj)
+        .and_then(|attrs| pick_attr_value(&attrs, &["accessible-id", "accessible_id", "id"]))
 }
 
 fn attributes_object(attrs: &[(String, String)]) -> UiValue {
@@ -968,6 +1032,7 @@ impl AttrsIter {
             node.is_window_surface(),
             node.is_transient_popup(),
             node.window_manager.clone(),
+            Arc::clone(&node.timeouts),
         ));
         // Standard attributes always live in the Control namespace,
         // regardless of the node's own namespace (e.g. App for
@@ -1287,6 +1352,7 @@ impl Iterator for AttrsIter {
                         return Some(Arc::new(LazyNativeAttr {
                             conn: self.ctx.conn.clone(),
                             obj: self.ctx.obj.clone(),
+                            timeouts: Arc::clone(&self.ctx.timeouts),
                             name,
                         }));
                     }
@@ -1319,6 +1385,8 @@ struct LazyNodeData {
     /// runtime-injected window manager is present, in which case
     /// window-manager-backed attributes resolve to their fallback values.
     window_manager: Option<InjectedWindowManager>,
+    /// The owning node's per-application timeout latch.
+    timeouts: Arc<AppTimeouts>,
     /// Whether this node is a real platform top-level window.  Cached at
     /// construction so the answer is robust against the parent `Weak` (on
     /// the owning `AtspiNode`) becoming dangling later.
@@ -1347,6 +1415,7 @@ impl LazyNodeData {
         is_real_toplevel: bool,
         is_transient_popup: bool,
         window_manager: Option<InjectedWindowManager>,
+        timeouts: Arc<AppTimeouts>,
     ) -> Self {
         Self {
             conn,
@@ -1355,6 +1424,7 @@ impl LazyNodeData {
             is_real_toplevel,
             is_transient_popup,
             window_manager,
+            timeouts,
             state: OnceLock::new(),
             extents: OnceLock::new(),
             name: OnceLock::new(),
@@ -1364,10 +1434,15 @@ impl LazyNodeData {
         }
     }
 
+    /// A read of this node, whose timeout counts against its application.
+    fn call<F: std::future::Future>(&self, call: &'static str, future: F) -> Option<F::Output> {
+        block_on_timeout_call(&self.timeouts, bus_name(&self.obj), call, future)
+    }
+
     fn resolve_state(&self) -> Option<StateSet> {
         *self.state.get_or_init(|| {
             accessible_proxy(&self.conn, &self.obj)
-                .and_then(|proxy| block_on_timeout_call(proxy.get_state()).and_then(std::result::Result::ok))
+                .and_then(|proxy| self.call("Accessible.GetState", proxy.get_state()).and_then(std::result::Result::ok))
         })
     }
 
@@ -1378,8 +1453,9 @@ impl LazyNodeData {
     fn resolve_text(&self) -> Option<String> {
         self.text
             .get_or_init(|| {
-                text_proxy(&self.conn, &self.obj)
-                    .and_then(|proxy| block_on_timeout_call(proxy.get_text(0, -1)).and_then(std::result::Result::ok))
+                text_proxy(&self.conn, &self.obj).and_then(|proxy| {
+                    self.call("Text.GetText", proxy.get_text(0, -1)).and_then(std::result::Result::ok)
+                })
             })
             .clone()
     }
@@ -1422,8 +1498,9 @@ impl LazyNodeData {
         }
 
         let proxy = component_proxy(&self.conn, &self.obj)?;
-        let (x, y, w, h) =
-            block_on_timeout_call(proxy.get_extents(CoordType::Parent)).and_then(std::result::Result::ok)?;
+        let (x, y, w, h) = self
+            .call("Component.GetExtents", proxy.get_extents(CoordType::Parent))
+            .and_then(std::result::Result::ok)?;
 
         let parent_bounds_attr = parent.attribute(Namespace::Control, element::BOUNDS)?;
         let UiValue::Rect(parent_bounds) = parent_bounds_attr.value() else {
@@ -1443,19 +1520,19 @@ impl LazyNodeData {
 
     /// Resolve the toolkit identifier for the application owning this node.
     fn resolve_toolkit(&self) -> Option<String> {
-        resolve_toolkit_name(&self.conn, &self.obj)
+        resolve_toolkit_name(&self.conn, &self.timeouts, &self.obj)
     }
 
     fn resolve_name(&self) -> &str {
-        self.name.get_or_init(|| resolve_name(&self.conn, &self.obj).unwrap_or_default())
+        self.name.get_or_init(|| resolve_name(&self.conn, &self.timeouts, &self.obj).unwrap_or_default())
     }
 
     fn resolve_id(&self) -> Option<&str> {
-        self.id.get_or_init(|| resolve_id(&self.conn, &self.obj)).as_deref()
+        self.id.get_or_init(|| resolve_id(&self.conn, &self.timeouts, &self.obj)).as_deref()
     }
 
     fn resolve_description(&self) -> Option<&str> {
-        self.description.get_or_init(|| resolve_description(&self.conn, &self.obj)).as_deref()
+        self.description.get_or_init(|| resolve_description(&self.conn, &self.timeouts, &self.obj)).as_deref()
     }
 
     /// Check if this window is the currently active (foreground) window via
@@ -1503,7 +1580,7 @@ impl ExtentSources for LazyNodeData {
 
     fn describe(&self) -> String {
         match self.owner.as_ref().and_then(Weak::upgrade) {
-            Some(node) => format!("{} {:?}", node.role(), node.name()),
+            Some(node) => platynui_core::ui::describe(node.as_ref()),
             None => "a dropped top-level window".to_owned(),
         }
     }
@@ -1514,7 +1591,7 @@ impl ExtentSources for LazyNodeData {
 
     fn screen_extents(&self) -> Option<Rect> {
         component_proxy(&self.conn, &self.obj).and_then(|proxy| {
-            block_on_timeout_call(proxy.get_extents(CoordType::Screen))
+            self.call("Component.GetExtents", proxy.get_extents(CoordType::Screen))
                 .and_then(std::result::Result::ok)
                 .map(|(x, y, w, h)| Rect::new(f64::from(x), f64::from(y), f64::from(w), f64::from(h)))
         })
@@ -1864,6 +1941,8 @@ impl UiAttribute for AppValueAttr {
 struct LazyNativeAttr {
     conn: Arc<AccessibilityConnection>,
     obj: ObjectRefOwned,
+    /// The owning node's per-application timeout latch.
+    timeouts: Arc<AppTimeouts>,
     /// Property name in `"Interface.Property"` format.
     name: &'static str,
 }
@@ -1897,31 +1976,56 @@ impl UiAttribute for LazyNativeAttr {
     }
 }
 
-/// Fetch a D-Bus property and convert the result directly to [`UiValue`].
-///
-/// Returns [`UiValue::Null`] on timeout or D-Bus error.
-fn fetch<T: Into<UiValue>, E>(future: impl std::future::Future<Output = Result<T, E>>) -> UiValue {
-    block_on_timeout_call(future).and_then(std::result::Result::ok).map_or(UiValue::Null, Into::into)
-}
+impl LazyNativeAttr {
+    /// A read of this attribute, named by the attribute, whose timeout counts
+    /// against the node's application.
+    fn call<F: std::future::Future>(&self, future: F) -> Option<F::Output> {
+        block_on_timeout_call(&self.timeouts, bus_name(&self.obj), self.name, future)
+    }
 
-/// Fetch a D-Bus string property, normalise it (trim, reject empty), and
-/// convert to [`UiValue`].
-fn fetch_str<E>(future: impl std::future::Future<Output = Result<String, E>>) -> UiValue {
-    block_on_timeout_call(future)
-        .and_then(std::result::Result::ok)
-        .as_deref()
-        .and_then(normalize_value)
-        .map_or(UiValue::Null, UiValue::from)
-}
+    /// Fetch a D-Bus property and convert the result directly to [`UiValue`].
+    ///
+    /// Returns [`UiValue::Null`] on timeout or D-Bus error.
+    fn fetch<T: Into<UiValue>, E>(&self, future: impl std::future::Future<Output = Result<T, E>>) -> UiValue {
+        self.call(future).and_then(std::result::Result::ok).map_or(UiValue::Null, Into::into)
+    }
 
-/// Fetch a D-Bus property and apply a custom mapping to [`UiValue`].
-fn fetch_map<T, E>(future: impl std::future::Future<Output = Result<T, E>>, f: impl FnOnce(T) -> UiValue) -> UiValue {
-    block_on_timeout_call(future).and_then(std::result::Result::ok).map_or(UiValue::Null, f)
-}
+    /// Fetch a D-Bus string property, normalise it (trim, reject empty), and
+    /// convert to [`UiValue`].
+    fn fetch_str<E>(&self, future: impl std::future::Future<Output = Result<String, E>>) -> UiValue {
+        self.call(future)
+            .and_then(std::result::Result::ok)
+            .as_deref()
+            .and_then(normalize_value)
+            .map_or(UiValue::Null, UiValue::from)
+    }
 
-/// Shorthand for converting a D-Bus integer property to `UiValue::Integer`.
-fn fetch_int<T: Into<i64>, E>(future: impl std::future::Future<Output = Result<T, E>>) -> UiValue {
-    fetch_map(future, |v| UiValue::from(v.into()))
+    /// Fetch a D-Bus property and apply a custom mapping to [`UiValue`].
+    fn fetch_map<T, E>(
+        &self,
+        future: impl std::future::Future<Output = Result<T, E>>,
+        f: impl FnOnce(T) -> UiValue,
+    ) -> UiValue {
+        self.call(future).and_then(std::result::Result::ok).map_or(UiValue::Null, f)
+    }
+
+    /// Shorthand for converting a D-Bus integer property to `UiValue::Integer`.
+    fn fetch_int<T: Into<i64>, E>(&self, future: impl std::future::Future<Output = Result<T, E>>) -> UiValue {
+        self.fetch_map(future, |v| UiValue::from(v.into()))
+    }
+
+    /// Fetch a D-Bus property that returns a `HashMap<String, String>` and
+    /// convert it to a [`UiValue::Object`].  Returns [`UiValue::Null`] when
+    /// the call fails, times out, or the map is empty.
+    fn fetch_string_map<E>(
+        &self,
+        future: impl std::future::Future<Output = Result<std::collections::HashMap<String, String>, E>>,
+    ) -> UiValue {
+        self.call(future)
+            .and_then(std::result::Result::ok)
+            .filter(|attrs| !attrs.is_empty())
+            .map_or(UiValue::Null, |attrs| string_map_object(&attrs))
+    }
 }
 
 /// Convert D-Bus extents `(x, y, w, h)` to a [`Rect`] value.
@@ -1939,37 +2043,25 @@ fn size_value((w, h): (i32, i32)) -> UiValue {
     UiValue::from(Size::new(f64::from(w), f64::from(h)))
 }
 
-/// Fetch a D-Bus property that returns a `HashMap<String, String>` and
-/// convert it to a [`UiValue::Object`].  Returns [`UiValue::Null`] when
-/// the call fails, times out, or the map is empty.
-fn fetch_string_map<E>(
-    future: impl std::future::Future<Output = Result<std::collections::HashMap<String, String>, E>>,
-) -> UiValue {
-    block_on_timeout_call(future)
-        .and_then(std::result::Result::ok)
-        .filter(|attrs| !attrs.is_empty())
-        .map_or(UiValue::Null, |attrs| string_map_object(&attrs))
-}
-
 impl LazyNativeAttr {
     fn fetch_accessible(&self, prop: &str) -> UiValue {
         let Some(proxy) = accessible_proxy(&self.conn, &self.obj) else {
             return UiValue::Null;
         };
         match prop {
-            "Name" => fetch_str(proxy.name()),
-            "Description" => fetch_str(proxy.description()),
-            "HelpText" => fetch_str(proxy.help_text()),
-            "Locale" => fetch_str(proxy.locale()),
-            "Role" => fetch_map(proxy.get_role(), |role| UiValue::from(role.name().to_string())),
-            "RoleName" => fetch_str(proxy.get_role_name()),
-            "LocalizedRoleName" => fetch_str(proxy.get_localized_role_name()),
-            "AccessibleId" => fetch_str(proxy.accessible_id()),
-            "ChildCount" => fetch_int(proxy.child_count()),
-            "IndexInParent" => fetch_int(proxy.get_index_in_parent()),
-            "Interfaces" => fetch_map(proxy.get_interfaces(), interface_set_value),
-            "State" => fetch_map(proxy.get_state(), state_set_value),
-            "Attributes" => fetch_map(proxy.get_attributes(), |attrs| {
+            "Name" => self.fetch_str(proxy.name()),
+            "Description" => self.fetch_str(proxy.description()),
+            "HelpText" => self.fetch_str(proxy.help_text()),
+            "Locale" => self.fetch_str(proxy.locale()),
+            "Role" => self.fetch_map(proxy.get_role(), |role| UiValue::from(role.name().to_string())),
+            "RoleName" => self.fetch_str(proxy.get_role_name()),
+            "LocalizedRoleName" => self.fetch_str(proxy.get_localized_role_name()),
+            "AccessibleId" => self.fetch_str(proxy.accessible_id()),
+            "ChildCount" => self.fetch_int(proxy.child_count()),
+            "IndexInParent" => self.fetch_int(proxy.get_index_in_parent()),
+            "Interfaces" => self.fetch_map(proxy.get_interfaces(), interface_set_value),
+            "State" => self.fetch_map(proxy.get_state(), state_set_value),
+            "Attributes" => self.fetch_map(proxy.get_attributes(), |attrs| {
                 let pairs: Vec<(String, String)> = attrs.into_iter().collect();
                 attributes_object(&pairs)
             }),
@@ -1982,9 +2074,15 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "NActions" => fetch_int(proxy.n_actions()),
+            "NActions" => self.fetch_int(proxy.n_actions()),
             "Actions" => {
-                let Some(actions) = block_on_timeout_call(proxy.get_actions()).and_then(std::result::Result::ok) else {
+                let Some(actions) = block_on_timeout_call(
+                    &self.timeouts,
+                    bus_name(&self.obj),
+                    "Action.GetActions",
+                    proxy.get_actions(),
+                )
+                .and_then(std::result::Result::ok) else {
                     return UiValue::Null;
                 };
                 // Enrich each action with its non-localized machine-readable
@@ -1994,7 +2092,7 @@ impl LazyNativeAttr {
                 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
                 let names: Vec<Option<String>> = (0..actions.len() as i32)
                     .map(|i| {
-                        block_on_timeout_call(proxy.get_name(i))
+                        block_on_timeout_call(&self.timeouts, bus_name(&self.obj), "Action.GetName", proxy.get_name(i))
                             .and_then(std::result::Result::ok)
                             .as_deref()
                             .and_then(normalize_value)
@@ -2011,11 +2109,11 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "Id" => fetch_map(proxy.id(), |id| UiValue::from(i64::from(id))),
-            "Version" => fetch_str(proxy.version()),
-            "ToolkitName" => fetch_str(proxy.toolkit_name()),
-            "AtspiVersion" => fetch_str(proxy.atspi_version()),
-            "BusAddress" => fetch_str(proxy.get_application_bus_address()),
+            "Id" => self.fetch_map(proxy.id(), |id| UiValue::from(i64::from(id))),
+            "Version" => self.fetch_str(proxy.version()),
+            "ToolkitName" => self.fetch_str(proxy.toolkit_name()),
+            "AtspiVersion" => self.fetch_str(proxy.atspi_version()),
+            "BusAddress" => self.fetch_str(proxy.get_application_bus_address()),
             _ => UiValue::Null,
         }
     }
@@ -2025,16 +2123,16 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "Alpha" => fetch(proxy.get_alpha()),
-            "Extents.Screen" => fetch_map(proxy.get_extents(CoordType::Screen), extents_value),
-            "Extents.Window" => fetch_map(proxy.get_extents(CoordType::Window), extents_value),
-            "Extents.Parent" => fetch_map(proxy.get_extents(CoordType::Parent), extents_value),
-            "Position.Screen" => fetch_map(proxy.get_position(CoordType::Screen), position_value),
-            "Position.Window" => fetch_map(proxy.get_position(CoordType::Window), position_value),
-            "Position.Parent" => fetch_map(proxy.get_position(CoordType::Parent), position_value),
-            "Size" => fetch_map(proxy.get_size(), size_value),
-            "Layer" => fetch_map(proxy.get_layer(), |layer| UiValue::from(format!("{layer:?}"))),
-            "MDIZOrder" => fetch_map(proxy.get_mdiz_order(), |order| UiValue::from(i64::from(order))),
+            "Alpha" => self.fetch(proxy.get_alpha()),
+            "Extents.Screen" => self.fetch_map(proxy.get_extents(CoordType::Screen), extents_value),
+            "Extents.Window" => self.fetch_map(proxy.get_extents(CoordType::Window), extents_value),
+            "Extents.Parent" => self.fetch_map(proxy.get_extents(CoordType::Parent), extents_value),
+            "Position.Screen" => self.fetch_map(proxy.get_position(CoordType::Screen), position_value),
+            "Position.Window" => self.fetch_map(proxy.get_position(CoordType::Window), position_value),
+            "Position.Parent" => self.fetch_map(proxy.get_position(CoordType::Parent), position_value),
+            "Size" => self.fetch_map(proxy.get_size(), size_value),
+            "Layer" => self.fetch_map(proxy.get_layer(), |layer| UiValue::from(format!("{layer:?}"))),
+            "MDIZOrder" => self.fetch_map(proxy.get_mdiz_order(), |order| UiValue::from(i64::from(order))),
             _ => UiValue::Null,
         }
     }
@@ -2044,10 +2142,10 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "PageCount" => fetch_int(proxy.page_count()),
-            "CurrentPageNumber" => fetch_int(proxy.current_page_number()),
-            "Locale" => fetch_str(proxy.get_locale()),
-            "Attributes" => fetch_string_map(proxy.get_attributes()),
+            "PageCount" => self.fetch_int(proxy.page_count()),
+            "CurrentPageNumber" => self.fetch_int(proxy.current_page_number()),
+            "Locale" => self.fetch_str(proxy.get_locale()),
+            "Attributes" => self.fetch_string_map(proxy.get_attributes()),
             _ => UiValue::Null,
         }
     }
@@ -2057,10 +2155,10 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "IsValid" => fetch(proxy.is_valid()),
-            "EndIndex" => fetch_int(proxy.end_index()),
-            "StartIndex" => fetch_int(proxy.start_index()),
-            "NAnchors" => fetch_int(proxy.n_anchors()),
+            "IsValid" => self.fetch(proxy.is_valid()),
+            "EndIndex" => self.fetch_int(proxy.end_index()),
+            "StartIndex" => self.fetch_int(proxy.start_index()),
+            "NAnchors" => self.fetch_int(proxy.n_anchors()),
             _ => UiValue::Null,
         }
     }
@@ -2070,7 +2168,7 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "NLinks" => fetch_int(proxy.get_n_links()),
+            "NLinks" => self.fetch_int(proxy.get_n_links()),
             _ => UiValue::Null,
         }
     }
@@ -2080,15 +2178,15 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "Description" => fetch_str(proxy.image_description()),
-            "Locale" => fetch_str(proxy.image_locale()),
-            "Extents.Screen" => fetch_map(proxy.get_image_extents(CoordType::Screen), extents_value),
-            "Extents.Window" => fetch_map(proxy.get_image_extents(CoordType::Window), extents_value),
-            "Extents.Parent" => fetch_map(proxy.get_image_extents(CoordType::Parent), extents_value),
-            "Position.Screen" => fetch_map(proxy.get_image_position(CoordType::Screen), position_value),
-            "Position.Window" => fetch_map(proxy.get_image_position(CoordType::Window), position_value),
-            "Position.Parent" => fetch_map(proxy.get_image_position(CoordType::Parent), position_value),
-            "Size" => fetch_map(proxy.get_image_size(), size_value),
+            "Description" => self.fetch_str(proxy.image_description()),
+            "Locale" => self.fetch_str(proxy.image_locale()),
+            "Extents.Screen" => self.fetch_map(proxy.get_image_extents(CoordType::Screen), extents_value),
+            "Extents.Window" => self.fetch_map(proxy.get_image_extents(CoordType::Window), extents_value),
+            "Extents.Parent" => self.fetch_map(proxy.get_image_extents(CoordType::Parent), extents_value),
+            "Position.Screen" => self.fetch_map(proxy.get_image_position(CoordType::Screen), position_value),
+            "Position.Window" => self.fetch_map(proxy.get_image_position(CoordType::Window), position_value),
+            "Position.Parent" => self.fetch_map(proxy.get_image_position(CoordType::Parent), position_value),
+            "Size" => self.fetch_map(proxy.get_image_size(), size_value),
             _ => UiValue::Null,
         }
     }
@@ -2098,7 +2196,7 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "NSelectedChildren" => fetch_int(proxy.n_selected_children()),
+            "NSelectedChildren" => self.fetch_int(proxy.n_selected_children()),
             _ => UiValue::Null,
         }
     }
@@ -2108,14 +2206,14 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "NColumns" => fetch_int(proxy.n_columns()),
-            "NRows" => fetch_int(proxy.n_rows()),
-            "NSelectedColumns" => fetch_int(proxy.n_selected_columns()),
-            "NSelectedRows" => fetch_int(proxy.n_selected_rows()),
-            "SelectedRows" => fetch_map(proxy.get_selected_rows(), |rows| {
+            "NColumns" => self.fetch_int(proxy.n_columns()),
+            "NRows" => self.fetch_int(proxy.n_rows()),
+            "NSelectedColumns" => self.fetch_int(proxy.n_selected_columns()),
+            "NSelectedRows" => self.fetch_int(proxy.n_selected_rows()),
+            "SelectedRows" => self.fetch_map(proxy.get_selected_rows(), |rows| {
                 UiValue::from(rows.into_iter().map(i64::from).collect::<Vec<_>>())
             }),
-            "SelectedColumns" => fetch_map(proxy.get_selected_columns(), |cols| {
+            "SelectedColumns" => self.fetch_map(proxy.get_selected_columns(), |cols| {
                 UiValue::from(cols.into_iter().map(i64::from).collect::<Vec<_>>())
             }),
             _ => UiValue::Null,
@@ -2127,9 +2225,9 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "ColumnSpan" => fetch_int(proxy.column_span()),
-            "RowSpan" => fetch_int(proxy.row_span()),
-            "Position" => fetch_map(proxy.position(), |(row, col)| row_column_value(row, col)),
+            "ColumnSpan" => self.fetch_int(proxy.column_span()),
+            "RowSpan" => self.fetch_int(proxy.row_span()),
+            "Position" => self.fetch_map(proxy.position(), |(row, col)| row_column_value(row, col)),
             _ => UiValue::Null,
         }
     }
@@ -2139,11 +2237,11 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "CharacterCount" => fetch_int(proxy.character_count()),
-            "CaretOffset" => fetch_int(proxy.caret_offset()),
-            "NSelections" => fetch_int(proxy.get_n_selections()),
-            "DefaultAttributes" => fetch_string_map(proxy.get_default_attributes()),
-            "DefaultAttributeSet" => fetch_string_map(proxy.get_default_attribute_set()),
+            "CharacterCount" => self.fetch_int(proxy.character_count()),
+            "CaretOffset" => self.fetch_int(proxy.caret_offset()),
+            "NSelections" => self.fetch_int(proxy.get_n_selections()),
+            "DefaultAttributes" => self.fetch_string_map(proxy.get_default_attributes()),
+            "DefaultAttributeSet" => self.fetch_string_map(proxy.get_default_attribute_set()),
             _ => UiValue::Null,
         }
     }
@@ -2153,11 +2251,11 @@ impl LazyNativeAttr {
             return UiValue::Null;
         };
         match prop {
-            "CurrentValue" => fetch(proxy.current_value()),
-            "MaximumValue" => fetch(proxy.maximum_value()),
-            "MinimumValue" => fetch(proxy.minimum_value()),
-            "MinimumIncrement" => fetch(proxy.minimum_increment()),
-            "Text" => fetch_str(proxy.text()),
+            "CurrentValue" => self.fetch(proxy.current_value()),
+            "MaximumValue" => self.fetch(proxy.maximum_value()),
+            "MinimumValue" => self.fetch(proxy.minimum_value()),
+            "MinimumIncrement" => self.fetch(proxy.minimum_increment()),
+            "Text" => self.fetch_str(proxy.text()),
             _ => UiValue::Null,
         }
     }

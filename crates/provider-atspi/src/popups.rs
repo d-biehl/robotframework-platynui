@@ -40,7 +40,9 @@ use tracing::{debug, trace};
 use crate::connection::connect_a11y_bus_with;
 use crate::error::AtspiError;
 use crate::node::{AtspiNode, accessible_proxy};
-use crate::timeout::{block_on_timeout_call, block_on_timeout_init};
+use crate::timeout::{
+    AppTimeouts, TIMEOUT_CALL, TIMEOUT_INIT, block_on_timeout, block_on_timeout_call, block_on_timeout_unlatched,
+};
 
 /// Roles a transient popup can carry (locked by the toolkit spike): Qt context
 /// menus are `PopupMenu`, GTK4 popover menus are `Menu`; `Window`/`Dialog`/
@@ -172,11 +174,13 @@ pub(crate) fn match_popup_rect(
 
 /// Whether a recorded popup is still shown on screen — the merge-time liveness
 /// probe for [`PopupRegistry::merge_into`] on the synchronous query connection.
-pub(crate) fn popup_is_live(conn: &AccessibilityConnection, popup: &ObjectRefOwned) -> bool {
+/// A probe that times out counts against the popup's application in
+/// `timeouts`.
+pub(crate) fn popup_is_live(conn: &AccessibilityConnection, timeouts: &AppTimeouts, popup: &ObjectRefOwned) -> bool {
     let Some(proxy) = accessible_proxy(conn, popup) else {
         return false;
     };
-    block_on_timeout_call(proxy.get_state())
+    block_on_timeout_call(timeouts, crate::node::bus_name(popup), "Accessible.GetState", proxy.get_state())
         .and_then(std::result::Result::ok)
         .is_some_and(|state| state.contains(State::Showing))
 }
@@ -201,10 +205,15 @@ impl PopupWatcher {
     pub(crate) fn spawn(bus_address: Option<&str>, registry: Arc<PopupRegistry>) -> Result<Self, AtspiError> {
         let events = connect_a11y_bus_with(bus_address)?;
         let query = connect_a11y_bus_with(bus_address)?;
-        block_on_timeout_init(async {
-            events.register_event::<StateChangedEvent>().await?;
-            events.register_event::<ChildrenChangedEvent>().await
-        })
+        // The timeout is returned; the provider reports it once, as the popup
+        // worker that could not start.
+        block_on_timeout(
+            async {
+                events.register_event::<StateChangedEvent>().await?;
+                events.register_event::<ChildrenChangedEvent>().await
+            },
+            TIMEOUT_INIT,
+        )
         .ok_or_else(|| AtspiError::timeout("popup event registration"))?
         .map_err(|err| AtspiError::ConnectionFailed(format!("popup event registration: {err}")))?;
 
@@ -222,7 +231,7 @@ impl PopupWatcher {
     /// the thread exits, and the registry is cleared so no stale popup outlives
     /// the watcher.
     pub(crate) fn stop(&mut self) {
-        let _ = block_on_timeout_call(self.events_conn.clone().close());
+        let _ = block_on_timeout_unlatched("close event connection", TIMEOUT_CALL, self.events_conn.clone().close());
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
@@ -239,7 +248,7 @@ impl Drop for PopupWatcher {
 }
 
 /// Await `future`, giving up after [`WORKER_CALL_TIMEOUT`]. The async
-/// counterpart of [`block_on_timeout_call`] for use inside the worker.
+/// counterpart of [`block_on_timeout`] for use inside the worker.
 async fn with_timeout<T>(future: impl std::future::Future<Output = T>) -> Option<T> {
     futures_lite::future::or(async { Some(future.await) }, async {
         async_io::Timer::after(WORKER_CALL_TIMEOUT).await;
