@@ -140,10 +140,6 @@ impl EisBackend {
 }
 
 impl InputBackend for EisBackend {
-    fn name(&self) -> &'static str {
-        "EIS"
-    }
-
     fn key_to_code(&self, name: &str) -> Result<KeyCode, KeyboardError> {
         let lower = name.to_lowercase();
         if let Some(code) = named_key_code(&lower) {

@@ -676,7 +676,7 @@ impl KeyboardDevice for LinuxKeyboardDevice {
             }
             // Keysym not in keymap — try dynamic remap.
             if keymap.spare_keycode.is_some() {
-                debug!(name, keysym = entry.keysym, "named key not in keymap — will use dynamic remap");
+                trace!(name, keysym = entry.keysym, "named key not in keymap — will use dynamic remap");
                 return Ok(KeyCode::new(X11KeyCode(X11Key::DynamicRemap { keysym: entry.keysym })));
             }
             return Err(KeyboardError::UnsupportedKey(name.to_owned()));
@@ -817,7 +817,7 @@ impl LinuxKeyboardDevice {
 
         // Dynamic remap fallback for characters outside the active layout.
         if keymap.spare_keycode.is_some() {
-            debug!(ch = %ch, keysym, "character not in keymap — will use dynamic remap");
+            trace!(ch = %ch, keysym, "character not in keymap — will use dynamic remap");
             return Ok(KeyCode::new(X11KeyCode(X11Key::DynamicRemap { keysym })));
         }
 

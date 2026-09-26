@@ -31,11 +31,9 @@ use crate::capabilities::CompositorType;
 ///
 /// Each backend (EIS, Portal, virtual-input) implements this trait.
 /// The selected backend is stored in `BACKEND` and accessed by
-/// `WaylandKeyboardDevice` and `WaylandPointerDevice`.
+/// `WaylandKeyboardDevice` and `WaylandPointerDevice`. Its name for logging
+/// is [`Candidate::name`], which also names a backend that failed to connect.
 pub(crate) trait InputBackend: Send + Sync {
-    /// Human-readable name for logging.
-    fn name(&self) -> &'static str;
-
     // -- Keyboard --
 
     /// Convert a key name to a backend-specific key code.
@@ -86,24 +84,11 @@ static BACKEND: Mutex<Option<Box<dyn InputBackend>>> = Mutex::new(None);
 /// Select and initialize the best available input backend based on the
 /// detected compositor type.
 ///
-/// Called during platform initialization. Tries backends in priority order:
-/// - `PlatynUI` / wlroots with EIS socket → direct EIS
-/// - Mutter / `KWin` → Portal `RemoteDesktop` → EIS
-/// - Sway / Hyprland / Wlroots / Unknown → try EIS, then Portal, then virtual-input
+/// Called during platform initialization. Tries the backends of
+/// [`candidates`] in order, keeps the first that connects and logs the
+/// decision (see [`select`]).
 pub(crate) fn initialize(compositor: CompositorType) {
-    let backend: Option<Box<dyn InputBackend>> = match compositor {
-        CompositorType::PlatynUi => try_control_socket_then_eis(compositor),
-        CompositorType::Mutter | CompositorType::KWin => try_portal_then_eis(compositor),
-        CompositorType::Sway | CompositorType::Hyprland | CompositorType::Wlroots | CompositorType::Unknown => {
-            try_eis_then_portal_then_virtual(compositor)
-        }
-    };
-
-    if let Some(b) = &backend {
-        info!(backend = b.name(), "input backend initialized");
-    } else {
-        warn!("no input backend available — keyboard/pointer will not work");
-    }
+    let backend = select(compositor, candidates(compositor), |candidate| connect(candidate, compositor));
 
     let mut guard = BACKEND.lock().expect("input backend mutex poisoned");
     *guard = backend;
@@ -136,90 +121,119 @@ where
 }
 
 // ---------------------------------------------------------------------------
-//  Backend selection helpers
+//  Backend selection
 // ---------------------------------------------------------------------------
 
-fn try_control_socket_then_eis(compositor: CompositorType) -> Option<Box<dyn InputBackend>> {
-    if let Some(b) = try_control_socket() {
-        return Some(b);
-    }
-    try_eis_then_portal(compositor)
+/// An input backend that the selection can try.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Candidate {
+    ControlSocket,
+    Eis,
+    Portal,
+    VirtualInput,
 }
 
-fn try_eis_then_portal(compositor: CompositorType) -> Option<Box<dyn InputBackend>> {
-    if let Some(b) = try_eis(compositor) {
-        return Some(b);
-    }
-    try_portal(compositor)
-}
-
-fn try_portal_then_eis(compositor: CompositorType) -> Option<Box<dyn InputBackend>> {
-    if let Some(b) = try_portal(compositor) {
-        return Some(b);
-    }
-    try_eis(compositor)
-}
-
-fn try_eis_then_portal_then_virtual(compositor: CompositorType) -> Option<Box<dyn InputBackend>> {
-    if let Some(b) = try_eis(compositor) {
-        return Some(b);
-    }
-    if let Some(b) = try_portal(compositor) {
-        return Some(b);
-    }
-    try_virtual_input()
-}
-
-fn try_eis(compositor: CompositorType) -> Option<Box<dyn InputBackend>> {
-    match eis::EisBackend::connect(compositor) {
-        Ok(b) => {
-            debug!("EIS input backend available");
-            Some(Box::new(b))
-        }
-        Err(e) => {
-            debug!(error = %e, "EIS input backend unavailable");
-            None
+impl Candidate {
+    /// The backend's name in log records.
+    const fn name(self) -> &'static str {
+        match self {
+            Self::ControlSocket => "ControlSocket",
+            Self::Eis => "EIS",
+            Self::Portal => "Portal",
+            Self::VirtualInput => "virtual-input (wlr)",
         }
     }
 }
 
-fn try_portal(compositor: CompositorType) -> Option<Box<dyn InputBackend>> {
-    match portal::PortalBackend::connect(compositor) {
-        Ok(b) => {
-            debug!("Portal input backend available");
-            Some(Box::new(b))
-        }
-        Err(e) => {
-            debug!(error = %e, "Portal input backend unavailable");
-            None
-        }
-    }
-}
-
-fn try_virtual_input() -> Option<Box<dyn InputBackend>> {
-    match virtual_input::VirtualInputBackend::connect() {
-        Ok(b) => {
-            debug!("virtual-input backend available");
-            Some(Box::new(b))
-        }
-        Err(e) => {
-            debug!(error = %e, "virtual-input backend unavailable");
-            None
+/// The backends to try for `compositor`, in priority order:
+/// - `PlatynUI` → control socket, then EIS, then Portal
+/// - Mutter / `KWin` → Portal `RemoteDesktop` → EIS, then direct EIS
+/// - Sway / Hyprland / Wlroots / Unknown → EIS, then Portal, then virtual-input
+fn candidates(compositor: CompositorType) -> &'static [Candidate] {
+    match compositor {
+        CompositorType::PlatynUi => &[Candidate::ControlSocket, Candidate::Eis, Candidate::Portal],
+        CompositorType::Mutter | CompositorType::KWin => &[Candidate::Portal, Candidate::Eis],
+        CompositorType::Sway | CompositorType::Hyprland | CompositorType::Wlroots | CompositorType::Unknown => {
+            &[Candidate::Eis, Candidate::Portal, Candidate::VirtualInput]
         }
     }
 }
 
-fn try_control_socket() -> Option<Box<dyn InputBackend>> {
-    match control_socket::ControlSocketBackend::connect() {
-        Ok(b) => {
-            debug!("control socket input backend available");
-            Some(Box::new(b))
-        }
-        Err(e) => {
-            debug!(error = %e, "control socket input backend unavailable");
-            None
+/// Connect one backend, returning its failure.
+fn connect(candidate: Candidate, compositor: CompositorType) -> Result<Box<dyn InputBackend>, PlatformError> {
+    match candidate {
+        Candidate::ControlSocket => try_control_socket(),
+        Candidate::Eis => try_eis(compositor),
+        Candidate::Portal => try_portal(compositor),
+        Candidate::VirtualInput => try_virtual_input(),
+    }
+}
+
+/// Try `candidates` in order with `connect` and return the first backend that
+/// connects.
+///
+/// Logs the decision once it is made: the chosen backend with the compositor
+/// type that fixed the order of the attempts, and at debug each backend
+/// rejected before it, with its reason. When none connects, one warning names
+/// each backend with its reason.
+fn select<B>(
+    compositor: CompositorType,
+    candidates: &[Candidate],
+    mut connect: impl FnMut(Candidate) -> Result<B, PlatformError>,
+) -> Option<B> {
+    let mut rejected = Vec::new();
+    for &candidate in candidates {
+        match connect(candidate) {
+            Ok(backend) => {
+                for Rejected(rejected, error) in &rejected {
+                    debug!(backend = rejected.name(), error = %error, "input backend unavailable");
+                }
+                info!(backend = candidate.name(), %compositor, "input backend initialized");
+                return Some(backend);
+            }
+            Err(error) => rejected.push(Rejected(candidate, error)),
         }
     }
+    warn!(
+        %compositor,
+        backends = %Rejections(&rejected),
+        "no Wayland input backend could be initialized; keyboard and pointer input will fail"
+    );
+    None
+}
+
+/// A backend that failed to connect, with its failure.
+struct Rejected(Candidate, PlatformError);
+
+/// Each rejected backend with its reason, for the warning's `backends` field.
+struct Rejections<'a>(&'a [Rejected]);
+
+impl std::fmt::Display for Rejections<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (index, Rejected(backend, error)) in self.0.iter().enumerate() {
+            if index > 0 {
+                f.write_str("; ")?;
+            }
+            write!(f, "{}: {error}", backend.name())?;
+        }
+        Ok(())
+    }
+}
+
+fn try_eis(compositor: CompositorType) -> Result<Box<dyn InputBackend>, PlatformError> {
+    Ok(Box::new(eis::EisBackend::connect(compositor)?))
+}
+
+fn try_portal(compositor: CompositorType) -> Result<Box<dyn InputBackend>, PlatformError> {
+    Ok(Box::new(portal::PortalBackend::connect(compositor)?))
+}
+
+fn try_virtual_input() -> Result<Box<dyn InputBackend>, PlatformError> {
+    Ok(Box::new(virtual_input::VirtualInputBackend::connect()?))
+}
+
+fn try_control_socket() -> Result<Box<dyn InputBackend>, PlatformError> {
+    Ok(Box::new(control_socket::ControlSocketBackend::connect()?))
 }
 
 // ---------------------------------------------------------------------------
@@ -292,5 +306,123 @@ impl PointerDevice for WaylandPointerDevice {
             |b| b.pointer_scroll(delta),
             || PlatformError::CapabilityUnavailable { capability: "input backend", details: None },
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    /// Run `f` with its tracing output, down to debug, captured.
+    fn logged<R>(f: impl FnOnce() -> R) -> (R, String) {
+        #[derive(Clone)]
+        struct Captured(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for Captured {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().expect("log buffer").extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let buffer = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let writer = Captured(Arc::clone(&buffer));
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .with_ansi(false)
+            .without_time()
+            .with_writer(move || writer.clone())
+            .finish();
+        let result = tracing::subscriber::with_default(subscriber, f);
+        let log = String::from_utf8(buffer.lock().expect("log buffer").clone()).expect("utf-8 log");
+        (result, log)
+    }
+
+    fn lines_at<'a>(log: &'a str, level: &str) -> Vec<&'a str> {
+        log.lines().filter(|line| line.trim_start().starts_with(level)).collect()
+    }
+
+    fn refused(candidate: Candidate) -> PlatformError {
+        let details = match candidate {
+            Candidate::ControlSocket => "/run/dead.control: Connection refused",
+            Candidate::Eis => "set LIBEI_SOCKET or ensure the compositor provides eis-0",
+            Candidate::Portal => "no session bus",
+            Candidate::VirtualInput => "not available on this compositor",
+        };
+        PlatformError::InitializationFailed { component: "test backend", details: Some(details.into()) }
+    }
+
+    #[test]
+    fn the_order_of_the_attempts_follows_the_compositor() {
+        use Candidate::{ControlSocket, Eis, Portal, VirtualInput};
+        assert_eq!(candidates(CompositorType::PlatynUi), [ControlSocket, Eis, Portal]);
+        assert_eq!(candidates(CompositorType::Mutter), [Portal, Eis]);
+        assert_eq!(candidates(CompositorType::KWin), [Portal, Eis]);
+        for compositor in
+            [CompositorType::Sway, CompositorType::Hyprland, CompositorType::Wlroots, CompositorType::Unknown]
+        {
+            assert_eq!(candidates(compositor), [Eis, Portal, VirtualInput], "{compositor}");
+        }
+    }
+
+    /// A later backend is chosen: the record of the chosen one names the
+    /// compositor, each one rejected before it is at debug with its reason,
+    /// and nothing is warned.
+    #[test]
+    fn a_later_backend_names_the_compositor_and_records_the_rejected_ones_at_debug() {
+        let mut tried = Vec::new();
+        let (chosen, log) = logged(|| {
+            select(CompositorType::PlatynUi, candidates(CompositorType::PlatynUi), |candidate| {
+                tried.push(candidate);
+                if candidate == Candidate::Eis { Ok(candidate) } else { Err(refused(candidate)) }
+            })
+        });
+
+        assert_eq!(chosen, Some(Candidate::Eis));
+        assert_eq!(tried, [Candidate::ControlSocket, Candidate::Eis], "the attempts stop at the first success");
+
+        assert!(lines_at(&log, "WARN").is_empty(), "nothing is warned\n{log}");
+        let infos = lines_at(&log, "INFO");
+        assert_eq!(infos.len(), 1, "one record of the chosen backend\n{log}");
+        for expected in ["input backend initialized", r#"backend="EIS""#, "compositor=PlatynUI"] {
+            assert!(infos[0].contains(expected), "the record names `{expected}`: {}", infos[0]);
+        }
+        let debugs = lines_at(&log, "DEBUG");
+        assert_eq!(debugs.len(), 1, "one debug record per rejected backend\n{log}");
+        for expected in
+            ["input backend unavailable", r#"backend="ControlSocket""#, "/run/dead.control: Connection refused"]
+        {
+            assert!(debugs[0].contains(expected), "the rejection names `{expected}`: {}", debugs[0]);
+        }
+    }
+
+    /// No backend connects: one warning names the compositor and each backend
+    /// with its reason, and says what stops working.
+    #[test]
+    fn no_backend_gives_one_warning_naming_each_backend_with_its_reason() {
+        let (chosen, log) = logged(|| {
+            select(CompositorType::PlatynUi, candidates(CompositorType::PlatynUi), |candidate| {
+                Err::<Candidate, _>(refused(candidate))
+            })
+        });
+
+        assert_eq!(chosen, None);
+        assert!(lines_at(&log, "INFO").is_empty(), "no backend is reported as initialized\n{log}");
+        assert!(lines_at(&log, "DEBUG").is_empty(), "the warning is the one record\n{log}");
+        let warnings = lines_at(&log, "WARN");
+        assert_eq!(warnings.len(), 1, "exactly one warning\n{log}");
+        let warning = warnings[0];
+        for expected in [
+            "no Wayland input backend could be initialized; keyboard and pointer input will fail",
+            "compositor=PlatynUI",
+            "ControlSocket: platform initialization failed for test backend: /run/dead.control: Connection refused",
+            "; EIS: platform initialization failed for test backend: set LIBEI_SOCKET",
+            "; Portal: platform initialization failed for test backend: no session bus",
+        ] {
+            assert!(warning.contains(expected), "the warning names `{expected}`: {warning}");
+        }
     }
 }

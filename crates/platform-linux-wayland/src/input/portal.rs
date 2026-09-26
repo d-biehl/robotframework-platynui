@@ -98,10 +98,6 @@ impl PortalBackend {
 }
 
 impl InputBackend for PortalBackend {
-    fn name(&self) -> &'static str {
-        "Portal"
-    }
-
     fn key_to_code(&self, name: &str) -> Result<KeyCode, KeyboardError> {
         self.eis.key_to_code(name)
     }

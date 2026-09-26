@@ -58,10 +58,39 @@ pub fn resolve_display(display: Option<&str>) -> Result<String, PlatformError> {
         .map_err(|_| PlatformError::UnsupportedPlatform { platform: "X11", details: Some("DISPLAY is not set".into()) })
 }
 
-/// The X11 display named by `config` (`platform.x11.display`), if any. The
-/// caller falls back to the environment via [`resolve_display`].
+/// The X11 backend's settings as diagnostics name them.
+const COMPONENT: &str = "platform.x11";
+
+/// `platform.x11.display`: the display to connect to instead of `$DISPLAY`.
+const DISPLAY_KEY: &str = "display";
+
+/// The settings the X11 backend reads.
+const KNOWN_KEYS: &[&str] = &[DISPLAY_KEY];
+
+/// Checks the X11 backend's settings and returns the display they name, if
+/// any. The caller falls back to the environment via [`resolve_display`].
+///
+/// This is the first step of building the backend: it warns for each unknown
+/// key and for a `display` that is not a string, which then falls back to the
+/// environment, before anything can fail.
 pub fn configured_display(config: &RuntimeConfig) -> Option<String> {
-    config.platform("x11").and_then(|x11| x11.get_str("display")).map(str::to_owned)
+    let settings = config.platform("x11")?;
+    for key in settings.unknown_keys(KNOWN_KEYS) {
+        tracing::warn!(component = COMPONENT, key = %key, "unknown setting; it is ignored");
+    }
+    match settings.try_str(DISPLAY_KEY) {
+        Ok(display) => display.map(str::to_owned),
+        Err(mismatch) => {
+            tracing::warn!(
+                component = COMPONENT,
+                key = %mismatch.key,
+                expected = mismatch.expected,
+                found = mismatch.found,
+                "setting has the wrong type; the default applies"
+            );
+            None
+        }
+    }
 }
 
 /// Open a raw `RustConnection` to `disp_name`, bounding the connect attempt with
@@ -83,5 +112,68 @@ pub fn connect_raw(disp_name: &str) -> Result<(RustConnection, usize), String> {
             Err("x11 connect timed out".to_string())
         }
         Err(mpsc::RecvTimeoutError::Disconnected) => Err("x11 connect worker exited".to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use platynui_core::config::ConfigMap;
+    use std::sync::Mutex;
+
+    /// Runs `f` and returns its result and the warnings it logged on this thread.
+    fn warnings<R>(f: impl FnOnce() -> R) -> (R, Vec<String>) {
+        #[derive(Clone)]
+        struct Captured(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for Captured {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().expect("log buffer").extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let buffer = Arc::new(Mutex::new(Vec::new()));
+        let writer = Captured(Arc::clone(&buffer));
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .without_time()
+            .with_writer(move || writer.clone())
+            .finish();
+        let result = tracing::subscriber::with_default(subscriber, f);
+        let log = String::from_utf8(buffer.lock().expect("log buffer").clone()).expect("utf-8 log");
+        (result, log.lines().filter(|line| line.trim_start().starts_with("WARN")).map(str::to_owned).collect())
+    }
+
+    fn x11(settings: ConfigMap) -> RuntimeConfig {
+        RuntimeConfig::new(ConfigMap::new().with("x11", settings), ConfigMap::new())
+    }
+
+    #[test]
+    fn a_display_setting_is_read() {
+        let (display, warnings) = warnings(|| configured_display(&x11(ConfigMap::new().with("display", ":7"))));
+        assert_eq!(display.as_deref(), Some(":7"));
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    #[test]
+    fn an_unknown_setting_warns_once() {
+        let (display, warnings) = warnings(|| configured_display(&x11(ConfigMap::new().with("dispaly", ":1"))));
+        assert_eq!(display, None, "the environment applies");
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("component=\"platform.x11\"") && warnings[0].contains("key=dispaly"));
+    }
+
+    #[test]
+    fn a_display_of_the_wrong_type_warns_and_the_environment_applies() {
+        let (display, warnings) = warnings(|| configured_display(&x11(ConfigMap::new().with("display", 1_i64))));
+        assert_eq!(display, None);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        for expected in ["component=\"platform.x11\"", "key=display", "expected=\"string\"", "found=\"integer\""] {
+            assert!(warnings[0].contains(expected), "missing {expected}: {warnings:?}");
+        }
     }
 }

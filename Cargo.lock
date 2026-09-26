@@ -3618,6 +3618,7 @@ dependencies = [
  "platynui-platform-linux-x11",
  "rstest",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -3634,6 +3635,7 @@ dependencies = [
  "rustix 1.1.4",
  "serde_json",
  "tracing",
+ "tracing-subscriber",
  "wayland-client",
  "wayland-protocols",
  "wayland-protocols-misc",

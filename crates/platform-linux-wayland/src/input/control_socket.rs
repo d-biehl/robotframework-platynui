@@ -179,10 +179,6 @@ impl ControlSocketBackend {
 }
 
 impl InputBackend for ControlSocketBackend {
-    fn name(&self) -> &'static str {
-        "ControlSocket"
-    }
-
     fn key_to_code(&self, name: &str) -> Result<KeyCode, KeyboardError> {
         let lower = name.to_lowercase();
         if let Some(code) = eis::named_key_code(&lower) {

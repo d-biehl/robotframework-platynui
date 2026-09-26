@@ -34,5 +34,8 @@ zbus = { version = "5", features = ["blocking-api"] }
 [dev-dependencies]
 rstest = "0.27"
 
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
+
 [lints]
 workspace = true

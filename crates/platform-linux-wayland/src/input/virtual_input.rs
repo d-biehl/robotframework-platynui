@@ -211,10 +211,6 @@ impl VirtualInputBackend {
 }
 
 impl InputBackend for VirtualInputBackend {
-    fn name(&self) -> &'static str {
-        "virtual-input (wlr)"
-    }
-
     fn key_to_code(&self, name: &str) -> Result<KeyCode, KeyboardError> {
         let lower = name.to_lowercase();
         if let Some(code) = super::eis::named_key_code(&lower) {

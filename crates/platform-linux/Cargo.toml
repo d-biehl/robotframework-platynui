@@ -21,6 +21,7 @@ tracing = { version = "0.1", default-features = false, features = ["std"] }
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 rstest = "0.27"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
 
 [lints]
 workspace = true
