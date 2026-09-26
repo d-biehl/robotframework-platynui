@@ -37,7 +37,7 @@ Wait Until Exists Honors Scope Settings
     Run Keyword And Expect Error    *within timeout of 0.5 seconds*    Wait Until Exists    ${MISSING}
 
 Wait Until Exists Rejects A Non Element Selector
-    Run Keyword And Expect Error    *did not return a UiNode*    Wait Until Exists    count(//control:Window)
+    Run Keyword And Expect Error    *did not return an element*    Wait Until Exists    count(//control:Window)
 
 Wait Until Exists Does Not Leak Overrides Across The Shared Cache
     Set Query Settings    {'timeout': 0.5}    scope=TEST

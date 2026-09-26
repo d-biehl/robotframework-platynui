@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 __all__ = ['AdapterKeyboardProxy', 'AdapterMouseProxy']
 
-_LOGGER = logging.getLogger('platynui.devices')
+_LOGGER = logging.getLogger('platynui.core.adapter_devices')
 
 
 class AdapterMouseProxy(MouseProxy):
@@ -42,7 +42,7 @@ class AdapterMouseProxy(MouseProxy):
     3. Centre of ``Element.bounds`` otherwise.
 
     When the adapter exposes an ``ActivationTarget.activation_hint``,
-    each action logs it on DEBUG via the ``platynui.devices`` logger.
+    each action logs it on DEBUG via the ``platynui.core.adapter_devices`` logger.
     """
 
     def __init__(self, adapter: 'Adapter') -> None:

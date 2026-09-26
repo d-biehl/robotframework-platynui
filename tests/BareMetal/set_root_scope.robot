@@ -88,7 +88,7 @@ Cached Node Does Not Bypass Parent Drilling
     Get Attribute    .//control:List[@Name="Task List"]    Name      # resolves + caches the List node
     Set Root    count(//control:Window)    scope=SUITE
     Set Root    .//control:List[@Name="Task List"]
-    Run Keyword And Expect Error    *did not return a UiNode*    Query    count(.//item:ListItem)    only_first=${True}
+    Run Keyword And Expect Error    *did not return an element*    Query    count(.//item:ListItem)    only_first=${True}
     [Teardown]    Set Root    ${None}    scope=SUITE
 
 Absolute Set Root Ignores The Current Root

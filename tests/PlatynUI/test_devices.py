@@ -327,7 +327,7 @@ def test_adapter_logs_activation_hint_on_debug(
     target = _ActivationTargetStub(Point(40.0, 25.0), hint='ribbon expand chevron')
     proxy = AdapterMouseProxy(_StubAdapter(elem, target))  # type: ignore[arg-type]
 
-    with caplog.at_level(logging.DEBUG, logger='platynui.devices'):
+    with caplog.at_level(logging.DEBUG, logger='platynui.core.adapter_devices'):
         proxy.click()
 
     matching = [r for r in caplog.records if 'ribbon expand chevron' in r.getMessage()]
@@ -344,7 +344,7 @@ def test_adapter_silent_when_hint_is_none(
     target = _ActivationTargetStub(Point(40.0, 25.0))  # hint=None
     proxy = AdapterMouseProxy(_StubAdapter(elem, target))  # type: ignore[arg-type]
 
-    with caplog.at_level(logging.DEBUG, logger='platynui.devices'):
+    with caplog.at_level(logging.DEBUG, logger='platynui.core.adapter_devices'):
         proxy.click()
 
     assert caplog.records == []
@@ -357,7 +357,7 @@ def test_adapter_silent_when_no_activation_target(
     elem = _ElementStub(Rect(0.0, 0.0, 100.0, 50.0))
     proxy = AdapterMouseProxy(_StubAdapter(elem))  # type: ignore[arg-type]
 
-    with caplog.at_level(logging.DEBUG, logger='platynui.devices'):
+    with caplog.at_level(logging.DEBUG, logger='platynui.core.adapter_devices'):
         proxy.click()
 
     assert caplog.records == []

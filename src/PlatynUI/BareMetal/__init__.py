@@ -1,10 +1,11 @@
 import base64
+import logging
 import re
 import time
 from dataclasses import dataclass, replace
 from functools import cached_property
 from pathlib import Path
-from typing import Any, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypedDict, cast
 
 from assertionengine import AssertionOperator, verify_assertion
 from platynui_native import (
@@ -13,6 +14,7 @@ from platynui_native import (
     Closeable,
     EvaluatedAttribute,
     EvaluationError,
+    KeyboardError,
     KeyboardOverridesLike,
     KeyboardProfileLike,
     Maximizable,
@@ -40,7 +42,23 @@ from robot.running.context import EXECUTION_CONTEXTS
 from ..__version__ import __version__
 from .._assertable import assertable
 from .._our_libcore import OurDynamicCore, keyword
-from ..core.native_logging import NativeLogScope, native_log_levels
+from ..core.native_logging import NativeLogScope, flush_native_logs, native_log_levels
+
+if TYPE_CHECKING:
+    from robot.api.types import Secret
+
+    KeyboardText: TypeAlias = str | Secret
+else:
+    # ``Secret`` exists since Robot Framework 7.4; earlier versions type plain strings only.
+    try:
+        from robot.api.types import Secret
+    except ImportError:
+        KeyboardText = str
+    else:
+        KeyboardText = str | Secret
+
+# The library's own records; Robot Framework shows them in the keyword's log at their level.
+_LOG = logging.getLogger('platynui.baremetal')
 
 
 class BareMetalError(Exception):
@@ -49,6 +67,16 @@ class BareMetalError(Exception):
 
 class ElementNotFoundError(BareMetalError):
     """Raised when a UiNode cannot be found for a given query within the specified timeout."""
+
+
+class RootNotFoundError(ElementNotFoundError):
+    """Raised when the root set by `Set Root` is not found, so a query relative to it was not evaluated."""
+
+    def __init__(self, root_query: str | None, timeout: float, query: str | None = None) -> None:
+        self.root_query = root_query
+        self.timeout = timeout
+        message = f'The root set by Set Root, {root_query!r}, was not found within timeout of {timeout} seconds'
+        super().__init__(f'{message}; {query!r} was not evaluated.' if query is not None else f'{message}.')
 
 
 class ResultTypeError(BareMetalError):
@@ -228,7 +256,7 @@ class UiNodeDescriptor:
                 )
 
         if self.query is None:
-            raise NoQueryError('UiNodeDescriptor has no query to resolve the node')
+            raise NoQueryError('This element reference has no selector to look the element up with.')
 
         # A root is looked up once per keyword *in addition* to the keyword's own target, so it is
         # the one repetition the suite did not ask for. Reuse it while it is live: a root names a
@@ -251,7 +279,10 @@ class UiNodeDescriptor:
         if as_root:
             context = self.parent.resolve(library, as_root=True) if self.parent is not None else None
         else:
-            context = library.root if self.needs_root(library) else None
+            try:
+                context = library.root if self.needs_root(library) else None
+            except RootNotFoundError as exc:
+                raise RootNotFoundError(exc.root_query, exc.timeout, self.query) from exc
 
         # Effective settings for this resolution: the scoped/default base, with this call's partial
         # override applied on top. Computed once — neither layer changes during a synchronous resolve.
@@ -276,16 +307,17 @@ class UiNodeDescriptor:
             # Not resolved yet — no match, or a swallowed error. Retry until the timeout elapses, so
             # ignore_exceptions cannot spin forever on a persistently failing query.
             if (time.monotonic() - start_time) > settings.timeout:
+                if as_root:
+                    raise RootNotFoundError(self.query, settings.timeout)
                 raise ElementNotFoundError(
-                    f'No UiNode found for UiNodeDescriptor query {self.query!r} within '
-                    f'timeout of {settings.timeout} seconds.'
+                    f'No element matched {self.query!r} within timeout of {settings.timeout} seconds.'
                 )
 
             time.sleep(settings.retry_interval)
             library.runtime.clear_cache()  # Clear runtime cache to attempt to resolve transient UI states
 
         if not isinstance(result, UiNode):
-            raise ResultTypeError(f'Query for UiNodeDescriptor {self.query!r} did not return a UiNode, got: {result!r}')
+            raise ResultTypeError(f'Query {self.query!r} did not return an element, got: {result!r}')
 
         if as_root:
             self._root_node = result
@@ -367,6 +399,94 @@ def _scroll_delta(direction: ScrollDirection, ticks: int) -> tuple[float, float]
         raise ValueError(f'Invalid scroll direction {direction!r}; expected one of UP, DOWN, LEFT, RIGHT')
     magnitude = _WHEEL_DELTA * ticks
     return (signs[0] * magnitude, signs[1] * magnitude)
+
+
+# Where a pointer keyword's point came from, as its action line names it.
+_FROM_ACTIVATION_POINT = 'its activation point'
+_FROM_BOUNDS_CENTER = 'the center of its bounds'
+_FROM_OFFSET = 'an offset from its top-left corner'
+_FROM_ABSOLUTE = 'absolute coordinates'
+_AT_POINTER = 'the current pointer position'
+
+
+def _describe(node: UiNode | None) -> str | None:
+    """The element's one-line description, or ``None`` when the action line is off.
+
+    Describing asks the provider for the element's name and id, so it happens only when the
+    ``platynui.baremetal`` logger lets DEBUG through, and before the action, which may remove
+    the element. A description never makes the keyword fail.
+    """
+    if node is None or not _LOG.isEnabledFor(logging.DEBUG):
+        return None
+    try:
+        return node.describe()
+    except Exception:  # noqa: BLE001 (a log line must not fail the keyword)
+        return f'element {node.runtime_id!r}'
+
+
+def _number(value: float) -> str:
+    return str(int(value)) if float(value).is_integer() else f'{value:.2f}'.rstrip('0')
+
+
+def _point_text(point: Point) -> str:
+    return f'({_number(point.x)}, {_number(point.y)})'
+
+
+def _rect_text(rect: Rect) -> str:
+    return f'({_number(rect.x)}, {_number(rect.y)}, {_number(rect.width)}, {_number(rect.height)})'
+
+
+def _button_name(button: PointerButtonLike) -> str:
+    try:
+        return PointerButton(button).name
+    except ValueError:
+        return str(button)
+
+
+def _plural(count: int, word: str) -> str:
+    return f'{count} {word}' if count == 1 else f'{count} {word}s'
+
+
+def _pointer_target(description: str | None, point: Point | None, source: str) -> str:
+    """What a pointer keyword acted on: ``Button "OK" at (412, 305), its activation point``."""
+    where = f'at {_point_text(point)}, {source}' if point is not None else f'at {source}'
+    return f'{description} {where}' if description is not None else where
+
+
+def _log_action(verb: str, target: str, details: str | None = None) -> None:
+    """Log a keyword's action line at DEBUG, after the native records of the same action.
+
+    ``target`` is text built from descriptions, never an element: the element may be gone.
+    """
+    if not _LOG.isEnabledFor(logging.DEBUG):
+        return
+    flush_native_logs()
+    if details is None:
+        _LOG.debug('%s %s', verb, target)
+    else:
+        _LOG.debug('%s %s; %s', verb, target, details)
+
+
+def _typed_length(text: 'KeyboardText') -> str:
+    """How a keyboard keyword's line gives its input: the length of a string, or only ``secret``."""
+    return _plural(len(text), 'character') if isinstance(text, str) else 'secret'
+
+
+def _keyboard_target(description: str | None) -> str:
+    return description if description is not None else 'the focused element'
+
+
+def _test_data_hint(message: str) -> str | None:
+    """How the runtime's escape hint is written in Robot Framework test data, if it gives one.
+
+    Robot Framework removes a backslash before an unknown character before the keyword runs, so
+    the sequence ``\\<`` reaches the keyword only when the test data says ``\\\\<``.
+    """
+    if '\\<' in message or '\\>' in message:
+        return 'In Robot Framework test data, a literal < is written \\\\< (and > as \\\\>).'
+    if '\\\\' in message:
+        return 'In Robot Framework test data, a backslash is written \\\\\\\\.'
+    return None
 
 
 @library(
@@ -540,6 +660,13 @@ class BareMetal(OurDynamicCore):
     | `Maximize Window`   Window[@Name="Editor"]
     | `Pointer Click`     Window[@Name="Editor"]//Button[@Name="New"]
     | `Keyboard Type`     Window[@Name="Editor"]//Edit[@Name="Title"]    Q3 Report
+
+    Each action keyword logs one line at Robot Framework's ``DEBUG`` level once it has acted: the
+    element as it was before the action, the point it used and where that point came from, and the
+    button, clicks or ticks. At the default ``INFO`` level these lines cost nothing, so leave the level
+    there unless you are looking for something:
+
+    | clicked Button "OK" #ok at (412, 305), its activation point; button LEFT, 1 click
 
     Or capture an element once with `Query` and reuse it — every keyword takes it the same way:
 
@@ -950,27 +1077,53 @@ class BareMetal(OurDynamicCore):
         The ``platform`` bucket also accepts a reserved ``backend`` selector (``'x11'``, ``'wayland'``,
         ``'windows'`` …) that forces a backend instead of auto-detecting it from the environment, and
         the ``providers`` bucket carries per-provider settings — chiefly ``providers.atspi.bus_address``
-        to bind to a chosen session's AT-SPI bus. One dict is portable across operating systems: a
-        backend simply ignores the ids and keys it does not recognise, so you may carry every
-        platform's block in the same dict. An absent or empty ``config`` reproduces the default
+        to bind to a chosen session's AT-SPI bus. One dict is portable across operating systems: the
+        blocks of platforms and providers that do not run here are ignored, so you may carry every
+        platform's block in the same dict. The backend and the providers that do run check their own
+        block, though: a key they do not know and a value of the wrong type are reported as warnings,
+        and the default applies — a misspelled ``dispaly`` would otherwise fall back to the
+        environment without a word. A top-level key other than ``platform`` and ``providers``, such as
+        a misspelled ``platfrom``, is reported the same way. An absent or empty ``config`` reproduces the default
         behaviour — the platform is auto-detected and the accessibility bus is discovered from the
         environment. ``config`` is fixed at construction time (a live connection cannot be re-pointed
         at another display), so there is no per-call override.
 
+        The profile dictionaries are checked when they are applied: a value of the wrong type fails
+        with an error that names the key and the type it needs, and a key that no setting reads is
+        reported as a warning, so a typo does not go unnoticed.
+
         PlatynUI writes its own diagnostics into the log of the keyword during which they occur.
         By default only warnings and errors are written; warnings also appear on the console and among
-        the run's errors, like any other warning. ``native_log_level`` makes PlatynUI's diagnostics
-        more detailed: ``error``, ``warn``, ``info``, ``debug`` or ``trace``. Robot Framework's own log
-        level (``--loglevel`` or ``Set Log Level``) must let the messages through as well, so seeing
-        debug output takes both:
+        the run's errors, like any other warning. A warning always says what PlatynUI cannot do as
+        asked, and a healthy run has none. ``native_log_level`` makes PlatynUI's diagnostics more
+        detailed. It takes a single level, in any letter case: ``off``, ``error``, ``warn`` (or
+        ``warning``), ``info``, ``debug`` or ``trace``; ``critical`` and ``fatal`` mean ``error``. From
+        ``warn`` to ``trace``, a level makes only PlatynUI's own diagnostics more detailed, while the
+        third-party components PlatynUI builds on stay at warnings; ``error`` and ``off`` apply to
+        everything, third-party components included. Robot Framework's own log level
+        (``--loglevel`` or ``Set Log Level``) must let the messages through as well, so seeing debug
+        output takes both:
 
         | Library    PlatynUI.BareMetal    native_log_level=debug
 
+        Independently of ``native_log_level``, at Robot Framework's ``DEBUG`` level every action
+        keyword logs one line saying what it did: the element it acted on, the point it used and
+        where that point came from, and the button, clicks or scroll ticks — for a keyboard keyword
+        only the length of the input, never the text.
+
         The setting is shared by every library instance in the run: the most detailed level any
-        instance currently in scope asks for applies. For finer control, the environment variables
-        ``PLATYNUI_LOG_LEVEL`` and ``RUST_LOG`` take filter directives, as for the PlatynUI
-        command-line tool; ``RUST_LOG`` overrides ``native_log_level``, and ``PLATYNUI_LOG_LEVEL``
-        applies when no instance asks for a level.
+        instance currently in scope asks for applies. The environment variable ``PLATYNUI_LOG_LEVEL``
+        takes the same single level and applies when no instance asks for one. ``RUST_LOG`` overrides
+        both, as for the PlatynUI command-line tool: it is the one place for filter directives, such
+        as ``platynui_runtime=trace,warn``, and the only way to make third-party components more
+        detailed. A value PlatynUI cannot use is reported once as a warning and ignored.
+
+        *Reporting a problem:* run the failing test with ``native_log_level=debug`` and
+        ``--loglevel DEBUG``, and attach its ``output.xml``. It holds PlatynUI's diagnostics inside the
+        keyword they belong to, next to each keyword's own line, and no text that a keyboard keyword
+        typed beyond what Robot Framework itself records about the keyword's arguments. Use ``trace``
+        only when asked for it: it names every key PlatynUI presses, those of a ``Secret`` included, so
+        a trace log of a run that types secrets is not for sharing.
 
         ``use_mock`` exists only for PlatynUI's own development and test suites — it drives a built-in
         stand-in tree instead of the real desktop, selecting the in-memory mock backend regardless of
@@ -1199,9 +1352,7 @@ class BareMetal(OurDynamicCore):
         return self._default_query_settings
 
     @keyword
-    def set_root(
-        self, descriptor: UiNodeDescriptor | None, scope: Scope = 'LOCAL'
-    ) -> UiNodeDescriptor | None:
+    def set_root(self, descriptor: UiNodeDescriptor | None, scope: Scope = 'LOCAL') -> UiNodeDescriptor | None:
         """Set the default root that subsequent *relative* selectors resolve against.
 
         A *relative* selector (``.//``, ``./``, ``..``, ``.``) is resolved against the current root
@@ -1244,9 +1395,7 @@ class BareMetal(OurDynamicCore):
         old = scope_store.get(name, default=None)
         old_root: UiNodeDescriptor | None = old if isinstance(old, UiNodeDescriptor) else None
         current_root = self._scoped_value(variables.current, name)
-        effective_root: UiNodeDescriptor | None = (
-            current_root if isinstance(current_root, UiNodeDescriptor) else None
-        )
+        effective_root: UiNodeDescriptor | None = current_root if isinstance(current_root, UiNodeDescriptor) else None
 
         if descriptor is None:
             new_root: UiNodeDescriptor | None = None
@@ -1416,13 +1565,7 @@ class BareMetal(OurDynamicCore):
             | ${dialog}=    `Wait Until Exists`    Window[@Name="Save As"]
             | `Wait Until Exists`    //control:ProgressBar[@Name="Importing"]    query_overrides={'timeout': 60}
         """
-        settings = replace(self.query_settings, **query_overrides) if query_overrides else self.query_settings
-        try:
-            return descriptor.resolve(self, query_overrides)
-        except ElementNotFoundError:
-            raise ElementNotFoundError(
-                f'No element matched {descriptor.query!r} within timeout of {settings.timeout} seconds.'
-            ) from None
+        return descriptor.resolve(self, query_overrides)
 
     @keyword
     def wait_until_gone(
@@ -1628,13 +1771,18 @@ class BareMetal(OurDynamicCore):
         self,
         node: UiNode | None,
         activate: bool | None,
+        description: str | None = None,
     ) -> None:
         """Bring the target element's window to the foreground if activation is enabled.
+
+        A failure is recorded at DEBUG and the action proceeds: activation is best effort, and
+        normal for elements without a window, such as the desktop.
 
         Args:
             node: Optional resolved element. If None, no action is taken.
             activate: Override for auto_activate. If None, the library-level
                 ``auto_activate`` setting is used.
+            description: The element's description, when the keyword already built it.
         """
         if node is None:
             return
@@ -1646,15 +1794,20 @@ class BareMetal(OurDynamicCore):
                 raise  # Critical error from the library/runtime; propagate it
             except (KeyboardInterrupt, SystemExit):
                 raise  # Don't interfere with user-initiated interrupts
-            except Exception:  # noqa: BLE001, S110 (best-effort; don't block the pointer action)
-                pass
+            except Exception as exc:  # noqa: BLE001 (best-effort; don't block the action)
+                if _LOG.isEnabledFor(logging.DEBUG):
+                    _LOG.debug(
+                        'could not bring %s to the front; the action proceeds without it (%s)',
+                        description if description is not None else _describe(node),
+                        exc,
+                    )
 
     def _resolve_screen_point(
         self,
         target_node: UiNode | None,
         x: float | None,
         y: float | None,
-    ) -> Point | None:
+    ) -> tuple[Point | None, str]:
         """Resolve absolute screen coordinates from an optional element and x/y values.
 
         Behavior:
@@ -1670,13 +1823,14 @@ class BareMetal(OurDynamicCore):
           position" (pointer_click/press/release pass None through to the runtime).
 
         Returns:
-        - Point | None: Absolute screen coordinates, or None when no point can be resolved.
+        - The absolute screen coordinates, or None when no point can be resolved, and where
+          they came from, for the keyword's action line.
         """
         if (x is not None) != (y is not None):
             raise ValueError('Both x and y coordinates must be provided together')
 
+        source = _FROM_ABSOLUTE if x is not None else _AT_POINTER
         if target_node is not None:
-
             # No coordinates provided: auto-resolve from node
             if x is None and y is None:
                 try:
@@ -1687,6 +1841,7 @@ class BareMetal(OurDynamicCore):
                 if isinstance(activation_point, Point):
                     x = activation_point.x
                     y = activation_point.y
+                    source = _FROM_ACTIVATION_POINT
                 else:
                     # No ActivationPoint (e.g. containers/aggregates like Desktop):
                     # fall back to the center of the element's bounds.
@@ -1700,6 +1855,7 @@ class BareMetal(OurDynamicCore):
                     center = bounds.center()
                     x = center.x
                     y = center.y
+                    source = _FROM_BOUNDS_CENTER
 
             # Relative coordinates provided: offset from node bounds
             elif x is not None and y is not None:
@@ -1712,12 +1868,13 @@ class BareMetal(OurDynamicCore):
 
                 x = bounds.x + x
                 y = bounds.y + y
+                source = _FROM_OFFSET
 
         # At this point, x and y must be resolved
         if x is None or y is None:
-            return None
+            return None, _AT_POINTER
 
-        return Point(x, y)
+        return Point(x, y), source
 
     @keyword
     def pointer_click(
@@ -1754,9 +1911,11 @@ class BareMetal(OurDynamicCore):
             | `Pointer Click`    Window[@Name="Settings"]//Button[@Name="OK"]    activate=${False}
         """
         node = descriptor.resolve(self, query_overrides) if descriptor is not None else None
-        self._maybe_bring_to_front(node, activate)
-        point = self._resolve_screen_point(node, x, y)
+        description = _describe(node)
+        self._maybe_bring_to_front(node, activate, description)
+        point, source = self._resolve_screen_point(node, x, y)
         self.runtime.pointer_click(point, button, overrides)
+        _log_action('clicked', _pointer_target(description, point, source), f'button {_button_name(button)}, 1 click')
 
     @keyword
     def pointer_multi_click(
@@ -1789,9 +1948,15 @@ class BareMetal(OurDynamicCore):
             | `Pointer Multi Click`    Window[@Name="Files"]//Text[@Name="File"]    clicks=${3}
         """
         node = descriptor.resolve(self, query_overrides) if descriptor is not None else None
-        self._maybe_bring_to_front(node, activate)
-        point = self._resolve_screen_point(node, x, y)
+        description = _describe(node)
+        self._maybe_bring_to_front(node, activate, description)
+        point, source = self._resolve_screen_point(node, x, y)
         self.runtime.pointer_multi_click(point, clicks, button, overrides)
+        _log_action(
+            'clicked',
+            _pointer_target(description, point, source),
+            f'button {_button_name(button)}, {_plural(clicks, "click")}',
+        )
 
     @keyword
     def pointer_press(
@@ -1820,9 +1985,11 @@ class BareMetal(OurDynamicCore):
             | `Pointer Press`    Window[@Name="Mixer"]//Slider    x=${10}    y=${5}
         """
         node = descriptor.resolve(self, query_overrides) if descriptor is not None else None
-        self._maybe_bring_to_front(node, activate)
-        point = self._resolve_screen_point(node, x, y)
+        description = _describe(node)
+        self._maybe_bring_to_front(node, activate, description)
+        point, source = self._resolve_screen_point(node, x, y)
         self.runtime.pointer_press(point, button, overrides)
+        _log_action('pressed', _pointer_target(description, point, source), f'button {_button_name(button)}')
 
     @keyword
     def pointer_release(
@@ -1855,9 +2022,11 @@ class BareMetal(OurDynamicCore):
             | `Pointer Release`    Window[@Name="Editor"]//Canvas    x=${50}    y=${50}
         """
         node = descriptor.resolve(self, query_overrides) if descriptor is not None else None
-        self._maybe_bring_to_front(node, activate)
-        point = self._resolve_screen_point(node, x, y)
+        description = _describe(node)
+        self._maybe_bring_to_front(node, activate, description)
+        point, source = self._resolve_screen_point(node, x, y)
         self.runtime.pointer_release(point, button, overrides)
+        _log_action('released', _pointer_target(description, point, source), f'button {_button_name(button)}')
 
     @keyword
     def pointer_move_to(
@@ -1885,12 +2054,14 @@ class BareMetal(OurDynamicCore):
             | `Pointer Move To`    Window[@Name="Settings"]//Button[@Name="OK"]
         """
         node = descriptor.resolve(self, query_overrides) if descriptor is not None else None
-        self._maybe_bring_to_front(node, activate)
-        point = self._resolve_screen_point(node, x, y)
+        description = _describe(node)
+        self._maybe_bring_to_front(node, activate, description)
+        point, source = self._resolve_screen_point(node, x, y)
         if point is None:
             raise ValueError('Coordinates x and y must be specified either directly or via node')
 
         self.runtime.pointer_move_to(point, overrides)
+        _log_action('moved the pointer to', _pointer_target(description, point, source))
 
     @keyword
     def pointer_scroll(
@@ -1934,11 +2105,13 @@ class BareMetal(OurDynamicCore):
             | `Pointer Scroll`    x=${400}    y=${300}    direction=UP
         """
         node = descriptor.resolve(self, query_overrides) if descriptor is not None else None
-        self._maybe_bring_to_front(node, activate)
-        point = self._resolve_screen_point(node, x, y)
+        description = _describe(node)
+        self._maybe_bring_to_front(node, activate, description)
+        point, source = self._resolve_screen_point(node, x, y)
         if point is not None:
             self.runtime.pointer_move_to(point, overrides)
         self.runtime.pointer_scroll(_scroll_delta(direction, ticks), overrides)
+        _log_action('scrolled', _pointer_target(description, point, source), f'{direction}, {_plural(ticks, "tick")}')
 
     @keyword
     @assertable
@@ -1999,8 +2172,10 @@ class BareMetal(OurDynamicCore):
             | `Focus`    Window[@Name="Browser"]//Edit[@Name="Search"]
         """
         node = descriptor.resolve(self, query_overrides)
-        self._maybe_bring_to_front(node, activate)
+        description = _describe(node)
+        self._maybe_bring_to_front(node, activate, description)
         self.runtime.focus(node)
+        _log_action('focused', str(description))
 
     @keyword
     def restore_window(self, descriptor: UiNodeDescriptor, *, query_overrides: QuerySettingsDict | None = None) -> None:
@@ -2017,7 +2192,9 @@ class BareMetal(OurDynamicCore):
             | `Restore Window`    Window[@Name="Settings"]
         """
         node = descriptor.resolve(self, query_overrides)
+        description = _describe(node)
         node.get_pattern(Restorable).restore()
+        _log_action('restored', str(description))
 
     @keyword
     def maximize_window(
@@ -2035,7 +2212,9 @@ class BareMetal(OurDynamicCore):
             | `Maximize Window`    Window[@Name="Editor"]
         """
         node = descriptor.resolve(self, query_overrides)
+        description = _describe(node)
         node.get_pattern(Maximizable).maximize()
+        _log_action('maximized', str(description))
 
     @keyword
     def minimize_window(
@@ -2053,7 +2232,9 @@ class BareMetal(OurDynamicCore):
             | `Minimize Window`    Window[@Name="Editor"]
         """
         node = descriptor.resolve(self, query_overrides)
+        description = _describe(node)
         node.get_pattern(Minimizable).minimize()
+        _log_action('minimized', str(description))
 
     @keyword
     def close_window(self, descriptor: UiNodeDescriptor, *, query_overrides: QuerySettingsDict | None = None) -> None:
@@ -2069,7 +2250,9 @@ class BareMetal(OurDynamicCore):
             | `Close Window`    Window[@Name="Editor"]
         """
         node = descriptor.resolve(self, query_overrides)
+        description = _describe(node)
         node.get_pattern(Closeable).close()
+        _log_action('closed', str(description))
 
     @keyword
     def activate_window(
@@ -2089,7 +2272,9 @@ class BareMetal(OurDynamicCore):
             | `Activate Window`    Window[@Name="Editor"]
         """
         node = descriptor.resolve(self, query_overrides)
+        description = _describe(node)
         node.get_pattern(Activatable).activate()
+        _log_action('activated', str(description))
 
     @keyword
     def move_window(
@@ -2109,7 +2294,9 @@ class BareMetal(OurDynamicCore):
             | `Move Window`    Window[@Name="Editor"]    100    200
         """
         node = descriptor.resolve(self, query_overrides)
+        description = _describe(node)
         node.get_pattern(Movable).move_to(x, y)
+        _log_action('moved', f'{description} to {_point_text(Point(x, y))}')
 
     @keyword
     def resize_window(
@@ -2134,7 +2321,9 @@ class BareMetal(OurDynamicCore):
             | `Resize Window`    Window[@Name="Editor"]    800    600
         """
         node = descriptor.resolve(self, query_overrides)
+        description = _describe(node)
         node.get_pattern(Resizable).resize(width, height)
+        _log_action('resized', f'{description} to {_number(width)}x{_number(height)}')
 
     @keyword
     def move_and_resize_window(
@@ -2163,8 +2352,13 @@ class BareMetal(OurDynamicCore):
             | `Move And Resize Window`    Window[@Name="Editor"]    100    200    800    600
         """
         node = descriptor.resolve(self, query_overrides)
+        description = _describe(node)
         node.get_pattern(Movable).move_to(x, y)
         node.get_pattern(Resizable).resize(width, height)
+        _log_action(
+            'moved and resized',
+            f'{description} to {_point_text(Point(x, y))}, {_number(width)}x{_number(height)}',
+        )
 
     @keyword
     def bring_to_front(self, descriptor: UiNodeDescriptor, *, query_overrides: QuerySettingsDict | None = None) -> None:
@@ -2183,7 +2377,9 @@ class BareMetal(OurDynamicCore):
             | `Bring To Front`    Window[@Name="Editor"]
         """
         node = descriptor.resolve(self, query_overrides)
+        description = _describe(node)
         self.runtime.bring_to_front(node)
+        _log_action('brought', f'{description} to the front')
 
     @keyword
     @assertable
@@ -2213,11 +2409,40 @@ class BareMetal(OurDynamicCore):
         node = descriptor.resolve(self, query_overrides)
         return node.attribute(attribute_name, namespace)
 
+    def _keyboard(
+        self,
+        action: Any,
+        verb: str,
+        descriptor: UiNodeDescriptor | None,
+        text: KeyboardText,
+        overrides: KeyboardOverridesLike | None,
+        activate: bool | None,
+        query_overrides: QuerySettingsDict | None,
+    ) -> None:
+        """Run a keyboard action, with a `Secret`'s value kept out of errors and the action line."""
+        description = None
+        if descriptor is not None:
+            target_node = descriptor.resolve(self, query_overrides)
+            description = _describe(target_node)
+            self._maybe_bring_to_front(target_node, activate, description)
+            self.runtime.focus(target_node)
+        # A `Secret` is not a `str`; its error names the position and the kind of failure only.
+        sensitive = not isinstance(text, str)
+        sequence = text if isinstance(text, str) else text.value
+        try:
+            action(sequence, overrides=overrides, sensitive=sensitive)
+        except KeyboardError as exc:
+            hint = None if sensitive else _test_data_hint(str(exc))
+            if hint is None:
+                raise
+            raise KeyboardError(f'{exc} {hint}') from exc
+        _log_action(verb, _keyboard_target(description), _typed_length(text))
+
     @keyword
     def keyboard_type(
         self,
         descriptor: UiNodeDescriptor | None,
-        text: str,
+        text: KeyboardText,
         *,
         overrides: KeyboardOverridesLike | None = None,
         activate: bool | None = None,
@@ -2230,10 +2455,40 @@ class BareMetal(OurDynamicCore):
         Sequences may include plain text and special keys wrapped in angle brackets.
         Use ``+`` to combine modifiers with keys.
 
+        A few characters have a meaning of their own in a sequence. ``<`` starts a key such as
+        ``<Return>`` or ``<Ctrl+S>``, so a literal ``<`` is written ``\<`` and a literal ``>`` ``\>``.
+        ``\\`` types a backslash. ``\xHH`` and ``\uHHHH`` type the character with that hexadecimal
+        code, and fail unless exactly 2 or 4 hex digits follow. A backslash before any other character
+        is dropped. Robot Framework removes a backslash before an unknown character itself, before the
+        keyword runs, so in test data every one of these backslashes is doubled: ``\\<`` types a
+        literal ``<``, ``\\\\`` a backslash. The whole syntax is described in
+        [https://github.com/imbus/robotframework-PlatynUI/blob/main/dev-docs/keyboard-input.md|Keyboard input].
+
+        When the sequence cannot be typed, the error says where and why — the position in the text
+        the keyword received, counted in characters from 1, and the character or key that could not
+        be typed or the part of the syntax that is wrong — without repeating the text itself.
+
+        ``text`` can also be a ``Secret`` (Robot Framework 7.4 or newer), for passwords and tokens. It
+        is typed like a string and follows the same syntax, but no part of it shows in the log or in
+        an error: an error gives only the position and the kind of failure. A ``Secret`` must be the
+        whole argument — inside a longer argument Robot Framework puts the text ``<secret>`` in its
+        place, which the sequence would read as a key. Type it on its own and the rest in a second
+        call, or make the whole sequence the ``Secret``:
+
+        | VAR    ${password: Secret}    %{APP_PASSWORD}
+        | `Keyboard Type`    Window[@Name="Login"]//Edit[@Name="Password"]    ${password}
+        | `Keyboard Type`    ${None}    <Return>
+        | VAR    ${login: Secret}    %{APP_PASSWORD}<Return>
+        | `Keyboard Type`    Window[@Name="Login"]//Edit[@Name="Password"]    ${login}
+
+        At ``--loglevel DEBUG`` the keyword logs the element it typed into and the length of the
+        sequence, or for a ``Secret`` only that it is one. With ``native_log_level=trace``, PlatynUI
+        records every key it presses, those of a ``Secret`` included; such a log is not for sharing.
+
         Args:
             descriptor: Optional element to focus before typing. Pass ``${None}`` to type
                 into the currently focused element without changing focus.
-            text: The character/key sequence to send.
+            text: The character/key sequence to send, a string or a ``Secret``.
             overrides: Per-call timing overrides, as a dict (see `Input timing and motion`).
             activate: Bring the element's window to the front first; defaults to the library's
                 ``auto_activate``.
@@ -2249,17 +2504,13 @@ class BareMetal(OurDynamicCore):
               or the Python runtime method ``Runtime.keyboard_known_key_names()``.
             - To omit the descriptor (no focus change), pass ``${None}`` as the first argument in Robot Framework.
         """
-        if descriptor is not None:
-            target_node = descriptor.resolve(self, query_overrides)
-            self._maybe_bring_to_front(target_node, activate)
-            self.runtime.focus(target_node)
-        self.runtime.keyboard_type(text, overrides=overrides)
+        self._keyboard(self.runtime.keyboard_type, 'typed into', descriptor, text, overrides, activate, query_overrides)
 
     @keyword
     def keyboard_press(
         self,
         descriptor: UiNodeDescriptor | None,
-        text: str,
+        text: KeyboardText,
         *,
         overrides: KeyboardOverridesLike | None = None,
         activate: bool | None = None,
@@ -2269,6 +2520,8 @@ class BareMetal(OurDynamicCore):
 
         Unlike ``Keyboard Type``, this sends only press events (no release). Use this to
         hold modifiers or keys; pair with ``Keyboard Release`` to complete the action.
+
+        The sequence follows the syntax of `Keyboard Type`, and may be a ``Secret`` as well.
 
         Args:
             descriptor: Optional element to bring to front and focus before pressing.
@@ -2282,17 +2535,15 @@ class BareMetal(OurDynamicCore):
             | `Keyboard Press`     ${None}    <Ctrl>
             | `Keyboard Release`   ${None}    <Ctrl>
         """
-        if descriptor is not None:
-            target_node = descriptor.resolve(self, query_overrides)
-            self._maybe_bring_to_front(target_node, activate)
-            self.runtime.focus(target_node)
-        self.runtime.keyboard_press(text, overrides=overrides)
+        self._keyboard(
+            self.runtime.keyboard_press, 'pressed keys in', descriptor, text, overrides, activate, query_overrides
+        )
 
     @keyword
     def keyboard_release(
         self,
         descriptor: UiNodeDescriptor | None,
-        text: str,
+        text: KeyboardText,
         *,
         overrides: KeyboardOverridesLike | None = None,
         activate: bool | None = None,
@@ -2302,6 +2553,8 @@ class BareMetal(OurDynamicCore):
 
         Complements ``Keyboard Press`` by releasing keys/modifiers. If you need a full
         press→release cycle for characters or shortcuts, prefer ``Keyboard Type``.
+
+        The sequence follows the syntax of `Keyboard Type`, and may be a ``Secret`` as well.
 
         Args:
             descriptor: Optional element to bring to front and focus before releasing.
@@ -2315,11 +2568,9 @@ class BareMetal(OurDynamicCore):
             | `Keyboard Release`   Window[@Name="Terminal"]    <Ctrl+Alt>
             | `Keyboard Release`   ${None}    <Ctrl+Alt>
         """
-        if descriptor is not None:
-            target_node = descriptor.resolve(self, query_overrides)
-            self._maybe_bring_to_front(target_node, activate)
-            self.runtime.focus(target_node)
-        self.runtime.keyboard_release(text, overrides=overrides)
+        self._keyboard(
+            self.runtime.keyboard_release, 'released keys in', descriptor, text, overrides, activate, query_overrides
+        )
 
     @keyword
     def take_screenshot(
@@ -2431,20 +2682,30 @@ class BareMetal(OurDynamicCore):
 
         rects: list[Rect] = []
         if descriptor_list:
+            descriptions: list[str] = []
             for d in descriptor_list:
+                node = None
                 try:
                     node = d.resolve(self, query_overrides)
-                    self._maybe_bring_to_front(node, activate)
+                    description = _describe(node)
+                    self._maybe_bring_to_front(node, activate, description)
                     r = cast(Rect, node.attribute('Bounds'))
                     rects.append(r)
-                except Exception:  # noqa: BLE001 (one unresolvable node must not drop the whole highlight)
-                    logger.trace(
-                        f'Could not retrieve bounds for descriptor {d.node!r}, skipping highlight for this node'
-                    )
+                    if description is not None:
+                        descriptions.append(description)
+                except Exception as exc:  # noqa: BLE001 (one unresolvable node must not drop the whole highlight)
+                    if _LOG.isEnabledFor(logging.DEBUG):
+                        what = _describe(node) if node is not None else repr(d.query)
+                        _LOG.debug('could not read the bounds of %s; it is not highlighted (%s)', what, exc)
                     continue
 
             self.runtime.highlight(rects, duration * 1000)
+            _log_action('highlighted', ', '.join(descriptions) or 'nothing', f'for {_number(duration)} s')
             return
 
         if rect is not None:
             self.runtime.highlight(rect, duration * 1000)  # duration in ms
+            if _LOG.isEnabledFor(logging.DEBUG):
+                rect_list = rect if isinstance(rect, list) else [rect]
+                shown = ', '.join(_rect_text(Rect.from_like(r)) for r in rect_list)
+                _log_action('highlighted', shown, f'for {_number(duration)} s')
