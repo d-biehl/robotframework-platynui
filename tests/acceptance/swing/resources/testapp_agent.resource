@@ -24,6 +24,19 @@ ${SWING_AGENT_TITLE}          ${None}
 
 
 *** Keywords ***
+Launch Swing Agent Test App
+    [Documentation]    Start one fixture instance with a unique window title and wait until the in-JVM
+    ...    agent serves its main window — pinned by the launched ProcessId. Returns the Process handle;
+    ...    the query root is untouched (use Launch Default Swing Agent Instance for the pinned suite
+    ...    instance).
+    [Arguments]    ${title}
+    ${handle}=    Start Swing Fixture Process    ${title}
+    ${pid}=    Get Process Id    ${handle}
+    BM.Wait Until Exists
+    ...    /app:Application[@ProcessId=${pid}]//Window[@Name="${title}"][@Technology="JavaAgent"]
+    ...    query_overrides={'timeout': ${AGENT_WAIT_TIMEOUT}}
+    RETURN    ${handle}
+
 Launch Default Swing Agent Instance
     [Documentation]    Suite Setup: check prerequisites, launch one fixture instance with a
     ...    suite-unique title, wait until the in-JVM agent serves its window, and pin the instance as
@@ -31,11 +44,8 @@ Launch Default Swing Agent Instance
     ...    Process handle at SUITE scope.
     [Arguments]    ${title}
     Require Swing Prerequisites
-    ${handle}=    Start Swing Fixture Process    ${title}
+    ${handle}=    Launch Swing Agent Test App    ${title}
     ${pid}=    Get Process Id    ${handle}
-    BM.Wait Until Exists
-    ...    /app:Application[@ProcessId=${pid}]//Window[@Name="${title}"][@Technology="JavaAgent"]
-    ...    query_overrides={'timeout': ${AGENT_WAIT_TIMEOUT}}
     BM.Set Root    /app:Application[@ProcessId=${pid}]    scope=SUITE
     VAR    ${SWING_AGENT_TITLE}    ${title}    scope=SUITE
     VAR    ${SWING_AGENT_APP_HANDLE}    ${handle}    scope=SUITE

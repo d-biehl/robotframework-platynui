@@ -346,6 +346,13 @@ impl TestApp {
         // --- Buttons ---
         ui.heading("Buttons");
         ui.horizontal(|ui| {
+            // Expose this row as a container the accessibility tree keeps: AccessKit
+            // drops egui's plain containers, so without this the buttons hang directly
+            // under the window. The acceptance suite pins a root inside the window here.
+            ui.ctx().accesskit_node_builder(ui.unique_id(), |node| {
+                node.set_role(egui::accesskit::Role::Group);
+                node.set_author_id("row-buttons");
+            });
             if ui.button("Click Me").with_id("btn-click-me").with_description("Increments the click counter").clicked()
             {
                 self.click_count += 1;
