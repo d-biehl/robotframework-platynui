@@ -57,16 +57,16 @@ pub struct AtspiNode {
     window_manager: Option<InjectedWindowManager>,
     obj: ObjectRefOwned,
     parent: Mutex<Option<Weak<dyn UiNode>>>,
-    /// Whether the parent is an `Application` accessible.  Resolved at
-    /// construction time (when the parent `Arc` is guaranteed alive) and
-    /// cached, so the check survives the parent `Weak` becoming dangling
-    /// later — which happens routinely once the consumer drops the
-    /// children iterator that held the parent strong-ref alive.
+    /// Whether the parent is an `Application` accessible. Resolved at
+    /// construction time, when the parent `Arc` is guaranteed alive, and
+    /// cached, so the check needs no parent lookup later.
     parent_is_application: bool,
-    /// Optional strong reference to the parent, keeping an ancestor chain alive
-    /// for standalone nodes that are not held by the tree (e.g. the result of a
-    /// hit-test). Normal tree nodes leave this `None` — their parent is kept
-    /// alive by the consumer — and rely solely on the `parent` `Weak`.
+    /// Strong reference to the parent, so that a node keeps its chain of
+    /// ancestors for as long as it lives (the rule of [`UiNode::parent`]). Set
+    /// for every node a child listing produces, grafted popups included, and
+    /// for the chain of a hit-test result. Application nodes listed for the
+    /// desktop leave it `None`: they reach the runtime's desktop only through
+    /// the `parent` `Weak`.
     parent_keepalive: Mutex<Option<Arc<dyn UiNode>>>,
     self_weak: OnceLock<Weak<dyn UiNode>>,
     runtime_id: OnceLock<RuntimeId>,
@@ -122,10 +122,10 @@ impl AtspiNode {
         node
     }
 
-    /// Keep `parent` alive for the lifetime of this node, so a standalone node
-    /// (e.g. a hit-test result not held by the tree) has a walkable ancestor
-    /// chain — `parent()`'s `Weak` only upgrades while the parent `Arc` lives.
-    /// Chaining this from the deepest node up roots the whole chain in it.
+    /// Keep `parent` alive for the lifetime of this node, so that its ancestor
+    /// chain stays walkable — `parent()`'s `Weak` only upgrades while the
+    /// parent `Arc` lives. Chained from the deepest node up, it roots the whole
+    /// chain in that node.
     pub(crate) fn hold_parent(&self, parent: Arc<dyn UiNode>) {
         *self.parent_keepalive.lock().expect("parent_keepalive mutex poisoned") = Some(parent);
     }
@@ -208,9 +208,8 @@ impl AtspiNode {
     /// AT-SPI's `CoordType::Window` is relative to the toolkit's real
     /// top-level window — not to any embedded `Frame`/`Window`/`Dialog`.
     ///
-    /// The parent check is cached at construction time (see [`Self::new`]); we
-    /// do **not** re-resolve the parent at query time because the parent `Weak`
-    /// may have already expired (it does not keep the parent alive).
+    /// The parent check is cached at construction time (see [`Self::new`]), so
+    /// asking costs no parent lookup and no D-Bus role read.
     ///
     /// Transient popups (a context menu's `PopupMenu`, `Menu`, `ToolTip`) hang
     /// directly under the `Application` exactly like real top-levels do — Qt
@@ -364,14 +363,18 @@ impl UiNode for AtspiNode {
             if AtspiNode::is_null_object(&child) {
                 return None;
             }
-            Some(AtspiNode::new(
+            let node = AtspiNode::new(
                 conn.clone(),
                 child,
                 parent.as_ref(),
                 window_manager.clone(),
                 popups.clone(),
                 Arc::clone(&timeouts),
-            ) as Arc<dyn UiNode>)
+            );
+            if let Some(parent) = &parent {
+                node.hold_parent(Arc::clone(parent));
+            }
+            Some(node as Arc<dyn UiNode>)
         }))
     }
 
@@ -1387,13 +1390,12 @@ struct LazyNodeData {
     window_manager: Option<InjectedWindowManager>,
     /// The owning node's per-application timeout latch.
     timeouts: Arc<AppTimeouts>,
-    /// Whether this node is a real platform top-level window.  Cached at
-    /// construction so the answer is robust against the parent `Weak` (on
-    /// the owning `AtspiNode`) becoming dangling later.
+    /// Whether this node is a real platform top-level window. Cached at
+    /// construction, so asking costs no parent lookup.
     is_real_toplevel: bool,
     /// Whether this node is a grafted transient popup (see
     /// [`AtspiNode::is_transient_popup`]); cached at construction for the
-    /// same robustness reason as `is_real_toplevel`.
+    /// same reason as `is_real_toplevel`.
     is_transient_popup: bool,
     state: OnceLock<Option<StateSet>>,
     extents: OnceLock<Option<Rect>>,

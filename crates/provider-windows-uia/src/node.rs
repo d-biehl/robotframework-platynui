@@ -93,10 +93,13 @@ fn advertise_focusable(reported: Option<bool>, has_window_surface: bool) -> bool
 pub struct UiaNode {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
     parent: Mutex<Option<Weak<dyn UiNode>>>,
-    /// Strong ref to the parent that roots an off-tree chain (the live picker's
-    /// `element_at_point` result — see [`UiaNode::attach_ancestor_chain`]).
-    /// Normal tree nodes leave this `None`; their parent is kept alive by the
-    /// tree/consumer and only the `parent` `Weak` is used.
+    /// Strong ref to the parent, so that a node keeps its chain of ancestors
+    /// for as long as it lives (the rule of [`UiNode::parent`]). Set for every
+    /// node a child iterator lists, and for the ancestor chain of the live
+    /// picker's `element_at_point` result (see
+    /// [`UiaNode::attach_ancestor_chain`]). Top-level windows listed for the
+    /// desktop leave it `None`: they reach the runtime's desktop only through
+    /// the `parent` `Weak`.
     parent_keepalive: Mutex<Option<Arc<dyn UiNode>>>,
     self_weak: std::sync::OnceLock<Weak<dyn UiNode>>,
     // Minimal identity caches required by trait return types
@@ -159,9 +162,9 @@ impl UiaNode {
             *guard = Some(Arc::downgrade(parent));
         }
     }
-    /// Pins `parent` alive so an off-tree chain stays walkable via `parent()`
-    /// (whose stored ref is only a `Weak`). Chaining this from the deepest node
-    /// up roots the whole ancestor chain in the returned leaf.
+    /// Keeps `parent` alive for as long as this node lives, so that `parent()`,
+    /// whose stored ref is only a `Weak`, stays walkable. Chained from the
+    /// deepest node up, it roots the whole ancestor chain in the leaf.
     pub fn hold_parent(&self, parent: Arc<dyn UiNode>) {
         if let Ok(mut guard) = self.parent_keepalive.lock() {
             *guard = Some(parent);
@@ -815,6 +818,7 @@ impl Iterator for ElementChildrenIter {
             }
             if let Some(ref parent) = self.parent {
                 node.set_parent(parent);
+                node.hold_parent(Arc::clone(parent));
             }
             UiaNode::init_self(&node);
             return Some(node as Arc<dyn UiNode>);
@@ -1858,6 +1862,8 @@ impl Iterator for AppWindowIter {
         }
         if let Some(ref parent) = self.parent {
             node.set_parent(parent);
+            // A window keeps its application node alive.
+            node.hold_parent(Arc::clone(parent));
         }
         Some(node as Arc<dyn UiNode>)
     }
@@ -2135,5 +2141,52 @@ mod attribute_surface_tests {
 
         let issues = platynui_core::ui::contract::testkit::verify_common_attributes(node.as_ref());
         assert!(issues.is_empty(), "common attribute issues: {issues:?}");
+    }
+
+    /// The taskbar's window, which is always there on a desktop and answers at
+    /// once, unlike an arbitrary window, which can stall on `WM_GETOBJECT`.
+    fn taskbar_window() -> windows::Win32::Foundation::HWND {
+        unsafe {
+            windows::Win32::UI::WindowsAndMessaging::FindWindowW(
+                windows::core::w!("Shell_TrayWnd"),
+                windows::core::PCWSTR::null(),
+            )
+        }
+        .expect("the taskbar window (Shell_TrayWnd) exists on a desktop")
+    }
+
+    fn taskbar_node() -> Arc<dyn UiNode> {
+        let uia = crate::com::uia().expect("UIAutomation is part of Windows and must be reachable");
+        let elem = unsafe { uia.ElementFromHandle(taskbar_window()) }.expect("the taskbar's UIA element");
+        let node = UiaNode::from_elem_with_scope(elem, crate::map::UiaIdScope::Desktop);
+        UiaNode::init_self(&node);
+        node
+    }
+
+    /// The rule of `UiNode::parent`: every node a listing produces keeps its
+    /// parent alive, and no node holds its children. Each check gets the only
+    /// handle to a fresh node, so that the check can prove what it checks.
+    #[test]
+    fn listed_nodes_keep_their_parent_and_nothing_holds_its_children() {
+        use platynui_core::ui::contract::testkit::{verify_children_keep_parent, verify_subtree_released};
+
+        let issues = verify_children_keep_parent(taskbar_node(), 32);
+        assert!(issues.is_empty(), "the taskbar's children must keep it alive: {issues:?}");
+
+        let issues = verify_subtree_released(taskbar_node(), 64);
+        assert!(issues.is_empty(), "the taskbar's subtree must be released: {issues:?}");
+
+        // An application node lists its windows through its own iterator; a
+        // window keeps its application node alive, too.
+        let mut pid = 0_u32;
+        unsafe {
+            windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(
+                taskbar_window(),
+                Some(std::ptr::addr_of_mut!(pid)),
+            )
+        };
+        let shell: Arc<dyn UiNode> = ApplicationNode::orphan(pid.cast_signed());
+        let issues = verify_children_keep_parent(shell, 32);
+        assert!(issues.is_empty(), "the shell's windows must keep its application node alive: {issues:?}");
     }
 }

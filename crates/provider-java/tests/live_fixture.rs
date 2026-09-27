@@ -30,9 +30,12 @@
 use platynui_core::config::{ConfigMap, RuntimeConfig};
 use platynui_core::platform::platform_factories;
 use platynui_core::provider::{UiTreeProvider, UiTreeProviderFactory};
-use platynui_core::ui::contract::testkit::{AttributeExpectation, NodeExpectation, PatternExpectation, verify_node};
+use platynui_core::ui::contract::testkit::{
+    AttributeExpectation, NodeExpectation, PatternExpectation, verify_children_keep_parent, verify_node,
+    verify_subtree_released,
+};
 use platynui_core::ui::{
-    Namespace, PatternName, RuntimeId, UiAttribute, UiNode, UiValue, attribute_names, pattern_names,
+    Namespace, PatternName, RuntimeId, UiAttribute, UiNode, UiNodeExt, UiValue, attribute_names, pattern_names,
     validate_control_or_item,
 };
 use platynui_provider_java::JavaFactory;
@@ -1490,4 +1493,171 @@ fn live_two_hosts_share_one_agent_and_agree_on_identity() {
     assert!(test_run_window.is_valid(), "the surviving host still has a live node");
 
     test_run.shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// xdm-snapshot-release task 3.4: a listed node keeps its ancestors
+
+/// The fixture's window as its application node lists it, and that node's
+/// runtime id: the `app:Application` node of the fixture's process from the
+/// desktop listing, then its child window with the fixture's title.
+///
+/// The window is the only node this hands back. Both listings and the
+/// application node itself are dropped on return, so whether the window still
+/// reaches its application node afterwards is up to the provider alone.
+fn window_through_application(
+    provider: &Arc<dyn UiTreeProvider>,
+    parent: &Arc<dyn UiNode>,
+    app: &FixtureApp,
+    technology: &str,
+) -> (Arc<dyn UiNode>, String) {
+    let pid = Some(UiValue::from(i64::from(app.pid())));
+    let deadline = Instant::now() + DISCOVERY_DEADLINE;
+    loop {
+        // Matched on the technology as well: with the agent enabled, the bridge
+        // may serve the window for a moment before the agent's handshake is up.
+        let application = provider.get_nodes(Arc::clone(parent)).expect("get_nodes").find(|node| {
+            node.namespace() == Namespace::App
+                && attribute_value(node, attribute_names::application::PROCESS_ID) == pid
+                && attribute_value(node, attribute_names::common::TECHNOLOGY) == Some(UiValue::from(technology))
+        });
+        if let Some(application) = application {
+            let application_id = application.runtime_id().as_str().to_owned();
+            if let Some(window) = application.children().find(|node| node.name() == app.title) {
+                return (window, application_id);
+            }
+        }
+        assert!(
+            Instant::now() < deadline,
+            "no {technology} application node listing {:?} within {DISCOVERY_DEADLINE:?}",
+            app.title
+        );
+        std::thread::sleep(Duration::from_millis(250));
+    }
+}
+
+/// The first node named `name` below `root`, found depth first and handed back
+/// alone: every node the search took — `root` included — is dropped on return,
+/// so from then on nothing but the match itself holds the match's ancestors.
+fn take_descendant(root: Arc<dyn UiNode>, name: &str) -> Arc<dyn UiNode> {
+    let mut pending = vec![root];
+    let mut visited = 0usize;
+    while let Some(node) = pending.pop() {
+        if node.name() == name {
+            return node;
+        }
+        visited += 1;
+        assert!(visited < 5_000, "tree larger than any sane Swing fixture — search guard");
+        pending.extend(node.children());
+    }
+    panic!("fixture control {name:?} not found below the window");
+}
+
+/// A node the provider lists keeps its ancestors, and it is the only thing that
+/// has to.
+///
+/// This is the state a captured element is in once the runtime releases its
+/// `XPath` snapshots: a test holds a table cell and nothing else — not the
+/// snapshot the cell came from, not the listings, not the window. What the cell
+/// is used for later (its window for activation and the window patterns, its
+/// application for a scoped root, bounds some providers compute along the
+/// chain) is reachable only if every listed node holds its parent. The testkit
+/// checks then prove the rule on the window's own children, and that it forms
+/// no cycle: no node holds its children.
+///
+/// `cell_of_table` goes from the fixture table to one of its cells, the one step
+/// in which the backends differ. It takes the table by value, so the table is
+/// gone once it returns, and must not keep anything it passes on the way.
+fn assert_listed_nodes_keep_their_ancestors(
+    app: &FixtureApp,
+    provider: &Arc<dyn UiTreeProvider>,
+    technology: &str,
+    cell_of_table: impl FnOnce(Arc<dyn UiNode>) -> Arc<dyn UiNode>,
+) {
+    // The window has a handful of children; a couple of hundred nodes reach
+    // well into the fixture's containers without listing all of its table.
+    const CHILDREN_CHECKED: usize = 64;
+    const SUBTREE_CHECKED: usize = 200;
+
+    let parent = desktop_stub();
+
+    // Down to one cell by way of the application node, dropping every handle on
+    // the way: the listings and the application node in the first helper, the
+    // window and the containers below it in the search, the table (and whatever
+    // lies between it and the cell) in `cell_of_table`.
+    let (window, application_id) = window_through_application(provider, &parent, app, technology);
+    let window_id = window.runtime_id().as_str().to_owned();
+    let table = take_descendant(window, "main-table");
+    assert_eq!(table.role(), "Table", "the search must stop at the table itself");
+    let cell = cell_of_table(table);
+
+    // The whole chain has to be there, not just its first link: every
+    // container between the cell and the window is held by the node below it
+    // and by nothing else.
+    let ancestors: Vec<String> = cell.ancestors().map(|node| node.runtime_id().as_str().to_owned()).collect();
+    let position = |id: &str| ancestors.iter().position(|ancestor| ancestor == id);
+    let Some(window_at) = position(&window_id) else {
+        panic!("the cell's ancestors must reach its window {window_id}, got {ancestors:?}");
+    };
+    let Some(application_at) = position(&application_id) else {
+        panic!("the cell's ancestors must reach its application node {application_id}, got {ancestors:?}");
+    };
+    assert!(window_at < application_at, "the application node must sit above the window, got {ancestors:?}");
+    assert_eq!(
+        cell.top_level_or_self().runtime_id().as_str(),
+        window_id.as_str(),
+        "the cell's top-level node must be its window — what activation and the window patterns act on"
+    );
+    drop(cell);
+
+    // Each check gets a window of its own, listed afresh through the application
+    // node: `verify_children_keep_parent` proves nothing unless it holds the only
+    // handle to its node, and neither check may lean on what the scenario above
+    // held.
+    let (window, _) = window_through_application(provider, &parent, app, technology);
+    let issues = verify_children_keep_parent(window, CHILDREN_CHECKED);
+    assert!(issues.is_empty(), "the window's children must keep the window alive: {issues:?}");
+
+    let (window, _) = window_through_application(provider, &parent, app, technology);
+    let issues = verify_subtree_released(window, SUBTREE_CHECKED);
+    assert!(issues.is_empty(), "no node below the window may hold its children: {issues:?}");
+}
+
+/// Task 3.4 of `xdm-snapshot-release` for the Access Bridge (see
+/// [`assert_listed_nodes_keep_their_ancestors`]).
+#[test]
+#[ignore = "needs a desktop, a Java runtime, and the built Swing fixture (run via just test-acceptance-windows)"]
+fn live_jab_listed_nodes_keep_their_ancestors() {
+    let app = FixtureApp::launch("jab-ancestors");
+    let provider = build_provider(&jab_only());
+    assert_listed_nodes_keep_their_ancestors(&app, &provider, "JAB", |table| {
+        // Flat, row-major and addressed by position: the bridge aliases every
+        // cell to the shared renderer, so a cell's name is not its identity.
+        // Index 1*6 + 2 is (row 1, column 2).
+        let cell = table.children().nth(8).expect("the fixture table lists its cells");
+        assert_eq!(native_value(&cell, "TableCell.Row"), Some(UiValue::from(1i64)));
+        assert_eq!(native_value(&cell, "TableCell.Column"), Some(UiValue::from(2i64)));
+        cell
+    });
+    provider.shutdown();
+}
+
+/// Task 3.4 of `xdm-snapshot-release` for the agent (see
+/// [`assert_listed_nodes_keep_their_ancestors`]). Its chain is one link longer
+/// than the bridge's: a row sits between the table and its cells.
+#[test]
+#[ignore = "needs a desktop, a Java runtime, the built Swing fixture and the built agent JAR"]
+fn live_agent_listed_nodes_keep_their_ancestors() {
+    let app = FixtureApp::launch_with_agent("agent-ancestors");
+    let provider = build_provider(&RuntimeConfig::default());
+    assert_listed_nodes_keep_their_ancestors(&app, &provider, "JavaAgent", |table| {
+        let row = table.children().nth(2).expect("the fixture table lists its rows");
+        drop(table);
+        assert_eq!(row.role(), "TableRow", "a table's children are rows");
+        let cell = row.children().next().expect("a row lists its cells");
+        assert_eq!(cell.role(), "TableCell", "a row's children are cells");
+        assert_eq!(cell.name(), "r2c0", "the first cell of the preselected row");
+        cell
+    });
+    provider.shutdown();
 }

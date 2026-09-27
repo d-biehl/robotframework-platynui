@@ -59,8 +59,12 @@ pub(crate) struct AgentNode {
     /// entry and a tree row both report their renderer's role).
     parent_role: Option<String>,
     parent: Mutex<Option<Weak<dyn UiNode>>>,
-    /// Keeps an off-tree parent chain alive; a hit-test result has no owner
-    /// other than the node it was returned as.
+    /// Keeps the parent alive, so that a node keeps its chain of ancestors for
+    /// as long as it lives (the rule of [`UiNode::parent`]). Set for every node
+    /// a child listing produces, and for a hit-test chain, which has no owner
+    /// other than the node it was returned as. Top-level windows listed for
+    /// the desktop leave it `None`: they reach the runtime's desktop only
+    /// through the `parent` `Weak`.
     held_parent: Mutex<Option<Arc<dyn UiNode>>>,
     self_weak: OnceLock<Weak<dyn UiNode>>,
     runtime_id: OnceLock<RuntimeId>,
@@ -97,7 +101,7 @@ impl AgentNode {
         node
     }
 
-    /// Pins an off-tree parent so a hit-test chain outlives the call.
+    /// Keeps `parent` alive for as long as this node lives.
     pub(crate) fn hold_parent(&self, parent: Arc<dyn UiNode>) {
         *self.held_parent.lock().unwrap_or_else(|poisoned| {
             self.held_parent.clear_poison();
@@ -262,13 +266,17 @@ impl UiNode for AgentNode {
         let window_manager = self.window_manager.clone();
         let parent_role = element.role.clone();
         Box::new(payloads.into_iter().map(move |child| {
-            AgentNode::new(
+            let node = AgentNode::new(
                 Arc::clone(&session),
                 child,
                 Some(parent_role.clone()),
                 window_manager.clone(),
                 parent.as_ref(),
-            ) as Arc<dyn UiNode>
+            );
+            if let Some(parent) = &parent {
+                node.hold_parent(Arc::clone(parent));
+            }
+            node as Arc<dyn UiNode>
         }))
     }
 

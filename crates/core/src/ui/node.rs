@@ -28,6 +28,19 @@ pub trait UiNode: Send + Sync {
         None
     }
     /// Weak reference to the parent node, if available.
+    ///
+    /// The `Weak` upgrades for as long as the node lives, except for the
+    /// runtime's desktop node, which a top-level node reaches only while the
+    /// runtime lives. A provider meets this by keeping the parent of every
+    /// node its child iterators list alive with a strong reference from child
+    /// to parent, set in the iterators rather than in constructors that also
+    /// serve [`UiTreeProvider::get_nodes`](crate::provider::UiTreeProvider::get_nodes).
+    /// A held node therefore keeps exactly its chain of ancestors, however it
+    /// was obtained. Nodes never hold their children: together with the strong
+    /// link to the parent, that would form a cycle. A provider that owns its
+    /// whole tree meets the rule through that ownership. The contract testkit
+    /// checks both halves (`verify_children_keep_parent`,
+    /// `verify_subtree_released`).
     fn parent(&self) -> Option<Weak<dyn UiNode>>;
     /// Child nodes. Providers may return iterators over prepared or lazily produced material.
     fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static>;

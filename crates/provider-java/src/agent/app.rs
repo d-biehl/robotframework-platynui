@@ -128,8 +128,12 @@ impl UiNode for AgentAppNode {
         let session = Arc::clone(&self.session);
         let window_manager = self.window_manager.clone();
         Box::new(windows.into_iter().map(move |window| {
-            AgentNode::new(Arc::clone(&session), window, None, window_manager.clone(), parent.as_ref())
-                as Arc<dyn UiNode>
+            let node = AgentNode::new(Arc::clone(&session), window, None, window_manager.clone(), parent.as_ref());
+            // A window keeps its application node alive.
+            if let Some(parent) = &parent {
+                node.hold_parent(Arc::clone(parent));
+            }
+            node as Arc<dyn UiNode>
         }))
     }
 

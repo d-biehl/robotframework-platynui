@@ -198,10 +198,12 @@ pub(crate) struct JabNode {
     parent_ctx: Option<Arc<JabObject>>,
     calibration: Arc<Calibration>,
     parent: Mutex<Option<Weak<dyn UiNode>>>,
-    /// Strong ref to the parent that roots an off-tree chain (the live
-    /// picker's hit-test result — see [`hit_test_node`]). Normal tree nodes
-    /// leave this `None`; their parents are kept alive by the tree/consumer
-    /// and only the `parent` `Weak` is used.
+    /// Strong ref to the parent, so that a node keeps its chain of ancestors
+    /// for as long as it lives (the rule of [`UiNode::parent`]). Set for every
+    /// node a child listing produces, and for the chain of the live picker's
+    /// hit-test result (see [`hit_test_node`]). Top-level windows listed for
+    /// the desktop leave it `None`: they reach the runtime's desktop only
+    /// through the `parent` `Weak`.
     parent_keepalive: Mutex<Option<Arc<dyn UiNode>>>,
     self_weak: OnceLock<Weak<dyn UiNode>>,
     runtime_id: OnceLock<RuntimeId>,
@@ -276,9 +278,9 @@ impl JabNode {
         self.index_path.is_empty()
     }
 
-    /// Pins `parent` alive so an off-tree chain stays walkable via `parent()`
-    /// (whose stored ref is only a `Weak`). Chaining this from the deepest
-    /// node up roots the whole ancestor chain in the returned leaf.
+    /// Keeps `parent` alive for as long as this node lives, so that `parent()`,
+    /// whose stored ref is only a `Weak`, stays walkable. Chained from the
+    /// deepest node up, it roots the whole ancestor chain in the leaf.
     fn hold_parent(&self, parent: Arc<dyn UiNode>) {
         *self.parent_keepalive.lock().expect("parent keepalive mutex poisoned") = Some(parent);
     }
@@ -664,6 +666,9 @@ impl Iterator for ChildIter {
                         Arc::clone(&self.calibration),
                         self.parent.as_ref(),
                     );
+                    if let Some(parent) = &self.parent {
+                        node.hold_parent(Arc::clone(parent));
+                    }
                     return Some(node as Arc<dyn UiNode>);
                 }
                 Ok(None) => {
@@ -1410,7 +1415,7 @@ impl UiNode for JabAppNode {
         let client = Arc::clone(&self.client);
         let window_manager = self.window_manager.clone();
         Box::new(windows.into_iter().map(move |window| {
-            JabNode::new_window(
+            let node = JabNode::new_window(
                 Arc::clone(&client),
                 window_manager.clone(),
                 window.vm,
@@ -1418,7 +1423,12 @@ impl UiNode for JabAppNode {
                 window.hwnd,
                 scope,
                 parent.as_ref(),
-            ) as Arc<dyn UiNode>
+            );
+            // A window keeps its application node alive.
+            if let Some(parent) = &parent {
+                node.hold_parent(Arc::clone(parent));
+            }
+            node as Arc<dyn UiNode>
         }))
     }
 
