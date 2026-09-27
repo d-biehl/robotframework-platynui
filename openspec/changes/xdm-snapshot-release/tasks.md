@@ -64,7 +64,7 @@ The mock provider owns its tree and cannot show a release or lost ancestors, so 
   - AT-SPI: `AtspiNode::children`.
 
   Reword the keepalive field comments ("normal tree nodes leave this None") and the comment at AT-SPI's `parent_is_application` (`crates/provider-atspi/src/node.rs:59-65`). Verify with `just check` and `just test`. Outcome (2026-09-27): clippy is clean for the Windows providers and, for the Linux target, for AT-SPI; the unit tests of core, runtime and the Windows providers pass, except `shutdown_releases_the_snapshot_before_the_providers`, which waits for group 4. The full `just check` and `just test` run in 4.5.
-- [x] 3.3 A UI Automation unit test that is not ignored, next to `desktop_root_satisfies_the_common_attribute_contract` (`crates/provider-windows-uia/src/node.rs:2132`), runs both checks on the taskbar's element (`Shell_TrayWnd`), and the first check on the shell's application node, whose windows come from `AppWindowIter`. Verify on Windows with `just test-crate platynui-provider-windows-uia`, and verify once that it fails with the change of 3.2 reverted for UI Automation. Outcome (2026-09-27): `listed_nodes_keep_their_parent_and_nothing_holds_its_children` passes; with the two `hold_parent` calls of UI Automation removed it fails with `ChildParentUnreachable` for each of the taskbar's three children, and with only the one in `AppWindowIter` removed it fails for the shell's windows.
+- [x] 3.3 A UI Automation unit test that is not ignored, next to `desktop_root_satisfies_the_common_attribute_contract` (`crates/provider-windows-uia/src/node.rs:2132`), runs both checks on a window with three standard buttons that a child process of the test shows off screen, and the first check on that process's application node, whose windows come from `AppWindowIter`. The test depends on no window or application that Windows brings, since those change between versions. Verify on Windows with `just test-crate platynui-provider-windows-uia`, and verify once that it fails with the change of 3.2 reverted for UI Automation. Outcome (2026-09-27): `listed_nodes_keep_their_parent_and_nothing_holds_its_children` passes; with the two `hold_parent` calls of UI Automation removed it fails with `ChildParentUnreachable` for the window's buttons, and with only the one in `AppWindowIter` removed it fails for the application's window. (The first version used the taskbar; it was replaced on 2026-09-27, because the taskbar changes between Windows versions.)
 - [x] 3.4 Extend the live Java tests (`crates/provider-java/tests/live_fixture.rs`) for the agent and, with the agent disabled, for JAB:
   - reach a table cell through the application node, holding nothing but the check's handles;
   - assert that the cell's ancestors reach the window and the application node, and that `top_level_or_self()` is the window;
@@ -149,7 +149,7 @@ Follow the `robot-test-style` skill.
   - The live tests of `platynui-java-agent`, which this change does not touch, failed in two of four further runs with `NotAJvm` when attaching to a freshly started JVM, each time in a different test; they passed in both lane runs.
 - [ ] 7.3 Measurements on Windows (design decision 8), recorded here:
   - private memory per evaluation for 20 runs with `clear_cache()` before each (`count(/*/*)`, and a search under a large editor window): before this change 52.5 KiB and 14.9 MiB, target about 0;
-  - the same search on a retained snapshot, against Notepad and the editor (before this change 0.31 MiB with the editor);
+  - the same search on a retained snapshot, against one of the repository's test apps and the editor (before this change 0.31 MiB with the editor);
   - the time of `clear_cache()` after the editor snapshot;
   - the latency of the first JAB query after `clear_cache()` on the Swing table, and the total time of the Swing suites before and after;
   - a few minutes of `platynui-cli watch --expression` against a busy application, with flat memory.
@@ -165,13 +165,13 @@ Follow the `robot-test-style` skill.
   | `.//*[@Name='x-not-there']` under a VS Code window (5,300 to 6,000 elements), 20 times | discarded before each | 14.9 MiB (window of about 3,500 elements) | 0.01 MiB |
   | the same | retained | 0.31 MiB | 0.02 MiB |
 
-  `clear_cache()` after the VS Code snapshot takes 31 to 44 ms. The first measurement with the wrapper fix still grew by 0.63 MiB per discarded snapshot, linearly; that was the UI Automation leak of 4.6. Still open, because they need Notepad, the Swing app or a busy application started on the desktop: the retained snapshot against Notepad, the JAB latency after `clear_cache()`, and `platynui-cli watch`.
+  `clear_cache()` after the VS Code snapshot takes 31 to 44 ms. The first measurement with the wrapper fix still grew by 0.63 MiB per discarded snapshot, linearly; that was the UI Automation leak of 4.6. Still open, because they need one of the repository's test apps or a busy application started on the desktop: the retained snapshot against a test app, the JAB latency after `clear_cache()` on the Swing table, and `platynui-cli watch`.
 - [x] 7.4 By hand on Windows:
   - an Inspector search result whose subtree was never expanded still reveals and selects;
   - `platynui-cli pointer click` on a non-window element of a covered window raises that window.
 
   Record the outcome here. Outcome (2026-09-27): the maintainer confirmed that the Inspector and the CLI work locally with this change.
-- [ ] 7.5 On a Linux host, run `just headless=true test-acceptance-x11` and `just headless=true test-acceptance-compositor`, then `robotcode results log --level WARN --execution-messages`. Verify that everything is green, with 5.1 on both lanes, and that no warning comes from PlatynUI. Record the outcome here.
+- [x] 7.5 On a Linux host, run `just headless=true test-acceptance-x11` and `just headless=true test-acceptance-compositor`, then `robotcode results log --level WARN --execution-messages`. Verify that everything is green, with 5.1 on both lanes, and that no warning comes from PlatynUI. Record the outcome here. Outcome (2026-09-27): run by CI on push (run 36335069131, commit `cbf8e1b`): `Acceptance (Linux, x11)` 83 of 83 and `Acceptance (Linux, compositor)` 84 of 84, with no WARN or ERROR in either log. The first push had failed ten egui tests on the compositor lane: the button group of the egui test app had no bounds, so AT-SPI placed its buttons at window-local coordinates; `cbf8e1b` gives the group its bounds.
 
 ## 8. Commit (only when the user asks)
 

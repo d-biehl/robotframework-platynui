@@ -2143,50 +2143,158 @@ mod attribute_surface_tests {
         assert!(issues.is_empty(), "common attribute issues: {issues:?}");
     }
 
-    /// The taskbar's window, which is always there on a desktop and answers at
-    /// once, unlike an arbitrary window, which can stall on `WM_GETOBJECT`.
-    fn taskbar_window() -> windows::Win32::Foundation::HWND {
-        unsafe {
-            windows::Win32::UI::WindowsAndMessaging::FindWindowW(
-                windows::core::w!("Shell_TrayWnd"),
-                windows::core::PCWSTR::null(),
+    /// Set for the child process that shows the test window.
+    const TEST_WINDOW_ENV: &str = "PLATYNUI_UIA_TEST_WINDOW";
+
+    /// Not a test of its own: the child process of [`TestWindow::start`]. It
+    /// shows a window with three buttons of its own, prints the window's handle
+    /// and keeps it answering until it is killed, or for half a minute at most.
+    /// Started without that environment, it returns at once.
+    #[test]
+    #[ignore = "the child process of TestWindow::start, which starts it"]
+    fn test_window_child() {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            BS_PUSHBUTTON, CreateWindowExW, DispatchMessageW, MSG, PM_REMOVE, PeekMessageW, SW_SHOWNOACTIVATE,
+            ShowWindow, TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WS_CHILD, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+        };
+        use windows::core::w;
+
+        if std::env::var_os(TEST_WINDOW_ENV).is_none() {
+            return;
+        }
+        // A top-level window of the predefined STATIC class, far off screen:
+        // visible to UI Automation, invisible to whoever works at the desktop,
+        // and shown without taking the focus.
+        // SAFETY: creating a top-level window of a predefined class.
+        let window = unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE::default(),
+                w!("STATIC"),
+                w!("PlatynUI UIA test window"),
+                WS_OVERLAPPEDWINDOW,
+                -20_000,
+                -20_000,
+                400,
+                200,
+                None,
+                None,
+                None,
+                None,
             )
         }
-        .expect("the taskbar window (Shell_TrayWnd) exists on a desktop")
+        .expect("test window");
+        for (index, label) in [w!("First"), w!("Second"), w!("Third")].into_iter().enumerate() {
+            let x = 10 + 120 * i32::try_from(index).expect("three buttons");
+            // SAFETY: creating a standard push button inside the window above.
+            unsafe {
+                CreateWindowExW(
+                    WINDOW_EX_STYLE::default(),
+                    w!("BUTTON"),
+                    label,
+                    WS_CHILD | WS_VISIBLE | WINDOW_STYLE(u32::try_from(BS_PUSHBUTTON).expect("button style")),
+                    x,
+                    10,
+                    100,
+                    30,
+                    Some(window),
+                    None,
+                    None,
+                    None,
+                )
+            }
+            .expect("button");
+        }
+        // SAFETY: showing the window created above, without activating it.
+        let _ = unsafe { ShowWindow(window, SW_SHOWNOACTIVATE) };
+        println!("TEST_WINDOW={}", window.0 as usize);
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let mut message = MSG::default();
+        while std::time::Instant::now() < deadline {
+            // SAFETY: pumping this thread's messages, so that UI Automation's
+            // requests to the window are answered.
+            while unsafe { PeekMessageW(&raw mut message, None, 0, 0, PM_REMOVE) }.as_bool() {
+                // SAFETY: `message` was just filled by PeekMessageW.
+                unsafe {
+                    let _ = TranslateMessage(&raw const message);
+                    DispatchMessageW(&raw const message);
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
     }
 
-    fn taskbar_node() -> Arc<dyn UiNode> {
-        let uia = crate::com::uia().expect("UIAutomation is part of Windows and must be reachable");
-        let elem = unsafe { uia.ElementFromHandle(taskbar_window()) }.expect("the taskbar's UIA element");
-        let node = UiaNode::from_elem_with_scope(elem, crate::map::UiaIdScope::Desktop);
-        UiaNode::init_self(&node);
-        node
+    /// A window with three buttons, shown by a child process of the test: the
+    /// provider skips its own process's elements, and a test must not depend
+    /// on windows or applications that Windows brings, which change between
+    /// versions. The child is killed when this is dropped.
+    struct TestWindow {
+        child: std::process::Child,
+        hwnd: windows::Win32::Foundation::HWND,
+    }
+
+    impl TestWindow {
+        fn start() -> Self {
+            use std::io::BufRead;
+
+            let mut child = std::process::Command::new(std::env::current_exe().expect("test binary"))
+                .args(["--exact", "node::attribute_surface_tests::test_window_child", "--ignored", "--nocapture"])
+                .env(TEST_WINDOW_ENV, "1")
+                .stdout(std::process::Stdio::piped())
+                .spawn()
+                .expect("test window process");
+            let stdout = child.stdout.take().expect("child stdout");
+            let handle = std::io::BufReader::new(stdout)
+                .lines()
+                .map_while(Result::ok)
+                .find_map(|line| line.strip_prefix("TEST_WINDOW=").and_then(|raw| raw.trim().parse::<usize>().ok()));
+            let Some(handle) = handle else {
+                let _ = child.kill();
+                panic!("the test window process reported no window");
+            };
+            Self { child, hwnd: windows::Win32::Foundation::HWND(handle as *mut core::ffi::c_void) }
+        }
+
+        fn pid(&self) -> i32 {
+            i32::try_from(self.child.id()).expect("process id")
+        }
+
+        /// A fresh node for the window, held by nobody but the caller.
+        fn node(&self) -> Arc<dyn UiNode> {
+            let uia = crate::com::uia().expect("UIAutomation is part of Windows and must be reachable");
+            let elem = unsafe { uia.ElementFromHandle(self.hwnd) }.expect("the test window's UIA element");
+            let node = UiaNode::from_elem_with_scope(elem, crate::map::UiaIdScope::Desktop);
+            UiaNode::init_self(&node);
+            node
+        }
+    }
+
+    impl Drop for TestWindow {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
     }
 
     /// The rule of `UiNode::parent`: every node a listing produces keeps its
     /// parent alive, and no node holds its children. Each check gets the only
-    /// handle to a fresh node, so that the check can prove what it checks.
+    /// handle to a fresh node, so that it can prove what it checks.
     #[test]
     fn listed_nodes_keep_their_parent_and_nothing_holds_its_children() {
         use platynui_core::ui::contract::testkit::{verify_children_keep_parent, verify_subtree_released};
 
-        let issues = verify_children_keep_parent(taskbar_node(), 32);
-        assert!(issues.is_empty(), "the taskbar's children must keep it alive: {issues:?}");
+        let window = TestWindow::start();
 
-        let issues = verify_subtree_released(taskbar_node(), 64);
-        assert!(issues.is_empty(), "the taskbar's subtree must be released: {issues:?}");
+        let issues = verify_children_keep_parent(window.node(), 32);
+        assert!(issues.is_empty(), "the window's buttons must keep it alive: {issues:?}");
+
+        let issues = verify_subtree_released(window.node(), 64);
+        assert!(issues.is_empty(), "the window's subtree must be released: {issues:?}");
 
         // An application node lists its windows through its own iterator; a
         // window keeps its application node alive, too.
-        let mut pid = 0_u32;
-        unsafe {
-            windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(
-                taskbar_window(),
-                Some(std::ptr::addr_of_mut!(pid)),
-            )
-        };
-        let shell: Arc<dyn UiNode> = ApplicationNode::orphan(pid.cast_signed());
-        let issues = verify_children_keep_parent(shell, 32);
-        assert!(issues.is_empty(), "the shell's windows must keep its application node alive: {issues:?}");
+        let application: Arc<dyn UiNode> = ApplicationNode::orphan(window.pid());
+        let issues = verify_children_keep_parent(application, 8);
+        assert!(issues.is_empty(), "the application's windows must keep its node alive: {issues:?}");
     }
 }

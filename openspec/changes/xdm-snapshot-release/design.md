@@ -175,13 +175,13 @@ The mock owns its tree, so it can show neither a release nor lost ancestors. The
   - a button found below a pane used as the context (a root inside a window);
   - shutdown releasing the snapshot while the providers still run.
 - **Testkit tests** for both checks: a lazy node without the strong link fails, one with it passes, and an owned tree reports no child but cannot prove the rule.
-- **UI Automation:** a unit test that is not ignored and runs in `just test` on Windows, next to `desktop_root_satisfies_the_common_attribute_contract` (`crates/provider-windows-uia/src/node.rs:2132`). It runs both checks on the taskbar's element (`Shell_TrayWnd`), which avoids the `WM_GETOBJECT` stalls of arbitrary windows.
+- **UI Automation:** a unit test that is not ignored and runs in `just test` on Windows, next to `desktop_root_satisfies_the_common_attribute_contract` (`crates/provider-windows-uia/src/node.rs:2132`). It runs both checks on a window with three standard buttons that a child process of the test shows off screen: the provider skips its own process's elements, and a test must not depend on windows or applications that Windows brings, which change between versions.
 - **JAB and the agent:** the live Java tests (`crates/provider-java/tests/live_fixture.rs`, `#[ignore]`, run by `just test-acceptance-windows`) reach a table cell through the application node and run both checks, with only the check holding the nodes. They also assert that the cell's ancestors reach the window and the application node.
 - **AT-SPI** has no ignored tests that a lane runs. The acceptance scenarios cover it on X11 and Wayland, including the bounds of a captured element, which AT-SPI computes along the parent chain.
 - **Acceptance** (`robot-test-style`): the two egui scenarios of *A node that is handed out keeps its ancestors*, with the windows stacked (`Stack Windows`, `tests/acceptance/egui/auto_activate.robot:120-124`) so that a click cannot reach a covered window without activation. There is also a Swing variant under the root pinned to the application node, for JAB and the agent. Before they are relied on, each is run once on a build that releases snapshots but does not keep parents, and must fail there.
 - **Measurements on Windows**, recorded in the tasks:
   - private memory per evaluation with `clear_cache()` before each run, for `count(/*/*)` and for a search under a large editor window, 20 runs each;
-  - the same search on a retained snapshot, against a static window (Notepad) and against the editor;
+  - the same search on a retained snapshot, against one of the repository's test apps and against the editor;
   - the time of `clear_cache()` after the large snapshot;
   - the latency of the first JAB query after `clear_cache()` on the Swing table, and the total time of the Swing lane;
   - the process's exit code at the end of the lane, and the Application event log for a crash at interpreter exit;
