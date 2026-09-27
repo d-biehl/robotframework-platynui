@@ -31,8 +31,8 @@ use platynui_core::config::{ConfigMap, RuntimeConfig};
 use platynui_core::platform::platform_factories;
 use platynui_core::provider::{UiTreeProvider, UiTreeProviderFactory};
 use platynui_core::ui::contract::testkit::{
-    AttributeExpectation, NodeExpectation, PatternExpectation, verify_children_keep_parent, verify_node,
-    verify_subtree_released,
+    AttributeExpectation, NodeExpectation, PatternExpectation, verify_children_keep_parent, verify_doc_order_keys,
+    verify_node, verify_subtree_released,
 };
 use platynui_core::ui::{
     Namespace, PatternName, RuntimeId, UiAttribute, UiNode, UiNodeExt, UiValue, attribute_names, pattern_names,
@@ -1580,6 +1580,13 @@ fn assert_listed_nodes_keep_their_ancestors(
     const SUBTREE_CHECKED: usize = 200;
 
     let parent = desktop_stub();
+
+    // Document-order keys may not contradict the order the provider lists its
+    // top-level nodes in (`UiNode::doc_order_key`); process ids did.
+    let top_level: Vec<Arc<dyn UiNode>> = provider.get_nodes(Arc::clone(&parent)).expect("get_nodes").collect();
+    let issues = verify_doc_order_keys(&top_level);
+    assert!(issues.is_empty(), "document-order keys against the listing order: {issues:?}");
+    drop(top_level);
 
     // Down to one cell by way of the application node, dropping every handle on
     // the way: the listings and the application node in the first helper, the

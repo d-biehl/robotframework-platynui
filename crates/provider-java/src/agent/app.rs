@@ -171,10 +171,6 @@ impl UiNode for AgentAppNode {
     }
 
     fn invalidate(&self) {}
-
-    fn doc_order_key(&self) -> Option<u64> {
-        Some(u64::from(self.session.pid()))
-    }
 }
 
 fn push_optional(attrs: &mut Vec<Arc<dyn UiAttribute>>, name: &'static str, value: Option<&str>) {

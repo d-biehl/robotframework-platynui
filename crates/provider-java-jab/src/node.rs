@@ -1456,10 +1456,6 @@ impl UiNode for JabAppNode {
     }
 
     fn invalidate(&self) {}
-
-    fn doc_order_key(&self) -> Option<u64> {
-        Some(u64::from(self.pid))
-    }
 }
 
 #[derive(Clone, Copy)]

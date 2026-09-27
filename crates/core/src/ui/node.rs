@@ -67,8 +67,15 @@ pub trait UiNode: Send + Sync {
     fn pattern_by_name(&self, _pattern: &PatternName) -> Option<Arc<dyn UiPattern>> {
         None
     }
-    /// Optional hint for document-order comparisons. If present, the value must
-    /// be unique per node.
+    /// Optional key for document-order comparisons. The `XPath` engine orders
+    /// two nodes by their keys when both have one, instead of comparing their
+    /// ancestors, so a key must be unique and must order this node exactly as
+    /// document order does, against every other keyed node of the whole tree,
+    /// other providers' nodes included. A provider that cannot guarantee that
+    /// returns `None`, the default: a key against document order puts results
+    /// out of order and can make sorting them panic. A process id, for one,
+    /// says nothing about document order. The contract testkit checks keys
+    /// with `verify_doc_order_keys`.
     fn doc_order_key(&self) -> Option<u64> {
         None
     }

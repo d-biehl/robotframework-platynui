@@ -7,7 +7,8 @@ use platynui_core::ui::attribute_names::{
     activation_target, common, element, focusable, maximizable, minimizable, movable, resizable,
 };
 use platynui_core::ui::contract::testkit::{
-    AttributeExpectation, NodeExpectation, PatternExpectation, require_node, verify_common_attributes, verify_node,
+    AttributeExpectation, NodeExpectation, PatternExpectation, nodes_in_document_order, require_node,
+    verify_common_attributes, verify_doc_order_keys, verify_node,
 };
 use platynui_core::ui::{
     ActivatableAction, ActivatablePattern, CloseableAction, CloseablePattern, FocusableAction, FocusablePattern,
@@ -143,6 +144,22 @@ fn custom_tree_overrides_defaults() {
     assert_eq!(roots.len(), 1);
     let app = roots.pop().unwrap();
     assert_eq!(app.runtime_id().as_str(), "mock://app/custom");
+}
+
+/// The mock is the one provider that keys its nodes for document order; the
+/// keys have to follow document order through its whole tree.
+#[rstest]
+#[serial]
+fn document_order_keys_follow_document_order() {
+    let provider = mock_provider();
+    let desktop: Arc<dyn UiNode> = Arc::new(DesktopNode);
+    let roots: Vec<Arc<dyn UiNode>> = provider.get_nodes(Arc::clone(&desktop)).unwrap().collect();
+
+    let nodes = nodes_in_document_order(roots, 10_000);
+    assert!(nodes.iter().any(|node| node.doc_order_key().is_some()), "the mock keys its nodes");
+    let issues = verify_doc_order_keys(&nodes);
+
+    assert!(issues.is_empty(), "document-order keys against document order: {issues:?}");
 }
 
 #[rstest]

@@ -119,6 +119,14 @@ pub enum ContractIssue {
         check: &'static str,
         reason: String,
     },
+    /// A node's document-order key does not follow the key of a node before it
+    /// in document order — see [`verify_doc_order_keys`].
+    OrderKeyOutOfDocumentOrder {
+        node: String,
+        key: u64,
+        preceding: String,
+        preceding_key: u64,
+    },
 }
 
 /// The attributes every `control:`/`item:` node carries regardless of the
@@ -353,6 +361,55 @@ pub fn verify_subtree_released(root: Arc<dyn UiNode>, max_nodes: usize) -> Vec<C
         .filter(|(_, node)| node.strong_count() > 0)
         .map(|(node, _)| ContractIssue::NodeNotReleased { node })
         .collect()
+}
+
+/// Lists `roots` and the subtrees below them in document order (pre-order),
+/// up to `max_nodes` nodes, for checks that need nodes in that order.
+#[must_use]
+pub fn nodes_in_document_order(
+    roots: impl IntoIterator<Item = Arc<dyn UiNode>>,
+    max_nodes: usize,
+) -> Vec<Arc<dyn UiNode>> {
+    let mut pending: Vec<Arc<dyn UiNode>> = roots.into_iter().collect();
+    pending.reverse();
+    let mut ordered = Vec::new();
+    while ordered.len() < max_nodes
+        && let Some(node) = pending.pop()
+    {
+        let mut children: Vec<Arc<dyn UiNode>> = node.children().collect();
+        children.reverse();
+        pending.extend(children);
+        ordered.push(node);
+    }
+    ordered
+}
+
+/// Verifies the document-order keys of `nodes`, which must be given in
+/// document order: every key has to be greater than the key of each keyed node
+/// before it (see [`UiNode::doc_order_key`]). Nodes without a key are skipped.
+///
+/// Give it a provider's top-level nodes as it lists them, or
+/// [`nodes_in_document_order`] of them.
+#[must_use]
+pub fn verify_doc_order_keys(nodes: &[Arc<dyn UiNode>]) -> Vec<ContractIssue> {
+    let mut issues = Vec::new();
+    let mut greatest: Option<(u64, String)> = None;
+    for node in nodes {
+        let Some(key) = node.doc_order_key() else { continue };
+        let id = node.runtime_id().as_str().to_owned();
+        match &greatest {
+            Some((preceding_key, preceding)) if key <= *preceding_key => {
+                issues.push(ContractIssue::OrderKeyOutOfDocumentOrder {
+                    node: id,
+                    key,
+                    preceding: preceding.clone(),
+                    preceding_key: *preceding_key,
+                });
+            }
+            _ => greatest = Some((key, id)),
+        }
+    }
+    issues
 }
 
 fn collect_attributes(node: &dyn UiNode) -> HashMap<(Namespace, String), UiValue> {
@@ -1177,5 +1234,110 @@ mod ownership_tests {
                 ContractIssue::NodeNotReleased { node: "owned/0/1".into() },
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod order_key_tests {
+    use super::*;
+    use crate::ui::RuntimeId;
+    use rstest::rstest;
+    use std::sync::Weak;
+
+    /// A node with a fixed key and children, owned by its parent.
+    struct KeyedNode {
+        runtime_id: RuntimeId,
+        key: Option<u64>,
+        children: Vec<Arc<dyn UiNode>>,
+    }
+
+    fn node(id: &str, key: Option<u64>, children: Vec<Arc<dyn UiNode>>) -> Arc<dyn UiNode> {
+        Arc::new(KeyedNode { runtime_id: RuntimeId::from(id), key, children })
+    }
+
+    impl UiNode for KeyedNode {
+        fn namespace(&self) -> Namespace {
+            Namespace::Control
+        }
+        fn role(&self) -> &'static str {
+            "Pane"
+        }
+        fn name(&self) -> String {
+            String::new()
+        }
+        fn runtime_id(&self) -> &RuntimeId {
+            &self.runtime_id
+        }
+        fn parent(&self) -> Option<Weak<dyn UiNode>> {
+            None
+        }
+        fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
+            Box::new(self.children.clone().into_iter())
+        }
+        fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
+            Box::new(std::iter::empty())
+        }
+        fn supported_patterns(&self) -> Vec<PatternName> {
+            Vec::new()
+        }
+        fn doc_order_key(&self) -> Option<u64> {
+            self.key
+        }
+        fn invalidate(&self) {}
+    }
+
+    fn ids(nodes: &[Arc<dyn UiNode>]) -> Vec<&str> {
+        nodes.iter().map(|node| node.runtime_id().as_str()).collect()
+    }
+
+    #[rstest]
+    fn nodes_are_listed_in_document_order() {
+        let roots = vec![
+            node("a", None, vec![node("a/0", None, vec![node("a/0/0", None, vec![])]), node("a/1", None, vec![])]),
+            node("b", None, vec![]),
+        ];
+
+        let ordered = nodes_in_document_order(roots.clone(), 100);
+        assert_eq!(ids(&ordered), ["a", "a/0", "a/0/0", "a/1", "b"]);
+        assert_eq!(ids(&nodes_in_document_order(roots, 2)), ["a", "a/0"]);
+    }
+
+    #[rstest]
+    fn keys_in_document_order_pass_and_nodes_without_keys_are_skipped() {
+        let roots = vec![
+            node("a", Some(0), vec![node("a/0", None, vec![]), node("a/1", Some(5), vec![])]),
+            node("b", Some(6), vec![]),
+        ];
+
+        let issues = verify_doc_order_keys(&nodes_in_document_order(roots, 100));
+
+        assert!(issues.is_empty(), "expected no issues, got {issues:?}");
+    }
+
+    /// Process ids as keys: a node listed later can have the smaller one.
+    #[rstest]
+    fn keys_against_document_order_are_reported() {
+        let listing = vec![node("app-1200", Some(1200), vec![]), node("app-800", Some(800), vec![])];
+
+        let issues = verify_doc_order_keys(&listing);
+
+        assert_eq!(
+            issues,
+            vec![ContractIssue::OrderKeyOutOfDocumentOrder {
+                node: "app-800".into(),
+                key: 800,
+                preceding: "app-1200".into(),
+                preceding_key: 1200,
+            }]
+        );
+    }
+
+    #[rstest]
+    fn a_repeated_key_is_reported() {
+        let listing = vec![node("a", Some(3), vec![]), node("b", Some(3), vec![])];
+
+        let issues = verify_doc_order_keys(&listing);
+
+        assert!(matches!(issues.as_slice(), [ContractIssue::OrderKeyOutOfDocumentOrder { node, .. }] if node == "b"));
     }
 }

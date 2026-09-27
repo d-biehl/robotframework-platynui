@@ -1927,11 +1927,6 @@ impl UiNode for ApplicationNode {
     fn invalidate(&self) {
         // No-op: children are resolved from UIA on demand.
     }
-    // Process ids are non-negative, so the widening cast keeps their order.
-    #[allow(clippy::cast_sign_loss)]
-    fn doc_order_key(&self) -> Option<u64> {
-        Some(self.pid as u64)
-    }
 }
 struct IdAttr {
     owner: Option<Weak<dyn UiNode>>,
@@ -2131,6 +2126,18 @@ mod attribute_surface_tests {
         assert!(value(common::ROLE).is_some(), "Role must survive alongside the new attributes");
         assert!(value(common::NAME).is_some(), "Name must survive alongside the new attributes");
         assert!(value(common::RUNTIME_ID).is_some(), "RuntimeId must survive alongside the new attributes");
+    }
+
+    /// Application nodes are listed in the order their windows were first
+    /// seen, which has nothing to do with their process ids, so a process id
+    /// is no document-order key (`UiNode::doc_order_key`).
+    #[test]
+    fn application_nodes_carry_no_key_against_document_order() {
+        let listing: Vec<Arc<dyn UiNode>> = vec![ApplicationNode::orphan(2000), ApplicationNode::orphan(1000)];
+
+        let issues = platynui_core::ui::contract::testkit::verify_doc_order_keys(&listing);
+
+        assert!(issues.is_empty(), "document-order keys against the listing order: {issues:?}");
     }
 
     /// The common-attribute contract from the core testkit, against a live UIA
