@@ -334,12 +334,17 @@ impl Runtime {
         self.dispatcher.dispatch(event);
     }
 
-    /// Invokes shutdown on dispatcher and providers, then tears down the platform.
+    /// Releases the retained `XPath` snapshot, invokes shutdown on dispatcher and providers, then
+    /// tears down the platform.
     pub fn shutdown(&mut self) {
         if self.is_shutdown.swap(true, Ordering::AcqRel) {
             return; // already shut down
         }
         tracing::info!(providers = self.providers.len(), "Runtime shutting down");
+        // Release the retained snapshot while the providers still run, so that
+        // they release their nodes themselves rather than after their shutdown.
+        let cache = self.xpath_cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        cache.clear();
         self.dispatcher.shutdown();
         for provider in &self.providers {
             provider.shutdown();

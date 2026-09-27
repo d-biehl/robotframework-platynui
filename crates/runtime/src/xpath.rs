@@ -1,8 +1,7 @@
 //
 use platynui_core::ui::PatternName;
-use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
 use platynui_core::provider::ProviderError;
 use platynui_core::ui::attribute_names;
@@ -27,10 +26,18 @@ type AttributeIterator = Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send>;
 type NodeIteratorCell = Arc<Mutex<Option<NodeIterator>>>;
 type AttributeIteratorCell = Arc<Mutex<Option<AttributeIterator>>>;
 type NodeCacheCell = Arc<Mutex<Vec<RuntimeXdmNode>>>;
-type ParentCacheCell = Arc<Mutex<Option<Option<RuntimeXdmNode>>>>;
 type SharedFlag = Arc<AtomicBool>;
 
-/// Cross-evaluation XDM tree cache.
+/// Locks `mutex` even if a panic poisoned it. A provider that panics during a
+/// query must fail only that query: every later use of the snapshot, above all
+/// its release, which runs in destructors, has to work, and a second panic in
+/// a destructor would abort the process.
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Cross-evaluation XDM tree cache: the snapshot the next query may reuse
+/// (`dev-docs/architecture.md` §9.3).
 ///
 /// `Clone + Send + Sync` so a single runtime-owned cache can be shared across
 /// threads while still preserving explicit invalidation semantics.
@@ -40,17 +47,17 @@ pub struct XdmCache {
 }
 
 impl XdmCache {
+    #[must_use]
     pub fn new() -> Self {
         Self { inner: Arc::new(Mutex::new(None)) }
     }
 
-    /// Drops the cached XDM tree, so the next evaluation rebuilds it.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the cache mutex is poisoned (another thread panicked while holding it).
+    /// Discards the cached snapshot, so the next evaluation reads the current
+    /// UI, and releases it together with every provider node that only the
+    /// snapshot held.
     pub fn clear(&self) {
-        self.inner.lock().expect("xdm cache mutex poisoned").take();
+        let discarded = lock(&self.inner).take();
+        drop(discarded);
     }
 }
 
@@ -62,7 +69,7 @@ impl Default for XdmCache {
 
 impl std::fmt::Debug for XdmCache {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let has_entry = self.inner.lock().expect("xdm cache mutex poisoned").is_some();
+        let has_entry = lock(&self.inner).is_some();
         f.debug_struct("XdmCache").field("cached", &has_entry).finish()
     }
 }
@@ -322,15 +329,15 @@ fn get_or_create_xdm_root(context: &Arc<dyn UiNode>, force_rebuild: bool, cache:
         return RuntimeXdmNode::from_node(Arc::clone(context));
     };
 
-    let mut slot = cache.inner.lock().expect("xdm cache mutex poisoned");
-
     if !force_rebuild {
-        let context_id = context.runtime_id();
-        if let Some((cached_id, cached_node)) = slot.as_ref()
-            && *cached_id == *context_id
-            && cached_node.is_valid()
+        // Validity is asked outside the lock: `is_valid` calls the provider.
+        let cached = lock(&cache.inner)
+            .as_ref()
+            .filter(|(cached_id, _)| cached_id == context.runtime_id())
+            .map(|(_, node)| node.clone());
+        if let Some(node) = cached
+            && node.is_valid()
         {
-            let node = cached_node.clone();
             node.prepare_for_evaluation();
             return node;
         }
@@ -338,7 +345,9 @@ fn get_or_create_xdm_root(context: &Arc<dyn UiNode>, force_rebuild: bool, cache:
 
     let context_id = context.runtime_id().clone();
     let node = RuntimeXdmNode::from_node(Arc::clone(context));
-    *slot = Some((context_id, node.clone()));
+    // The snapshot this one replaces is released outside the lock.
+    let replaced = lock(&cache.inner).replace((context_id, node.clone()));
+    drop(replaced);
     node
 }
 
@@ -377,17 +386,64 @@ where
     })
 }
 
+/// A node of a snapshot: a provider node wrapped for the `XPath` engine.
+///
+/// A document or an element owns the wrappers of the children it has read,
+/// and an element links back to the wrapper whose list of children holds it
+/// only weakly (see [`ParentLink`]), so the wrappers of a snapshot never form a
+/// cycle and a snapshot is released as soon as nothing holds it.
 #[derive(Clone)]
 enum RuntimeXdmNode {
-    Document(DocumentData),
-    Element(ElementData),
-    Attribute(AttributeData),
+    Document(Arc<DocumentData>),
+    Element(Arc<ElementData>),
+    Attribute(Arc<AttributeData>),
+}
+
+/// A weak reference to the wrapper whose list of children holds an element.
+enum WeakXdmNode {
+    Document(Weak<DocumentData>),
+    Element(Weak<ElementData>),
+}
+
+impl WeakXdmNode {
+    fn upgrade(&self) -> Option<RuntimeXdmNode> {
+        match self {
+            WeakXdmNode::Document(weak) => weak.upgrade().map(RuntimeXdmNode::Document),
+            WeakXdmNode::Element(weak) => weak.upgrade().map(RuntimeXdmNode::Element),
+        }
+    }
+}
+
+/// How an element reaches the wrapper of its parent.
+///
+/// Invariant: `Owned` holds only a wrapper that the `parent()` call storing it
+/// has just built, never an existing one. Every strong reference between
+/// wrappers therefore points from an older wrapper to a newer one — a child is
+/// built by its parent's list of children and links back weakly, an owned
+/// parent is built by the child that owns it, and attributes hold only provider
+/// nodes — so the wrappers of a snapshot never form a cycle. The drop-count
+/// tests in `crates/runtime/tests/xdm_release.rs` fail if one comes back.
+enum ParentLink {
+    /// Not looked up yet.
+    Unresolved,
+    /// The wrapper whose list of children holds this element. Sharing it keeps
+    /// a sibling walk at one provider enumeration per list.
+    Linked(WeakXdmNode),
+    /// A parent built upward from this element, which only this element holds:
+    /// for an element that no list of children produced — the context node of
+    /// a query, the ancestors built from it, an attribute's owner — or whose
+    /// list is gone.
+    Owned(RuntimeXdmNode),
 }
 
 impl RuntimeXdmNode {
+    fn attribute(data: AttributeData) -> Self {
+        RuntimeXdmNode::Attribute(Arc::new(data))
+    }
+
     fn document(root: Arc<dyn UiNode>) -> Self {
         let runtime_id = root.runtime_id().clone();
-        RuntimeXdmNode::Document(DocumentData::new(root, runtime_id))
+        RuntimeXdmNode::Document(Arc::new(DocumentData::new(root, runtime_id)))
     }
 
     fn element(node: Arc<dyn UiNode>) -> Self {
@@ -404,11 +460,28 @@ impl RuntimeXdmNode {
             role = %role,
             "RuntimeXdmNode::element: resolved",
         );
-        RuntimeXdmNode::Element(ElementData::new(node, runtime_id, namespace, role, order_key))
+        RuntimeXdmNode::Element(Arc::new(ElementData::new(node, runtime_id, namespace, role, order_key)))
     }
 
     fn from_node(node: Arc<dyn UiNode>) -> Self {
         if node.parent().is_none() { RuntimeXdmNode::document(node) } else { RuntimeXdmNode::element(node) }
+    }
+
+    fn downgrade(&self) -> Option<WeakXdmNode> {
+        match self {
+            RuntimeXdmNode::Document(doc) => Some(WeakXdmNode::Document(Arc::downgrade(doc))),
+            RuntimeXdmNode::Element(elem) => Some(WeakXdmNode::Element(Arc::downgrade(elem))),
+            RuntimeXdmNode::Attribute(_) => None,
+        }
+    }
+
+    /// The provider node and the lazily read content of a document or element.
+    fn parts(&self) -> Option<(&Arc<dyn UiNode>, &LazyContent)> {
+        match self {
+            RuntimeXdmNode::Document(doc) => Some((&doc.root, &doc.content)),
+            RuntimeXdmNode::Element(elem) => Some((&elem.node, &elem.content)),
+            RuntimeXdmNode::Attribute(_) => None,
+        }
     }
 
     fn is_valid(&self) -> bool {
@@ -419,29 +492,24 @@ impl RuntimeXdmNode {
         }
     }
 
+    /// Prepares a retained snapshot for the next query: forgets the attributes
+    /// read so far and marks every list of children for revalidation — the
+    /// ancestors built upward from a held element included, which no list of
+    /// children reaches. Iterative, so a deep snapshot cannot overflow the
+    /// stack; it ends because an owned parent's children link back weakly.
     fn prepare_for_evaluation(&self) {
-        match self {
-            RuntimeXdmNode::Document(doc) => {
-                doc.attrs_cache.lock().expect("document attrs cache mutex poisoned").clear();
-                doc.attrs_finished.store(false, Ordering::Release);
-                *doc.attrs_inner.lock().expect("document attrs iterator mutex poisoned") = None;
-                doc.children_validated.store(false, Ordering::Release);
-                let children = doc.children_cache.lock().expect("document children cache mutex poisoned").clone();
-                for child in &children {
-                    child.prepare_for_evaluation();
-                }
+        let mut pending = vec![self.clone()];
+        while let Some(node) = pending.pop() {
+            let Some((_, content)) = node.parts() else { continue };
+            content.reset();
+            pending.extend(lock(&content.children_cache).iter().cloned());
+            if let RuntimeXdmNode::Element(elem) = &node {
+                let owned = match &*lock(&elem.parent) {
+                    ParentLink::Owned(parent) => Some(parent.clone()),
+                    ParentLink::Unresolved | ParentLink::Linked(_) => None,
+                };
+                pending.extend(owned);
             }
-            RuntimeXdmNode::Element(elem) => {
-                elem.attrs_cache.lock().expect("element attrs cache mutex poisoned").clear();
-                elem.attrs_finished.store(false, Ordering::Release);
-                *elem.attrs_inner.lock().expect("element attrs iterator mutex poisoned") = None;
-                elem.children_validated.store(false, Ordering::Release);
-                let children = elem.children_cache.lock().expect("element children cache mutex poisoned").clone();
-                for child in &children {
-                    child.prepare_for_evaluation();
-                }
-            }
-            RuntimeXdmNode::Attribute(_) => {}
         }
     }
 }
@@ -524,127 +592,22 @@ impl XdmNode for RuntimeXdmNode {
     fn parent(&self) -> Option<Self> {
         match self {
             RuntimeXdmNode::Document(_) => None,
-            RuntimeXdmNode::Element(elem) => {
-                if let Some(cached) = elem.parent_cache.lock().expect("parent cache mutex poisoned").as_ref() {
-                    return cached.clone();
-                }
-                let computed: Option<RuntimeXdmNode> = match elem.node.parent() {
-                    Some(parent) => match parent.upgrade() {
-                        Some(p) => Some(RuntimeXdmNode::from_node(p)),
-                        None => Some(RuntimeXdmNode::document(elem.node.clone())),
-                    },
-                    None => Some(RuntimeXdmNode::document(elem.node.clone())),
-                };
-                *elem.parent_cache.lock().expect("parent cache mutex poisoned") = Some(computed.clone());
-                computed
-            }
+            RuntimeXdmNode::Element(elem) => Some(elem.parent_wrapper()),
             RuntimeXdmNode::Attribute(attr) => Some(RuntimeXdmNode::from_node(attr.owner.clone())),
         }
     }
 
     fn children(&self) -> Self::Children<'_> {
-        match self {
-            RuntimeXdmNode::Document(doc) => {
-                if !doc.children_validated.load(Ordering::Acquire) {
-                    let has_invalid = doc
-                        .children_cache
-                        .lock()
-                        .expect("document children cache mutex poisoned")
-                        .iter()
-                        .any(|c| !c.is_valid());
-                    if has_invalid {
-                        doc.children_cache.lock().expect("document children cache mutex poisoned").clear();
-                        doc.children_finished.store(false, Ordering::Release);
-                        *doc.children_inner.lock().expect("document children iterator mutex poisoned") =
-                            Some(doc.root.children());
-                    }
-                    doc.children_validated.store(true, Ordering::Release);
-                }
-                let needs_init = {
-                    doc.children_inner.lock().expect("document children iterator mutex poisoned").is_none()
-                        && !doc.children_finished.load(Ordering::Acquire)
-                };
-                if needs_init {
-                    *doc.children_inner.lock().expect("document children iterator mutex poisoned") =
-                        Some(doc.root.children());
-                }
-                NodeChildrenIter::from_shared(
-                    Arc::clone(&doc.children_inner),
-                    Arc::clone(&doc.children_cache),
-                    Arc::clone(&doc.children_finished),
-                )
-                .with_parent_node(self.clone())
-            }
-            RuntimeXdmNode::Element(elem) => {
-                if !elem.children_validated.load(Ordering::Acquire) {
-                    let has_invalid = elem
-                        .children_cache
-                        .lock()
-                        .expect("element children cache mutex poisoned")
-                        .iter()
-                        .any(|c| !c.is_valid());
-                    if has_invalid {
-                        elem.children_cache.lock().expect("element children cache mutex poisoned").clear();
-                        elem.children_finished.store(false, Ordering::Release);
-                        *elem.children_inner.lock().expect("element children iterator mutex poisoned") =
-                            Some(elem.node.children());
-                    }
-                    elem.children_validated.store(true, Ordering::Release);
-                }
-                let needs_init = {
-                    elem.children_inner.lock().expect("element children iterator mutex poisoned").is_none()
-                        && !elem.children_finished.load(Ordering::Acquire)
-                };
-                if needs_init {
-                    *elem.children_inner.lock().expect("element children iterator mutex poisoned") =
-                        Some(elem.node.children());
-                }
-                NodeChildrenIter::from_shared(
-                    Arc::clone(&elem.children_inner),
-                    Arc::clone(&elem.children_cache),
-                    Arc::clone(&elem.children_finished),
-                )
-                .with_parent_node(self.clone())
-            }
-            RuntimeXdmNode::Attribute(_) => NodeChildrenIter::empty(),
+        match self.parts() {
+            Some((node, content)) => content.children(node, self),
+            None => NodeChildrenIter::empty(),
         }
     }
 
     fn attributes(&self) -> Self::Attributes<'_> {
-        match self {
-            RuntimeXdmNode::Document(doc) => {
-                let needs_init = {
-                    doc.attrs_inner.lock().expect("document attrs iterator mutex poisoned").is_none()
-                        && !doc.attrs_finished.load(Ordering::Acquire)
-                };
-                if needs_init {
-                    *doc.attrs_inner.lock().expect("document attrs iterator mutex poisoned") =
-                        Some(doc.root.attributes());
-                }
-                NodeAttributeIter::from_shared(
-                    doc.root.clone(),
-                    Arc::clone(&doc.attrs_inner),
-                    Arc::clone(&doc.attrs_cache),
-                    Arc::clone(&doc.attrs_finished),
-                )
-            }
-            RuntimeXdmNode::Element(elem) => {
-                let needs_init = {
-                    elem.attrs_inner.lock().expect("element attrs iterator mutex poisoned").is_none()
-                        && !elem.attrs_finished.load(Ordering::Acquire)
-                };
-                if needs_init {
-                    *elem.attrs_inner.lock().expect("element attrs iterator mutex poisoned") =
-                        Some(elem.node.attributes());
-                }
-                NodeAttributeIter::from_shared(
-                    elem.node.clone(),
-                    Arc::clone(&elem.attrs_inner),
-                    Arc::clone(&elem.attrs_cache),
-                    Arc::clone(&elem.attrs_finished),
-                )
-            }
-            RuntimeXdmNode::Attribute(_) => NodeAttributeIter::empty(),
+        match self.parts() {
+            Some((node, content)) => content.attributes(node),
+            None => NodeAttributeIter::empty(),
         }
     }
 
@@ -684,7 +647,7 @@ impl XdmNode for RuntimeXdmNode {
 
         // Fast path: direct provider lookup (handles Role, Name, Id, Bounds, …)
         if let Some(attr) = node.attribute(ui_ns, &name.local) {
-            return Some(RuntimeXdmNode::Attribute(AttributeData::new_from_source(
+            return Some(RuntimeXdmNode::attribute(AttributeData::new_from_source(
                 node.clone(),
                 attr.namespace(),
                 attr.name().to_string(),
@@ -706,7 +669,7 @@ impl XdmNode for RuntimeXdmNode {
                 if let Some(comp) = comp
                     && let Some(base) = node.attribute(ui_ns, attribute_names::element::BOUNDS)
                 {
-                    return Some(RuntimeXdmNode::Attribute(AttributeData::new_rect_component(
+                    return Some(RuntimeXdmNode::attribute(AttributeData::new_rect_component(
                         node.clone(),
                         ui_ns,
                         base,
@@ -724,7 +687,7 @@ impl XdmNode for RuntimeXdmNode {
                 if let Some(comp) = comp
                     && let Some(base) = node.attribute(ui_ns, attribute_names::activation_target::ACTIVATION_POINT)
                 {
-                    return Some(RuntimeXdmNode::Attribute(AttributeData::new_point_component(
+                    return Some(RuntimeXdmNode::attribute(AttributeData::new_point_component(
                         node.clone(),
                         ui_ns,
                         base,
@@ -739,10 +702,10 @@ impl XdmNode for RuntimeXdmNode {
     }
 }
 
-#[derive(Clone)]
-struct DocumentData {
-    root: Arc<dyn UiNode>,
-    runtime_id: RuntimeId,
+/// The children and attributes of a document or element, read lazily from the
+/// provider and kept for as long as the snapshot lives. The cells are shared
+/// with the iterators the engine holds.
+struct LazyContent {
     children_inner: NodeIteratorCell,
     children_cache: NodeCacheCell,
     children_finished: SharedFlag,
@@ -752,11 +715,9 @@ struct DocumentData {
     attrs_finished: SharedFlag,
 }
 
-impl DocumentData {
-    fn new(root: Arc<dyn UiNode>, runtime_id: RuntimeId) -> Self {
+impl LazyContent {
+    fn new() -> Self {
         Self {
-            root,
-            runtime_id,
             children_inner: Arc::new(Mutex::new(None)),
             children_cache: Arc::new(Mutex::new(Vec::new())),
             children_finished: Arc::new(AtomicBool::new(false)),
@@ -766,23 +727,180 @@ impl DocumentData {
             attrs_finished: Arc::new(AtomicBool::new(false)),
         }
     }
+
+    /// Forgets the attributes read so far and marks the children for
+    /// revalidation, before a query that reuses the snapshot.
+    fn reset(&self) {
+        let attributes = std::mem::take(&mut *lock(&self.attrs_cache));
+        self.attrs_finished.store(false, Ordering::Release);
+        let iterator = lock(&self.attrs_inner).take();
+        self.children_validated.store(false, Ordering::Release);
+        drop((attributes, iterator));
+    }
+
+    /// The children of `node`, revalidated once per query: a list that holds a
+    /// node that is no longer valid is read again from the provider, and the
+    /// wrappers it held are released, outside the locks.
+    fn children<'a>(&self, node: &Arc<dyn UiNode>, owner: &RuntimeXdmNode) -> NodeChildrenIter<'a> {
+        if !self.children_validated.load(Ordering::Acquire) {
+            // Validity is asked outside the lock: `is_valid` calls the provider.
+            let cached = lock(&self.children_cache).clone();
+            if cached.iter().any(|child| !child.is_valid()) {
+                let fresh = node.children();
+                let stale = std::mem::take(&mut *lock(&self.children_cache));
+                self.children_finished.store(false, Ordering::Release);
+                let replaced = lock(&self.children_inner).replace(fresh);
+                drop((stale, replaced));
+            }
+            drop(cached);
+            self.children_validated.store(true, Ordering::Release);
+        }
+        if !self.children_finished.load(Ordering::Acquire) && lock(&self.children_inner).is_none() {
+            let fresh = node.children();
+            let unused = {
+                // Another iterator may have finished the list and dropped its
+                // provider iterator meanwhile; it does both under this lock.
+                let mut inner = lock(&self.children_inner);
+                if inner.is_none() && !self.children_finished.load(Ordering::Acquire) {
+                    *inner = Some(fresh);
+                    None
+                } else {
+                    Some(fresh)
+                }
+            };
+            drop(unused);
+        }
+        NodeChildrenIter::from_shared(
+            Arc::clone(&self.children_inner),
+            Arc::clone(&self.children_cache),
+            Arc::clone(&self.children_finished),
+        )
+        .with_parent_node(owner.clone())
+    }
+
+    fn attributes<'a>(&self, node: &Arc<dyn UiNode>) -> NodeAttributeIter<'a> {
+        if !self.attrs_finished.load(Ordering::Acquire) && lock(&self.attrs_inner).is_none() {
+            let fresh = node.attributes();
+            let unused = {
+                let mut inner = lock(&self.attrs_inner);
+                if inner.is_none() {
+                    *inner = Some(fresh);
+                    None
+                } else {
+                    Some(fresh)
+                }
+            };
+            drop(unused);
+        }
+        NodeAttributeIter::from_shared(
+            Arc::clone(node),
+            Arc::clone(&self.attrs_inner),
+            Arc::clone(&self.attrs_cache),
+            Arc::clone(&self.attrs_finished),
+        )
+    }
+
+    /// Moves the wrappers of the children read so far to `release`, one level
+    /// deeper than `rank`, and drops the rest outside the locks. What it drops
+    /// holds only provider nodes and attributes.
+    fn detach(&self, rank: isize, release: &mut Release) {
+        let children = std::mem::take(&mut *lock(&self.children_cache));
+        release.pending.extend(children.into_iter().map(|child| (rank + 1, child)));
+        let attributes = std::mem::take(&mut *lock(&self.attrs_cache));
+        let iterators = (lock(&self.children_inner).take(), lock(&self.attrs_inner).take());
+        drop((attributes, iterators));
+    }
 }
 
-#[derive(Clone)]
+/// The work of releasing a snapshot, or the part of one that a dropped wrapper
+/// held, without recursion (see [`Release::run`]).
+#[derive(Default)]
+struct Release {
+    /// Wrappers still to take apart, with their depth relative to the first.
+    pending: Vec<(isize, RuntimeXdmNode)>,
+    /// The provider nodes of the wrappers taken apart, with their depth.
+    nodes: Vec<(isize, Arc<dyn UiNode>)>,
+}
+
+impl Release {
+    /// Takes the pending wrappers apart one by one, where the last reference
+    /// to them is this one, and then drops the provider nodes they held, the
+    /// deepest first.
+    ///
+    /// A provider node keeps its parent alive (`UiNode::parent`), so dropping
+    /// a parent before its children would release a whole chain of ancestors
+    /// recursively as the last child goes. Deepest first, every node's parent
+    /// is still held here when the node is released. The depth is relative:
+    /// a child is one level below its parent's wrapper and an owned parent one
+    /// level above its element, so it follows the provider's tree in both
+    /// directions.
+    fn run(mut self) {
+        while let Some((rank, wrapper)) = self.pending.pop() {
+            match wrapper {
+                RuntimeXdmNode::Document(doc) => {
+                    if let Some(mut doc) = Arc::into_inner(doc) {
+                        doc.detach(rank, &mut self);
+                    }
+                }
+                RuntimeXdmNode::Element(elem) => {
+                    if let Some(mut elem) = Arc::into_inner(elem) {
+                        elem.detach(rank, &mut self);
+                    }
+                }
+                RuntimeXdmNode::Attribute(_) => {}
+            }
+            // A wrapper taken apart is dropped here; its own `Drop` finds
+            // nothing left to release.
+        }
+        self.nodes.sort_by_key(|(rank, _)| *rank);
+        while let Some(node) = self.nodes.pop() {
+            drop(node);
+        }
+    }
+}
+
+/// What a document or element holds in place of its provider node once a
+/// release has taken the node: a placeholder shared by all of them.
+fn released_node() -> Arc<dyn UiNode> {
+    static RELEASED: LazyLock<Arc<dyn UiNode>> = LazyLock::new(|| Arc::new(DummyNode));
+    Arc::clone(&RELEASED)
+}
+
+struct DocumentData {
+    root: Arc<dyn UiNode>,
+    runtime_id: RuntimeId,
+    content: LazyContent,
+}
+
+impl DocumentData {
+    fn new(root: Arc<dyn UiNode>, runtime_id: RuntimeId) -> Self {
+        Self { root, runtime_id, content: LazyContent::new() }
+    }
+
+    /// Moves this document's children to `release`, and its provider node to
+    /// the nodes it drops.
+    fn detach(&mut self, rank: isize, release: &mut Release) {
+        self.content.detach(rank, release);
+        release.nodes.push((rank, std::mem::replace(&mut self.root, released_node())));
+    }
+}
+
+impl Drop for DocumentData {
+    fn drop(&mut self) {
+        let mut release = Release::default();
+        self.detach(0, &mut release);
+        release.run();
+    }
+}
+
 struct ElementData {
     node: Arc<dyn UiNode>,
     runtime_id: RuntimeId,
     role: String,
     qname: QName,
     order_key: Option<u64>,
-    children_inner: NodeIteratorCell,
-    children_cache: NodeCacheCell,
-    children_finished: SharedFlag,
-    children_validated: SharedFlag,
-    attrs_inner: AttributeIteratorCell,
-    attrs_cache: NodeCacheCell,
-    attrs_finished: SharedFlag,
-    parent_cache: ParentCacheCell,
+    content: LazyContent,
+    parent: Mutex<ParentLink>,
 }
 
 impl ElementData {
@@ -800,19 +918,63 @@ impl ElementData {
             role,
             qname,
             order_key,
-            children_inner: Arc::new(Mutex::new(None)),
-            children_cache: Arc::new(Mutex::new(Vec::new())),
-            children_finished: Arc::new(AtomicBool::new(false)),
-            children_validated: Arc::new(AtomicBool::new(false)),
-            attrs_inner: Arc::new(Mutex::new(None)),
-            attrs_cache: Arc::new(Mutex::new(Vec::new())),
-            attrs_finished: Arc::new(AtomicBool::new(false)),
-            parent_cache: Arc::new(Mutex::new(None)),
+            content: LazyContent::new(),
+            parent: Mutex::new(ParentLink::Unresolved),
         }
+    }
+
+    /// The wrapper of this element's parent: the wrapper whose list of
+    /// children holds this element, while it lives; otherwise one built from
+    /// the provider's parent and owned here. If the provider's parent is gone,
+    /// that is a document that wraps the element itself.
+    fn parent_wrapper(&self) -> RuntimeXdmNode {
+        {
+            let link = lock(&self.parent);
+            match &*link {
+                ParentLink::Owned(parent) => return parent.clone(),
+                ParentLink::Linked(parent) => {
+                    if let Some(parent) = parent.upgrade() {
+                        return parent;
+                    }
+                }
+                ParentLink::Unresolved => {}
+            }
+        }
+        // Built outside the lock: this calls the provider.
+        let built = match self.node.parent().and_then(|parent| parent.upgrade()) {
+            Some(parent) => RuntimeXdmNode::from_node(parent),
+            None => RuntimeXdmNode::document(Arc::clone(&self.node)),
+        };
+        let replaced = std::mem::replace(&mut *lock(&self.parent), ParentLink::Owned(built.clone()));
+        drop(replaced);
+        built
+    }
+
+    /// Moves this element's children and owned parent to `release`, and its
+    /// provider node to the nodes it drops. The node itself moves, rather than
+    /// a copy of it: kept here until after the release, it would be the last
+    /// reference to a chain of owned ancestors that the release has already let
+    /// go of, and dropping it would then release that chain recursively.
+    fn detach(&mut self, rank: isize, release: &mut Release) {
+        self.content.detach(rank, release);
+        // A linked parent belongs to the list that holds this element; only an
+        // owned one is this element's to release.
+        let link = std::mem::replace(&mut *lock(&self.parent), ParentLink::Unresolved);
+        if let ParentLink::Owned(parent) = link {
+            release.pending.push((rank - 1, parent));
+        }
+        release.nodes.push((rank, std::mem::replace(&mut self.node, released_node())));
     }
 }
 
-#[derive(Clone)]
+impl Drop for ElementData {
+    fn drop(&mut self) {
+        let mut release = Release::default();
+        self.detach(0, &mut release);
+        release.run();
+    }
+}
+
 struct AttributeData {
     owner: Arc<dyn UiNode>,
     owner_runtime_id: RuntimeId,
@@ -1131,45 +1293,55 @@ impl NodeChildrenIter<'_> {
         }
     }
 }
+/// The child at `pos` if the shared list already holds it, advancing `pos`.
+fn cached_child(cache: &NodeCacheCell, pos: &mut usize) -> Option<RuntimeXdmNode> {
+    let item = lock(cache).get(*pos).cloned();
+    if item.is_some() {
+        *pos += 1;
+    }
+    item
+}
+
 impl Iterator for NodeChildrenIter<'_> {
     type Item = RuntimeXdmNode;
     fn next(&mut self) -> Option<Self::Item> {
-        {
-            let cache = self.cache.lock().expect("children cache mutex poisoned");
-            if self.pos < cache.len() {
-                let item = cache[self.pos].clone();
-                drop(cache);
-                self.pos += 1;
-                return Some(item);
-            }
+        if let Some(item) = cached_child(&self.cache, &mut self.pos) {
+            return Some(item);
         }
+        // Several iterators may read one list, and children are appended under
+        // `inner`, so each check of the shared list is repeated where another
+        // iterator may have appended meanwhile: the list is marked finished
+        // only after its last child was appended.
         if self.finished.load(Ordering::Acquire) {
-            return None;
+            return cached_child(&self.cache, &mut self.pos);
         }
-        let mut inner_borrow = self.inner.lock().expect("children iterator mutex poisoned");
-        if let Some(iter) = inner_borrow.as_mut() {
-            if let Some(owner) = iter.next() {
-                let mut node = RuntimeXdmNode::from_node(owner);
-                // Pre-link child's parent_cache to the parent node (Document or Element).
-                // This ensures that cursor helpers like next_sibling_in_doc()
-                // get the SAME parent wrapper (with shared children_cache), avoiding
-                // O(N²) COM TreeWalker re-enumeration per sibling lookup.
-                if let RuntimeXdmNode::Element(elem) = &mut node
-                    && let Some(parent) = self.parent_node.as_ref()
-                {
-                    *elem.parent_cache.lock().expect("parent cache mutex poisoned") = Some(Some(parent.clone()));
-                }
-                self.cache.lock().expect("children cache mutex poisoned").push(node.clone());
-                self.pos += 1;
-                Some(node)
-            } else {
-                self.finished.store(true, Ordering::Release);
-                None
-            }
-        } else {
+        let mut inner = lock(&self.inner);
+        if let Some(item) = cached_child(&self.cache, &mut self.pos) {
+            return Some(item);
+        }
+        let Some(owner) = inner.as_mut().and_then(Iterator::next) else {
             self.finished.store(true, Ordering::Release);
-            None
+            // Release the provider's exhausted iterator (for UI Automation its
+            // tree walker and cache request) outside the lock.
+            let exhausted = inner.take();
+            drop(inner);
+            drop(exhausted);
+            return None;
+        };
+        let node = RuntimeXdmNode::from_node(owner);
+        // Link the child to the parent wrapper whose list holds it (Document or
+        // Element), so that cursor helpers like next_sibling_in_doc() get the
+        // SAME parent wrapper, with its shared list of children, instead of
+        // re-enumerating the provider (O(N²) COM tree walks) per sibling lookup.
+        // The link is weak: the parent owns the child, not the other way round.
+        if let RuntimeXdmNode::Element(elem) = &node
+            && let Some(parent) = self.parent_node.as_ref().and_then(RuntimeXdmNode::downgrade)
+        {
+            *lock(&elem.parent) = ParentLink::Linked(parent);
         }
+        lock(&self.cache).push(node.clone());
+        self.pos += 1;
+        Some(node)
     }
 }
 
@@ -1205,7 +1377,7 @@ impl Iterator for NodeAttributeIter<'_> {
     type Item = RuntimeXdmNode;
     fn next(&mut self) -> Option<Self::Item> {
         {
-            let cache = self.cache.lock().expect("attribute cache mutex poisoned");
+            let cache = lock(&self.cache);
             if self.pos < cache.len() {
                 let item = cache[self.pos].clone();
                 drop(cache);
@@ -1216,43 +1388,43 @@ impl Iterator for NodeAttributeIter<'_> {
         if self.finished.load(Ordering::Acquire) {
             return None;
         }
-        let mut inner_borrow = self.inner.lock().expect("attribute iterator mutex poisoned");
+        let mut inner_borrow = lock(&self.inner);
         let iter = inner_borrow.as_mut()?;
         if let Some(attr) = iter.next() {
             let ns = attr.namespace();
             let base_name = attr.name().to_string();
             let src = attr.clone();
             {
-                let mut cache = self.cache.lock().expect("attribute cache mutex poisoned");
-                cache.push(RuntimeXdmNode::Attribute(AttributeData::new_from_source(
+                let mut cache = lock(&self.cache);
+                cache.push(RuntimeXdmNode::attribute(AttributeData::new_from_source(
                     self.owner.clone(),
                     ns,
                     base_name.clone(),
                     src.clone(),
                 )));
                 if base_name == attribute_names::element::BOUNDS {
-                    cache.push(RuntimeXdmNode::Attribute(AttributeData::new_rect_component(
+                    cache.push(RuntimeXdmNode::attribute(AttributeData::new_rect_component(
                         self.owner.clone(),
                         ns,
                         src.clone(),
                         attribute_names::element::BOUNDS,
                         RectComp::X,
                     )));
-                    cache.push(RuntimeXdmNode::Attribute(AttributeData::new_rect_component(
+                    cache.push(RuntimeXdmNode::attribute(AttributeData::new_rect_component(
                         self.owner.clone(),
                         ns,
                         src.clone(),
                         attribute_names::element::BOUNDS,
                         RectComp::Y,
                     )));
-                    cache.push(RuntimeXdmNode::Attribute(AttributeData::new_rect_component(
+                    cache.push(RuntimeXdmNode::attribute(AttributeData::new_rect_component(
                         self.owner.clone(),
                         ns,
                         src.clone(),
                         attribute_names::element::BOUNDS,
                         RectComp::Width,
                     )));
-                    cache.push(RuntimeXdmNode::Attribute(AttributeData::new_rect_component(
+                    cache.push(RuntimeXdmNode::attribute(AttributeData::new_rect_component(
                         self.owner.clone(),
                         ns,
                         src,
@@ -1261,14 +1433,14 @@ impl Iterator for NodeAttributeIter<'_> {
                     )));
                 } else if base_name == attribute_names::activation_target::ACTIVATION_POINT {
                     let src_point = attr.clone();
-                    cache.push(RuntimeXdmNode::Attribute(AttributeData::new_point_component(
+                    cache.push(RuntimeXdmNode::attribute(AttributeData::new_point_component(
                         self.owner.clone(),
                         ns,
                         src_point.clone(),
                         attribute_names::activation_target::ACTIVATION_POINT,
                         PointComp::X,
                     )));
-                    cache.push(RuntimeXdmNode::Attribute(AttributeData::new_point_component(
+                    cache.push(RuntimeXdmNode::attribute(AttributeData::new_point_component(
                         self.owner.clone(),
                         ns,
                         src_point,
@@ -1280,7 +1452,7 @@ impl Iterator for NodeAttributeIter<'_> {
             // Return the just-pushed item at current position (should exist)
             let idx = self.pos;
             {
-                let cache = self.cache.lock().expect("attribute cache mutex poisoned");
+                let cache = lock(&self.cache);
                 if idx < cache.len() {
                     let it = cache[idx].clone();
                     self.pos += 1;

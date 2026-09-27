@@ -113,13 +113,15 @@ impl Runtime {
         self.xpath_cache.lock().expect("xpath cache mutex poisoned").clone()
     }
 
-    /// Clears the runtime's shared `XPath` cache.
+    /// Discards the runtime's shared `XPath` snapshot, so the next query reads
+    /// the current UI, and releases it. The release runs without the runtime's
+    /// own lock held.
     ///
     /// # Panics
     ///
     /// Panics if the cache mutex is poisoned (another thread panicked while holding it).
     pub fn clear_cache(&self) {
-        self.xpath_cache.lock().expect("xpath cache mutex poisoned").clear();
+        self.shared_xpath_cache().clear();
     }
 
     /// Like [`Runtime::evaluate`], but reuses the runtime's shared `XPath` cache.
