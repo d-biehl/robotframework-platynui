@@ -13,7 +13,14 @@ An application node SHALL report its process attributes under these names and na
 - `ProcessId` in the `control` namespace — addressed as `@ProcessId`, the form every window lookup and every suite uses.
 - `ProcessName`, `ExecutablePath`, `CommandLine`, `UserName`, `StartTime` and `Architecture` in the `app` namespace — addressed as `@app:ProcessName` and so on.
 
-A provider SHALL NOT report one of these facts under a second name or namespace as well.
+A provider SHALL NOT report one of these facts under a second name or namespace as well. A node's display name (`control:Name`) and developer id (`control:Id`) are not process attributes. Where a provider names an application node after its program — UI Automation and the Java Access Bridge do — that name SHALL be the node's `ProcessName`, and a `control:Id` that carries the name SHALL carry the same value.
+
+#### Scenario: An application named after its program carries its process name
+
+- **GIVEN** an application node from UI Automation or the Java Access Bridge for a process whose executable is `C:\Tools\notepad.exe`
+- **WHEN** `@Name` and `@app:ProcessName` are read
+- **THEN** both SHALL be `notepad`, so that `app:Application[@Name="notepad"]` and `app:Application[@app:ProcessName="notepad"]` select the same node
+- **NOTE** Real provider only, Windows. Today both providers compute the name on their own, from the executable's stem. For a `.exe` program the two values already agree; for an image with another extension they can differ.
 
 #### Scenario: A Java application served by the in-JVM agent carries its process attributes under app
 
@@ -39,7 +46,7 @@ An attribute that cannot be determined SHALL be absent. It SHALL NOT be answered
 - **GIVEN** an application whose process the runtime is not permitted to query, for example a process of another user or an elevated process on Windows
 - **WHEN** its application node's attributes are listed
 - **THEN** every process attribute that could not be read SHALL be missing from the listing, and none SHALL be present with an empty string, a null, `"unknown"` or `0`
-- **NOTE** Real provider only. Today the Windows UIA provider lists all seven attributes for such a process and answers `""`, a null or `"unknown"`, and the JAB provider answers a null.
+- **NOTE** Real provider only. Today the Windows UIA provider lists all seven attributes for such a process and answers `""`, a null or `"unknown"`. The JAB provider answers a null, an empty executable path, the image name with `.exe` as the process name, and `"unknown"` for an architecture its PE parser does not know.
 
 #### Scenario: Listing and predicate agree for a missing attribute
 
@@ -125,7 +132,7 @@ A present process attribute SHALL have exactly this form, whichever provider rep
 - **GIVEN** a Java application whose application node is built from the in-JVM agent, launched through `javaw.exe` with the main class `com.example.App`
 - **WHEN** `@app:ProcessName` and `@app:ExecutablePath` are read
 - **THEN** `@app:ProcessName` SHALL be `javaw` and `@app:ExecutablePath` SHALL be the path of that `javaw.exe`, while the main class MAY remain the node's display name
-- **NOTE** Real provider only. Today the agent reports the main class as the process name and derives the executable path from the JVM's home directory without checking that the process runs that file.
+- **NOTE** Real provider only. Today the agent reports the main class's simple name, or the jar's file name, as the process name, and `<java.home>\bin\java.exe` as the executable path, also for a JVM started through `javaw.exe`.
 
 ### Requirement: Each platform reports the process attributes it has a source for
 
@@ -148,3 +155,27 @@ A provider SHALL report a process attribute only where its platform has a source
 - **WHEN** the process attributes of both nodes are read
 - **THEN** every attribute present on both SHALL have the same value on both
 - **NOTE** Real provider only, Windows.
+
+### Requirement: The Python Application object reads the process attributes
+
+`PlatynUI.ui.Application` SHALL read its process from the attributes of this specification: `process_id` from `control:ProcessId`, and `process_name` from `app:ProcessName`. Each SHALL answer `None` when its attribute is absent, and SHALL raise `TypeError` only when the attribute is present with a value of the wrong type.
+
+#### Scenario: The process ID and name of an application are read
+
+- **GIVEN** an application node that carries `control:ProcessId` and `app:ProcessName`, such as the mock's "Mock Application"
+- **WHEN** `process_id` and `process_name` of its `Application` are read
+- **THEN** they SHALL return the node's process ID and process name
+- **NOTE** Verifiable against the mock once its application models process attributes. Today `process_id` reads `app:ProcessId`, which no provider reports, and always fails.
+
+#### Scenario: A missing attribute gives None
+
+- **GIVEN** an application node without process attributes, such as the mock's "Mock Settings"
+- **WHEN** `process_id` and `process_name` of its `Application` are read
+- **THEN** both SHALL return `None`
+
+#### Scenario: An agent-served Java application reports its process name
+
+- **GIVEN** a Java application whose application node is built from the in-JVM agent
+- **WHEN** `process_name` of its `Application` is read
+- **THEN** it SHALL return the JVM process's name, for example `javaw`
+- **NOTE** Real provider only, Windows. Today it raises `TypeError`, because the agent reports the name under `control`.
