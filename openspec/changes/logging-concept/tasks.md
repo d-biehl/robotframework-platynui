@@ -189,7 +189,7 @@
 
 Each item names the verified location. Where the path is reachable without a display, its test comes first in the same task or in section 4. Otherwise the task names the real-provider check. New and changed records follow the message style and the field names of design decision 1.
 
-- [ ] 5.1 Configuration (design decision 8):
+- [x] 5.1 Configuration (design decision 8):
   - core: `ConfigMap::unknown_keys(known)`, treating `enabled` as known, and `try_bool/try_i64/try_str/try_map -> Result<Option<_>, ConfigTypeMismatch { key, expected, found }>`; core stays log-free;
   - every PlatynUI component checks its own section at the start of its build, before anything can fail. It warns for each unknown key and each type mismatch, naming `component` and `key`, and applies the default. Its known keys are constants that its reads use:
     - X11 (`display`, now read with `try_str`, `crates/platform-linux-x11/src/x11util.rs:63-65`) and Wayland in `crates/platform-linux/src/lib.rs`;
@@ -242,12 +242,12 @@ Each item names the verified location. Where the path is reachable without a dis
   - a pytest on `Runtime.new_with_mock()`: `keyboard_type('Qz7<Kq9>w')` raises a `KeyboardError` naming `Kq9` without `Qz7`, and `keyboard_type('Qz7<ab')` one naming the position and the unclosed `<` without `Qz7`; with `sensitive=True`, neither contains a fragment;
   - once by hand in the X11 session: a suite that imports BareMetal with `native_log_level=debug` and runs at `--loglevel TRACE` types a `Secret`, read from an environment variable, that contains a character outside the `de` layout (such as `鍵`). `output.xml` contains no `will use dynamic remap` record and not that character, while the runtime's `keyboard execute` record of the same keyword is there.
 - [x] 5.5 Wayland input (`crates/platform-linux-wayland/src/input/mod.rs:105`): the `try_*` helpers (`:173-223`) return their failure. When a later backend succeeds, `initialize` records each rejected one with its reason at debug, and the record of the chosen backend also names the `compositor` type that fixed the order of the attempts; when none succeeds, the final warning names each backend with its reason. Verify with a unit test of both summaries, and in the sidecar harness with a dead control socket and no EIS.
-- [ ] 5.6 Java agent (Windows):
+- [x] 5.6 Java agent (Windows):
   - `crates/provider-java/src/agent/session.rs:213`: an answer with an error resets the failure count and logs debug; only timeouts and transport, protocol and no-agent errors count toward degraded;
   - `agent/backend.rs:177`: version mismatch warned once per pid through the latch, with `retain` against the live handshakes next to `retire_dead_sessions`; a JVM that `retain` forgets records one debug naming its pid.
 
   Verify with unit tests on Windows (6.3).
-- [ ] 5.7 Windows:
+- [x] 5.7 Windows:
   - `crates/provider-java-jab/src/provider.rs:169`: debug when the DLL is missing. Without a client, the JAB backend still lists the visible top-level windows (window enumeration and class names, no bridge call), skips windows that the exclusions assign to a stronger backend, and reports its `SunAwt*` windows as unserved with the cause "Access Bridge DLL not found" and their pids among the Java processes, so that automatic attachment can reach those JVMs. After the re-sweep, the router's `emit_enablement_diagnostics` (`crates/provider-java/src/provider.rs:315`) warns once per process for that cause, naming `providers.java.jab.dll_path`, `PLATYNUI_JAB_DLL` and a 64-bit JDK, instead of its `jabswitch` hint;
   - `crates/java-agent/src/attach/windows.rs:170`: leak the stub allocation when the remote thread has not finished, log debug, and fix the Drop comment (`:291-293`);
   - `crates/provider-windows-uia/src/node.rs:596`: after activation, debug when the window did not become the foreground window (decision 10), plus a debug at entry.
@@ -297,11 +297,19 @@ Each item names the verified location. Where the path is reachable without a dis
   - no warning or error comes from PlatynUI;
   - any entry is fixed in this change or recorded as a follow-up;
   - in the X11 session, `Runtime(config={'platform': {'x11': {'dispaly': ':1'}}})` constructs, uses the environment's display, and logs one warning naming `platform.x11` and `dispaly`.
-- [ ] 6.3 Before archiving, check what needs other machines, and record the outcome in this task:
+- [x] 6.3 Before archiving, check what needs other machines, and record the outcome in this task:
   - Windows: `just test` (the Java and UIA parts of 5.1, 5.6, 5.7, 5.8), then `just test-acceptance-windows` and its warnings through `robotcode results log --level WARN --execution-messages`, including the JAB scenarios of 5.7 when the machine lacks the bridge;
   - macOS: `just check-macos-arm` (5.9).
 
   If no Windows machine is available, move 5.6, 5.7, 5.8 and the Windows parts of 5.1 into a follow-up change before archiving, instead of archiving them unverified. Move with them the spec text they implement: the diagnostic-logging scenarios *A string where a flag was expected, Java* and *Java Access Bridge is missing only when it matters*, the Java Access Bridge bullet of *A capability that is not there says so once*, the foreground-window bullet of *Fallbacks that change an action's effect*, and the `jab-provider` and `java-app-classification` deltas; and the matching bullets of the proposal and of design decisions 10 and 12, so that archiving adds no unimplemented behavior to the main specs.
+
+  Outcome (2026-09-26, Windows 11, `x86_64-pc-windows-msvc`; nothing is moved to a follow-up):
+  - `just check` is clean, which runs clippy natively on the Windows target for every crate of 5.7, `platynui-java-agent` included. `just test` passes 2320 tests. They include the unknown-key and wrong-type tests of the Windows platform, UIA, the Java provider and its agent and JAB backends (5.1), the agent session and per-pid mismatch tests (5.6), and the JAB tests without a DLL and the router's once-per-process warning (5.7).
+  - `just test-acceptance-windows`: the live Java tests pass (28), and so do the Robot Framework suites (115/115). `output.xml` holds no WARN or ERROR message and no execution error.
+  - JAB without the bridge, by hand: the fixture runs in a process with no `JAVA_HOME`, no `PLATYNUI_JAB_DLL` and no JDK on `PATH`. With the agent off, the JAB backend records its debug at startup, and the router warns exactly once, naming `providers.java.jab.dll_path`, `PLATYNUI_JAB_DLL`, a 64-bit JDK and the fixture's pid. With the defaults, the agent attaches and serves the window (`Technology` is `JavaAgent`), and nothing warns about the bridge.
+  - UIA activation, by hand, on the egui test app: the entry debug names the window in the description form and whether it was minimized, both for a normal and for a minimized window. Windows granted the foreground each time, so the not-in-foreground debug was checked by review only.
+  - macOS: the command of `just check-macos-arm`, and its clippy, pass from Windows for every package except the Inspector, whose build script compiles the Windows icon on a Windows host. The recipe is Linux-only for that reason, and the Linux `just cross-target-checks` of 6.1 covers the Inspector too.
+  - Seen on the side, outside this change: a runtime that had queried before a window appeared did not find the window until `clear_cache()`. That is the snapshot model of the XPath cache, as designed (`dev-docs/architecture.md` §9.3). Looking into it turned up a defect outside this change: every XDM tree that is dropped stays in memory, because child and parent wrappers hold each other (`crates/runtime/src/xpath.rs`). That was measured at up to 15 MiB per evaluation under a large window. It was reported to the maintainer and is not recorded among this change's findings, because it is not about logging.
 
 ## 7. Commit (only when the user asks)
 
