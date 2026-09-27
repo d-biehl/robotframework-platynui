@@ -222,11 +222,29 @@ The spec states it: where a provider names an application node after its program
 
 `Application.process_id` reads `control:ProcessId`, and `Application.process_name` reads `app:ProcessName`. Each answers `None` when the attribute is absent, and raises `TypeError` only for a present value of the wrong type. Their return types become `int | None` and `str | None`. `tests/PlatynUI/test_application.py` changes accordingly, and a pytest against the mock (D7) reads both from "Mock Application".
 
+### D11: The 32-bit scenario runs against a window the repository builds
+
+The scenario *A 32-bit process on 64-bit Windows reports its own architecture* needs a 32-bit process with a window. The repository has none. Both JVMs the Swing fixture is provisioned with are 64-bit (`apps/test-app-swing/build/java-launchers.properties` names two JDKs under `C:/Program Files`), and the only Windows Rust target installed is `x86_64-pc-windows-msvc` (**verified** on the maintainer's machine, 2026-09-27). Applications that ship with Windows are excluded from tests and measurements, because they change with Windows versions and updates (maintainer, 2026-09-27).
+
+So the repository gains `apps/win32-test-window`, a helper for process-level tests:
+
+- It shows one top-level window of the predefined `STATIC` class, the shape of the UIA test window `test_window_child` in `crates/provider-windows-uia/src/node.rs`.
+- Its title and a lifetime it imposes on itself come from the command line.
+- Its bitness follows the build target, and the Windows lane builds it for `i686-pc-windows-msvc`.
+- It is not a fixture of the blueprint (`dev-docs/testing-strategy.md` §5), because it has no control catalog, only a process and a window. Its suite therefore sits in a directory of its own, `tests/acceptance/win32`.
+
+*Alternatives considered:*
+
+- **`%WINDIR%\SysWOW64\charmap.exe`, the earlier plan.** Rejected: it is an application that ships with Windows.
+- **A 32-bit JVM for the Swing fixture.** This is the most realistic case for JAB. But the fixture's JDKs come from Gradle toolchains, which provision for the build machine's architecture, so a 32-bit JDK would need provisioning of its own. That is out of proportion for one assertion.
+- **Unit tests only.** The machine mapping and the fallback rule are unit-tested anyway (task 2.2). Only a real WOW64 process, though, shows that the provider asks the OS for the process's machine and not the host's.
+
 ## Risks / Trade-offs
 
 - **[Shapes change that users see]** Users read this metadata in selectors, with `Get Attribute`, through `PlatynUI.ui.Application`, in the CLI's output and in the Inspector, and the change alters what they see (proposal, *Behavior changes that users see*). → That is its purpose: today the values are wrong or differ by provider. PlatynUI is at 0.x, so the changes are not marked as breaking, and the release notes list each of them. Inside the repository, only `PlatynUI.ui.Application` and `@ProcessId` selectors read the metadata. The first is fixed here (D10), and the second keeps its form.
 - **[Windows behaviour is verified only on a Windows machine]** CI has no Windows test job; its Windows jobs only build wheels (`.github/workflows/ci.yml`, **verified**). → The reader's Windows functions carry unit tests on their own process, which run with `just test` on Windows. The Windows acceptance lane (`just test-acceptance-windows`) asserts the formats end to end.
-- **[The ARM64EC answer rests on reports, not documentation]** Context marks it. → If Windows ever reports ARM64EC differently, it can only report a machine the table maps or leaves absent (D3). The 32-bit scenario runs only where the Windows lane has a 32-bit application, and the task says so rather than skipping silently.
+- **[The ARM64EC answer rests on reports, not documentation]** Context marks it. → If Windows ever reports ARM64EC differently, it can only report a machine the table maps or leaves absent (D3).
+- **[The Windows lane needs a 32-bit Rust target]** The 32-bit test window builds only with `i686-pc-windows-msvc` and the MSVC x86 libraries installed (D11). → `CONTRIBUTING.md` lists both. A missing target fails `just build-win32-test-window-x86` with rustc's message, which names the target. A missing binary fails the suite with a message naming the recipe; it never skips.
 - **[Losing the process name for unreadable executables on Linux]** Without the `comm` fallback, a process whose `/proc/<pid>/exe` cannot be read has no name. → That is the contract: absent rather than possibly truncated. On a desktop, the user's own applications are always readable.
 - **[Java agent on Linux]** When the Java provider runs on Linux, the session's process ID may come from a container. → Using the reader there needs the same guard AT-SPI has: only a process ID valid in the runtime's namespace. `java-provider-linux` makes the agent compile on Linux, but its artifacts do not mention this guard yet. Whichever change makes the agent's application node read the process table on Linux adds it. D4 holds on Windows, where there is one namespace.
 - **[More process opens for full listings on UIA]** → Only listings pay (D5): the Inspector's attribute view and the CLI's `query` and `snapshot`.
@@ -237,7 +255,7 @@ The spec states it: where a provider names an application node after its program
 - **Behavioural, not additive.** It changes shapes, as the proposal's list of behavior changes says, and adds or extends one crate. It is not marked as breaking, because PlatynUI is at 0.x.
 - **Needs a native rebuild.** The Java agent JAR does not change (D4), so there is no agent version move and no `just install-provider-java`.
 - **Order:**
-  1. The acceptance suites, written first: red on Windows, a regression guard on Linux.
+  1. The 32-bit test window, then the acceptance suites, written first: red on Windows, a regression guard on Linux.
   2. The reader with its unit tests, in the crate `snapshot-validity` created, or in a new one.
   3. AT-SPI onto the reader, which is behaviour-preserving apart from D2's process name.
   4. UIA, JAB and the Java provider, with D9's names.

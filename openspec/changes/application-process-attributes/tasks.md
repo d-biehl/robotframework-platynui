@@ -1,6 +1,6 @@
 # Tasks
 
-Windows-only work is verified on a Windows machine, because CI has no Windows test job. There, `just test-acceptance-windows` takes a full robotcode command, for example `just test-acceptance-windows --profile real-windows run --suite '*.Egui.ProcessAttributes'`. Its agent-served Swing suites need the agent JAR installed once with `just install-provider-java`; that is an existing lane prerequisite, not something this change adds.
+Windows-only work is verified on a Windows machine, because CI has no Windows test job. There, `just test-acceptance-windows` takes a full robotcode command, for example `just test-acceptance-windows --profile real-windows run --suite '*.Egui.ProcessAttributes'`. Its agent-served Swing suites need the agent JAR installed once with `just install-provider-java`; that is an existing lane prerequisite, not something this change adds. This change adds one: the Rust target `i686-pc-windows-msvc`, for the 32-bit test window of 1.3.
 
 `snapshot-validity` should land first. It creates `crates/process` with a process identity and gives the same three application nodes an `is_valid`. The tasks below say where they then extend instead of create.
 
@@ -34,7 +34,23 @@ Windows-only work is verified on a Windows machine, because CI has no Windows te
     - Every attribute present on both nodes is equal (*Two providers report the same process identically*).
 
   Verify: on a Windows machine the suite fails today on the agent's namespace, process name, start time and architecture, and on JAB's user name and command line. Record that in the run notes.
-- [ ] 1.3 In `tests/acceptance/egui/process_attributes.robot`, add a test tagged `platform:windows`, so that it inherits `acceptance real` from the directory. It starts `%WINDIR%\SysWOW64\charmap.exe` and asserts `@app:Architecture = x86` on its application node (*A 32-bit process on 64-bit Windows reports its own architecture*). If the binary is missing, the test fails with a message naming it; it never skips. Verify: on a Windows machine it passes today through the PE header and must stay green after 3.2 replaces that path with the OS call. It is a regression guard, not a red test.
+- [ ] 1.3 Add `apps/win32-test-window` (package `platynui-win32-test-window`), the 32-bit process for the architecture scenario (design D11). It is a helper for process-level tests, not a fixture of the blueprint (`dev-docs/testing-strategy.md` §5).
+  - It shows one top-level window of the predefined `STATIC` class, titled by `--title`, without activating it (`SW_SHOWNOACTIVATE`). It exits by itself after `--auto-close <seconds>` (default 60), so that a failed teardown leaves no process behind. The model is the UIA test window `test_window_child` in `crates/provider-windows-uia/src/node.rs`.
+  - Its bitness follows the build target. On other platforms `main` says that it runs only on Windows and exits non-zero, as `apps/eis-test-client` does off Linux, so the workspace still builds everywhere.
+  - `[lints] workspace = true`. The Win32 calls carry a scoped `#![allow(unsafe_code)]` with a reason and SAFETY comments.
+  - A Windows-only `justfile` recipe `build-win32-test-window-x86` builds it with `--target i686-pc-windows-msvc`. `test-acceptance-windows` runs that recipe as a hard prerequisite and hands the binary's path over in `PLATYNUI_WIN32_TEST_WINDOW_X86`. The package joins `windows_rust_packages`.
+  - `CONTRIBUTING.md` names the new Windows-lane prerequisite: `rustup target add i686-pc-windows-msvc`, and the MSVC x86 libraries, which the x64/x86 build tools of Visual Studio's C++ workload bring.
+
+  Verify:
+  - On a Windows machine, `just build-win32-test-window-x86` builds, and the binary's PE header names the machine `I386` (`dumpbin /headers` shows `14C machine (x86)`).
+  - Started with `--title "Win32 Test Window" --auto-close 5`, it shows the window and exits by itself.
+  - `just check` is clean on Windows and on Linux, and on Linux `just check-windows` compiles the package.
+- [ ] 1.4 Add `tests/acceptance/win32/__init__.robot`, tagged `acceptance`, `real` and `platform:windows`, and `tests/acceptance/win32/process_attributes.robot`, following the `robot-test-style` skill.
+  - The suite checks its prerequisite first. When `PLATYNUI_WIN32_TEST_WINDOW_X86` is unset or names no file, it fails with a message naming `just build-win32-test-window-x86`. It never skips.
+  - It starts the window under a suite-unique title, pins `/app:Application[@ProcessId=<pid>]` as its root, and asserts `@app:Architecture = x86` (*A 32-bit process on 64-bit Windows reports its own architecture*).
+  - Its teardown terminates the process.
+
+  Verify: on a Windows machine it passes today through the PE header and must stay green after 3.2 replaces that path with the OS call. It is a regression guard, not a red test.
 
 ## 2. The process reader
 
@@ -116,7 +132,7 @@ On each of the three application nodes of 3.2 to 3.4: when `snapshot-validity` h
     - The window filter (`provider.rs:252-258`) rejects `0`.
     - The `windows` features only the moved helpers used (`Win32_Security`, `Win32_System_Time`, `Win32_System_SystemInformation`, `Wdk_System_Threading`, and the unused `Win32_System_ProcessStatus`) leave the crate once grep finds no use. `Win32_System_Threading` stays for `node.rs`.
 
-  Verify: on a Windows machine, `just check` is clean, `just test-crate platynui-provider-windows-uia` passes, and the egui suite of 1.1 with the test of 1.3 passes.
+  Verify: on a Windows machine, `just check` is clean, `just test-crate platynui-provider-windows-uia` passes, and the egui suite of 1.1 and the win32 suite of 1.4 pass.
 - [ ] 3.3 JAB.
   - **Tests first**:
     - An application node for a process that does not exist lists no `app:` process attribute.
@@ -187,7 +203,8 @@ On each of the three application nodes of 3.2 to 3.4: when `snapshot-validity` h
   - `dev-docs/planning.md`: the parity item is resolved, and `:122`, `:445` and `:461` no longer describe a `comm` or stem source. The checked history items stay as they are.
   - `dev-docs/platform-linux-wayland.md:654`: the link to `crates/provider-atspi/src/process.rs` points to `crates/process`.
   - `dev-docs/python-library-design.md:4394-4399`: the `Application` sketch reads `control:ProcessId` and may answer `None`.
-  - `AGENTS.md`: the crate list gains `crates/process`, unless `snapshot-validity` has added it.
+  - `AGENTS.md`: the crate list gains `crates/process`, unless `snapshot-validity` has added it, and the apps list gains `apps/win32-test-window`.
+  - `dev-docs/testing-strategy.md` §5: one line saying that `apps/win32-test-window` is a helper for process-level tests, not a fixture of the blueprint.
   - `crates/core/src/ui/attributes.rs`: a one-line pointer to the capability at the `application` constants.
   - **User documentation**, in the user-facing voice:
     - BareMetal's library documentation gains a short section on the `app:` attributes: what each is, that each may be absent, how to test for one with `[@app:X]`, and their formats.
@@ -210,7 +227,7 @@ On each of the three application nodes of 3.2 to 3.4: when `snapshot-validity` h
   7. `just check-windows`, `just clippy-windows` and `just check-macos-arm`.
 
   Verify: all green.
-- [ ] 7.2 On a Windows machine, run `just check`, `just test` and `just test-acceptance-windows`, which cover the egui suite, the Swing suite and the 32-bit test. Verify: green, with the results recorded in the change notes.
+- [ ] 7.2 On a Windows machine, run `just check`, `just test` and `just test-acceptance-windows`, which cover the egui suite, the Swing suite and the win32 suite with its 32-bit process. Verify: green, with the results recorded in the change notes.
 - [ ] 7.3 When the maintainer asks for it, commit as `fix(provider): report process attributes by one contract` (Conventional Commits, the repo's existing singular scope, subject ≤ 72 characters).
   - The body names the reader and the four aligned providers, and lists the proposal's behavior changes for the changelog, including AT-SPI's process name and the Python `Application`.
   - It carries no `!` and no `BREAKING CHANGE:` footer: PlatynUI is at 0.x (maintainer decision).

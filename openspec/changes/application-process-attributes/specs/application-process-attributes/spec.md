@@ -125,7 +125,7 @@ A present process attribute SHALL have exactly this form, whichever provider rep
 - **GIVEN** a 32-bit application running on 64-bit Windows
 - **WHEN** `@app:Architecture` is read
 - **THEN** it SHALL be `x86`
-- **NOTE** Real provider only, Windows, and only where a 32-bit application is available to the lane.
+- **NOTE** Real provider only, Windows. The lane builds its own 32-bit application; no application that ships with Windows is used.
 
 #### Scenario: A Java application reports its process, not its main class
 

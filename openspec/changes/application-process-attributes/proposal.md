@@ -98,6 +98,7 @@ Both are special cases of this contract. The new capability points to that spec 
   - `crates/provider-mock` and its tree asset.
   - The window-manager process-ID readers in `platform-windows`, `platform-linux-x11` and `platform-linux-wayland`.
   - The attribute documentation in `crates/core`.
+  - `apps/win32-test-window` (new): a minimal Win32 window whose bitness follows the build target. The Windows lane builds it for 32-bit x86, so the 32-bit scenario needs no application that ships with Windows (design D11).
   - `crates/provider-atspi`: its process reading moves into the new crate. Its process name becomes the executable's file name, with no stem and no fallback to the truncated kernel name (design D2).
 - **Java:** no change. The agent keeps reporting its facts, and the provider stops using them for process attributes (design D4). So there is no JAR rebuild and no agent version move.
 - **Python / Robot Framework:**
@@ -107,16 +108,18 @@ Both are special cases of this contract. The new capability points to that spec 
 - **Tests:**
   - Unit tests per provider for presence, format and name.
   - pytest for `Application`, with stubs and against the mock.
-  - On a Windows machine: `just test` and the Windows acceptance lane, for UIA, JAB and the Java agent.
+  - On a Windows machine: `just test` and the Windows acceptance lane, for UIA, JAB and the Java agent, and for a 32-bit process from `apps/win32-test-window`.
   - A runtime test over the mock tree, whose "Mock Application" models process attributes.
 - **Docs:**
   - `dev-docs/architecture.md`: the Application row of the pattern catalog, where `ProcessId` becomes optional; the per-platform source table, which today claims `IsWow64Process2` on Windows although the code parses the PE header; and the Windows UIA checklist.
   - `dev-docs/platform-windows.md` and `dev-docs/platform-linux.md`.
   - The attribute-parity item and the source notes in `dev-docs/planning.md`, which this change resolves.
   - The `Application` sketch in `dev-docs/python-library-design.md`.
-  - `AGENTS.md`, whose crate list gains `crates/process` unless `snapshot-validity` has added it.
+  - `AGENTS.md`, whose crate list gains `crates/process` unless `snapshot-validity` has added it, and whose apps list gains `apps/win32-test-window`.
+  - `dev-docs/testing-strategy.md` §5, which says that the new window is a helper, not a fixture of the blueprint.
+  - `CONTRIBUTING.md`, for the new Windows-lane prerequisite `i686-pc-windows-msvc`.
   - The user documentation of BareMetal.
-- **Build:** native rebuild only.
+- **Build:** a native rebuild. The Windows lane additionally needs the Rust target `i686-pc-windows-msvc` for the 32-bit test window.
 - **Platforms:**
   - Windows (UIA, JAB, Java agent) changes behaviour.
   - Linux AT-SPI changes only its process name (design D2).
