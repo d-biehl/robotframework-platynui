@@ -242,6 +242,27 @@ impl WithAuthorId for egui::Response {
     }
 }
 
+/// Exposes a `Ui` as a container the accessibility tree keeps, with a stable
+/// author id. AccessKit drops egui's plain containers, so without this the
+/// widgets of the `Ui` hang directly under the window; the acceptance suite pins
+/// a root inside the window on such a container. egui gives containers no
+/// bounds, and AT-SPI places a node relative to its parent, so the container
+/// also gets its bounds: call this after the `Ui`'s last widget, when its size
+/// is known.
+fn expose_as_group(ui: &egui::Ui, author_id: &str) {
+    let rect = ui.min_rect();
+    ui.ctx().accesskit_node_builder(ui.unique_id(), |node| {
+        node.set_role(egui::accesskit::Role::Group);
+        node.set_author_id(author_id);
+        node.set_bounds(egui::accesskit::Rect {
+            x0: rect.min.x.into(),
+            y0: rect.min.y.into(),
+            x1: rect.max.x.into(),
+            y1: rect.max.y.into(),
+        });
+    });
+}
+
 /// Extension to set a widget's AccessKit description, surfaced to the accessibility
 /// tree as `@Description` (via AT-SPI `Accessible.Description`) so the acceptance
 /// suite can verify the common `control:Description` attribute end-to-end.
@@ -346,13 +367,6 @@ impl TestApp {
         // --- Buttons ---
         ui.heading("Buttons");
         ui.horizontal(|ui| {
-            // Expose this row as a container the accessibility tree keeps: AccessKit
-            // drops egui's plain containers, so without this the buttons hang directly
-            // under the window. The acceptance suite pins a root inside the window here.
-            ui.ctx().accesskit_node_builder(ui.unique_id(), |node| {
-                node.set_role(egui::accesskit::Role::Group);
-                node.set_author_id("row-buttons");
-            });
             if ui.button("Click Me").with_id("btn-click-me").with_description("Increments the click counter").clicked()
             {
                 self.click_count += 1;
@@ -367,6 +381,7 @@ impl TestApp {
             }
             let enabled = self.checkbox_enabled;
             ui.add_enabled(enabled, egui::Button::new("Conditional")).with_id("btn-conditional");
+            expose_as_group(ui, "row-buttons");
         });
 
         ui.add_space(8.0);
