@@ -199,14 +199,32 @@ pub fn get_clickable_point(elem: &IUIAutomationElement) -> Result<UiPoint, crate
 
 /// Internal helper: returns the hex-dotted `RuntimeId` body without any scheme/prefix.
 fn runtime_id_hex_body(elem: &IUIAutomationElement) -> Result<String, crate::error::UiaError> {
-    use windows::Win32::System::Ole::{
-        SafeArrayAccessData, SafeArrayGetLBound, SafeArrayGetUBound, SafeArrayUnaccessData,
-    };
+    use windows::Win32::System::Ole::SafeArrayDestroy;
     unsafe {
         let psa = crate::error::uia_api("IUIAutomationElement::GetRuntimeId", elem.GetRuntimeId())?;
         if psa.is_null() {
             return Err(crate::error::UiaError::Null("GetRuntimeId"));
         }
+        let body = runtime_id_array_body(psa);
+        // The caller owns the array `GetRuntimeId` returns; without this, every
+        // node that computes its runtime id leaks it.
+        let _ = SafeArrayDestroy(psa);
+        body
+    }
+}
+
+/// Formats the elements of a runtime-id array as hex, dotted.
+///
+/// # Safety
+///
+/// `psa` must be a valid one-dimensional `SAFEARRAY` of `i32`.
+unsafe fn runtime_id_array_body(
+    psa: *mut windows::Win32::System::Com::SAFEARRAY,
+) -> Result<String, crate::error::UiaError> {
+    use windows::Win32::System::Ole::{
+        SafeArrayAccessData, SafeArrayGetLBound, SafeArrayGetUBound, SafeArrayUnaccessData,
+    };
+    unsafe {
         let lb = crate::error::uia_api("SafeArrayGetLBound", SafeArrayGetLBound(psa, 1))?;
         let ub = crate::error::uia_api("SafeArrayGetUBound", SafeArrayGetUBound(psa, 1))?;
         // SAFEARRAY bounds satisfy ub >= lb - 1 (an empty array has ub == lb - 1), so
