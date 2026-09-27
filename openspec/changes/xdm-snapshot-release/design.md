@@ -128,7 +128,7 @@ A `Weak` goes dead only off the root: for an attribute's owner, or when another 
 ### 3. Release without recursion and without aborting
 
 - `Drop` for `DocumentData` and `ElementData` moves the cached children, and an `Owned` parent, onto a stack and drains it iteratively with `Arc::into_inner`.
-- While it drains, it collects the provider node of each released wrapper in pre-order and finally drops that list from the back, leaves first. A provider's chain of parents therefore never recurses during release either.
+- While it drains, it collects the provider node of each released wrapper with its depth relative to where the release started: a child one level below its parent's wrapper, an owned parent one level above its element. It finally drops them deepest first. A provider's chain of parents therefore never recurses during release either, in either direction. A plain reverse pre-order would not be enough, because an owned parent is visited after the element that owns it.
 - Every lock in `Drop` and in the drain tolerates poisoning (`PoisonError::into_inner`). Measured on the prototype before this was added: when a provider's `is_valid` panicked during revalidation, the following release panicked a second time inside a destructor and aborted the process (exit `0xC0000409`). From Python that would end the Robot Framework run instead of raising.
 
 ### 4. Nothing is released while a lock is held
@@ -156,7 +156,7 @@ An exhausted provider iterator is also dropped when its list is finished (`xpath
 
 - The documentation of `UiNode::parent` (`crates/core/src/ui/node.rs:30`) states the rule: the `Weak` upgrades for as long as the node lives, except for the desktop, and nodes never hold their children. The providers' keepalive field comments and the provider checklist in `dev-docs/architecture.md` (§7.3, "Set parent references correctly in children iterators") say the same.
 - The core contract testkit (`crates/core/src/ui/contract/testkit.rs`) gains two checks:
-  - `verify_children_keep_parent(parent, max_children)` lists the children, drops the listing and the parent, and asserts that each child's parent still upgrades to the same runtime id. If the caller holds another strong reference to the parent at entry, the check reports that it cannot prove the rule.
+  - `verify_children_keep_parent(parent, max_children)` lists the children, drops the listing and the parent, and asserts that each child's parent still upgrades to the same runtime id. If the parent outlives its children, something besides them holds it (the caller, or a provider that owns its tree), and the check reports that it cannot prove the rule instead of passing. It reports the same for a node without children.
   - `verify_subtree_released(root, max_nodes)` records a `Weak` to every listed node, drops all strong references, and asserts that every `Weak` is dead. It fails for a provider that caches its children, which together with decision 1 would bring back a cycle. The mock is exempt.
 
 ### 8. Tests where the behavior can be shown
@@ -174,7 +174,7 @@ The mock owns its tree, so it can show neither a release nor lost ancestors. The
   - the same after a cached query and `clear_cache()` (BareMetal's path);
   - a button found below a pane used as the context (a root inside a window);
   - shutdown releasing the snapshot while the providers still run.
-- **Testkit tests** for both checks: a lazy node without the strong link fails, one with it passes, and an owned tree passes the first check.
+- **Testkit tests** for both checks: a lazy node without the strong link fails, one with it passes, and an owned tree reports no child but cannot prove the rule.
 - **UI Automation:** a unit test that is not ignored and runs in `just test` on Windows, next to `desktop_root_satisfies_the_common_attribute_contract` (`crates/provider-windows-uia/src/node.rs:2132`). It runs both checks on the taskbar's element (`Shell_TrayWnd`), which avoids the `WM_GETOBJECT` stalls of arbitrary windows.
 - **JAB and the agent:** the live Java tests (`crates/provider-java/tests/live_fixture.rs`, `#[ignore]`, run by `just test-acceptance-windows`) reach a table cell through the application node and run both checks, with only the check holding the nodes. They also assert that the cell's ancestors reach the window and the application node.
 - **AT-SPI** has no ignored tests that a lane runs. The acceptance scenarios cover it on X11 and Wayland, including the bounds of a captured element, which AT-SPI computes along the parent chain.
@@ -186,6 +186,14 @@ The mock owns its tree, so it can show neither a release nor lost ancestors. The
   - the latency of the first JAB query after `clear_cache()` on the Swing table, and the total time of the Swing lane;
   - the process's exit code at the end of the lane, and the Application event log for a crash at interpreter exit;
   - a few minutes of `platynui-cli watch --expression` against a busy application, with flat memory.
+
+### 9. UI Automation frees the runtime-id array
+
+Measured after decisions 1 to 6, discarding a snapshot of about 6,000 elements still grew memory by about 0.6 MiB per lookup, linearly. A walk through `children()` did not grow; one that read each node's runtime id did. `runtime_id_hex_body` (`crates/provider-windows-uia/src/map.rs`) never frees the `SAFEARRAY` that `IUIAutomationElement::GetRuntimeId` hands to its caller. It now calls `SafeArrayDestroy` on every path. This is a defect of its own, older than the snapshot leak, but without the fix a discarded snapshot keeps costing memory on Windows, and the spec's memory scenario fails.
+
+### 10. Shared snapshots stay consistent under concurrent use
+
+`XdmCache` is `Send + Sync`, so two threads can query one snapshot. The review of the fix found two effects of that, one of them older than this change: an iterator could skip a child that another iterator appended to the same list meanwhile, and a provider iterator could be installed again after another thread had finished the list and dropped it. Every check of a shared list is therefore repeated under the lock that guards appending to it, and the list is marked finished only after its last child was appended. No caller in this repository queries one snapshot from two threads today; the Python binding holds the GIL.
 
 ## Risks / Trade-offs
 
@@ -205,9 +213,10 @@ The mock owns its tree, so it can show neither a release nor lost ancestors. The
   - memory is released;
   - a held node keeps its ancestors instead of the whole snapshot;
   - releasing happens when a snapshot ends and at shutdown;
-  - the ancestors of a held element are revalidated.
+  - the ancestors of a held element are revalidated;
+  - UI Automation frees the runtime-id arrays it used to leak.
 
-  No public API changes.
+  No existing public API changes. The public core testkit gains `verify_children_keep_parent`, `verify_subtree_released` and four `ContractIssue` variants.
 - **Native rebuild:** yes. The extension links the runtime and the providers.
 - **Sequence:**
   1. The failing tests: the lazy fake, the drop counts and the testkit.

@@ -98,10 +98,10 @@ When a snapshot ends, the runtime SHALL release it, together with every provider
 
 #### Scenario: A provider that panics does not abort the process
 
-- **GIVEN** a retained snapshot and a provider whose validity check panics during the next query
+- **GIVEN** a retained snapshot, and a provider whose validity check, or whose list of children while it is read, panics during the next query
 - **WHEN** the query runs, and the snapshot is discarded afterwards
 - **THEN** the query SHALL fail with the panic, which a caller can catch, and discarding the snapshot SHALL NOT abort the process
-- **NOTE:** Exercised at the runtime unit level with `catch_unwind`.
+- **NOTE:** Exercised at the runtime unit level with `catch_unwind`. A list that panics while it is read poisons the snapshot's lock of that list, so the case also shows that the snapshot still answers the next query.
 
 #### Scenario: Shutting down releases the snapshot while the providers still run
 
@@ -122,9 +122,9 @@ A node that the runtime hands out — as a query result with or without a retain
 
 #### Scenario: A result keeps its ancestors after its snapshot was discarded
 
-- **GIVEN** a node returned by `(//Button)[1]` from a retained snapshot
+- **GIVEN** a button below a pane, returned from a retained snapshot
 - **WHEN** the snapshot is discarded
-- **THEN** the node's ancestors SHALL still reach its window, `count(ancestor::*)` evaluated from the node SHALL equal its depth below the desktop, and only that chain SHALL remain live besides the node
+- **THEN** the node's ancestors SHALL still reach its window, `count(ancestor::*)` evaluated from the node SHALL count every ancestor element up to its window, and only that chain SHALL remain live besides the node
 - **NOTE:** Exercised at the runtime unit level with a fake provider that follows the provider rule of the next requirement.
 
 #### Scenario: A result from a query without a retained snapshot can activate its window
@@ -138,15 +138,15 @@ A node that the runtime hands out — as a query result with or without a retain
 
 - **GIVEN** a BareMetal suite with two windows A and B at the same position, that captures a button in window B with `Query    …    only_first=${True}`, then runs another `Query`, which discards the snapshot, and brings window A to the front so that it covers B
 - **WHEN** the suite clicks the captured button
-- **THEN** window B SHALL be brought to the front, the click SHALL reach the button, and the button's bounds SHALL be the same as before the snapshot was discarded
-- **NOTE:** Verifiable only against a real provider. Covered on every lane with the egui test app (UI Automation on Windows, AT-SPI on X11 and Wayland), and on the Windows lane with Swing through the Java Access Bridge and the Java agent, under a root pinned to the application node.
+- **THEN** window B SHALL be brought to the front, the click SHALL reach the button, the button's bounds SHALL be the same as before the snapshot was discarded, and the button SHALL still reach its window through its ancestors
+- **NOTE:** Verifiable only against a real provider. Covered on every lane with the egui test app (UI Automation on Windows, AT-SPI on X11 and Wayland), and on the Windows lane with Swing through the Java Access Bridge and the Java agent, under a root pinned to the application node. UI Automation can raise a window through any of its elements, so on Windows the raise alone does not show that the ancestors were kept; the last check does.
 
 #### Scenario: A root inside a window still activates that window
 
 - **GIVEN** a BareMetal suite with two windows A and B at the same position, whose scoped root is the container of a button in window B (a node whose role is not `Window`), while window A covers B
 - **WHEN** the suite clicks the button below that root
 - **THEN** window B SHALL be brought to the front and the click SHALL reach the button
-- **NOTE:** Verifiable only against a real provider, on every lane with the egui test app. Both acceptance scenarios are confirmed once to fail on a build that releases snapshots but does not keep parents.
+- **NOTE:** Verifiable only against a real provider, on every lane with the egui test app, whose button row is an accessible group for this purpose (AccessKit drops egui's plain containers). Both acceptance scenarios are confirmed once to fail on a build that releases snapshots but does not keep parents.
 
 ### Requirement: A provider keeps the parent of every node it lists
 
