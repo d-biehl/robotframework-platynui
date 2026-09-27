@@ -92,3 +92,46 @@
 - [x] 9.1 Run `just check`, `just test`, `just test-python` and `just test-baremetal`. All must be green.
 - [x] 9.2 Run `just test-acceptance-compositor` and `just test-acceptance-x11`, then read each run with `robotcode results`, since the compositor lane exits 0 even on failure. The new `window_activation.robot`, the existing `auto_activate.robot` and `inspector_window_controls.robot` ("Maximize Button Toggles The Window State") must pass. Investigate and record any change in the outcome of the latter.
 - [ ] 9.3 On a Windows host, run `just test-acceptance-windows` for the egui and Swing suites. Record whether a window minimized from maximized comes back maximized under Win32/UIA (the `SW_RESTORE` assumption in design Risks), and apply the documented fallback if it does not.
+
+## Windows verification evidence (2026-09-27)
+
+This record exists because the next lane run overwrites `results/output.xml`. The boxes of 1.3, 5.2, 5.4 and 9.3 stay open until the maintainer accepts this run as their verification. The raw results (`output.xml`, `log.html`, `report.html`) are kept outside the repository, in the maintainer's untracked `playground/lane-2026-09-27-1809/`.
+
+**The run**
+
+- `just test-acceptance-windows` on the maintainer's Windows host, Robot Framework 7.5 on Python 3.12.12.
+- Started 2026-09-27 18:09:29 and took 145 s.
+- 119 tests: 119 passed, 0 failed, 0 skipped.
+- No WARN or ERROR message, and the `errors` section is empty. The three FAIL-level messages come from `Run Keyword And Expect Error` in `Egui.Interaction` and `Egui.Query`.
+
+**Code state**
+
+- The run used `0802be7` plus the uncommitted working tree of `xdm-snapshot-release`, which was committed afterwards as `33fa58c`…`78bbe61` (18:22–18:25).
+- The code these tasks verify has not changed since. `git log -L` gives the last commit that touched each part:
+
+  | Code | Last commit |
+  |---|---|
+  | UIA `activate` (`crates/provider-windows-uia/src/node.rs:604-636`) | `6983c64` (2026-09-26) |
+  | JAB window-state attribute (`crates/provider-java-jab/src/node.rs:1210-1250`, pushed at `:485-488`) | `1312085` |
+  | `crates/platform-windows/src/window_manager.rs` | `f9592d2` (2026-09-25) |
+
+- The egui test app did change after the run: `cbf8e1b` gave its button group bounds.
+
+**1.3 and 5.4 (JAB)**
+
+- `Swing.Window` passed 4/4, served by the Access Bridge (`resources/testapp.resource` switches the agent off).
+- It includes "Window State Is Reported And Activation Brings A Maximized Frame Back Maximized".
+- 1.3's "red before group 5" was never observable, because the test and the code landed together in `1312085`.
+
+**5.2 and 9.3 (UIA)**
+
+- `Egui.Window Activation` passed 7/7 in 7.69 s:
+  - Maximized State Is Read Live From The Same Window
+  - Minimized State Is Reported And Activation Brings The Window Back
+  - A Window Minimized From Maximized Comes Back Maximized
+  - Activating A Maximized Background Window Keeps Its Size
+  - Bring To Front Brings Back A Minimized Window
+  - Pointer Click Into A Maximized Background Window Keeps It Maximized
+  - Window State Attributes Exist Only On Windows
+- `Egui.Auto Activate` passed 8/8.
+- Under Win32/UIA, a window minimized from maximized comes back maximized, so the `SW_RESTORE` assumption holds and the fallback in design Risks is not needed.
