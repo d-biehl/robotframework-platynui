@@ -549,19 +549,19 @@ Complete checklists from all work areas, including completed items for historica
 
 - [x] Event pipeline wired to CLI
 - [x] Mock provider event simulation
-- [x] Runtime respects `event_capabilities`
+- [ ] Runtime respects `event_capabilities` — built in 75cc15b, removed again in 2fb1173; today only `platynui-cli watch` reads it (see `architecture.md` §5.8)
 - [x] CLI command with streaming output, `--expression`, `--limit`
 - [ ] Watch filters: `--namespace`, `--pattern`, `--runtime-id`
 - [x] Tests for simulated event sequences
 
 ### 10.9 XDM Cache (Lazy Revalidation)
 
-- [x] `XdmCache` type implemented (`Rc<RefCell<...>>`, `Clone`, `!Send`)
+- [x] `XdmCache` type implemented (`Arc<Mutex<...>>`, `Clone + Send + Sync`; originally `Rc<RefCell<...>>`, `!Send`)
 - [x] `EvaluateOptions` with `with_cache()`/`without_cache()`
 - [x] Lazy revalidation: `is_valid()`, `prepare_for_evaluation()`, transparent rebuild
 - [x] Convenience methods: `evaluate_cached()`, `evaluate_iter_cached()`, etc.
 - [x] CLI `watch` uses cache for repeated evaluations
-- [x] Python bindings: thread-local cache per `PyRuntime`, `clear_cache()`
+- [x] Python bindings: one cache per runtime, owned by `Runtime` since 0614d6d (originally thread-local per `PyRuntime`) and used by every `evaluate`, `evaluate_single` and `evaluate_iter`; `clear_cache()` empties it
 - [x] Benchmark: ~40% faster for repeated queries
 - [ ] Event-driven cache invalidation (Option B) — see §3.1
 

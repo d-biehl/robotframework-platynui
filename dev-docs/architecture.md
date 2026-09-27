@@ -276,6 +276,8 @@ Above and beyond those levels, `TreeInvalidated` is the fallback for drastic cha
 
 The mechanism that makes all of this work is invalidation at the node level: a provider must implement `UiNode::invalidate()` (see §5.1) so that a node discards its cached data — children, attributes, and patterns — and the next access fetches fresh data from the native API. The payoff is that event-capable providers only trigger targeted updates of the affected parts of the tree, while providers without events fall back to a full refresh before each query.
 
+**Status: the runtime does not implement this table.** It never reads `event_capabilities`; only `platynui-cli watch` does, to warn when no active provider has an event source. The runtime reacts to one event only, as §7.2 describes: on `NodeUpdated` it invalidates that node. `NodeAdded`, `NodeRemoved` and `TreeInvalidated` are only forwarded to event sinks, and no event reaches an XPath cache. How current a query's view of the UI is follows the snapshot model of §9.3 instead.
+
 ## 6. Pattern System
 
 > **This section describes the _intended_ capability model, not only what is wired up today.** Some patterns are already implemented, others are planned, and some may still change shape. The authoritative list of patterns currently present in the Rust core is `pattern_names` in [`crates/core/src/ui/identifiers.rs`](../crates/core/src/ui/identifiers.rs); the attribute-name constants live in `crates/core/src/ui/attributes.rs`.
@@ -517,7 +519,7 @@ Each provider carries a **descriptor** — a small record of who it is: an id, a
 Once created, a provider has three jobs:
 
 - **Hand over children.** Asked for the children of a parent node, it returns them lazily — a stream the runtime pulls from as it descends, rather than a fully built list. The runtime stitches these results together under the desktop node.
-- **Announce changes.** A provider can subscribe the runtime to its change events through an event listener (the default does nothing) — this is what feeds the event pipeline in §7.2. Providers that cannot emit events simply don't, and the runtime re-reads the tree when needed.
+- **Announce changes.** A provider can subscribe the runtime to its change events through an event listener (the default does nothing) — this is what feeds the event pipeline in §7.2. Providers that cannot emit events simply don't; what the runtime then re-reads depends on how a query is evaluated (§9.3).
 - **Clean up.** On shutdown it releases whatever it holds — COM handles, D-Bus connections, and the like.
 
 *The exact signatures live in `crates/core/src/provider/`. The code is authoritative for the types; this section is about responsibilities.*
@@ -731,9 +733,25 @@ There is one more trick that keeps normalization rare. Before certain axes (`des
 
 ### 9.3 XDM Cache
 
-Building the node model is not free — it can mean reading the live UI tree from the platform — so the engine can keep a cache of it between evaluations. The **`XdmCache`** holds one cached desktop snapshot (keyed by its runtime id). It is built to be shared: it is `Clone + Send + Sync`, so a single runtime-owned cache can be handed to several threads and they all see the same snapshot. You create it explicitly through `Runtime::create_cache()`; the runtime constructor does not make one for you. If you evaluate without a cache, the runtime simply rebuilds the desktop snapshot before every single XPath evaluation.
+Building the node model is not free — it can mean reading the live UI tree from the platform — so the engine can keep it between evaluations in an **`XdmCache`**. A cache holds one XDM tree, keyed by the runtime id of the context node it was built from; an evaluation from another context node replaces it. It is `Clone + Send + Sync`, so several threads can share one cache.
 
-The cache stays correct through **lazy revalidation** rather than eager rebuilding. Before an evaluation, it checks whether its provider nodes are still valid and resets the per-node "children already validated" flags; any subtree that turns out to be stale is rebuilt transparently the next time something touches it, while still-valid parts are reused. For convenience there are cache-aware counterparts to the normal evaluation entry points (`evaluate_cached()`, `evaluate_iter_cached()`, `evaluate_single_cached()`).
+There are three ways to evaluate:
+
+- **Without a cache** (`Runtime::evaluate`, `evaluate_iter`, `evaluate_iter_owned`, `evaluate_single`): each evaluation builds a new tree, so it sees the UI as the providers report it at that moment.
+- **With a cache of your own**, created with `Runtime::create_cache()` and passed to `evaluate_cached()`, `evaluate_iter_cached()`, `evaluate_iter_owned_cached()` or `evaluate_single_cached()`. `platynui-cli watch` works this way.
+- **With the runtime's shared cache** (`evaluate_runtime_cached()`, `evaluate_single_runtime_cached()`, `evaluate_iter_owned_runtime_cached()`). The runtime creates this cache in its constructor, and `Runtime::clear_cache()` empties it. Every evaluation of the Python binding goes through it: `Runtime.evaluate`, `evaluate_single` and `evaluate_iter`.
+
+**The snapshot model.** A cached tree is a snapshot of the UI. It is built while a query runs, and it does not change while that query runs, so a query cannot break on a tree that changes under it. The next query may reuse the snapshot and search deeper in it: what no earlier query visited is read from the providers when a query first touches it. When the caller does not find what it looks for, or cannot operate what it found, it clears the cache, and its next query reads the current UI.
+
+A reused snapshot is **revalidated lazily**, not rebuilt:
+
+- Before each evaluation, the cached attributes are cleared and the per-node "children already validated" flags are reset.
+- When a query first touches a cached list of children, it asks each cached child whether it is still valid (`UiNode::is_valid`, §5.1). If one is not, the whole list is read again from the provider; otherwise the list is reused as it is.
+- A cached root that is no longer valid is replaced by a new tree.
+
+So a snapshot does not return an element that has gone away, as long as that element's node type implements `is_valid`. What a snapshot does not show is change that still leaves every cached node valid: a node added under a parent whose cached children are all still valid, and attribute values that a provider itself keeps from an earlier read. A query sees the UI as it was when the snapshot was taken. A caller that needs such changes clears the cache.
+
+PlatynUI.BareMetal follows this model. Its element resolution clears the cache after each attempt that finds nothing, `Query` clears it before it evaluates, and the wait keywords clear it on each attempt. Code that uses `platynui_native.Runtime` directly does the same: it calls `clear_cache()` when it did not find what it looks for, before it asks again.
 
 ### 9.4 Evaluation API
 

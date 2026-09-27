@@ -49,7 +49,7 @@ The first two are reported by the binding, before any component could see the va
 ## Threading & GIL
 
 - `Runtime`: `Send + Sync`
-- XDM Cache: a single runtime-owned `xpath_cache: Mutex<XdmCache>` where `XdmCache` wraps `Arc<Mutex<Option<(RuntimeId, RuntimeXdmNode)>>>` and is `Send + Sync + Clone`, so the one cache is shared across threads while preserving explicit invalidation semantics
+- XDM Cache: a single runtime-owned `xpath_cache: Mutex<XdmCache>` where `XdmCache` wraps `Arc<Mutex<Option<(RuntimeId, RuntimeXdmNode)>>>` and is `Send + Sync + Clone`, so the one cache is shared across threads while preserving explicit invalidation semantics. Every `Runtime.evaluate`, `evaluate_single` and `evaluate_iter` goes through this cache, and `Runtime.clear_cache()` empties it. The cached tree is a snapshot ([`architecture.md`](architecture.md) §9.3), so code that does not find what it looks for calls `clear_cache()` before it asks again, as BareMetal does.
 - `UiNode`: `Send + Sync` (wraps `Arc<dyn UiNode>`)
 
 ## Logging
