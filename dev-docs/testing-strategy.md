@@ -269,6 +269,10 @@ same blueprint.
   provider smoke, a native-widget or toolkit-specific fixture when the behavior needs that
   technology's real controls or bridge. Per-technology lanes remain separate CI jobs, so a
   lane needs only its own fixture built.
+- **Measurement helpers are not fixtures.** `apps/large-tree-qt` is a PySide6 window with a
+  large, deterministic tree, plus the script that measures what a UI snapshot costs in
+  memory against it. It has no catalog and no acceptance suite, and it does not follow the
+  blueprint.
 
 ### 5.1 The fixture blueprint
 

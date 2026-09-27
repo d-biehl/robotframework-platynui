@@ -203,6 +203,7 @@ mypy:
     uv run mypy
     uv run mypy --no-warn-unused-configs apps/test-app-qt/main.py
     uv run mypy --no-warn-unused-configs apps/test-app-qml/main.py
+    uv run mypy --no-warn-unused-configs apps/large-tree-qt/main.py apps/large-tree-qt/measure_snapshot_memory.py
 
 # Run all checks (format, clippy, ruff, mypy)
 check: fmt clippy ruff mypy

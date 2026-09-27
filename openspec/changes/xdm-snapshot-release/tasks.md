@@ -147,25 +147,74 @@ Follow the `robot-test-style` skill.
   - Final run: 118 of 119. The failure was `Activating A Context Submenu Item Updates The Last Action` (QML), a submenu that opens on hover; it passed in the first run and in three reruns of its suite.
   - No WARN or ERROR message from PlatynUI, and no crash in the Application event log.
   - The live tests of `platynui-java-agent`, which this change does not touch, failed in two of four further runs with `NotAJvm` when attaching to a freshly started JVM, each time in a different test; they passed in both lane runs.
-- [ ] 7.3 Measurements on Windows (design decision 8), recorded here:
-  - private memory per evaluation for 20 runs with `clear_cache()` before each (`count(/*/*)`, and a search under a large editor window): before this change 52.5 KiB and 14.9 MiB, target about 0;
-  - the same search on a retained snapshot, against one of the repository's test apps and the editor (before this change 0.31 MiB with the editor);
-  - the time of `clear_cache()` after the editor snapshot;
-  - the latency of the first JAB query after `clear_cache()` on the Swing table, and the total time of the Swing suites before and after;
-  - a few minutes of `platynui-cli watch --expression` against a busy application, with flat memory.
+- [ ] 7.3 Memory measurements (design decision 8), recorded here. They run only against an application the repository owns, and every query is scoped to that application's `app:Application` node.
+  - [x] 7.3.1 Add `apps/large-tree-qt/main.py`, a PySide6 window with a large, deterministic tree.
+    - It shows `--groups` group boxes (`group-<g>`) of `--items` widgets each (`item-<g>-<i>`), cycling through a push button, a label and a check box, under stable accessible names.
+    - It is a measurement helper, not a fixture of the blueprint. `README.md` in its directory says so and describes how to run the measurement.
+    - Exclude the directory from the Cargo workspace, check both scripts with mypy in `just mypy`, and add one line to `dev-docs/testing-strategy.md` §5.
 
-  If growth on a retained snapshot remains, or JAB's release latency matters, record a follow-up instead of blocking.
+    Verify: `just check` is clean, and the app starts and shows the expected number of widgets.
+  - [x] 7.3.2 Add `apps/large-tree-qt/measure_snapshot_memory.py`.
+    - It starts the app and waits until the app's widgets are on the tree, found through the application node of the launched process.
+    - It evaluates `.//*[@Name='x-not-there']` under that node many times, once keeping the snapshot and once discarding it before each run.
+    - It reports the growth of its own private memory per evaluation and per element, over several rounds so the noise shows, and the time of `clear_cache()` after a full snapshot.
+    - Windows reads `PrivateUsage` through `GetProcessMemoryInfo`; Linux reads anonymous and swapped memory from `/proc/self/smaps_rollup`.
+    - It is read-only, with no pointer or keyboard input, and it ends the app when it is done.
 
-  Outcome (2026-09-27, Windows 11, release build of the extension, read-only queries from Python):
+    Verify: `just check` is clean, and a run on Windows completes and ends the app.
+
+    Outcome (2026-09-27): `just check` is clean. mypy also passes with `--platform linux` for the `/proc` branch. Every run ended the app.
+  - [x] 7.3.3 Run it on Windows against a release build of this change, and against a release build of `0802be7`, which is before this change, as the positive control. Verify:
+    - with this change, the growth per discarded snapshot stays within the noise of the retained runs;
+    - the positive control grows clearly on the same tree.
+
+    Record both here.
+
+    Outcome (2026-09-27, Windows 11, release builds, 50 groups of 20 widgets, 1,063 elements under the application node). This change was built from `fce970c`, whose Rust code carries it. `0802be7` was built in a git worktree with its own environment.
+
+    | Build | Snapshot | Runs per round | Growth per evaluation, 3 rounds | Per element | Time per evaluation |
+    |---|---|---|---|---|---|
+    | this change | retained | 100 | 2.0, 0.0, 0.0 KiB | at most 1.9 B | 105 ms |
+    | this change | discarded | 100 | −0.4, 5.7, −1.0 KiB | at most 5.5 B | 349 ms |
+    | `0802be7` | retained | 30 | 0.0, 0.0, 0.0 KiB | 0 B | 112 to 117 ms |
+    | `0802be7` | discarded | 30 | 4,236.8, 4,253.9, 4,263.9 KiB | about 4,100 B | 353 to 361 ms |
+
+    `clear_cache()` after a full snapshot takes:
+    - 3.4 to 5.5 ms with this change;
+    - 0.0 ms before it, where nothing was released.
+
+    The results:
+    - The positive control grows by about 4.1 MiB per discarded snapshot, about 4,100 bytes per element. That matches the first measurement under the editor. The positive control used fewer runs per round only to keep the leaking process small.
+    - With this change the growth stays within ±6 KiB per evaluation, below 6 bytes per element. That is at least 700 times less than the leak.
+    - The measurement can also see a leak of the size of 4.6. At about 100 bytes per element (0.63 MiB for about 6,000 elements), that leak would show as about 110 KiB per evaluation here.
+  - [ ] 7.3.4 Run the same pair on a Linux host, inside the lanes' session scripts, which bring up AT-SPI and enable Qt's accessibility. For example:
+
+    ```sh
+    scripts/startxsession.sh -- scripts/platynui-robot-session.sh uv run python apps/large-tree-qt/measure_snapshot_memory.py
+    ```
+
+    Record it here.
+
+  Dropped from the earlier plan, each for its reason:
+  - **The first JAB query's latency after `clear_cache()`, and the Swing suite times.** Only JAB releases native objects one by one (`crates/provider-java-jab/src/handle.rs:39-44`). The agent backend, the preferred path for Java, holds no host-side resource per node. The cost concerns only the JAB fallback (design, Open Questions).
+  - **`platynui-cli watch --expression` against a busy application.** No real provider emits events; only the mock declares event capabilities. So `watch` waits without output and never re-evaluates. The risk behind it, a retained snapshot growing through revalidation, is covered by `revalidation_does_not_grow_a_retained_snapshot` in `crates/runtime/tests/xdm_release.rs`.
+  - **The search under a large editor window.** An editor is not part of the repository, and its tree changes between runs.
+
+  First, exploratory measurement (2026-09-27, Windows 11, release build of the extension, UI Automation only with the Java provider disabled, scratch scripts that are not in the repository):
 
   | Query | Snapshot | Before this change | With it |
   |---|---|---|---|
   | `count(/*/*)`, 300 times | discarded before each | 52.5 KiB per evaluation | 0.6 KiB (noise) |
   | `count(/*/*)`, 300 times | retained | 0 | 0 |
-  | `.//*[@Name='x-not-there']` under a VS Code window (5,300 to 6,000 elements), 20 times | discarded before each | 14.9 MiB (window of about 3,500 elements) | 0.01 MiB |
-  | the same | retained | 0.31 MiB | 0.02 MiB |
+  | `.//*[@Name='x-not-there']` under a VS Code window | discarded before each | 14.9 MiB (3 runs, window of about 3,500 elements) | 0.01 MiB (20 runs, 5,300 to 6,000 elements) |
+  | the same | retained | 0.31 MiB (3 runs) | 0.02 MiB (20 runs) |
 
-  `clear_cache()` after the VS Code snapshot takes 31 to 44 ms. The first measurement with the wrapper fix still grew by 0.63 MiB per discarded snapshot, linearly; that was the UI Automation leak of 4.6. Still open, because they need one of the repository's test apps or a busy application started on the desktop: the retained snapshot against a test app, the JAB latency after `clear_cache()` on the Swing table, and `platynui-cli watch`.
+  `clear_cache()` after the VS Code snapshot takes 31 to 44 ms. The first measurement with the wrapper fix still grew by 0.63 MiB per discarded snapshot, linearly; that was the UI Automation leak of 4.6.
+
+  This measurement is not repeatable, and it is kept only as the first evidence and as how the leak of 4.6 was found:
+  - `count(/*/*)` covers the whole desktop;
+  - the editor's tree changes between runs;
+  - the two columns of the editor search differ in runs and tree size.
 - [x] 7.4 By hand on Windows:
   - an Inspector search result whose subtree was never expanded still reveals and selects;
   - `platynui-cli pointer click` on a non-window element of a covered window raises that window.
