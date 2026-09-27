@@ -270,8 +270,8 @@ impl UiTreeProvider for JavaProvider {
                 // windows at its own rank first, so the Access Bridge skips them on
                 // its own, exactly as in the steady state.
                 //
-                // Paid once per process, because attachment is attempted once per
-                // process — not per pass.
+                // Paid at most once per successful attachment, and attachment is
+                // attempted a bounded number of times per process — not per pass.
                 debug!(?attached, "re-enumerating: these JVMs gained an agent during this pass");
                 sweep = self.sweep(&parent);
             }

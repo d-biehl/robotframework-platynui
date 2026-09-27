@@ -3,9 +3,9 @@
 //!
 //! Signals, per the table in `dev-docs/java-toolkits.md`:
 //!
-//! - **is-JVM**: `jvm.dll` loaded in the owning process, via
-//!   `CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pid)` +
-//!   `Module32FirstW/NextW` — robust against renamed/jpackage launchers
+//! - **is-JVM**: `jvm.dll` loaded in the owning process, via the Toolhelp
+//!   module scan of `platynui_java_agent::jvm::process_runs_jvm`, which the
+//!   attach transport uses too — robust against renamed/jpackage launchers
 //!   (`HotSpot` *and* `OpenJ9` ship `jvm.dll`). Results are cached per PID with a
 //!   short TTL so tree enumerations do not re-snapshot every process.
 //! - **toolkit**: the top-level window class (`GetClassNameW`) — `SunAwt*`,
@@ -57,7 +57,7 @@ impl WindowsJavaClassifier {
         }
         // Opportunistic pruning keeps the cache from accumulating dead PIDs.
         cache.retain(|_, (scanned_at, _)| now.duration_since(*scanned_at) < JVM_MODULE_CACHE_TTL);
-        let result = scan_for_jvm_module(pid);
+        let result = platynui_java_agent::jvm::process_runs_jvm(pid);
         cache.insert(pid, (now, result));
         result
     }
@@ -111,40 +111,6 @@ fn window_class_name(window: WindowId) -> Result<Option<String>, PlatformError> 
     }
     let class_name = String::from_utf16_lossy(&buffer[..usize::try_from(len).unwrap_or(0)]);
     Ok((!class_name.is_empty()).then_some(class_name))
-}
-
-/// One Toolhelp module snapshot of `pid`, looking for `jvm.dll`. `None` when
-/// the snapshot cannot be taken (access denied, process exited).
-fn scan_for_jvm_module(pid: u32) -> Option<bool> {
-    use windows::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, MODULEENTRY32W, Module32FirstW, Module32NextW, TH32CS_SNAPMODULE, TH32CS_SNAPMODULE32,
-    };
-
-    // SAFETY: snapshot creation with a flags/pid pair; the handle is closed by
-    // the owned `HANDLE` drop path below.
-    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid) }.ok()?;
-    let mut entry = MODULEENTRY32W {
-        dwSize: u32::try_from(std::mem::size_of::<MODULEENTRY32W>()).unwrap_or(0),
-        ..Default::default()
-    };
-    let mut found = false;
-    // SAFETY: `entry` is a properly sized MODULEENTRY32W; the snapshot handle is valid.
-    let mut ok = unsafe { Module32FirstW(snapshot, &raw mut entry) }.is_ok();
-    while ok {
-        let name_len = entry.szModule.iter().position(|&c| c == 0).unwrap_or(entry.szModule.len());
-        let module_name = String::from_utf16_lossy(&entry.szModule[..name_len]);
-        if module_name.eq_ignore_ascii_case("jvm.dll") {
-            found = true;
-            break;
-        }
-        // SAFETY: same handle/entry as above.
-        ok = unsafe { Module32NextW(snapshot, &raw mut entry) }.is_ok();
-    }
-    // SAFETY: closing the snapshot handle we own.
-    unsafe {
-        let _ = windows::Win32::Foundation::CloseHandle(snapshot);
-    }
-    Some(found)
 }
 
 #[cfg(test)]

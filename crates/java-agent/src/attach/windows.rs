@@ -97,10 +97,12 @@ pub fn execute(pid: u32, command: &str, args: &[&str], timeout: Duration) -> Res
         }
     }
 
+    // Resolved first, so that a process without a JVM is never opened with the
+    // rights to start a thread in it.
+    let enqueue = remote_enqueue_address(pid)?;
     let pipe_name = unique_pipe_name(pid);
     let pipe = Pipe::create(&pipe_name).map_err(|details| AgentError::AttachFailed { pid, details })?;
     let process = Process::open(pid)?;
-    let enqueue = remote_enqueue_address(pid)?;
 
     let deadline = Instant::now() + timeout;
     let exit_code = process.run_stub(pid, enqueue, command, &pipe_name, args, timeout)?;
@@ -401,7 +403,15 @@ fn write_string(data: &mut [u8], offset: usize, capacity: usize, value: &str) ->
 
 /// The address of `JVM_EnqueueOperation` inside the target process.
 fn remote_enqueue_address(pid: u32) -> Result<usize, AgentError> {
-    let (module_path, remote_base) = jvm::jvm_module(pid).ok_or(AgentError::NotAJvm { pid })?;
+    // Only a module list that was read and has no `jvm.dll` means "not a JVM";
+    // one that could not be read says nothing about the process.
+    let (module_path, remote_base) = match jvm::jvm_module(pid) {
+        Ok(Some(module)) => module,
+        Ok(None) => return Err(AgentError::NotAJvm { pid }),
+        Err(error) => {
+            return Err(AgentError::AttachFailed { pid, details: format!("cannot read the module list: {error}") });
+        }
+    };
     let wide: Vec<u16> = module_path.encode_utf16().chain(std::iter::once(0)).collect();
 
     // DONT_RESOLVE_DLL_REFERENCES maps the image and its export table without

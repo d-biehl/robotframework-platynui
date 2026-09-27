@@ -250,10 +250,10 @@ impl AgentBackend {
     /// Gating on unserved windows would have limited automatic attachment to JVMs
     /// that were already broken, which is the opposite of the intent.
     ///
-    /// Only ever attempted once per process: a JVM that refuses (no permission, a
-    /// security manager, an incompatible layout) would otherwise be attacked on
-    /// every enumeration pass, turning one unusable target into a permanent cost
-    /// for the whole session.
+    /// Attempted at most [`MAX_ATTACH_ATTEMPTS`] times per process: a JVM that
+    /// refuses (no permission, a security manager, an incompatible layout) would
+    /// otherwise be attacked on every enumeration pass, turning one unusable
+    /// target into a permanent cost for the whole session.
     fn attach_to_agentless(&self, java_processes: &[u32]) -> Vec<u32> {
         if !self.auto_attach || java_processes.is_empty() {
             return Vec::new();
