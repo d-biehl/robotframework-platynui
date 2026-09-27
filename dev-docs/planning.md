@@ -35,15 +35,19 @@ This document tracks all open work items, decided-but-not-implemented designs, o
 ### Stubs / Not Yet Implemented
 - macOS platform (`crates/platform-macos`) — marker type only
 - macOS AX provider (`crates/provider-macos-ax`) — minimal factory, empty iterators
-- Event-driven cache invalidation
+- Event-driven cache invalidation — not pursued (§3.1)
 
 ## 3. Decided Design — Not Yet Implemented
 
-### 3.1 Event-Driven Cache Invalidation
+### 3.1 Event-Driven Cache Invalidation — not pursued
 
-The current XDM cache (Option A: Lazy Revalidation) detects removed nodes via `is_valid()` but does NOT detect newly-added children of still-valid parents until the cache is manually cleared.
+**Not pursued (maintainer decision, 2026-09-27; OpenSpec change `xdm-snapshot-release`).** The XDM cache is a snapshot by design (`architecture.md` §9.3). A query reads one snapshot that does not change while it runs, the next query may reuse it, and the caller discards it when it did not find what it looked for or could not operate it. Revalidation with `is_valid()` keeps a reused snapshot from returning elements that have gone. Invalidating on events would cost more than it saves. Many events concern parts of the UI that no snapshot has read, and clearing the cache on every change, or finding the node a change concerns, costs time on every event. The accepted limits of the snapshot are nodes added under a parent whose cached children are all still valid, and attribute values that a provider keeps from an earlier read. A caller that needs them discards the snapshot.
 
-**Decided design** (Option B): Central dirty flag in `Runtime`:
+The plan below is kept as a record. None of it is to be implemented.
+
+The XDM cache (Option A: Lazy Revalidation) detects removed nodes via `is_valid()` but does NOT detect newly-added children of still-valid parents until the cache is manually cleared.
+
+**The plan that was not pursued** (Option B): Central dirty flag in `Runtime`:
 
 ```rust
 pub struct Runtime {
@@ -55,15 +59,15 @@ Before each cached evaluation: `if cache_dirty.swap(false, Acquire) { cache.clea
 
 **Tasks:**
 
-- [ ] **Core dirty flag**: Add `cache_dirty: AtomicBool` to `Runtime`. `RuntimeEventListener` sets flag on `NodeAdded`, `NodeRemoved`, `TreeInvalidated`; calls `node.invalidate()` for `NodeUpdated`. Before cached evaluation: `if cache_dirty.swap(false, Acquire) { cache.clear() }`. Descriptor: set `ProviderEventCapabilities::STRUCTURE`.
+- **Core dirty flag**: Add `cache_dirty: AtomicBool` to `Runtime`. `RuntimeEventListener` sets flag on `NodeAdded`, `NodeRemoved`, `TreeInvalidated`; calls `node.invalidate()` for `NodeUpdated`. Before cached evaluation: `if cache_dirty.swap(false, Acquire) { cache.clear() }`. Descriptor: set `ProviderEventCapabilities::STRUCTURE`.
 
-- [ ] **Windows UIA structure events**: Implement `IUIAutomationStructureChangedEventHandler` (COM callback). Subscribe via `AddStructureChangedEventHandler(element, TreeScope_Subtree, handler)`. Map all change types (`ChildAdded`, `ChildRemoved`, `ChildrenReordered`, `ChildrenBulkAdded`, `ChildrenBulkRemoved`, `ChildrenInvalidated`) to `TreeInvalidated`. COM MTA events arrive on arbitrary thread → `AtomicBool` is thread-safe. Shutdown: remove handlers BEFORE releasing `IUIAutomation`.
+- **Windows UIA structure events**: Implement `IUIAutomationStructureChangedEventHandler` (COM callback). Subscribe via `AddStructureChangedEventHandler(element, TreeScope_Subtree, handler)`. Map all change types (`ChildAdded`, `ChildRemoved`, `ChildrenReordered`, `ChildrenBulkAdded`, `ChildrenBulkRemoved`, `ChildrenInvalidated`) to `TreeInvalidated`. COM MTA events arrive on arbitrary thread → `AtomicBool` is thread-safe. Shutdown: remove handlers BEFORE releasing `IUIAutomation`.
 
-- [ ] **AT-SPI2 D-Bus structure events**: Subscribe to `object:children-changed:add` and `object:children-changed:remove` on the accessibility bus. Background async task with `zbus` signal stream, forward as `TreeInvalidated`. Optional: map with parent path to granular `NodeAdded`/`NodeRemoved`. Shutdown: drop subscription before closing D-Bus connection.
+- **AT-SPI2 D-Bus structure events**: Subscribe to `object:children-changed:add` and `object:children-changed:remove` on the accessibility bus. Background async task with `zbus` signal stream, forward as `TreeInvalidated`. Optional: map with parent path to granular `NodeAdded`/`NodeRemoved`. Shutdown: drop subscription before closing D-Bus connection.
 
-- [ ] **macOS AX structure events**: Register `AXObserver` with `AXObserverAddNotification` for `kAXCreatedNotification` → `TreeInvalidated`, `kAXUIElementDestroyedNotification` → `TreeInvalidated`, `kAXValueChangedNotification` → `NodeUpdated` (attribute invalidation only). Run observer on CFRunLoop. Shutdown: `AXObserverRemoveNotification` + stop run loop.
+- **macOS AX structure events**: Register `AXObserver` with `AXObserverAddNotification` for `kAXCreatedNotification` → `TreeInvalidated`, `kAXUIElementDestroyedNotification` → `TreeInvalidated`, `kAXValueChangedNotification` → `NodeUpdated` (attribute invalidation only). Run observer on CFRunLoop. Shutdown: `AXObserverRemoveNotification` + stop run loop.
 
-- [ ] **Granular property events (optional)**: Subscribe to property change events per platform (UIA `PropertyChangedEventHandler`, AT-SPI `object:property-change`, macOS `kAXValueChangedNotification`). Map to `NodeUpdated` with targeted `node.invalidate()`. Avoids full cache clear for attribute-only changes.
+- **Granular property events (optional)**: Subscribe to property change events per platform (UIA `PropertyChangedEventHandler`, AT-SPI `object:property-change`, macOS `kAXValueChangedNotification`). Map to `NodeUpdated` with targeted `node.invalidate()`. Avoids full cache clear for attribute-only changes.
 
 **Open questions:**
 - Event debouncing needed for high-frequency changes? (e.g., scrolling triggers many `ChildrenReordered`)
@@ -454,8 +458,8 @@ Deep analysis of the XPath crate revealed the following issues to address:
 
 Status legend: **NEW** = not yet discussed, **DISCUSSED** = considered but no decision, **DEFERRED** = postponed intentionally.
 
-1. **Event debouncing** — needed for high-frequency structural changes? Strategy? — **DISCUSSED** (see §3.1 open questions)
-2. **UIA event scope** — `TreeScope_Subtree` from Desktop or specific context node? — **DISCUSSED** (see §3.1 open questions)
+1. **Event debouncing** — needed for high-frequency structural changes? Strategy? — **DISCUSSED**, moot: event-driven invalidation is not pursued (§3.1)
+2. **UIA event scope** — `TreeScope_Subtree` from Desktop or specific context node? — **DISCUSSED**, moot: event-driven invalidation is not pursued (§3.1)
 3. **macOS Space switching** — system setting detection for `kAXRaiseAction` implicit switch? — **DEFERRED** (macOS platform not yet implemented)
 4. **Windows AUMID as Application Id** — prefer over process name? Via `SHGetPropertyStoreForWindow(hwnd)` → `PKEY_AppUserModel_ID`? — **NEW**
 5. **Application `Name` → `ProcessName` rename** — **DECIDED**: Rename `application::NAME` (`"Name"`) to `application::PROCESS_NAME` (`"ProcessName"`) in core constants and all providers. Rationale: AT-SPI2 `Accessible.Name` on Application nodes returns the display name (e.g. "Firefox"), which collides with using the same `Name` attribute for the process executable stem. After rename: `control:Name` = UI display name (from `Accessible.Name` / UIA `NameProperty`), `app:ProcessName` = executable filename without extension (from `/proc/PID/comm` on Linux, `QueryFullProcessImageName` stem on Windows). On Windows, where no separate display name exists for Application nodes, `control:Name` falls back to `ProcessName`. Affects: `crates/core/src/ui/attributes.rs`, `crates/provider-windows-uia/src/node.rs`, `crates/provider-atspi/src/node.rs` (when Application attrs are added), mock provider, architecture.md pattern catalog, Python bindings docs.
@@ -563,7 +567,8 @@ Complete checklists from all work areas, including completed items for historica
 - [x] CLI `watch` uses cache for repeated evaluations
 - [x] Python bindings: one cache per runtime, owned by `Runtime` since 0614d6d (originally thread-local per `PyRuntime`) and used by every `evaluate`, `evaluate_single` and `evaluate_iter`; `clear_cache()` empties it
 - [x] Benchmark: ~40% faster for repeated queries
-- [ ] Event-driven cache invalidation (Option B) — see §3.1
+- Event-driven cache invalidation (Option B) — not pursued, maintainer decision; see §3.1
+- [x] Snapshots are released when they end, and a held node keeps its own ancestors (OpenSpec change `xdm-snapshot-release`)
 
 ### 10.10 CLI `highlight`
 

@@ -69,6 +69,14 @@ behavior under test.
 - **Needs:** nothing special (mock via dev-deps). The CLI gets a mock backend through the
   same opt-in `mock-provider` cargo feature the native package uses — it is a build
   feature, not a runtime flag.
+- **Lifetimes need a lazy fake, not the mock.** The mock provider owns its whole tree, so
+  it can show neither that an `XPath` snapshot is released nor that a held node loses its
+  ancestors. The runtime's lifetime tests (`crates/runtime/tests/xdm_release.rs`, the lazy
+  tree of `runtime/test_fixtures.rs`) use a fake that creates fresh nodes on every
+  `children()` call, as real providers do, and counts created and dropped nodes. The
+  providers' side of that contract — a listed node keeps its parent, no node holds its
+  children — is checked with the testkit's `verify_children_keep_parent` and
+  `verify_subtree_released` against live nodes.
 
 ### 2.3 Python — native bindings
 

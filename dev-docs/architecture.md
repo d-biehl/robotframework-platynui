@@ -553,7 +553,7 @@ All providers must:
 - Maintain stable `RuntimeId` values for element lifetimes (format: `prefix:value`).
 - Emit `Id` only when non-empty.
 - Emit `Description` only when non-empty, sourced strictly from the platform's accessible-description property (no HelpText/tooltip fallback; see §5.6).
-- Set `parent` references correctly in children iterators.
+- Set `parent` references correctly in children iterators, and keep the parent of every node a child iterator lists alive with a strong reference from child to parent, so that a node the runtime hands out keeps its chain of ancestors while it is held (§9.3). Never make a node hold its children, and keep the runtime's desktop only as a `Weak`: a top-level node reaches the desktop only while the runtime lives. The strong link belongs in the child iterators, not in the constructors, which also serve `get_nodes` with the desktop as parent. A provider that owns its whole tree, such as the mock provider, meets this already. The testkit checks `verify_children_keep_parent` and `verify_subtree_released` test both halves of the rule.
 - Keep `SupportedPatterns` consistent with available pattern instances — except for deliberate capability markers (`TextEditable`), which are advertised without an instance.
 - Normalize roles to PascalCase; preserve originals under `native:*`.
 - Filter out own-process windows/overlays from the UI tree.
@@ -745,11 +745,17 @@ There are three ways to evaluate:
 
 A reused snapshot is **revalidated lazily**, not rebuilt:
 
-- Before each evaluation, the cached attributes are cleared and the per-node "children already validated" flags are reset.
+- Before each evaluation, the cached attributes are cleared and the per-node "children already validated" flags are reset, also for the ancestors that an earlier query built upward from its context element.
 - When a query first touches a cached list of children, it asks each cached child whether it is still valid (`UiNode::is_valid`, §5.1). If one is not, the whole list is read again from the provider; otherwise the list is reused as it is.
 - A cached root that is no longer valid is replaced by a new tree.
 
 So a snapshot does not return an element that has gone away, as long as that element's node type implements `is_valid`. What a snapshot does not show is change that still leaves every cached node valid: a node added under a parent whose cached children are all still valid, and attribute values that a provider itself keeps from an earlier read. A query sees the UI as it was when the snapshot was taken. A caller that needs such changes clears the cache.
+
+**A snapshot's lifetime.** A snapshot lives as long as something holds it: the cache, or a query or stream that is still running. It is released, together with every provider node that only it held, when the caller clears the cache, when a query from another context node replaces it, when a query without a cache has returned and its results are dropped, when a stream is dropped, when a query fails, and when the runtime shuts down; `Runtime::shutdown` releases the shared snapshot before it shuts down the providers. A reused snapshot does not grow: a list of children that revalidation reads again releases the wrappers it held. Releasing a large snapshot does real work, such as releasing COM elements, JAB references and D-Bus proxies, on the thread that drops it. Release never recurses per level of the tree, and it never runs while a lock of the snapshot is held.
+
+A node that a query returns, or that `children()` or a hit test hands out, keeps its own chain of ancestors alive while it is held, but not the rest of its snapshot (the provider rule of §7.3). A held element can therefore still activate its window or walk `parent()` after its snapshot was released, and it costs no more than its ancestors.
+
+Within a snapshot, an element links to the wrapper whose list of children holds it only weakly. If another query on the same snapshot has meanwhile read that list again, while a stream of an earlier query is still running, the link is gone and the element's parent is read from the provider instead. The result is correct but reflects the current UI, so the running stream's walk over siblings may end early. That is the same kind of effect as the revalidation of a list during a query.
 
 PlatynUI.BareMetal follows this model. Its element resolution clears the cache after each attempt that finds nothing, `Query` clears it before it evaluates, and the wait keywords clear it on each attempt. Code that uses `platynui_native.Runtime` directly does the same: it calls `clear_cache()` when it did not find what it looks for, before it asks again.
 
