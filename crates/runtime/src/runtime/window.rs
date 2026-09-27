@@ -172,6 +172,7 @@ mod tests {
         reset_highlight_state, reset_screenshot_state, take_highlight_log, take_screenshot_log,
     };
     use rstest::rstest;
+    use serial_test::serial;
 
     use super::Runtime;
 
@@ -336,5 +337,93 @@ mod tests {
             super::super::error::BringToFrontError::PatternMissing { .. } => {}
             other => panic!("unexpected error: {other:?}"),
         }
+    }
+
+    fn single_node(item: Option<EvaluationItem>) -> Arc<dyn UiNode> {
+        match item {
+            Some(EvaluationItem::Node(node)) => node,
+            other => panic!("expected a node, got {other:?}"),
+        }
+    }
+
+    // The next three tests guard `top_level_window_for` for nodes whose
+    // snapshot is gone, with a provider that follows the rule of
+    // `UiNode::parent`; `bring_to_front_needs_the_provider_to_keep_the_ancestors`
+    // shows that the provider rule is what they rely on.
+
+    /// `platynui-cli pointer`'s path: the button comes from an evaluation
+    /// without a retained snapshot, which is gone once it returns.
+    #[rstest]
+    #[serial(lazy_tree)]
+    fn bring_to_front_activates_the_window_of_a_result_without_a_snapshot(rt_runtime_lazy_tree: Runtime) {
+        let runtime = rt_runtime_lazy_tree;
+        let button = single_node(runtime.evaluate_single(None, "//control:Button").expect("evaluate"));
+
+        runtime.bring_to_front(&button).expect("the button's window is activated");
+
+        assert_eq!(LAZY_TREE_LOG.activations(), 1);
+    }
+
+    /// `BareMetal`'s path: the snapshot is discarded before the action.
+    #[rstest]
+    #[serial(lazy_tree)]
+    fn bring_to_front_activates_the_window_after_the_snapshot_was_discarded(rt_runtime_lazy_tree: Runtime) {
+        let runtime = rt_runtime_lazy_tree;
+        let button = single_node(runtime.evaluate_single_runtime_cached(None, "//control:Button").expect("evaluate"));
+        runtime.clear_cache();
+
+        runtime.bring_to_front(&button).expect("the button's window is activated");
+
+        assert_eq!(LAZY_TREE_LOG.activations(), 1);
+    }
+
+    /// A root inside a window: the button is found below a pane, whose
+    /// snapshot replaced the desktop's in the shared slot.
+    #[rstest]
+    #[serial(lazy_tree)]
+    fn bring_to_front_activates_the_window_of_a_node_found_below_a_pane(rt_runtime_lazy_tree: Runtime) {
+        let runtime = rt_runtime_lazy_tree;
+        let pane = single_node(runtime.evaluate_single_runtime_cached(None, "//control:Pane").expect("evaluate"));
+        let button =
+            single_node(runtime.evaluate_single_runtime_cached(Some(pane), ".//control:Button").expect("evaluate"));
+        runtime.clear_cache();
+
+        runtime.bring_to_front(&button).expect("the button's window is activated");
+
+        assert_eq!(LAZY_TREE_LOG.activations(), 1);
+    }
+
+    /// The runtime itself keeps no ancestors once a snapshot is gone: the tests
+    /// above pass because the provider keeps them. Without the provider rule,
+    /// the button's window is gone with its snapshot.
+    #[rstest]
+    #[serial(lazy_tree)]
+    fn bring_to_front_needs_the_provider_to_keep_the_ancestors(rt_runtime_lazy_tree: Runtime) {
+        let runtime = rt_runtime_lazy_tree;
+        LAZY_TREE_LOG.set_keep_parents(false);
+        let button = single_node(runtime.evaluate_single_runtime_cached(None, "//control:Button").expect("evaluate"));
+        runtime.clear_cache();
+
+        let err = runtime.bring_to_front(&button).expect_err("nothing keeps the button's window");
+
+        assert!(matches!(err, super::super::error::BringToFrontError::PatternMissing { .. }), "{err:?}");
+        assert_eq!(LAZY_TREE_LOG.activations(), 0);
+    }
+
+    #[rstest]
+    #[serial(lazy_tree)]
+    fn shutdown_releases_the_snapshot_before_the_providers(rt_runtime_lazy_tree: Runtime) {
+        let mut runtime = rt_runtime_lazy_tree;
+        drop(runtime.evaluate_runtime_cached(None, "//control:Button").expect("evaluate"));
+        assert!(LAZY_TREE_LOG.live() > 0, "the retained snapshot holds its nodes");
+
+        runtime.shutdown();
+
+        assert_eq!(LAZY_TREE_LOG.live(), 0, "shutdown releases the snapshot");
+        assert_eq!(
+            LAZY_TREE_LOG.events().last(),
+            Some(&"shutdown"),
+            "nodes are released before the provider shuts down"
+        );
     }
 }

@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, Weak};
 use std::time::Duration;
 
@@ -432,6 +432,189 @@ impl UiTreeProviderFactory for RejectingWindowFactory {
     }
 }
 pub static REJECTING_WINDOW_FACTORY: RejectingWindowFactory = RejectingWindowFactory;
+
+// --- A lazy tree whose window counts its activations ---
+
+/// What happened to the nodes of [`LAZY_TREE_FACTORY`]'s trees, shared by
+/// every runtime of the process; tests that read it run `#[serial(lazy_tree)]`.
+pub struct LazyTreeLog {
+    live: AtomicUsize,
+    activations: AtomicUsize,
+    events: Mutex<Vec<&'static str>>,
+    keep_parents: AtomicBool,
+}
+
+impl LazyTreeLog {
+    pub fn reset(&self) {
+        self.live.store(0, Ordering::SeqCst);
+        self.activations.store(0, Ordering::SeqCst);
+        self.events.lock().unwrap().clear();
+        self.keep_parents.store(true, Ordering::SeqCst);
+    }
+
+    /// Whether listed nodes keep their parent alive (the provider rule, on by
+    /// default); off, they keep it only as a `Weak`.
+    pub fn set_keep_parents(&self, keep: bool) {
+        self.keep_parents.store(keep, Ordering::SeqCst);
+    }
+
+    /// Nodes of the lazy tree alive right now.
+    pub fn live(&self) -> usize {
+        self.live.load(Ordering::SeqCst)
+    }
+
+    /// How often the window was activated.
+    pub fn activations(&self) -> usize {
+        self.activations.load(Ordering::SeqCst)
+    }
+
+    /// `"drop"` for every node released and `"shutdown"` for the provider's
+    /// shutdown, in order.
+    pub fn events(&self) -> Vec<&'static str> {
+        self.events.lock().unwrap().clone()
+    }
+}
+
+pub static LAZY_TREE_LOG: LazyLock<LazyTreeLog> = LazyLock::new(|| LazyTreeLog {
+    live: AtomicUsize::new(0),
+    activations: AtomicUsize::new(0),
+    events: Mutex::new(Vec::new()),
+    keep_parents: AtomicBool::new(true),
+});
+
+/// A node of a tree that, like a real provider, creates fresh nodes on every
+/// listing: a window with a pane with a button. Listed nodes keep their parent
+/// alive, unless [`LazyTreeLog::set_keep_parents`] turned that off, and the
+/// window reaches the desktop only weakly (the provider rule).
+pub struct LazyTreeNode {
+    runtime_id: RuntimeId,
+    role: &'static str,
+    parent: Weak<dyn UiNode>,
+    _kept_parent: Option<Arc<dyn UiNode>>,
+    self_weak: std::sync::OnceLock<Weak<dyn UiNode>>,
+}
+
+impl LazyTreeNode {
+    fn create(role: &'static str, parent: &Arc<dyn UiNode>, keep_parent: bool) -> Arc<dyn UiNode> {
+        let node = Arc::new(Self {
+            runtime_id: RuntimeId::from(format!("lazy-{}", role.to_lowercase())),
+            role,
+            parent: Arc::downgrade(parent),
+            _kept_parent: keep_parent.then(|| Arc::clone(parent)),
+            self_weak: std::sync::OnceLock::new(),
+        });
+        LAZY_TREE_LOG.live.fetch_add(1, Ordering::SeqCst);
+        let erased: Arc<dyn UiNode> = node.clone();
+        let _ = node.self_weak.set(Arc::downgrade(&erased));
+        erased
+    }
+}
+
+impl Drop for LazyTreeNode {
+    fn drop(&mut self) {
+        LAZY_TREE_LOG.live.fetch_sub(1, Ordering::SeqCst);
+        LAZY_TREE_LOG.events.lock().unwrap().push("drop");
+    }
+}
+
+impl UiNode for LazyTreeNode {
+    fn namespace(&self) -> Namespace {
+        Namespace::Control
+    }
+    fn role(&self) -> &str {
+        self.role
+    }
+    fn name(&self) -> String {
+        self.role.to_string()
+    }
+    fn runtime_id(&self) -> &RuntimeId {
+        &self.runtime_id
+    }
+    fn parent(&self) -> Option<Weak<dyn UiNode>> {
+        Some(self.parent.clone())
+    }
+    fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
+        let child = match self.role {
+            "Window" => "Pane",
+            "Pane" => "Button",
+            _ => return Box::new(std::iter::empty()),
+        };
+        let me = self.self_weak.get().and_then(Weak::upgrade).expect("a node is alive while it lists");
+        Box::new(std::iter::once(Self::create(child, &me, LAZY_TREE_LOG.keep_parents.load(Ordering::SeqCst))))
+    }
+    fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
+        let attribute = |name, value| Arc::new(SimpleAttribute { namespace: Namespace::Control, name, value });
+        let attributes: Vec<Arc<dyn UiAttribute>> = vec![
+            attribute(attribute_names::common::ROLE, UiValue::from(self.role)),
+            attribute(attribute_names::common::NAME, UiValue::from(self.name())),
+            attribute(attribute_names::common::RUNTIME_ID, UiValue::from(self.runtime_id.as_str().to_owned())),
+        ];
+        Box::new(attributes.into_iter())
+    }
+    fn supported_patterns(&self) -> Vec<PatternName> {
+        if self.role == "Window" { vec![PatternName::from(pattern_names::ACTIVATABLE)] } else { Vec::new() }
+    }
+    fn pattern_by_name(&self, pattern: &PatternName) -> Option<Arc<dyn UiPattern>> {
+        (self.role == "Window" && *pattern == PatternName::from(pattern_names::ACTIVATABLE)).then(|| {
+            Arc::new(ActivatableAction::new(|| {
+                LAZY_TREE_LOG.activations.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            })) as Arc<dyn UiPattern>
+        })
+    }
+    fn invalidate(&self) {}
+}
+
+pub struct LazyTreeProvider {
+    desc: &'static ProviderDescriptor,
+}
+impl UiTreeProvider for LazyTreeProvider {
+    fn descriptor(&self) -> &ProviderDescriptor {
+        self.desc
+    }
+    fn get_nodes(
+        &self,
+        parent: Arc<dyn UiNode>,
+    ) -> Result<Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send>, ProviderError> {
+        Ok(Box::new(std::iter::once(LazyTreeNode::create("Window", &parent, false))))
+    }
+    fn subscribe_events(&self, _listener: Arc<dyn ProviderEventListener>) -> Result<(), ProviderError> {
+        Ok(())
+    }
+    fn shutdown(&self) {
+        LAZY_TREE_LOG.events.lock().unwrap().push("shutdown");
+    }
+}
+
+pub struct LazyTreeFactory;
+impl LazyTreeFactory {
+    pub fn descriptor_static() -> &'static ProviderDescriptor {
+        static DESCRIPTOR: LazyLock<ProviderDescriptor> = LazyLock::new(|| {
+            ProviderDescriptor::new(
+                "runtime-lazy-tree",
+                "Runtime Lazy Tree",
+                TechnologyId::from("Runtime"),
+                ProviderKind::Native,
+            )
+        });
+        &DESCRIPTOR
+    }
+}
+impl UiTreeProviderFactory for LazyTreeFactory {
+    fn descriptor(&self) -> &ProviderDescriptor {
+        Self::descriptor_static()
+    }
+    fn create(&self, _config: &platynui_core::config::RuntimeConfig) -> Result<Arc<dyn UiTreeProvider>, ProviderError> {
+        Ok(Arc::new(LazyTreeProvider { desc: Self::descriptor_static() }))
+    }
+}
+pub static LAZY_TREE_FACTORY: LazyTreeFactory = LazyTreeFactory;
+
+#[fixture]
+pub fn rt_runtime_lazy_tree() -> Runtime {
+    LAZY_TREE_LOG.reset();
+    rt_with_pf(&[&LAZY_TREE_FACTORY])
+}
 
 // --- A platform whose keyboard rejects some keys ---
 

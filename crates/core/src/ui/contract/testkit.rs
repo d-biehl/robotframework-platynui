@@ -96,6 +96,29 @@ pub enum ContractIssue {
         expected: UiValue,
         actual: UiValue,
     },
+    /// A listed child's parent is no longer reachable once everything but the
+    /// child was dropped — see [`verify_children_keep_parent`].
+    ChildParentUnreachable {
+        child: String,
+    },
+    /// A listed child's parent is reachable, but is not the node the child was
+    /// listed from.
+    ChildParentMismatch {
+        child: String,
+        expected: String,
+        actual: String,
+    },
+    /// A listed node is still alive after every reference the check took was
+    /// dropped — see [`verify_subtree_released`].
+    NodeNotReleased {
+        node: String,
+    },
+    /// The check could not prove what it checks, and says so instead of
+    /// passing.
+    Unprovable {
+        check: &'static str,
+        reason: String,
+    },
 }
 
 /// The attributes every `control:`/`item:` node carries regardless of the
@@ -212,6 +235,124 @@ pub fn verify_node(node: &dyn UiNode, expectations: &NodeExpectation) -> Vec<Con
 pub fn require_node(node: &dyn UiNode, expectations: &NodeExpectation) -> Result<(), Vec<ContractIssue>> {
     let issues = verify_node(node, expectations);
     if issues.is_empty() { Ok(()) } else { Err(issues) }
+}
+
+/// Verifies that the children a provider lists keep their parent reachable
+/// (see [`UiNode::parent`]): lists up to `max_children` children of `parent`,
+/// drops the listing and `parent`, and checks that each child's parent still
+/// upgrades to the node it was listed from, and that each child keeps it on
+/// its own rather than through a sibling.
+///
+/// Pass the only strong reference to `parent`. When `parent` outlives its
+/// children — because the caller or the provider's own tree still holds it —
+/// the check cannot tell whether the children keep it, and reports
+/// [`ContractIssue::Unprovable`] instead of passing. A provider that owns its
+/// whole tree, such as the mock provider, meets the rule through that
+/// ownership and is reported this way. A node without children is reported
+/// the same way.
+#[must_use]
+pub fn verify_children_keep_parent(parent: Arc<dyn UiNode>, max_children: usize) -> Vec<ContractIssue> {
+    const CHECK: &str = "children keep their parent";
+    let expected = parent.runtime_id().as_str().to_owned();
+    let parent_alive = Arc::downgrade(&parent);
+    let children: Vec<Arc<dyn UiNode>> = parent.children().take(max_children).collect();
+    drop(parent);
+
+    if children.is_empty() {
+        return vec![ContractIssue::Unprovable { check: CHECK, reason: format!("{expected} lists no children") }];
+    }
+
+    let mut issues = Vec::new();
+    for child in &children {
+        let child_id = child.runtime_id().as_str().to_owned();
+        match child.parent().and_then(|parent| parent.upgrade()) {
+            None => issues.push(ContractIssue::ChildParentUnreachable { child: child_id }),
+            Some(actual) if actual.runtime_id().as_str() != expected => {
+                issues.push(ContractIssue::ChildParentMismatch {
+                    child: child_id,
+                    expected: expected.clone(),
+                    actual: actual.runtime_id().as_str().to_owned(),
+                });
+            }
+            Some(_) => {}
+        }
+    }
+
+    // Siblings share their parent, so one child that keeps it makes every
+    // sibling's parent reachable above. A child's own share shows when it is
+    // dropped: dropping a child that keeps the parent lowers the parent's
+    // count, and once the parent is gone, no child left keeps it.
+    let mut not_keeping = Vec::new();
+    for child in children {
+        let child_id = child.runtime_id().as_str().to_owned();
+        let held_elsewhere = Arc::strong_count(&child) > 1;
+        let before = parent_alive.strong_count();
+        drop(child);
+        let lowered = parent_alive.strong_count() < before;
+        if before == 0 || (!held_elsewhere && !lowered) {
+            not_keeping.push(child_id);
+        }
+    }
+
+    if parent_alive.strong_count() > 0 {
+        if issues.is_empty() {
+            return vec![ContractIssue::Unprovable {
+                check: CHECK,
+                reason: format!("{expected} outlives its children, so something besides them holds it"),
+            }];
+        }
+        return issues;
+    }
+    for child in not_keeping {
+        let reported = issues.iter().any(|issue| match issue {
+            ContractIssue::ChildParentUnreachable { child: reported }
+            | ContractIssue::ChildParentMismatch { child: reported, .. } => *reported == child,
+            _ => false,
+        });
+        if !reported {
+            issues.push(ContractIssue::ChildParentUnreachable { child });
+        }
+    }
+    issues
+}
+
+/// Verifies that a provider's nodes do not hold their children: lists the
+/// subtree below `root` breadth-first, up to `max_nodes` nodes, drops every
+/// reference the check took, and checks that each listed node was released.
+///
+/// Together with [`verify_children_keep_parent`] this rules out cycles: a node
+/// that kept its children alive while they keep it would never be released.
+/// `root` itself may still be held elsewhere. A provider that owns its whole
+/// tree, such as the mock provider, fails this check by design and is exempt
+/// from it.
+#[must_use]
+pub fn verify_subtree_released(root: Arc<dyn UiNode>, max_nodes: usize) -> Vec<ContractIssue> {
+    let mut listed: Vec<Arc<dyn UiNode>> = root.children().take(max_nodes).collect();
+    let mut index = 0;
+    while index < listed.len() && listed.len() < max_nodes {
+        let remaining = max_nodes - listed.len();
+        let children: Vec<Arc<dyn UiNode>> = listed[index].children().take(remaining).collect();
+        listed.extend(children);
+        index += 1;
+    }
+
+    if listed.is_empty() {
+        return vec![ContractIssue::Unprovable {
+            check: "nodes do not hold their children",
+            reason: format!("{} lists no children", root.runtime_id().as_str()),
+        }];
+    }
+
+    let watched: Vec<(String, std::sync::Weak<dyn UiNode>)> =
+        listed.iter().map(|node| (node.runtime_id().as_str().to_owned(), Arc::downgrade(node))).collect();
+    drop(listed);
+    drop(root);
+
+    watched
+        .into_iter()
+        .filter(|(_, node)| node.strong_count() > 0)
+        .map(|(node, _)| ContractIssue::NodeNotReleased { node })
+        .collect()
 }
 
 fn collect_attributes(node: &dyn UiNode) -> HashMap<(Namespace, String), UiValue> {
@@ -727,5 +868,314 @@ mod expectation_tests {
         let node = build_node();
         node.attributes.lock().unwrap().retain(|attr| attr.name() != element::IS_VISIBLE);
         assert!(require_node(node.as_ref(), &expectations).is_err());
+    }
+}
+
+#[cfg(test)]
+mod ownership_tests {
+    use super::*;
+    use crate::ui::RuntimeId;
+    use rstest::rstest;
+    use std::sync::{Mutex, OnceLock, Weak};
+
+    /// How a [`LazyNode`] treats its parent and its children.
+    #[derive(Clone, Copy, Debug)]
+    struct Policy {
+        /// A listed child holds its parent strongly (the provider rule).
+        keep_parent: bool,
+        /// Only the first child of a listing holds its parent, as a provider
+        /// that forgets the rule on one of its paths would.
+        first_child_only: bool,
+        /// A node keeps the children it listed, which together with the rule
+        /// forms a cycle.
+        cache_children: bool,
+    }
+
+    const WEAK_ONLY: Policy = Policy { keep_parent: false, first_child_only: false, cache_children: false };
+    const KEEPS_PARENT: Policy = Policy { keep_parent: true, first_child_only: false, cache_children: false };
+    const FIRST_CHILD_KEEPS_PARENT: Policy =
+        Policy { keep_parent: true, first_child_only: true, cache_children: false };
+    const KEEPS_PARENT_AND_CHILDREN: Policy =
+        Policy { keep_parent: true, first_child_only: false, cache_children: true };
+
+    /// A node that creates fresh children on every listing, as real providers
+    /// do: a root, three children, and three grandchildren under each child.
+    struct LazyNode {
+        runtime_id: RuntimeId,
+        depth: usize,
+        policy: Policy,
+        parent: Option<Weak<dyn UiNode>>,
+        /// Held only to keep the parent alive (the provider rule).
+        _kept_parent: Option<Arc<dyn UiNode>>,
+        cached: Mutex<Option<Vec<Arc<dyn UiNode>>>>,
+        self_weak: OnceLock<Weak<dyn UiNode>>,
+    }
+
+    impl LazyNode {
+        fn root(policy: Policy) -> Arc<dyn UiNode> {
+            Self::build("root".into(), 0, policy, None, false)
+        }
+
+        fn build(
+            runtime_id: String,
+            depth: usize,
+            policy: Policy,
+            parent: Option<&Arc<dyn UiNode>>,
+            keep_parent: bool,
+        ) -> Arc<dyn UiNode> {
+            let node = Arc::new(Self {
+                runtime_id: RuntimeId::from(runtime_id),
+                depth,
+                policy,
+                parent: parent.map(Arc::downgrade),
+                _kept_parent: parent.filter(|_| keep_parent).cloned(),
+                cached: Mutex::new(None),
+                self_weak: OnceLock::new(),
+            });
+            let erased: Arc<dyn UiNode> = node.clone();
+            let _ = node.self_weak.set(Arc::downgrade(&erased));
+            erased
+        }
+    }
+
+    impl UiNode for LazyNode {
+        fn namespace(&self) -> Namespace {
+            Namespace::Control
+        }
+        fn role(&self) -> &'static str {
+            "Pane"
+        }
+        fn name(&self) -> String {
+            String::new()
+        }
+        fn runtime_id(&self) -> &RuntimeId {
+            &self.runtime_id
+        }
+        fn parent(&self) -> Option<Weak<dyn UiNode>> {
+            self.parent.clone()
+        }
+        fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
+            if self.depth >= 2 {
+                return Box::new(std::iter::empty());
+            }
+            let mut cached = self.cached.lock().unwrap();
+            if let Some(children) = cached.as_ref() {
+                return Box::new(children.clone().into_iter());
+            }
+            let me = self.self_weak.get().and_then(Weak::upgrade).expect("a node is alive while it lists");
+            let children: Vec<Arc<dyn UiNode>> = (0..3)
+                .map(|index| {
+                    let id = format!("{}/{index}", self.runtime_id.as_str());
+                    let keep = self.policy.keep_parent && (index == 0 || !self.policy.first_child_only);
+                    Self::build(id, self.depth + 1, self.policy, Some(&me), keep)
+                })
+                .collect();
+            if self.policy.cache_children {
+                *cached = Some(children.clone());
+            }
+            Box::new(children.into_iter())
+        }
+        fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
+            Box::new(std::iter::empty())
+        }
+        fn supported_patterns(&self) -> Vec<PatternName> {
+            Vec::new()
+        }
+        /// Forgets the listed children, which breaks the cycles of a node
+        /// that kept them.
+        fn invalidate(&self) {
+            self.cached.lock().unwrap().take();
+        }
+    }
+
+    /// A node of a tree that owns its children and links to its parent only
+    /// weakly, as the mock provider does.
+    struct OwnedNode {
+        runtime_id: RuntimeId,
+        parent: Mutex<Option<Weak<dyn UiNode>>>,
+        children: Mutex<Vec<Arc<dyn UiNode>>>,
+    }
+
+    impl OwnedNode {
+        /// A root with two children, each with two children of its own.
+        fn tree() -> Arc<dyn UiNode> {
+            let node = |id: &str| {
+                Arc::new(Self {
+                    runtime_id: RuntimeId::from(id),
+                    parent: Mutex::new(None),
+                    children: Mutex::new(Vec::new()),
+                })
+            };
+            let root = node("owned");
+            let root_dyn: Arc<dyn UiNode> = root.clone();
+            for index in 0..2 {
+                let child = node(&format!("owned/{index}"));
+                let child_dyn: Arc<dyn UiNode> = child.clone();
+                *child.parent.lock().unwrap() = Some(Arc::downgrade(&root_dyn));
+                for inner in 0..2 {
+                    let grandchild = node(&format!("owned/{index}/{inner}"));
+                    *grandchild.parent.lock().unwrap() = Some(Arc::downgrade(&child_dyn));
+                    child.children.lock().unwrap().push(grandchild);
+                }
+                root.children.lock().unwrap().push(child_dyn);
+            }
+            root_dyn
+        }
+    }
+
+    impl UiNode for OwnedNode {
+        fn namespace(&self) -> Namespace {
+            Namespace::Control
+        }
+        fn role(&self) -> &'static str {
+            "Pane"
+        }
+        fn name(&self) -> String {
+            String::new()
+        }
+        fn runtime_id(&self) -> &RuntimeId {
+            &self.runtime_id
+        }
+        fn parent(&self) -> Option<Weak<dyn UiNode>> {
+            self.parent.lock().unwrap().clone()
+        }
+        fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
+            Box::new(self.children.lock().unwrap().clone().into_iter())
+        }
+        fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
+            Box::new(std::iter::empty())
+        }
+        fn supported_patterns(&self) -> Vec<PatternName> {
+            Vec::new()
+        }
+        fn invalidate(&self) {}
+    }
+
+    fn cannot_prove(issues: &[ContractIssue]) -> bool {
+        matches!(issues, [ContractIssue::Unprovable { .. }])
+    }
+
+    #[rstest]
+    fn children_that_keep_only_a_weak_parent_are_reported() {
+        let issues = verify_children_keep_parent(LazyNode::root(WEAK_ONLY), 10);
+
+        let expected: Vec<ContractIssue> =
+            (0..3).map(|index| ContractIssue::ChildParentUnreachable { child: format!("root/{index}") }).collect();
+        assert_eq!(issues, expected);
+    }
+
+    /// One child that keeps the parent makes every sibling's parent reachable
+    /// while they are listed together; each child must keep it on its own.
+    #[rstest]
+    fn children_that_keep_their_parent_only_through_a_sibling_are_reported() {
+        let issues = verify_children_keep_parent(LazyNode::root(FIRST_CHILD_KEEPS_PARENT), 10);
+
+        let expected: Vec<ContractIssue> =
+            (1..3).map(|index| ContractIssue::ChildParentUnreachable { child: format!("root/{index}") }).collect();
+        assert_eq!(issues, expected);
+    }
+
+    #[rstest]
+    fn children_that_keep_their_parent_pass() {
+        let issues = verify_children_keep_parent(LazyNode::root(KEEPS_PARENT), 10);
+
+        assert!(issues.is_empty(), "expected no issues, got {issues:?}");
+    }
+
+    #[rstest]
+    #[case::weak_only(WEAK_ONLY)]
+    #[case::keeps_parent(KEEPS_PARENT)]
+    fn a_parent_the_caller_still_holds_cannot_prove_the_rule(#[case] policy: Policy) {
+        let parent = LazyNode::root(policy);
+        let held_elsewhere = Arc::clone(&parent);
+
+        let issues = verify_children_keep_parent(parent, 10);
+
+        assert!(cannot_prove(&issues), "expected the check to say it cannot prove the rule, got {issues:?}");
+        drop(held_elsewhere);
+    }
+
+    #[rstest]
+    fn a_node_without_children_cannot_prove_the_rule() {
+        let root = LazyNode::root(KEEPS_PARENT);
+        let leaf = root.children().next().expect("child").children().next().expect("grandchild");
+
+        let issues = verify_children_keep_parent(leaf, 10);
+
+        assert!(cannot_prove(&issues), "expected the check to say it cannot prove the rule, got {issues:?}");
+    }
+
+    /// A tree that owns its children keeps every parent reachable through that
+    /// ownership, so no child is reported; but the check cannot attribute that
+    /// to the children, and says so.
+    #[rstest]
+    fn an_owned_tree_keeps_its_parents_but_cannot_prove_the_rule() {
+        let tree = OwnedNode::tree();
+        let inner = tree.children().next().expect("inner node");
+
+        let issues = verify_children_keep_parent(inner, 10);
+
+        assert!(cannot_prove(&issues), "expected the check to say it cannot prove the rule, got {issues:?}");
+    }
+
+    #[rstest]
+    #[case::weak_only(WEAK_ONLY)]
+    #[case::keeps_parent(KEEPS_PARENT)]
+    fn nodes_that_do_not_hold_their_children_are_released(#[case] policy: Policy) {
+        let issues = verify_subtree_released(LazyNode::root(policy), 100);
+
+        assert!(issues.is_empty(), "expected no issues, got {issues:?}");
+    }
+
+    #[rstest]
+    fn a_root_held_elsewhere_still_releases_its_subtree() {
+        let root = LazyNode::root(KEEPS_PARENT);
+
+        let issues = verify_subtree_released(Arc::clone(&root), 100);
+
+        assert!(issues.is_empty(), "expected no issues, got {issues:?}");
+    }
+
+    #[rstest]
+    fn nodes_that_hold_their_children_are_reported() {
+        let root = LazyNode::root(KEEPS_PARENT_AND_CHILDREN);
+        let root_alive = Arc::downgrade(&root);
+
+        let issues = verify_subtree_released(root, 100);
+
+        assert_eq!(issues.len(), 12, "every listed node should be reported, got {issues:?}");
+        assert!(issues.iter().all(|issue| matches!(issue, ContractIssue::NodeNotReleased { .. })));
+
+        // Break the cycles the check found, so that the test leaks nothing.
+        let mut all = vec![root_alive.upgrade().expect("the cycle keeps the root alive")];
+        let mut index = 0;
+        while index < all.len() {
+            let children: Vec<Arc<dyn UiNode>> = all[index].children().collect();
+            all.extend(children);
+            index += 1;
+        }
+        for node in &all {
+            node.invalidate();
+        }
+        drop(all);
+        assert_eq!(root_alive.strong_count(), 0, "the cleanup must release the tree");
+    }
+
+    /// The mock provider owns its tree, so it fails this check by design and
+    /// is exempt from it.
+    #[rstest]
+    fn an_owned_tree_is_not_released() {
+        let tree = OwnedNode::tree();
+        let inner = tree.children().next().expect("inner node");
+
+        let issues = verify_subtree_released(inner, 100);
+
+        assert_eq!(
+            issues,
+            vec![
+                ContractIssue::NodeNotReleased { node: "owned/0/0".into() },
+                ContractIssue::NodeNotReleased { node: "owned/0/1".into() },
+            ]
+        );
     }
 }
