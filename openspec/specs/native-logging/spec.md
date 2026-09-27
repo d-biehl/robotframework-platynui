@@ -56,7 +56,7 @@ When PlatynUI is used from Robot Framework, every delivered native record SHALL 
 
 ### Requirement: Only native warnings and errors are produced by default
 
-By default the native core SHALL produce records only at `WARN` and `ERROR`, independent of Robot Framework's log level. The level SHALL be lowerable for PlatynUI's own native modules through a `PlatynUI.BareMetal` import argument, `native_log_level`, accepting `error`, `warn`, `info`, `debug` and `trace` (case-insensitive), and through the environment variables the command-line tool uses: `RUST_LOG` and `PLATYNUI_LOG_LEVEL`, with the same directive syntax. Their precedence SHALL be the command-line tool's: `RUST_LOG`, then the explicitly requested level, then `PLATYNUI_LOG_LEVEL`, then the `WARN` default. Native modules that are not part of PlatynUI SHALL stay at `WARN` unless an environment directive enables them; the import argument SHALL NOT lower them. An invalid `native_log_level` SHALL fail the library import with a message naming the argument and the accepted values; an invalid environment value SHALL leave the default in effect and SHALL be reported as a warning naming the variable. The level is process-wide, because the native core is: while several library instances request levels, the most verbose request SHALL apply, and a request SHALL be released when its library instance goes out of scope.
+By default the native core SHALL produce records only at `WARN` and `ERROR`, independent of Robot Framework's log level. Its level SHALL be set as the diagnostic-logging requirement *The level setting means the same everywhere* defines, with the `PlatynUI.BareMetal` import argument `native_log_level` as the requested level. `native_log_level` SHALL accept the level names of that requirement, case-insensitive. An invalid `native_log_level` SHALL fail the library import with a message naming the argument and the accepted values. The level is process-wide, because the native core is: while several library instances request levels, the most verbose request SHALL apply, and a request SHALL be released when its library instance goes out of scope.
 
 #### Scenario: The default shows warnings and nothing below
 
@@ -83,7 +83,7 @@ By default the native core SHALL produce records only at `WARN` and `ERROR`, ind
 
 #### Scenario: An invalid environment value keeps the default and says so
 
-- **GIVEN** `PLATYNUI_LOG_LEVEL` set to a value that is not a valid directive
+- **GIVEN** `PLATYNUI_LOG_LEVEL` set to a value that is not a level, and no requested level
 - **WHEN** PlatynUI initializes its logging
 - **THEN** only `WARN` and `ERROR` SHALL be produced
 - **AND** a warning SHALL name `PLATYNUI_LOG_LEVEL` and the rejected value
@@ -94,6 +94,11 @@ By default the native core SHALL produce records only at `WARN` and `ERROR`, ind
 - **WHEN** both are in scope
 - **THEN** native debug records SHALL be produced
 - **AND** once the instance that requested `debug` has gone out of scope, only `WARN` and `ERROR` SHALL be produced again
+
+#### Scenario: The Python spelling of a level is accepted
+
+- **WHEN** `PlatynUI.BareMetal` is imported with `native_log_level=WARNING`
+- **THEN** the import SHALL succeed and only `WARN` and `ERROR` SHALL be produced
 
 ### Requirement: Logging never blocks or deadlocks native code
 
