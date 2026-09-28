@@ -1,13 +1,16 @@
 # Workspace nextest configuration.
 
-# The Java provider live-fixture tests (ignored by default; run by the Windows
-# acceptance recipe) each launch their own fixture JVM, and the frozen-JVM
-# robustness test deliberately stalls bridge calls process-wide — running them
-# in parallel makes the other test's discovery run into those stalls. Serialize
-# everything in that test binary.
+# The Java live-fixture tests (ignored by default; run by the Windows acceptance
+# recipe) each launch their own fixture JVM, and the frozen-JVM robustness test
+# deliberately stalls bridge calls process-wide — running them in parallel makes
+# the other test's discovery run into those stalls. The java-agent fixtures count
+# too: with the bridge enabled machine-wide they load it as well, and a JAB test
+# that overlapped their start-ups waited out its discovery deadline without ever
+# seeing its own fixture. Serialize every binary that launches fixture JVMs,
+# across both crates.
 [test-groups]
 java-live = { max-threads = 1 }
 
 [[profile.default.overrides]]
-filter = "binary_id(platynui-provider-java::live_fixture)"
+filter = "binary_id(platynui-provider-java::live_fixture) | binary_id(platynui-java-agent::live_fixture)"
 test-group = "java-live"
