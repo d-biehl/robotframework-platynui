@@ -42,11 +42,15 @@ Launch Default Swing Agent Instance
     ...    suite-unique title, wait until the in-JVM agent serves its window, and pin the instance as
     ...    the suite-wide query root. Exposes ``${SWING_AGENT_TITLE}`` (the window's @Name) and the
     ...    Process handle at SUITE scope.
+    ...
+    ...    The root names the agent's technology as well: while an agent session is degraded its
+    ...    application node is invalid, and a root pinned by the pid alone would be looked up again
+    ...    as the Access Bridge's application node, which goes empty once the agent serves again.
     [Arguments]    ${title}
     Require Swing Prerequisites
     ${handle}=    Launch Swing Agent Test App    ${title}
     ${pid}=    Get Process Id    ${handle}
-    BM.Set Root    /app:Application[@ProcessId=${pid}]    scope=SUITE
+    BM.Set Root    /app:Application[@ProcessId=${pid}][@Technology="JavaAgent"]    scope=SUITE
     VAR    ${SWING_AGENT_TITLE}    ${title}    scope=SUITE
     VAR    ${SWING_AGENT_APP_HANDLE}    ${handle}    scope=SUITE
 

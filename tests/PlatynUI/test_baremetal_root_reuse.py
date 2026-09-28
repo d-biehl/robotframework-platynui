@@ -12,8 +12,10 @@ is live. Target selectors keep being re-evaluated; that is the observation a key
 
 These are unit tests on purpose: the reuse is gated on ``UiNode.is_valid()``, and the mock
 provider does not override it (the trait default is ``True``), so no mock-backed Robot suite can
-exercise the invalidation path. The real proof that a dying root still re-resolves is
-``tests/acceptance/swing/window.robot``, which closes the fixture process.
+exercise the invalidation path. The real proof that a root whose application ended is looked up
+again is ``app_root_after_exit.robot``: in ``tests/acceptance/egui`` for UI Automation and AT-SPI,
+and in ``tests/acceptance/swing`` for the Java Access Bridge and, as
+``agent_app_root_after_exit.robot``, for the Java agent.
 """
 
 from typing import Any
