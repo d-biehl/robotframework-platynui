@@ -34,14 +34,14 @@ ${BETA_H}       ${None}
 *** Test Cases ***
 Activate Window Switches The Active Window Exclusively
     [Documentation]    The real window manager keeps a single foreground window: activating one makes
-    ...    it active and drops the other, observable through @IsActive (Get Attribute waits for the
-    ...    change).
+    ...    it active and drops the other, observable through @IsActive once the window manager has
+    ...    applied the change.
     BM.Activate Window    ${ALPHA}
-    BM.Get Attribute    ${ALPHA}    IsActive    ==    ${True}
-    BM.Get Attribute    ${BETA}     IsActive    ==    ${False}
+    BM.Wait Until Query    ${ALPHA}/@IsActive    ==    ${True}
+    BM.Wait Until Query    ${BETA}/@IsActive     ==    ${False}
     BM.Activate Window    ${BETA}
-    BM.Get Attribute    ${BETA}     IsActive    ==    ${True}
-    BM.Get Attribute    ${ALPHA}    IsActive    ==    ${False}
+    BM.Wait Until Query    ${BETA}/@IsActive     ==    ${True}
+    BM.Wait Until Query    ${ALPHA}/@IsActive    ==    ${False}
 
 Move And Resize Window Change The Window Bounds
     [Documentation]    The window-control keywords used to arrange the instances actually move and
@@ -60,13 +60,13 @@ Auto Activate Raises The Background Window For A Pointer Click
     ...    raises its window first, so the click lands there: @IsActive flips and the window's own
     ...    click counter increments.
     BM.Activate Window    ${ALPHA}
-    BM.Get Attribute    ${BETA}    IsActive    ==    ${False}
+    BM.Wait Until Query    ${BETA}/@IsActive    ==    ${False}
     ${before}=    Get Click Count    ${BETA}
     Move The Pointer Off The Button    ${ALPHA}
     BM.Pointer Click    ${BETA}//*[@Id="btn-click-me"]
-    BM.Get Attribute    ${BETA}    IsActive    ==    ${True}
+    BM.Wait Until Query    ${BETA}/@IsActive    ==    ${True}
     BM.Wait Until Query    ${BETA}//*[@Id="status-clicks"]/@Name    ==    Clicks: ${{ $before + 1 }}
-    ...    msg=click did not land on the raised window
+    ...    assertion_message=click did not land on the raised window
 
 Activate False Leaves The Target Behind So The Click Misses It
     [Documentation]    The negative case: with activate=${False} the background window is not raised, so
@@ -136,10 +136,10 @@ Focus Raises The Background Window And Keyboard Input Lands There
     BM.Activate Window    ${ALPHA}
     ${before}=    Get Click Count    ${BETA}
     BM.Focus    ${BETA}//*[@Id="btn-click-me"]
-    BM.Get Attribute    ${BETA}    IsActive    ==    ${True}
+    BM.Wait Until Query    ${BETA}/@IsActive    ==    ${True}
     BM.Keyboard Type    ${None}    <Return>
     BM.Wait Until Query    ${BETA}//*[@Id="status-clicks"]/@Name    ==    Clicks: ${{ $before + 1 }}
-    ...    msg=keyboard activation did not register on the focused window
+    ...    assertion_message=keyboard activation did not register on the focused window
 
 Take Screenshot Of A Raised Element
     [Documentation]    Take Screenshot raises the element's window first (default activate), so the

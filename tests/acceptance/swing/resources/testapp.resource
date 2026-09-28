@@ -48,7 +48,7 @@ Launch Swing Test App
     [Arguments]    ${title}    @{extra_args}
     ${handle}=    Start Swing Fixture Process    ${title}    @{extra_args}
     ${pid}=    Get Process Id    ${handle}
-    BM.Wait Until Exists    /app:Application[@ProcessId=${pid}]//Window[@Name="${title}"]
+    BM.Wait Until Exists    /app:Application[@ProcessId=${pid}]//Window[@Name="${title}"][@Technology="JAB"]
     ...    query_overrides={'timeout': ${APP_WAIT_TIMEOUT}}
     RETURN    ${handle}
 

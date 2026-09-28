@@ -65,7 +65,7 @@ Combo Box Entries Are Promoted To List Items
 A JVM Started After The First Query Appears On A Later Poll
     [Documentation]    Polling re-discovery: the suite's runtime has long answered queries; a second
     ...    fixture instance launched now must appear without recreating the runtime (Launch Swing
-    ...    Test App itself waits for the new window on the tree). The latecomer is addressed
+    ...    Test App itself waits until the bridge serves the new window). The latecomer is addressed
     ...    absolutely — the suite root stays pinned to the first instance.
     ${handle}=    Launch Swing Test App    PlatynUI Swing Latecomer
     ${pid}=    Get Process Id    ${handle}

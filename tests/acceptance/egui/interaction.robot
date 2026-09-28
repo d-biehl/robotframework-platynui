@@ -6,9 +6,9 @@ Documentation       BareMetal pointer/keyboard/focus interaction coverage agains
 ...
 ...                 The launcher scopes the whole suite to the app window with
 ...                 ``Set Root``, so the widget locators are relative
-...                 (``.//*[@Id=...]``). Status-bar effects are checked with
-...                 ``Get Attribute    ==``, which waits for the change instead
-...                 of sleeping a fixed time.
+...                 (``.//*[@Id=...]``). Status-bar effects are awaited with
+...                 ``Wait Until Query``: the app updates a label a frame or more
+...                 after the input, so a single read can come too early.
 
 Resource            resources/testapp.resource
 
@@ -20,20 +20,20 @@ Suite Teardown      Terminate Default Instance
 Pointer Click Increments The Click Counter
     ${before}=    Get Click Count
     BM.Pointer Click    .//*[@Id="btn-click-me"]
-    BM.Get Attribute    .//*[@Id="status-clicks"]    Name    ==    Clicks: ${{ $before + 1 }}
-    ...    msg=click did not increment the counter
+    BM.Wait Until Query    .//*[@Id="status-clicks"]/@Name    ==    Clicks: ${{ $before + 1 }}
+    ...    assertion_message=click did not increment the counter
 
 Selecting A Radio Button Updates The Status Bar
     BM.Pointer Click    .//*[@Id="radio-option-c"]
-    BM.Get Attribute    .//*[@Id="status-radio"]    Name    ==    Radio: Option C
-    ...    msg=radio selection not reflected in status bar
+    BM.Wait Until Query    .//*[@Id="status-radio"]/@Name    ==    Radio: Option C
+    ...    assertion_message=radio selection not reflected in status bar
 
 Focus Plus Keyboard Activates The Focused Button
     ${before}=    Get Click Count
     BM.Focus    .//*[@Id="btn-click-me"]
     BM.Keyboard Type    ${None}    <Return>
-    BM.Get Attribute    .//*[@Id="status-clicks"]    Name    ==    Clicks: ${{ $before + 1 }}
-    ...    msg=keyboard activation did not register a click
+    BM.Wait Until Query    .//*[@Id="status-clicks"]/@Name    ==    Clicks: ${{ $before + 1 }}
+    ...    assertion_message=keyboard activation did not register a click
 
 Highlight Does Not Error
     [Documentation]    Highlight draws its overlay around the window (the current root) without
@@ -52,8 +52,8 @@ A Selector Stops Matching An Element That No Longer Fits It
     ${captured}=    BM.Query    .//*[@Name="${old_name}"]    only_first=${True}
     BM.Get Attribute    .//*[@Name="${old_name}"]    Id    ==    status-clicks
     BM.Pointer Click    .//*[@Id="btn-click-me"]
-    BM.Get Attribute    .//*[@Id="status-clicks"]    Name    ==    Clicks: ${{ $before + 1 }}
-    ...    msg=precondition: the click must have renamed the label
+    BM.Wait Until Query    .//*[@Id="status-clicks"]/@Name    ==    Clicks: ${{ $before + 1 }}
+    ...    assertion_message=precondition: the click must have renamed the label
     Should Be True    ${{ $captured.is_valid() }}
     ...    msg=precondition: the element must still be alive — otherwise this proves nothing
     Run Keyword And Expect Error    *${old_name}*within timeout of 2.0 seconds*
