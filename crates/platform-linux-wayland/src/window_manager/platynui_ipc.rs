@@ -444,9 +444,12 @@ fn extract_screen_size(node: &dyn UiNode) -> Option<(f64, f64)> {
     }
 }
 
+/// The node's `control:ProcessId`. Only a positive number is a process ID; a
+/// node with `0` counts as having none, and its window is matched by title and
+/// size like any node without one.
 fn pid_from_attr(node: &dyn UiNode) -> Option<u32> {
     let attr = node.attribute(Namespace::Control, "ProcessId")?;
-    match attr.value() {
+    let pid = match attr.value() {
         platynui_core::ui::UiValue::Integer(value) => u32::try_from(value).ok(),
         platynui_core::ui::UiValue::Number(value) => {
             if value.is_finite() && value.fract() == 0.0 && value >= 0.0 && value <= f64::from(u32::MAX) {
@@ -457,7 +460,8 @@ fn pid_from_attr(node: &dyn UiNode) -> Option<u32> {
         }
         platynui_core::ui::UiValue::String(value) => value.parse::<u32>().ok(),
         _ => None,
-    }
+    };
+    pid.filter(|pid| *pid > 0)
 }
 
 fn send_command(command: &Value) -> Result<Value, PlatformError> {
@@ -570,6 +574,85 @@ fn csd_shadow_offset(info: &ControlWindowInfo, toolkit_hint: Option<&str>) -> (f
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod process_id {
+        use super::{extract_pid, pid_from_attr};
+        use platynui_core::ui::{Namespace, PatternName, RuntimeId, UiAttribute, UiNode, UiValue};
+        use std::sync::{Arc, Weak};
+
+        /// A node that carries nothing but `control:ProcessId`, below an
+        /// optional parent.
+        struct PidNode {
+            pid: Option<UiValue>,
+            parent: Option<Weak<dyn UiNode>>,
+            runtime_id: RuntimeId,
+        }
+
+        fn pid_node(pid: Option<UiValue>, parent: Option<&Arc<dyn UiNode>>) -> Arc<dyn UiNode> {
+            Arc::new(PidNode { pid, parent: parent.map(Arc::downgrade), runtime_id: RuntimeId::from("pid-node") })
+        }
+
+        struct PidAttr(UiValue);
+
+        impl UiAttribute for PidAttr {
+            fn namespace(&self) -> Namespace {
+                Namespace::Control
+            }
+            fn name(&self) -> &'static str {
+                "ProcessId"
+            }
+            fn value(&self) -> UiValue {
+                self.0.clone()
+            }
+        }
+
+        impl UiNode for PidNode {
+            fn namespace(&self) -> Namespace {
+                Namespace::App
+            }
+            fn role(&self) -> &'static str {
+                "Application"
+            }
+            fn name(&self) -> String {
+                String::new()
+            }
+            fn runtime_id(&self) -> &RuntimeId {
+                &self.runtime_id
+            }
+            fn parent(&self) -> Option<Weak<dyn UiNode>> {
+                self.parent.clone()
+            }
+            fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
+                Box::new(std::iter::empty())
+            }
+            fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
+                let attributes: Vec<Arc<dyn UiAttribute>> =
+                    self.pid.iter().map(|pid| Arc::new(PidAttr(pid.clone())) as _).collect();
+                Box::new(attributes.into_iter())
+            }
+            fn supported_patterns(&self) -> Vec<PatternName> {
+                Vec::new()
+            }
+            fn invalidate(&self) {}
+        }
+
+        /// Spec (`application-process-attributes`): *A window is never looked
+        /// up by process ID 0*, in any form a provider may report it.
+        #[test]
+        fn process_id_0_counts_as_no_process_id() {
+            for zero in [UiValue::Integer(0), UiValue::Number(0.0), UiValue::String("0".into())] {
+                assert_eq!(pid_from_attr(pid_node(Some(zero.clone()), None).as_ref()), None, "{zero:?}");
+            }
+            assert_eq!(pid_from_attr(pid_node(Some(UiValue::Integer(4711)), None).as_ref()), Some(4711));
+        }
+
+        #[test]
+        fn a_node_with_process_id_0_takes_the_process_id_of_its_ancestors() {
+            let application = pid_node(Some(UiValue::Integer(4711)), None);
+            let window = pid_node(Some(UiValue::Integer(0)), Some(&application));
+            assert_eq!(extract_pid(window.as_ref()), Some(4711));
+        }
+    }
 
     #[test]
     fn match_best_window_prefers_pid_and_exact_title() {

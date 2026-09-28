@@ -10,9 +10,9 @@
 //! 1. **Direct HWND** — reads `native:NativeWindowHandle` (UIA property 30005)
 //!    from the node.  This is the fast path used when the node comes from the
 //!    Windows UIA provider.
-//! 2. **PID fallback** — if the node carries `native:ProcessId` (e.g. via an
-//!    Application node), we enumerate top-level windows with `EnumWindows` and
-//!    match by PID.
+//! 2. **PID fallback** — if the node or an ancestor carries a positive
+//!    `control:ProcessId` (e.g. via an Application node), we enumerate
+//!    top-level windows with `EnumWindows` and match by PID.
 
 // Win32 FFI module: nearly every call it makes is `unsafe` by signature.
 #![allow(unsafe_code)]
@@ -84,20 +84,23 @@ fn extract_pid(node: &dyn UiNode) -> Option<u32> {
     })
 }
 
-/// Try to read `control:ProcessId` from a single node.
+/// Try to read `control:ProcessId` from a single node. Only a positive number
+/// is a process ID: a lookup with `0` would match any window whose process
+/// `GetWindowThreadProcessId` cannot name.
 fn pid_from_attr(node: &dyn UiNode) -> Option<u32> {
     let attr = node.attribute(Namespace::Control, "ProcessId")?;
-    match attr.value() {
+    let pid = match attr.value() {
         UiValue::Integer(v) => u32::try_from(v).ok(),
         UiValue::Number(v) => {
             // Saturating f64 -> u32 is intended: negative and NaN become 0 and are rejected below.
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let rounded = v as u32;
-            if rounded > 0 { Some(rounded) } else { None }
+            Some(rounded)
         }
         UiValue::String(s) => s.parse::<u32>().ok(),
         _ => None,
-    }
+    };
+    pid.filter(|pid| *pid > 0)
 }
 
 /// Find a top-level visible window belonging to the given process.
@@ -355,5 +358,84 @@ mod tests {
         // The level leads each line, padded to five characters.
         assert!(refusals[0].trim_start().starts_with("DEBUG ") && refusals[0].contains("hwnd=0"), "{log}");
         assert!(!log.lines().any(|line| line.trim_start().starts_with("WARN ")), "{log}");
+    }
+
+    /// A node that carries nothing but `control:ProcessId`, below an optional
+    /// parent.
+    struct PidNode {
+        pid: Option<UiValue>,
+        parent: Option<std::sync::Weak<dyn UiNode>>,
+        runtime_id: platynui_core::ui::RuntimeId,
+    }
+
+    fn pid_node(pid: Option<UiValue>, parent: Option<&std::sync::Arc<dyn UiNode>>) -> std::sync::Arc<dyn UiNode> {
+        std::sync::Arc::new(PidNode {
+            pid,
+            parent: parent.map(std::sync::Arc::downgrade),
+            runtime_id: platynui_core::ui::RuntimeId::from("pid-node"),
+        })
+    }
+
+    struct PidAttr(UiValue);
+
+    impl platynui_core::ui::UiAttribute for PidAttr {
+        fn namespace(&self) -> Namespace {
+            Namespace::Control
+        }
+        fn name(&self) -> &'static str {
+            "ProcessId"
+        }
+        fn value(&self) -> UiValue {
+            self.0.clone()
+        }
+    }
+
+    impl UiNode for PidNode {
+        fn namespace(&self) -> Namespace {
+            Namespace::App
+        }
+        fn role(&self) -> &'static str {
+            "Application"
+        }
+        fn name(&self) -> String {
+            String::new()
+        }
+        fn runtime_id(&self) -> &platynui_core::ui::RuntimeId {
+            &self.runtime_id
+        }
+        fn parent(&self) -> Option<std::sync::Weak<dyn UiNode>> {
+            self.parent.clone()
+        }
+        fn children(&self) -> Box<dyn Iterator<Item = std::sync::Arc<dyn UiNode>> + Send + 'static> {
+            Box::new(std::iter::empty())
+        }
+        fn attributes(
+            &self,
+        ) -> Box<dyn Iterator<Item = std::sync::Arc<dyn platynui_core::ui::UiAttribute>> + Send + 'static> {
+            let attributes: Vec<std::sync::Arc<dyn platynui_core::ui::UiAttribute>> =
+                self.pid.iter().map(|pid| std::sync::Arc::new(PidAttr(pid.clone())) as _).collect();
+            Box::new(attributes.into_iter())
+        }
+        fn supported_patterns(&self) -> Vec<platynui_core::ui::PatternName> {
+            Vec::new()
+        }
+        fn invalidate(&self) {}
+    }
+
+    /// Spec (`application-process-attributes`): *A window is never looked up
+    /// by process ID 0*, in any form a provider may report it.
+    #[test]
+    fn process_id_0_counts_as_no_process_id() {
+        for zero in [UiValue::Integer(0), UiValue::Number(0.0), UiValue::String("0".into())] {
+            assert_eq!(pid_from_attr(pid_node(Some(zero.clone()), None).as_ref()), None, "{zero:?}");
+        }
+        assert_eq!(pid_from_attr(pid_node(Some(UiValue::Integer(4711)), None).as_ref()), Some(4711));
+    }
+
+    #[test]
+    fn a_node_with_process_id_0_takes_the_process_id_of_its_ancestors() {
+        let application = pid_node(Some(UiValue::Integer(4711)), None);
+        let window = pid_node(Some(UiValue::Integer(0)), Some(&application));
+        assert_eq!(extract_pid(window.as_ref()), Some(4711));
     }
 }
