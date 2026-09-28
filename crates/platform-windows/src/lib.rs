@@ -28,6 +28,8 @@ mod keyboard;
 mod pointer;
 #[cfg(target_os = "windows")]
 mod screenshot;
+#[cfg(all(test, target_os = "windows"))]
+mod test_log;
 #[cfg(target_os = "windows")]
 mod window_manager;
 

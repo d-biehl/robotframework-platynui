@@ -260,11 +260,11 @@ impl WindowManager for Win32WindowManager {
             let _ = unsafe { AttachThreadInput(our_tid, fg_tid, false) };
         }
 
+        // A refused foreground change is recorded at debug and not reported as a
+        // failure: Windows may refuse it despite the attach above (foreground
+        // lock), and an automatic activation before an action proceeds either way.
         if !ok.as_bool() {
-            tracing::warn!(
-                hwnd = hwnd.0 as usize,
-                "SetForegroundWindow returned FALSE — caller may lack foreground rights"
-            );
+            debug!(hwnd = hwnd.0 as usize, "SetForegroundWindow did not bring the window to the foreground");
         }
         Ok(())
     }
@@ -335,5 +335,25 @@ impl WindowManager for Win32WindowManager {
             )
         }
         .map_err(|e| PlatformError::OperationFailed { operation: "SetWindowPos resize", details: Some(e.to_string()) })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_log::logged;
+
+    #[test]
+    fn a_refused_foreground_change_is_recorded_at_debug() {
+        // The null handle is no window, so Windows refuses to bring it to the
+        // foreground in every session, interactive or not.
+        let (result, log) = logged(|| Win32WindowManager.activate(WindowId::new(0)));
+
+        assert!(result.is_ok(), "{result:?}");
+        let refusals: Vec<&str> = log.lines().filter(|line| line.contains("SetForegroundWindow")).collect();
+        assert_eq!(refusals.len(), 1, "{log}");
+        // The level leads each line, padded to five characters.
+        assert!(refusals[0].trim_start().starts_with("DEBUG ") && refusals[0].contains("hwnd=0"), "{log}");
+        assert!(!log.lines().any(|line| line.trim_start().starts_with("WARN ")), "{log}");
     }
 }
