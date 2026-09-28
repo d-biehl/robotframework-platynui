@@ -17,10 +17,10 @@ A provider SHALL NOT report one of these facts under a second name or namespace 
 
 #### Scenario: An application named after its program carries its process name
 
-- **GIVEN** an application node from UI Automation or the Java Access Bridge for a process whose executable is `C:\Tools\notepad.exe`
+- **GIVEN** an application node from UI Automation or the Java Access Bridge for a process whose executable is `C:\Tools\ledger.exe`
 - **WHEN** `@Name` and `@app:ProcessName` are read
-- **THEN** both SHALL be `notepad`, so that `app:Application[@Name="notepad"]` and `app:Application[@app:ProcessName="notepad"]` select the same node
-- **NOTE** Real provider only, Windows. Today both providers compute the name on their own, from the executable's stem. For a `.exe` program the two values already agree; for an image with another extension they can differ.
+- **THEN** both SHALL be `ledger`, so that `app:Application[@Name="ledger"]` and `app:Application[@app:ProcessName="ledger"]` select the same node
+- **NOTE** Real provider only, Windows. Today both providers derive the name and `@app:ProcessName` from the executable's stem, so the two agree. An image with an extension other than `.exe` loses that extension, and JAB under limited rights carries `.exe` in both. Under this contract only `.exe` is removed, and the name follows the process name.
 
 #### Scenario: A Java application served by the in-JVM agent carries its process attributes under app
 
@@ -41,6 +41,8 @@ Every process attribute SHALL be optional, `ProcessId` included. An attribute SH
 
 An attribute that cannot be determined SHALL be absent. It SHALL NOT be answered with a substituted value: not an empty string, a null, `"unknown"` or `0`, and not a value that describes the automation host or another process instead of the application — the host's or the build's architecture, the account the automation runs as, or the like. A plausible wrong answer is worse than a missing one, because nothing distinguishes it from a real one. The presence of one process attribute SHALL NOT imply the presence of another.
 
+An application node SHALL report only the process it was created for. Once that process has ended, or its process ID belongs to another process, the node SHALL report no process attribute in the `app` namespace.
+
 #### Scenario: An unreadable process carries no substituted attributes
 
 - **GIVEN** an application whose process the runtime is not permitted to query, for example a process of another user or an elevated process on Windows
@@ -60,7 +62,7 @@ An attribute that cannot be determined SHALL be absent. It SHALL NOT be answered
 - **GIVEN** an application on a platform that reports architectures, whose architecture the provider cannot determine
 - **WHEN** `@app:Architecture` is read
 - **THEN** it SHALL be absent, and SHALL NOT be the architecture of the machine the runtime runs on or the one the runtime was built for
-- **NOTE** Real provider only. Today the Windows UIA provider falls back to the machine's architecture and the JAB provider to the one the runtime was built for — both wrong for a 32-bit process on 64-bit Windows.
+- **NOTE** Real provider only. Today the Windows UIA provider falls back to the machine's architecture when it can open the process but cannot read its executable's PE header, and answers `"unknown"` when it cannot open it. The JAB provider falls back to the architecture the runtime was built for. Both are wrong for a 32-bit process on 64-bit Windows.
 
 #### Scenario: An application's self-description does not replace a process attribute
 
@@ -69,30 +71,37 @@ An attribute that cannot be determined SHALL be absent. It SHALL NOT be answered
 - **THEN** it SHALL name the account `A`, never `someone-else`
 - **NOTE** Real provider only. Process attributes describe the process as the platform knows it; a value an application states about itself is not a source for them.
 
+#### Scenario: An application node whose process has ended reports no process attributes
+
+- **GIVEN** an application node created while its process ran
+- **WHEN** that process has ended, or its process ID now belongs to another process, and the node's attributes are listed
+- **THEN** no process attribute in the `app` namespace SHALL be present
+- **NOTE** Decidable with a process the test starts and ends. A node held across a pid reuse would otherwise report the new process.
+
 ### Requirement: A process ID of 0 identifies nothing
 
-`ProcessId` SHALL NEVER be `0` or negative. Where the platform answers `0` or nothing, the attribute SHALL be absent. Wherever a window and an application are correlated through a process ID — finding an application node's windows or popups, activating, moving or closing its window, resolving the application behind a window at a point — a process ID of `0` SHALL NOT be used: the correlation SHALL report that nothing was resolved.
+`ProcessId` SHALL NEVER be `0` or negative. Where the platform answers `0` or nothing, the attribute SHALL be absent. Wherever a window and an application are correlated through a process ID — finding an application node's windows or popups, activating, moving or closing its window, resolving the application behind a window at a point, offering an application to an in-process agent — a process ID of `0` SHALL NOT be used: the correlation SHALL report that nothing was resolved.
 
 #### Scenario: A platform that reports process ID 0 yields no process ID
 
 - **GIVEN** an element whose platform reports the process ID `0`, for example an element found at a point whose process the platform cannot name
-- **WHEN** the application node built for it is read
-- **THEN** that node SHALL carry no `ProcessId` attribute
-- **NOTE** Real provider only. Today the Windows UIA provider builds such an application node with the process ID `0`.
+- **WHEN** the element is resolved and its ancestors are read
+- **THEN** no application node with the process ID `0` SHALL be built for it: the element is resolved without an application ancestor, or not at all
+- **NOTE** Real provider only. Today the Windows UIA provider caps such an element's ancestor chain with an application node whose `ProcessId` is `0`. Since `snapshot-validity` that node reports itself invalid, but it still lists the `0`.
 
 #### Scenario: A window is never looked up by process ID 0
 
 - **GIVEN** a node that carries `ProcessId = 0`, for example from a provider that does not follow this contract
 - **WHEN** a window-management operation resolves the node's window
-- **THEN** it SHALL report that no window was resolved, and SHALL NOT act on any window found by looking up the process ID `0`
-- **NOTE** Decidable per window manager with an injected node, without a real desktop. Today the window managers on Windows, X11 and the PlatynUI compositor accept an integer `0` and look windows up by it.
+- **THEN** it SHALL treat the node as carrying no process ID, and SHALL NOT act on any window found by looking up the process ID `0`
+- **NOTE** Decidable per window manager with an injected node. Today the window managers on Windows and X11 accept `0` as an integer or a string, and the compositor backend also as the number `0.0`. On Windows a lookup with `0` matches any window whose process `GetWindowThreadProcessId` cannot name.
 
 ### Requirement: Each process attribute has one value format
 
 A present process attribute SHALL have exactly this form, whichever provider reports it:
 
 - **`ProcessId`**: a positive integer.
-- **`ProcessName`**: the file name of the executable the process runs, without its directory and without the extension the platform gives executables (`.exe` on Windows). Examples: `notepad`, `javaw`, `python3`.
+- **`ProcessName`**: the file name of the executable the process runs, without its directory and without the extension the platform gives executables (`.exe` on Windows). Examples: `javaw`, `python3.12`.
 - **`ExecutablePath`**: the absolute path of that executable, as the process's own platform presents it.
 - **`CommandLine`**: one string. On Windows it is the command line the process was started with, verbatim, quoting included. On Linux and macOS it is the process's arguments joined by single spaces, the way `ps` shows them.
 - **`UserName`**: the account the process runs as, in the platform's form. On Windows that is `DOMAIN\user`, with the computer name as the domain for a local account. On Linux and macOS it is the login name.
@@ -103,8 +112,8 @@ A present process attribute SHALL have exactly this form, whichever provider rep
 
 - **GIVEN** an application node from any provider whose start time is known
 - **WHEN** `@app:StartTime` is read
-- **THEN** it SHALL match `YYYY-MM-DDTHH:MM:SSZ` exactly, and SHALL equal the process's creation time in UTC truncated to the second
-- **NOTE** Real provider per platform. Today the forms differ: Windows UIA adds milliseconds, JAB and AT-SPI stop at the second, and the Java agent reports an integer of epoch milliseconds.
+- **THEN** it SHALL match `YYYY-MM-DDTHH:MM:SSZ` exactly, and SHALL be the platform's record of the process's creation time in UTC, to the second
+- **NOTE** Real provider per platform. Today the forms differ: Windows UIA adds milliseconds, JAB and AT-SPI stop at the second, and the Java agent reports an integer of epoch milliseconds under `control` on Java 9 or later, and no start time on Java 8.
 
 #### Scenario: A Windows process owned by a local account names the computer as its domain
 
@@ -118,7 +127,7 @@ A present process attribute SHALL have exactly this form, whichever provider rep
 - **GIVEN** an application on Windows started as `app.exe "C:\My Files\input.txt" --flag`
 - **WHEN** `@app:CommandLine` is read
 - **THEN** it SHALL contain `"C:\My Files\input.txt"` with its quotes, exactly as the process was started
-- **NOTE** Real provider only, Windows. Today the JAB provider rebuilds the line from its arguments and loses the quoting.
+- **NOTE** Real provider only, Windows. Today the JAB provider rebuilds the line from its arguments and loses the quoting. The Java agent reports `sun.java.command`, without the launcher, the JVM options or the quoting.
 
 #### Scenario: A 32-bit process on 64-bit Windows reports its own architecture
 
@@ -132,7 +141,7 @@ A present process attribute SHALL have exactly this form, whichever provider rep
 - **GIVEN** a Java application whose application node is built from the in-JVM agent, launched through `javaw.exe` with the main class `com.example.App`
 - **WHEN** `@app:ProcessName` and `@app:ExecutablePath` are read
 - **THEN** `@app:ProcessName` SHALL be `javaw` and `@app:ExecutablePath` SHALL be the path of that `javaw.exe`, while the main class MAY remain the node's display name
-- **NOTE** Real provider only. Today the agent reports the main class's simple name, or the jar's file name, as the process name, and `<java.home>\bin\java.exe` as the executable path, also for a JVM started through `javaw.exe`.
+- **NOTE** Real provider only, Windows. Today the agent reports the main class's simple name, or the jar's file name, as the process name, and `<java.home>\bin\java.exe` as the executable path. For a JVM started through `javaw.exe` that is the wrong launcher. On Java 8, whose `java.home` is the JDK's `jre` directory, it is `<jdk>\jre\bin\java.exe`, another file.
 
 ### Requirement: Each platform reports the process attributes it has a source for
 
@@ -177,5 +186,5 @@ A provider SHALL report a process attribute only where its platform has a source
 
 - **GIVEN** a Java application whose application node is built from the in-JVM agent
 - **WHEN** `process_name` of its `Application` is read
-- **THEN** it SHALL return the JVM process's name, for example `javaw`
-- **NOTE** Real provider only, Windows. Today it raises `TypeError`, because the agent reports the name under `control`.
+- **THEN** it SHALL return the JVM process's name, for example `java` or `javaw`
+- **NOTE** Proven by composition: the agent node reports `app:ProcessName`, and `process_name` reads `app:ProcessName` and ignores `control:ProcessName`. Today it fails with `KeyError`, because the agent reports the name under `control`.
