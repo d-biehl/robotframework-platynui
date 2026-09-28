@@ -1765,6 +1765,10 @@ unsafe impl Sync for CanResizeAttr {}
 
 pub struct ApplicationNode {
     pid: i32,
+    /// The process this node was created for, recorded at creation so that a
+    /// later process with the same pid does not count; `None` when no process
+    /// had the pid by then.
+    process: Option<platynui_process::ProcessIdentity>,
     parent: Mutex<Option<Weak<dyn UiNode>>>,
     self_weak: std::sync::OnceLock<Weak<dyn UiNode>>,
     rid_cell: std::sync::OnceLock<RuntimeId>,
@@ -1787,6 +1791,7 @@ impl ApplicationNode {
     ) -> Arc<Self> {
         let node = Arc::new(Self {
             pid,
+            process: u32::try_from(pid).ok().and_then(platynui_process::ProcessIdentity::capture),
             parent: Mutex::new(parent),
             self_weak: std::sync::OnceLock::new(),
             rid_cell: std::sync::OnceLock::new(),
@@ -1923,6 +1928,11 @@ impl UiNode for ApplicationNode {
     }
     fn supported_patterns(&self) -> Vec<PatternName> {
         Vec::new()
+    }
+    /// Valid while the process it was created for runs, whether or not it has
+    /// windows. A process that cannot be inspected counts as running.
+    fn is_valid(&self) -> bool {
+        self.process.as_ref().is_some_and(|process| !process.check().has_ended())
     }
     fn invalidate(&self) {
         // No-op: children are resolved from UIA on demand.
@@ -2281,6 +2291,73 @@ mod attribute_surface_tests {
             let _ = self.child.kill();
             let _ = self.child.wait();
         }
+    }
+
+    /// Set for the child process that waits without a window.
+    const WINDOWLESS_CHILD_ENV: &str = "PLATYNUI_UIA_WINDOWLESS_CHILD";
+
+    /// Not a test of its own: the child process of [`WindowlessChild::start`].
+    /// It shows no window and only waits until it is killed, or for half a
+    /// minute at most. Started without that environment, it returns at once.
+    #[test]
+    #[ignore = "the child process of WindowlessChild::start, which starts it"]
+    fn windowless_child() {
+        if std::env::var_os(WINDOWLESS_CHILD_ENV).is_none() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_secs(30));
+    }
+
+    /// A process of the test's own that has no window, killed when this is
+    /// dropped: the test binary, re-executed into [`windowless_child`].
+    struct WindowlessChild(std::process::Child);
+
+    impl WindowlessChild {
+        fn start() -> Self {
+            let child = std::process::Command::new(std::env::current_exe().expect("test binary"))
+                .args(["--exact", "node::attribute_surface_tests::windowless_child", "--ignored"])
+                .env(WINDOWLESS_CHILD_ENV, "1")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .expect("windowless process");
+            Self(child)
+        }
+
+        fn pid(&self) -> i32 {
+            i32::try_from(self.0.id()).expect("process id")
+        }
+    }
+
+    impl Drop for WindowlessChild {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    /// An application node stands for its process, not for its windows: it is
+    /// valid while the process runs, although the process shows none, and
+    /// invalid once the process has ended (spec *application-node-validity*).
+    #[test]
+    fn an_application_node_is_valid_while_its_process_runs() {
+        let mut child = WindowlessChild::start();
+        let app = ApplicationNode::orphan(child.pid());
+        assert!(app.is_valid(), "the process runs, without a window");
+
+        child.0.kill().expect("end the process");
+        child.0.wait().expect("reap the process");
+        assert!(!app.is_valid(), "the process has ended");
+    }
+
+    /// A process that was gone before its application node was created leaves
+    /// a node that is invalid from the start.
+    #[test]
+    fn an_application_node_for_a_pid_without_a_process_is_invalid() {
+        // Far above any pid Windows hands out.
+        let app = ApplicationNode::orphan(0x3FFF_FFFC);
+        assert!(!app.is_valid());
     }
 
     /// The rule of `UiNode::parent`: every node a listing produces keeps its

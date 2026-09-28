@@ -86,6 +86,12 @@ pub trait UiNode: Send + Sync {
     /// is stale (UIA `CurrentProcessId`, JAB `isSameObject`, AT-SPI reading the
     /// role are the existing ones).
     ///
+    /// Synthetic nodes have a real lifetime too. An `app:Application` node stands
+    /// for a process: it records the process's pid and start time when it is
+    /// created (`platynui-process`) and reports invalid once that process has
+    /// ended or its pid belongs to another one. It stays valid when the process
+    /// cannot be inspected, because that is no proof that it ended.
+    ///
     /// The `true` default is a convenience for stub and test providers, **not** a
     /// safe fallback for a real one: clients treat this as the signal that a node
     /// they hold on to has to be looked up again. The Robot Framework library, for

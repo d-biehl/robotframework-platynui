@@ -1323,6 +1323,10 @@ fn make_window_pattern(id: &str, core: &Arc<JabWindowSurface>) -> Arc<dyn UiPatt
 
 pub(crate) struct JabAppNode {
     pid: u32,
+    /// The process this node was created for, recorded at creation so that a
+    /// later process with the same pid does not count; `None` when no process
+    /// had the pid by then.
+    process: Option<platynui_process::ProcessIdentity>,
     client: Arc<JabClient>,
     window_manager: Option<Arc<dyn WindowManager>>,
     /// Carried rather than snapshot: [`Self::children`] runs long after the
@@ -1366,6 +1370,7 @@ impl JabAppNode {
     ) -> Arc<Self> {
         let node = Arc::new(Self {
             pid,
+            process: platynui_process::ProcessIdentity::capture(pid),
             client,
             window_manager,
             exclusions,
@@ -1453,6 +1458,13 @@ impl UiNode for JabAppNode {
 
     fn supported_patterns(&self) -> Vec<PatternName> {
         Vec::new()
+    }
+
+    /// Valid while the process it was created for runs, whether or not it has
+    /// windows. The answer comes from the process table, not from the bridge,
+    /// and a process that cannot be inspected counts as running.
+    fn is_valid(&self) -> bool {
+        self.process.as_ref().is_some_and(|process| !process.check().has_ended())
     }
 
     fn invalidate(&self) {}

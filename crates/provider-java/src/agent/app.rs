@@ -60,6 +60,9 @@ impl ProcessFacts {
 
 pub(crate) struct AgentAppNode {
     session: Arc<AgentSession>,
+    /// The JVM's process, recorded at creation so that a later process with the
+    /// same pid does not count; `None` when no process had the pid by then.
+    process: Option<platynui_process::ProcessIdentity>,
     facts: ProcessFacts,
     window_manager: Option<Arc<dyn WindowManager>>,
     parent: Mutex<Option<Weak<dyn UiNode>>>,
@@ -74,8 +77,10 @@ impl AgentAppNode {
         window_manager: Option<Arc<dyn WindowManager>>,
         parent: Option<&Arc<dyn UiNode>>,
     ) -> Arc<Self> {
+        let process = platynui_process::ProcessIdentity::capture(session.pid());
         let node = Arc::new(Self {
             session,
+            process,
             facts,
             window_manager,
             parent: Mutex::new(parent.map(Arc::downgrade)),
@@ -120,6 +125,16 @@ impl UiNode for AgentAppNode {
         // An app node exists only because at least one window was seen for this
         // JVM, so claiming children is cheaper than proving them.
         true
+    }
+
+    /// Valid while the JVM's process runs and its agent session is usable: a
+    /// closed or degraded session serves nothing, so its node must not claim to
+    /// be fine (`java-provider`, *Node validity is answered, not assumed*).
+    /// Every part is local state; nothing calls into the JVM.
+    fn is_valid(&self) -> bool {
+        !self.session.is_closed()
+            && !self.session.is_degraded()
+            && self.process.as_ref().is_some_and(|process| !process.check().has_ended())
     }
 
     fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
@@ -204,5 +219,66 @@ impl UiAttribute for Fixed {
 
     fn value(&self) -> UiValue {
         self.value.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AgentAppNode, ProcessFacts};
+    use crate::agent::session::AgentSession;
+    use platynui_core::ui::UiNode;
+    use std::sync::Arc;
+
+    /// A session for this test process, so that the process check alone would
+    /// find the node valid.
+    fn session() -> Arc<AgentSession> {
+        Arc::new(AgentSession::unconnected(std::process::id()))
+    }
+
+    fn node(session: &Arc<AgentSession>) -> Arc<AgentAppNode> {
+        AgentAppNode::new(Arc::clone(session), ProcessFacts::default(), None, None)
+    }
+
+    #[test]
+    fn a_closed_session_makes_the_application_node_invalid() {
+        let session = session();
+        let app = node(&session);
+        assert!(app.is_valid(), "the process runs and the session is open");
+
+        session.close();
+        assert!(!app.is_valid(), "a closed session serves nothing");
+    }
+
+    #[test]
+    fn a_degraded_session_makes_the_application_node_invalid_until_it_recovers() {
+        let session = session();
+        let app = node(&session);
+
+        session.set_degraded(true);
+        assert!(!app.is_valid(), "a degraded agent must not claim its nodes are fine");
+
+        session.set_degraded(false);
+        assert!(app.is_valid(), "the node is valid again once the agent answers");
+    }
+
+    #[test]
+    fn an_ended_process_makes_the_application_node_invalid() {
+        // Far above any pid a system hands out, so no process has it.
+        let session = Arc::new(AgentSession::unconnected(0x3FFF_FFFC));
+        let app = node(&session);
+        assert!(!app.is_valid(), "the session is open, but its process is gone");
+    }
+
+    /// Every call of this session fails, because no agent answers for it. A
+    /// validity check that called into the JVM would count a failure.
+    #[test]
+    fn the_validity_check_does_not_call_into_the_jvm() {
+        let session = session();
+        let app = node(&session);
+        for _ in 0..10 {
+            let _ = app.is_valid();
+        }
+        assert_eq!(session.failure_count(), 0, "is_valid called into the agent");
+        assert!(!session.is_degraded());
     }
 }

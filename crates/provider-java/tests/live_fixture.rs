@@ -48,6 +48,7 @@ use std::path::PathBuf;
 // not use directly (`unused_crate_dependencies` is target-scoped).
 use inventory as _;
 use platynui_java_agent as _;
+use platynui_process as _;
 use platynui_provider_java_jab as _;
 use serde as _;
 use serde_json as _;
@@ -1296,6 +1297,9 @@ fn live_a_killed_jvm_leaves_no_valid_nodes() {
     walk(&window, &mut nodes, 0);
     let cell = find_by_name(&nodes, "r2c0").clone();
     assert!(window.is_valid() && cell.is_valid(), "a live window and its cells are valid");
+    // The application node, which a suite pins as its root (snapshot-validity 3.3).
+    let application = fixture_application(&provider, &parent, &app, "JavaAgent");
+    assert!(application.is_valid(), "the application node of a running JVM is valid");
 
     app.kill_and_wait();
 
@@ -1303,7 +1307,7 @@ fn live_a_killed_jvm_leaves_no_valid_nodes() {
     let started = Instant::now();
     let deadline = started + Duration::from_secs(30);
     loop {
-        if !window.is_valid() && !cell.is_valid() {
+        if !window.is_valid() && !cell.is_valid() && !application.is_valid() {
             break;
         }
         assert!(Instant::now() < deadline, "nodes of a killed JVM still reported valid after 30s");
@@ -1313,9 +1317,59 @@ fn live_a_killed_jvm_leaves_no_valid_nodes() {
     // consumer asks this on every scoped-root access.
     let one_answer = Instant::now();
     assert!(!window.is_valid());
+    assert!(!application.is_valid());
     assert!(one_answer.elapsed() < Duration::from_secs(10), "an invalid answer must be bounded, not a full deadline");
 
     provider.shutdown();
+}
+
+/// The Access Bridge half of the test above (snapshot-validity 3.3): the
+/// application node of a killed JVM reports invalid. It answers from the
+/// process, not from the bridge, so the answer is at once.
+#[test]
+#[ignore = "needs a desktop, a Java runtime, and the built Swing fixture (run via just test-acceptance-windows)"]
+fn live_a_killed_jvm_leaves_no_valid_application_node_on_the_bridge() {
+    let mut app = FixtureApp::launch("jab-lifetime");
+    let provider = build_provider(&jab_only());
+    let parent = desktop_stub();
+
+    let application = fixture_application(&provider, &parent, &app, "JAB");
+    assert!(application.is_valid(), "the application node of a running JVM is valid");
+
+    app.kill_and_wait();
+
+    let one_answer = Instant::now();
+    assert!(!application.is_valid(), "the application node of a killed JVM is invalid");
+    assert!(one_answer.elapsed() < Duration::from_secs(1), "the answer comes from the process, not from the bridge");
+
+    provider.shutdown();
+}
+
+/// The fixture's `app:Application` node in the desktop listing, as the backend
+/// named by `technology` serves it.
+fn fixture_application(
+    provider: &Arc<dyn UiTreeProvider>,
+    parent: &Arc<dyn UiNode>,
+    app: &FixtureApp,
+    technology: &str,
+) -> Arc<dyn UiNode> {
+    let pid = Some(UiValue::from(i64::from(app.pid())));
+    let deadline = Instant::now() + DISCOVERY_DEADLINE;
+    loop {
+        let application = provider.get_nodes(Arc::clone(parent)).expect("get_nodes").find(|node| {
+            node.namespace() == Namespace::App
+                && attribute_value(node, attribute_names::application::PROCESS_ID) == pid
+                && attribute_value(node, attribute_names::common::TECHNOLOGY) == Some(UiValue::from(technology))
+        });
+        if let Some(application) = application {
+            return application;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "no {technology} application node for the fixture within {DISCOVERY_DEADLINE:?}"
+        );
+        std::thread::sleep(Duration::from_millis(250));
+    }
 }
 
 /// Task 4.6, agent half: a wedged JVM stays bounded and does not take the run

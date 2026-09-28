@@ -16,6 +16,7 @@ rust-version.workspace = true
 # non-Windows builds see an empty crate without unused-dependency warnings.
 [target.'cfg(windows)'.dependencies]
 platynui-core = { path = "../core" }
+platynui-process = { path = "../process" }
 inventory = "0.3"
 thiserror = "2.0"
 tracing = { version = "0.1", default-features = false, features = ["std"] }

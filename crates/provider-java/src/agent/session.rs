@@ -98,6 +98,11 @@ impl AgentSession {
         self.degraded.load(Ordering::Acquire)
     }
 
+    /// Whether the session was closed. A closed session never recovers.
+    pub fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::Acquire)
+    }
+
     /// Marks the session unusable. Idempotent; a closed session never recovers,
     /// because the reason to close it is that the provider is going away.
     pub fn close(&self) {
@@ -270,6 +275,39 @@ impl AgentSession {
     fn elapsed_ms(&self) -> u64 {
         u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX)
     }
+
+    /// A session without a connection, for tests of the failure bookkeeping and
+    /// of the nodes that hold a session. A call on it looks for a handshake file
+    /// to reconnect with.
+    #[cfg(test)]
+    pub(crate) fn unconnected(pid: u32) -> Self {
+        Self {
+            pid,
+            version: String::new(),
+            toolkits: Vec::new(),
+            client: Mutex::new(None),
+            config: ClientConfig::default(),
+            failures: AtomicU64::new(0),
+            degraded: AtomicBool::new(false),
+            started: Instant::now(),
+            last_probe_ms: AtomicU64::new(0),
+            closed: AtomicBool::new(false),
+        }
+    }
+
+    /// Puts the session into, or out of, the degraded state, as consecutive
+    /// failures and a later answer would.
+    #[cfg(test)]
+    pub(crate) fn set_degraded(&self, degraded: bool) {
+        self.degraded.store(degraded, Ordering::Release);
+    }
+
+    /// The failed calls counted toward degraded since the last answer, so a
+    /// test can tell whether something called into the agent.
+    #[cfg(test)]
+    pub(crate) fn failure_count(&self) -> u64 {
+        self.failures.load(Ordering::Acquire)
+    }
 }
 
 // The degradation policy is what keeps one sick JVM from stalling a whole run,
@@ -283,21 +321,8 @@ const _: () = assert!(PROBE_INTERVAL.as_millis() >= 1_000);
 mod tests {
     use super::*;
 
-    /// A session without a connection, for the failure bookkeeping; a call on
-    /// it looks for a handshake file to reconnect with.
     fn unconnected(pid: u32) -> AgentSession {
-        AgentSession {
-            pid,
-            version: String::new(),
-            toolkits: Vec::new(),
-            client: Mutex::new(None),
-            config: ClientConfig::default(),
-            failures: AtomicU64::new(0),
-            degraded: AtomicBool::new(false),
-            started: Instant::now(),
-            last_probe_ms: AtomicU64::new(0),
-            closed: AtomicBool::new(false),
-        }
+        AgentSession::unconnected(pid)
     }
 
     fn timeout() -> AgentError {

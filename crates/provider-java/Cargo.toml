@@ -20,6 +20,7 @@ workspace = true
 # the only backend today, JAB, exists on Windows only.
 [target.'cfg(windows)'.dependencies]
 platynui-core = { path = "../core" }
+platynui-process = { path = "../process" }
 # The agent backend's transport: provider-neutral, depends on no other PlatynUI
 # crate, and already portable — it is the JAB backend below that keeps this
 # whole section Windows-gated until `java-provider-linux`.
