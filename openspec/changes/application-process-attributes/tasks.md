@@ -11,7 +11,7 @@ The tasks below add the reader to that crate and read each node's attributes thr
 
 ## 1. Acceptance suites first
 
-- [ ] 1.1 Add `tests/acceptance/egui/process_attributes.robot`, following the `robot-test-style` skill.
+- [x] 1.1 Add `tests/acceptance/egui/process_attributes.robot`, following the `robot-test-style` skill.
   - Its suite setup records the UTC time and launches an instance of its own with `Launch Test App    PlatynUI Process Attributes    com.platynui.test.processattributes` (`tests/acceptance/egui/resources/testapp.resource:32-41`), whose title has spaces. `Launch Default Instance` pins the window as root and records no launch time (`:51-59`), so it is not used.
   - Its teardown ends the instance with `Terminate App`.
   - Locators are absolute, `/app:Application[@ProcessId=${pid}]`, as in `app_root_after_exit.robot`.
@@ -34,7 +34,7 @@ The tasks below add the reader to that crate and read each node's attributes thr
   - Against `3d41929`, 7 of 8 pass; only *The Start Time Is UTC To The Second* fails, on `2026-09-28T20:11:55.054Z`.
   - With the change, 8 of 8 pass, with no WARN or ERROR message.
 
-  Open: the Linux-host guard. It has to run on a checkout of `3d41929` with this suite added, since the code has changed since.
+  Outcome (2026-09-29), Linux host: on a worktree of `3d41929` with only this suite added, it passes 8 of 8 on both lanes (`just headless=true test-acceptance-x11 --suite '*.Egui.ProcessAttributes'`, and the same with `test-acceptance-compositor`). With the change it passes 8 of 8 on both lanes as part of 7.2.
 - [x] 1.2 Add `tests/acceptance/swing/process_attributes.robot` for the Windows lane, following the `robot-test-style` skill.
   - First, `Start Swing Fixture Process` (`tests/acceptance/swing/resources/swing_env.resource:34-42`) gains a launcher argument `${java}=${SWING_JAVA}` and `&{process_options}`, both passed on to `Start Process`. `Launch Swing Agent Test App` (`resources/testapp_agent.resource:27-38`) forwards `${java}`, `@{extra_args}` and `&{process_options}`.
   - The suite imports `resources/testapp_agent.resource` (agent on, as `BM`). It adds a second `PlatynUI.BareMetal` with `config={'providers': {'java': {'agent': {'enabled': False}}}}` (as `resources/testapp.resource:31-32`) under the alias `BMJAB`, the two-import pattern of `dedup.robot:8-12`.
@@ -68,7 +68,7 @@ The tasks below add the reader to that crate and read each node's attributes thr
   - no attribute is present on both nodes.
 
   The log check of the second instance holds: `Picked up JAVA_TOOL_OPTIONS: -Duser.name=someone-else`. With the change all four pass.
-- [ ] 1.3 Add `apps/win32-test-window` (package `platynui-win32-test-window`), the 32-bit process for the architecture scenario (design D11). It is a helper for process-level tests, not a fixture of the blueprint (`dev-docs/testing-strategy.md` §5).
+- [x] 1.3 Add `apps/win32-test-window` (package `platynui-win32-test-window`), the 32-bit process for the architecture scenario (design D11). It is a helper for process-level tests, not a fixture of the blueprint (`dev-docs/testing-strategy.md` §5).
   - It shows one visible top-level window of the predefined `STATIC` class, titled by `--title`, off screen, without `WS_EX_NOACTIVATE` and without activating it (`SW_SHOWNOACTIVATE`).
   - It pumps its messages until it exits, so that the UIA root enumeration lists it (`crates/provider-windows-uia/src/provider.rs:115-167`) and its `WM_GETOBJECT` probe is answered within 300 ms (`:38`, `:66-111`).
   - It exits by itself after `--auto-close <seconds>` (default 60), so that a failed teardown leaves no process behind.
@@ -93,7 +93,9 @@ The tasks below add the reader to that crate and read each node's attributes thr
   - Started with `--title "Win32 Test Window" --auto-close 5`, the window shows under that title and the process exits with 0 after about 5 s. An unknown argument exits with 2 and the usage line.
   - clippy is clean for x64 and i686, and `just check` is clean.
 
-  Open: `just cross-target-checks` on a Linux host, and the `rust-windows` job on the push.
+  Outcome (2026-09-29):
+  - `just cross-target-checks` is clean on a Linux host, against `009595b`.
+  - The `rust-windows` job passed on the push of `3315d9a` (CI run 36489572332), including its step *Build the 32-bit Win32 test window*.
 - [x] 1.4 Add `tests/acceptance/win32/__init__.robot`, tagged `acceptance`, `real` and `platform:windows`, and `tests/acceptance/win32/process_attributes.robot`, following the `robot-test-style` skill.
   - The suite checks its prerequisite first. When `PLATYNUI_WIN32_TEST_WINDOW_X86` is unset or names no file, it fails with a message naming `just build-win32-test-window-x86`. It never skips.
   - It starts the window under a suite-unique title, waits with `BM.Wait Until Exists    /app:Application[@ProcessId=${pid}]/*[@Name="${title}"]` (no role: UIA may report a top-level `STATIC` window as `Text` rather than `Window`), then pins `/app:Application[@ProcessId=${pid}]` as its root, and asserts `@app:Architecture = x86` (*A 32-bit process on 64-bit Windows reports its own architecture*).
@@ -170,7 +172,7 @@ The tasks below add the reader to that crate and read each node's attributes thr
   - `just test-crate platynui-process` passes 28 of 28, and `just check` is clean.
   - The ignored test with `PLATYNUI_WIN32_TEST_WINDOW_X86` passes: the 32-bit window reads `x86` through `IsWow64Process2` and through `ProcessMachineTypeInfo`.
   - The lane's ignored-only step now runs `-p platynui-process` as well (`justfile`).
-- [ ] 2.4 Implement the Linux reader on `sysinfo`, moving `with_process` and `resolve_username` (`crates/provider-atspi/src/process.rs:11-25`, `:85-122`, the latter with a reason on its `allow`), with design D1, D2 and D5:
+- [x] 2.4 Implement the Linux reader on `sysinfo`, moving `with_process` and `resolve_username` (`crates/provider-atspi/src/process.rs:11-25`, `:85-122`, the latter with a reason on its `allow`), with design D1, D2 and D5:
   - one targeted refresh per read, of only this pid and only exe and user; the command line comes from `/proc/<pid>/cmdline`, read in the same start-time window, since `sysinfo`'s `cmd()` trims every argument and drops empty ones;
   - the process name is the file name of `exe()`, with no stem cut and no `comm` fallback; `sysinfo` already removes the ` (deleted)` suffix;
   - the user name resolves `effective_user_id()` through `getpwuid_r`, without the real-UID fallback of `process.rs:73`;
@@ -180,6 +182,10 @@ The tasks below add the reader to that crate and read each node's attributes thr
   Verify on a Linux host: the platform-independent and Linux tests of 2.2 pass with `just test-crate platynui-process`. The same run can be recorded as the crate half of `snapshot-validity` task 9.3.
 
   Outcome (2026-09-28): implemented and lint-clean for `x86_64-unknown-linux-gnu`. Not run: that needs the Linux host.
+
+  Outcome (2026-09-29), Linux host, against `009595b`, run as an unprivileged user: `just test-crate platynui-process` passes 29 of 29, the Linux reader tests included (own process, the deleted `probe.v2` copy, PID 1, a kernel thread, a command line with ` padded ` and an empty argument, and the reads bound to a recorded identity).
+
+  A stress run found *a command line keeps every argument as it is* flaky on Linux: 14 of 1000 runs failed, and one failure also came up in a full `just test`. `spawn` returns while the child's `execve` is still under way. In that window `/proc/<pid>/cmdline` gives the parent's arguments, or none. The fix is in the test child (`crates/process/src/lib.rs`, `CHILD_READY`): the waiting child prints a line once it runs, and `try_spawn_from` returns only after reading it. The test then passes 2000 of 2000, so does *a process is named after its full file name*, and the whole crate passes 200 stress rounds. The child's output is now piped on Windows too, so 7.1 runs that change there first.
 
   Decided (maintainer, 2026-09-28): `sysinfo`'s `cmd()` trims every argument and drops empty ones (`split_content`, `sysinfo` 0.39.3 `src/unix/linux/process.rs:988-1004`), so `CommandLine` comes from `/proc/<pid>/cmdline` itself, in the same start-time window; everything else stays on `sysinfo`. The joining is a platform-independent function (`join_command_line`), tested on every platform. The Linux test *a command line keeps every argument as it is* starts a child with ` padded ` and an empty argument.
 
@@ -263,7 +269,7 @@ The application nodes of 3.1 to 3.3 read their `app:` attributes through the `Pr
   - The JAB half of 1.2 passes, and so do the live tests *The bridge application node carries its process attributes* and the two killed-JVM tests.
 
   Open: the full lane with `picker.robot` (7.1).
-- [ ] 3.4 Move AT-SPI onto the reader (on a Linux host).
+- [x] 3.4 Move AT-SPI onto the reader (on a Linux host).
   - `crates/provider-atspi/src/process.rs` and `mod process;` (`lib.rs:20`) go away. The node records `ProcessIdentity::capture(local_number)` once. The desktop enumeration records it when it creates the node, and a node built elsewhere records it on its first definitive local number. `AppAttr` reads through that identity, so a pid reused after the node was created is never read (design D5). `pidns_harness.rs:136` captures an identity for its number and reads through it. `AppAttr`, `app_attribute` and the named lookup (`node.rs:386-397`, `:1864-1936`) stay.
   - `platynui-process` joins `[dependencies]`. `sysinfo` and `chrono` (`Cargo.toml:26-27`) and `libc` (`:33-35`) leave AT-SPI's manifest; `process.rs` is their only user there, and `sysinfo` and `libc` now sit in `crates/process`.
   - The reader is called only with `process_table` (`node.rs:1840-1849`), which is set only under local numbering, so the `sidecar-deployment` gate is unchanged (`node.rs:391-395`, `:1300-1303`).
@@ -279,11 +285,14 @@ The application nodes of 3.1 to 3.3 read their `app:` attributes through the `Pr
   - The new test *a node reads only the process recorded for it* kills a recorded child and then offers a readable number: nothing is read.
   - clippy is clean for Windows and `x86_64-unknown-linux-gnu`, and the crate's 108 unit tests pass on Windows, where the D-Bus-free ones run.
 
-  Open: the Linux-host runs listed above.
+  Outcome (2026-09-29), Linux host, against `009595b`:
+  - `just test-crate platynui-provider-atspi` passes 108 of 108, *a node reads only the process recorded for it* included.
+  - `just test-atspi-pidns dbus-daemon` and `just test-atspi-pidns dbus-broker` each pass 2 of 2.
+  - The egui suite of 1.1 passes 8 of 8 on both Linux lanes (7.2).
 
 ## 4. Process ID 0 in the window managers
 
-- [ ] 4.1 Write tests first: each window manager's process-ID reader answers "no process" for a node carrying `ProcessId = 0` as `Integer(0)`, `Number(0.0)` and `String("0")` (*A window is never looked up by process ID 0*). `Integer(0)` and `String("0")` fail today on all three. `Number(0.0)` fails only on the Wayland backend (`platynui_ipc.rs:452`) and is a guard on Windows and X11 (`:92-97`; X11 `:415-420`).
+- [x] 4.1 Write tests first: each window manager's process-ID reader answers "no process" for a node carrying `ProcessId = 0` as `Integer(0)`, `Number(0.0)` and `String("0")` (*A window is never looked up by process ID 0*). `Integer(0)` and `String("0")` fail today on all three. `Number(0.0)` fails only on the Wayland backend (`platynui_ipc.rs:452`) and is a guard on Windows and X11 (`:92-97`; X11 `:415-420`).
 
   Then make `pid_from_attr` accept only a positive number in:
   - `crates/platform-windows/src/window_manager.rs:87-101`, whose module documentation (`:13`) is corrected to `control:ProcessId`; tests into the existing module;
@@ -298,7 +307,7 @@ The application nodes of 3.1 to 3.3 read their `app:` attributes through the `Pr
   - Windows: both new tests failed first (`Some(0)`), and now 19 of 19 pass.
   - X11 and Wayland: the same tests and the same fix are in place, and clippy is clean for Linux.
 
-  Open: running them on the Linux host.
+  Outcome (2026-09-29), Linux host, against `009595b`: `just test-crate platynui-platform-linux-x11` passes 27 of 27 and `just test-crate platynui-platform-linux-wayland` 43 of 43 (both within `just test`), the two process-ID tests of each included.
 
 ## 5. The mock and the Python `Application`
 
@@ -369,7 +378,7 @@ The application nodes of 3.1 to 3.3 read their `app:` attributes through the `Pr
   - the notes record whether the lane account is local, since only then does the `UserName` check prove *A Windows process owned by a local account names the computer as its domain*.
 
   Record the results in the change notes.
-- [ ] 7.2 On a Linux host, run the full gate:
+- [x] 7.2 On a Linux host, run the full gate:
   1. `just check` and `just test`.
   2. `just test-python` and `just test-baremetal`, which build the mock native module.
   3. `just build-native`, to rebuild the real native module before the real lanes.
@@ -380,6 +389,20 @@ The application nodes of 3.1 to 3.3 read their `app:` attributes through the `Pr
   8. `just test-crate platynui-process` (with `snapshot-validity` 9.3).
 
   Verify: all green.
+
+  Outcome (2026-09-29), on a clean worktree of `009595b`, so that no uncommitted work of other changes was part of the run:
+  1. `just check` is clean, and `cargo fmt` changed nothing. `just test` passes 2457 of 2457 (33 skipped).
+  2. `just test-python` passes 891 of 891, and `just test-baremetal` 122 of 122.
+  3. `just build-native` ran through the lane recipes.
+  4. The X11 lane passes 93 of 93.
+  5. The compositor lane passes 94 of 94.
+  6. Both pidns runs pass 2 of 2.
+  7. `just cross-target-checks` is clean.
+  8. `just test-crate platynui-process` passes 29 of 29.
+
+  Neither lane logged a WARN or ERROR. Their FAIL messages all come from expected failures inside passing tests, and one from a resize poll that succeeded on its next try.
+
+  A later `just test` on another checkout hit the flaky process test recorded under 2.4. After its fix, `just test` passes 2460 of 2460 there.
 - [x] 7.3 When the maintainer asks, commit in reviewable steps, each lint-clean with its tests green:
   1. the reader;
   2. the agent, UIA and JAB, with the suites, the 32-bit window and the lane wiring;
