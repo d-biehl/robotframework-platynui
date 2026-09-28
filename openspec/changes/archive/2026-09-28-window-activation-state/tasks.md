@@ -19,7 +19,7 @@
   - a minimized window stays resolvable on the compositor
 
   Verify with `just headless=true test-acceptance-compositor --suite '*.Egui.WindowActivation'` and the same for `test-acceptance-x11` (RF matches normalized suite names, so no spaces), reading the outcome with `robotcode results`: the new tests fail on the current code because the attributes are missing and activation un-maximizes.
-- [ ] 1.3 Extend `tests/acceptance/swing/window.robot` with the JAB scenario: maximize → `@IsMaximized` is `True`, minimize → `@IsMinimized` is `True`, `Activate Window` brings the frame back. Verify on a Windows host with `just test-acceptance-windows` (expected red before group 5).
+- [x] 1.3 Extend `tests/acceptance/swing/window.robot` with the JAB scenario: maximize → `@IsMaximized` is `True`, minimize → `@IsMinimized` is `True`, `Activate Window` brings the frame back. Verify on a Windows host with `just test-acceptance-windows` (expected red before group 5). Outcome (2026-09-28): green in the Windows run recorded under *Windows verification evidence*. It was never seen red, because the test and the code landed together in `1312085`.
 
 ## 2. Rust tests first
 
@@ -69,9 +69,9 @@
 ## 5. Providers
 
 - [x] 5.1 In `crates/provider-mock/src/window.rs`, remember the maximized state on `minimize`, bring it back on activation of a minimized window, and clear it on `restore`/`maximize` (design D4). Verify that tests 2.3 pass and that the restore-to-maximized test from 2.1 passes.
-- [ ] 5.2 In `crates/provider-windows-uia/src/node.rs`, make `activate` call `ShowWindow(SW_RESTORE)` on an iconic native window handle before `SetFocus` (design D4). Verify on a Windows host with the egui activation scenarios in `just test-acceptance-windows`.
+- [x] 5.2 In `crates/provider-windows-uia/src/node.rs`, make `activate` call `ShowWindow(SW_RESTORE)` on an iconic native window handle before `SetFocus` (design D4). Verify on a Windows host with the egui activation scenarios in `just test-acceptance-windows`. Outcome (2026-09-28): `Egui.Window Activation` 7/7 and `Egui.Auto Activate` 8/8, see *Windows verification evidence*.
 - [x] 5.3 In `crates/provider-atspi/src/node.rs`, add `IsMinimized`, `IsMaximized` and `IsTopmost` wherever `IsActive` is emitted (lazy standard-attribute kinds, index table, value resolution through the WindowManager state query, `False` on failure, a debug log on query errors; design D6). Verify with `just test-crate platynui-provider-atspi` and the attribute scenarios from 1.2 in both Linux lanes.
-- [ ] 5.4 In `crates/provider-java-jab/src/node.rs`, add the same three attributes next to `IsActiveAttr` for top-level nodes. Verify with the JAB scenario from 1.3 in `just test-acceptance-windows`.
+- [x] 5.4 In `crates/provider-java-jab/src/node.rs`, add the same three attributes next to `IsActiveAttr` for top-level nodes. Verify with the JAB scenario from 1.3 in `just test-acceptance-windows`. Outcome (2026-09-28): `Swing.Window` 4/4, served by the Access Bridge, see *Windows verification evidence*.
 
 ## 6. Runtime
 
@@ -91,11 +91,40 @@
 
 - [x] 9.1 Run `just check`, `just test`, `just test-python` and `just test-baremetal`. All must be green.
 - [x] 9.2 Run `just test-acceptance-compositor` and `just test-acceptance-x11`, then read each run with `robotcode results`, since the compositor lane exits 0 even on failure. The new `window_activation.robot`, the existing `auto_activate.robot` and `inspector_window_controls.robot` ("Maximize Button Toggles The Window State") must pass. Investigate and record any change in the outcome of the latter.
-- [ ] 9.3 On a Windows host, run `just test-acceptance-windows` for the egui and Swing suites. Record whether a window minimized from maximized comes back maximized under Win32/UIA (the `SW_RESTORE` assumption in design Risks), and apply the documented fallback if it does not.
+- [x] 9.3 On a Windows host, run `just test-acceptance-windows` for the egui and Swing suites. Record whether a window minimized from maximized comes back maximized under Win32/UIA (the `SW_RESTORE` assumption in design Risks), and apply the documented fallback if it does not. Outcome (2026-09-28): it does. "A Window Minimized From Maximized Comes Back Maximized" passes under UI Automation, so no fallback is needed; see *Windows verification evidence*.
 
-## Windows verification evidence (2026-09-27)
+## Windows verification evidence
 
-This record exists because the next lane run overwrites `results/output.xml`. The boxes of 1.3, 5.2, 5.4 and 9.3 stay open until the maintainer accepts this run as their verification. The raw results (`output.xml`, `log.html`, `report.html`) are kept outside the repository, in the maintainer's untracked `playground/lane-2026-09-27-1809/`.
+### The verifying run (2026-09-28)
+
+The maintainer chose a fresh run at the current head over the earlier run below. Two commits had touched what the tasks verify since then: the log level of a refused foreground change (`4b1fc6c`) and two lines of `window_activation.robot` (`1dcf69d`).
+
+- **Command:** `just test-acceptance-windows --profile real-windows run --suite Tests.Acceptance.Egui.WindowActivation --suite Tests.Acceptance.Egui.AutoActivate --suite Tests.Acceptance.Swing.Window`, on the maintainer's Windows host.
+  - The recipe ran the ignored Java live tests of `platynui-provider-java` and `platynui-java-agent` first. They passed, because the recipe starts Robot Framework only after them.
+- **Code:** `4b1fc6c`, with only documentation changed in the working tree.
+- **Robot Framework:** 7.5 on Python 3.12.12, started 2026-09-28 12:06:26, 19 s.
+- **Result:** 19 tests, 19 passed, 0 failed, 0 skipped. No WARN or ERROR message, and the `errors` section is empty.
+  - `Egui.Window Activation`, 7/7:
+    - Maximized State Is Read Live From The Same Window
+    - Minimized State Is Reported And Activation Brings The Window Back
+    - A Window Minimized From Maximized Comes Back Maximized
+    - Activating A Maximized Background Window Keeps Its Size
+    - Bring To Front Brings Back A Minimized Window
+    - Pointer Click Into A Maximized Background Window Keeps It Maximized
+    - Window State Attributes Exist Only On Windows
+  - `Egui.Auto Activate`, 8/8.
+  - `Swing.Window`, 4/4, served by the Access Bridge (`resources/testapp.resource` switches the agent off). This includes "Window State Is Reported And Activation Brings A Maximized Frame Back Maximized".
+- **Raw results:** kept outside the repository, in the maintainer's untracked `playground/lane-2026-09-28-1206/`.
+
+### A known gap on UI Automation, outside what this run shows
+
+"Bring To Front activates the element's window without restoring it" does not hold for an element *inside* a window under UI Automation today. `pattern_by_name` serves the window patterns on every element (`crates/provider-windows-uia/src/node.rs:560-568`). So Bring To Front activates the element itself: `activate` applies `SW_RESTORE` only to the element's own handle and calls `SetFocus` on the element (`:604-617`).
+
+The spec's scenario for an element of a minimized window is verified against the mock only. `gate-uia-window-patterns` closes the gap by gating those patterns on the window surface and activating the root window through the window manager.
+
+### The earlier run (2026-09-27)
+
+Recorded before the maintainer decided on a fresh run, and kept for reference. The raw results are in `playground/lane-2026-09-27-1809/`.
 
 **The run**
 
