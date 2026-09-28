@@ -143,7 +143,7 @@ Both are special cases of this contract. The new capability points to that spec 
   - `dev-docs/testing-strategy.md` §5, which says that the new window is a helper, not a fixture of the blueprint.
   - `CONTRIBUTING.md`, for the new Windows-lane prerequisite `i686-pc-windows-msvc`.
   - The user documentation of BareMetal.
-- **Build:** a native rebuild. The Windows lane additionally needs the Rust target `i686-pc-windows-msvc` for the 32-bit test window.
+- **Build:** a native rebuild. The Windows lane additionally needs the Rust target `i686-pc-windows-msvc` for the 32-bit test window. The `rust-windows` CI job installs the target and builds the window, so an i686-only break shows up on the push. Linux needs no new target.
 - **Platforms:**
   - Windows (UIA, JAB, Java agent) changes behaviour.
   - Linux AT-SPI changes only its process name (design D2).

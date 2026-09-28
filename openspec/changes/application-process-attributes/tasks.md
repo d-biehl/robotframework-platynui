@@ -66,12 +66,14 @@ The tasks below add the reader to that crate and read each node's attributes thr
     - A variable `win32_test_window_x86 := justfile_directory() / "target" / "i686-pc-windows-msvc" / "debug" / "platynui-win32-test-window.exe"` sits next to `egui_test_app` (`justfile:16`).
     - `test-acceptance-windows` (`:380-387`) runs the recipe after `just build-test-app-swing` (`:383`), as a hard prerequisite. Both its live-test step (`:386`) and its Robot step (`:387`) set `$env:PLATYNUI_WIN32_TEST_WINDOW_X86`, since each recipe line is its own PowerShell.
     - The package joins `windows_rust_packages` (`:12`).
-  - `CONTRIBUTING.md` names the new Windows-lane prerequisite: `rustup target add i686-pc-windows-msvc`, and the MSVC x86 libraries, which the x64/x86 build tools of Visual Studio's C++ workload bring.
+  - `CONTRIBUTING.md` names the new Windows-lane prerequisite in its "End-to-end / acceptance" section, next to the Windows lane: `rustup target add i686-pc-windows-msvc`, and the MSVC x86 libraries, which the x64/x86 build tools of Visual Studio's C++ workload bring. Linux gains no prerequisite: the window never runs there, and the Linux cross checks compile the package for `x86_64-pc-windows-gnu` like every other entry of `windows_rust_packages`.
+  - CI builds the window for 32-bit, so an i686-only break (pointer-width-dependent bindings or types, which the x64 builds cannot see) shows up on the push, not first in a local lane run. The `rust-windows` job (`.github/workflows/ci.yml:140-179`) installs the target through `dtolnay/rust-toolchain` (`targets: i686-pc-windows-msvc`) and runs `just build-win32-test-window-x86` after `just clippy`. The job's comment says why.
 
   Verify:
   - On a Windows machine, `just build-win32-test-window-x86` builds, and the binary's PE header names the machine `I386` (`dumpbin /headers` shows `14C machine (x86)`).
   - Started with `--title "Win32 Test Window" --auto-close 5`, it shows the window and exits by itself.
   - `just check` is clean on Windows, and `just cross-target-checks` is clean on a Linux host.
+  - The `rust-windows` job passes with the new step on the push.
 - [ ] 1.4 Add `tests/acceptance/win32/__init__.robot`, tagged `acceptance`, `real` and `platform:windows`, and `tests/acceptance/win32/process_attributes.robot`, following the `robot-test-style` skill.
   - The suite checks its prerequisite first. When `PLATYNUI_WIN32_TEST_WINDOW_X86` is unset or names no file, it fails with a message naming `just build-win32-test-window-x86`. It never skips.
   - It starts the window under a suite-unique title, waits with `BM.Wait Until Exists    /app:Application[@ProcessId=${pid}]/*[@Name="${title}"]` (no role: UIA may report a top-level `STATIC` window as `Text` rather than `Window`), then pins `/app:Application[@ProcessId=${pid}]` as its root, and asserts `@app:Architecture = x86` (*A 32-bit process on 64-bit Windows reports its own architecture*).
