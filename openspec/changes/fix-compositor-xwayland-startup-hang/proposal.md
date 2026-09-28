@@ -2,7 +2,7 @@
 
 A compositor started with `--xwayland` holds back its readiness announcement and its child program until XWayland reports that it is ready. When XWayland never gets there, nothing releases them: the binary is missing or not executable, the server exits before it is ready, it stays alive without ever reporting, or the X11 window manager fails to start. The compositor then runs indefinitely without announcing readiness or starting the child. A CI step using `--exit-with-child` or `--ready-fd` hangs until the job timeout, and with `--timeout` it ends after the timeout without any usable signal. At the scripts' default log level, the only trace is a warning nobody sees.
 
-No lane passes `--xwayland` today, so CI is not affected yet. The Java provider work on Linux (`java-provider-linux`, Swing through XWayland) will be the first consumer. Commit ae5f614 established that a session must report its result instead of idling or reading as success, and this is the last startup path that still breaks that rule.
+No lane passes `--xwayland` today, so CI is not affected yet. The Wayland acceptance lane will be the first consumer: `add-avalonia-test-app` starts its compositor with `--xwayland` for an X11-only fixture and depends on this change. The Java provider work on Linux (`java-provider-linux`, Swing through XWayland) follows. Commit ae5f614 established that a session must report its result instead of idling or reading as success, and this is the last startup path that still breaks that rule.
 
 ## What Changes
 
