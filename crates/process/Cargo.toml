@@ -1,6 +1,6 @@
 [package]
 name = "platynui-process"
-description = "Which process a pid stands for, and whether it still does"
+description = "Which process a pid stands for, whether it still does, and its process attributes"
 version.workspace = true
 keywords.workspace = true
 categories.workspace = true
@@ -20,5 +20,26 @@ workspace = true
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", features = ["process"] }
 
+# The Linux process reader: the process table through `sysinfo`, and the user
+# name through `getpwuid_r`. Linux-only, because the macOS cross-check builds
+# the `cfg(unix)` section above as well.
+[target.'cfg(target_os = "linux")'.dependencies]
+sysinfo = { version = "0.39", default-features = false, features = ["system"] }
+libc = "0.2"
+
+# Threading holds the process queries, and `GetProcessInformation`;
+# SystemInformation the machine types; Security the token user; the Wdk
+# threading module the command line.
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Threading"] }
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_System_SystemInformation",
+    "Win32_Security",
+    "Wdk_System_Threading",
+] }
+
+# The Windows build number, which decides whether the primary architecture
+# path answers; and a token DACL, which makes a child partly readable.
+[target.'cfg(windows)'.dev-dependencies]
+windows = { version = "0.62", features = ["Wdk_System_SystemServices", "Win32_Security_Authorization"] }

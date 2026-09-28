@@ -3687,7 +3687,9 @@ dependencies = [
 name = "platynui-process"
 version = "0.13.0-dev.2"
 dependencies = [
+ "libc",
  "rustix 1.1.4",
+ "sysinfo",
  "windows",
 ]
 

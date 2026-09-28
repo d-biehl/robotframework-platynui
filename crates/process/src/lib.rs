@@ -1,9 +1,17 @@
-//! Which process a pid stands for, and whether it still does.
+//! Which process a pid stands for, whether it still does, and its process
+//! attributes.
 //!
 //! A pid alone does not name a process: once a process has ended, the system may
 //! hand its pid to the next one. [`ProcessIdentity`] therefore records the
 //! process's start time together with its pid, and [`ProcessIdentity::check`]
 //! compares both.
+//!
+//! [`ProcessIdentity::read`] and [`ProcessIdentity::read_all`] read the process
+//! attributes of the recorded process — its name, executable path, command line,
+//! user, start time and architecture — in one format on every platform. They
+//! read only while the process is still the recorded one, so an application node
+//! never reports the process that received its pid. An identity recorded
+//! without a start time reads nothing. See [`ProcessAttribute`] for the formats.
 //!
 //! The check has three answers ([`Liveness`]), and "cannot tell" is one of them
 //! on purpose. A process the user may not inspect, or a platform without a start
@@ -22,6 +30,14 @@
 //!   `kill(pid, 0)` answers when the file cannot be read.
 //! - **Other Unix systems:** `kill(pid, 0)` only. There is no start time to
 //!   compare, so a process with the pid cannot be told from the recorded one.
+//!
+//! The attributes come from native Win32 calls on Windows and from `sysinfo`
+//! and `getpwuid_r` on Linux; other platforms have no reader yet and answer
+//! nothing.
+
+mod attributes;
+
+pub use attributes::{ProcessAttribute, ProcessAttributes};
 
 /// What a check found out about a recorded process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,8 +120,9 @@ mod sys {
     };
     use windows::core::HRESULT;
 
-    /// An open process handle, closed when dropped.
-    struct Process {
+    /// An open process handle, closed when dropped. The process reader reads
+    /// through it as well, so that a process is opened in one way only.
+    pub(crate) struct Process {
         handle: HANDLE,
         /// Whether the handle may be waited on (`SYNCHRONIZE`).
         can_wait: bool,
@@ -123,7 +140,7 @@ mod sys {
     impl Process {
         /// Opens the process with the limited query right, and with the right to
         /// wait on it where that is granted.
-        fn open(pid: u32) -> Result<Self, HRESULT> {
+        pub(crate) fn open(pid: u32) -> Result<Self, HRESULT> {
             // SAFETY: opening a process by pid with query and wait rights only;
             // the handle is owned by the returned value and closed when it drops.
             match unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE, false, pid) } {
@@ -136,8 +153,14 @@ mod sys {
             }
         }
 
+        /// The handle, for queries that the process reader makes on it. It stays
+        /// owned by `self`.
+        pub(crate) const fn handle(&self) -> HANDLE {
+            self.handle
+        }
+
         /// Whether the process still runs; `None` when that cannot be queried.
-        fn is_running(&self) -> Option<bool> {
+        pub(crate) fn is_running(&self) -> Option<bool> {
             let mut exit_code = 0u32;
             // SAFETY: `self.handle` is a live process handle, `exit_code` a valid out-pointer.
             unsafe { GetExitCodeProcess(self.handle, &raw mut exit_code) }.ok()?;
@@ -157,8 +180,9 @@ mod sys {
             }
         }
 
-        /// The creation time in 100 ns units; `None` when it cannot be queried.
-        fn creation_time(&self) -> Option<u64> {
+        /// The creation time in 100 ns units since 1601; `None` when it cannot
+        /// be queried.
+        pub(crate) fn creation_time(&self) -> Option<u64> {
             let mut creation = FILETIME::default();
             let mut exit = FILETIME::default();
             let mut kernel = FILETIME::default();
@@ -228,23 +252,24 @@ mod sys {
         test_kill_process(pid)
     }
 
-    /// The fields of `/proc/<pid>/stat` a check needs.
+    /// The fields of `/proc/<pid>/stat` a check needs. The process reader
+    /// compares them around a read as well.
     #[cfg(target_os = "linux")]
     #[derive(Debug)]
-    pub(super) struct Stat {
+    pub(crate) struct Stat {
         /// Field 3, the state of the process's leader thread.
-        pub(super) state: char,
+        pub(crate) state: char,
         /// Field 20, the threads of the process that have not exited.
-        pub(super) threads: u64,
+        pub(crate) threads: u64,
         /// Field 22, the start time in clock ticks since boot.
-        pub(super) start: u64,
+        pub(crate) start: u64,
     }
 
     #[cfg(target_os = "linux")]
     impl Stat {
         /// A zombie (`Z`) or a dead process (`X`) no longer runs, unless it is a
         /// leader that exited alone while the process's other threads run on.
-        pub(super) const fn has_ended(&self) -> bool {
+        pub(crate) const fn has_ended(&self) -> bool {
             matches!(self.state, 'Z' | 'X') && self.threads <= 1
         }
     }
@@ -263,9 +288,13 @@ mod sys {
         Some(Stat { state, threads, start })
     }
 
+    /// Reads `/proc/<pid>/stat`. The command name in field 2 is the kernel's
+    /// raw bytes and need not be UTF-8; only the fields after it are read, so a
+    /// name that is not UTF-8 must not cost the start time.
     #[cfg(target_os = "linux")]
-    fn read_stat(pid: u32) -> Option<Stat> {
-        std::fs::read_to_string(format!("/proc/{pid}/stat")).ok().as_deref().and_then(parse_stat)
+    pub(crate) fn read_stat(pid: u32) -> Option<Stat> {
+        let bytes = std::fs::read(format!("/proc/{pid}/stat")).ok()?;
+        parse_stat(&String::from_utf8_lossy(&bytes))
     }
 
     #[cfg(target_os = "linux")]
@@ -325,7 +354,7 @@ mod tests {
 
     /// A pid that no process can have: above Linux's `PID_MAX_LIMIT` (2^22), and
     /// far above any pid Windows hands out.
-    const UNUSED_PID: u32 = 0x3FFF_FFFC;
+    pub(crate) const UNUSED_PID: u32 = 0x3FFF_FFFC;
 
     /// The start time is compared only on Windows and Linux; elsewhere a running
     /// pid cannot be told from the recorded process.
@@ -349,10 +378,10 @@ mod tests {
     }
 
     /// Kills the child when a test ends, however it ends.
-    struct WaitingChild(Child);
+    pub(crate) struct WaitingChild(pub(crate) Child);
 
     impl WaitingChild {
-        fn start() -> Self {
+        pub(crate) fn start() -> Self {
             Self::spawn(None)
         }
 
@@ -362,10 +391,29 @@ mod tests {
             Self::spawn(Some(code))
         }
 
+        /// A child whose command line carries `arguments` as well. The test
+        /// harness takes them for more name filters, which match nothing.
+        #[cfg(any(windows, target_os = "linux"))]
+        pub(crate) fn start_with_arguments(arguments: &[&str]) -> Self {
+            let binary = std::env::current_exe().expect("test binary");
+            Self::try_spawn_from(&binary, None, arguments).expect("start the child")
+        }
+
         fn spawn(exit_code: Option<i32>) -> Self {
-            let mut command = Command::new(std::env::current_exe().expect("test binary"));
+            let binary = std::env::current_exe().expect("test binary");
+            Self::try_spawn_from(&binary, exit_code, &[]).expect("start the child")
+        }
+
+        /// A child run from `binary`, a copy of this test binary.
+        pub(crate) fn try_spawn_from(
+            binary: &std::path::Path,
+            exit_code: Option<i32>,
+            arguments: &[&str],
+        ) -> std::io::Result<Self> {
+            let mut command = Command::new(binary);
             command
                 .args(["--exact", "tests::waiting_child", "--ignored", "--nocapture"])
+                .args(arguments)
                 .env(CHILD_ENV, "1")
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
@@ -373,10 +421,10 @@ mod tests {
             if let Some(code) = exit_code {
                 command.env(CHILD_EXIT_ENV, code.to_string());
             }
-            Self(command.spawn().expect("start the child"))
+            command.spawn().map(Self)
         }
 
-        fn pid(&self) -> u32 {
+        pub(crate) fn pid(&self) -> u32 {
             self.0.id()
         }
     }
@@ -514,6 +562,17 @@ mod tests {
         assert!(!stat.has_ended());
         assert!(parse_stat("1234 (no closing parenthesis S 1").is_none());
         assert!(parse_stat("1234 (short) S 1 2").is_none());
+    }
+
+    /// `/proc/<pid>/stat` holds the command name as raw bytes; one cut inside a
+    /// multi-byte character is no reason to lose the start time.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_command_name_that_is_not_utf8_does_not_hide_the_start_time() {
+        use super::sys::parse_stat;
+        let bytes = b"1234 (caf\xC3) S 1 1234 1234 0 -1 4194560 100 0 0 0 5 3 0 0 20 0 1 0 4711 1000 50 0";
+        let stat = parse_stat(&String::from_utf8_lossy(bytes)).expect("parsable");
+        assert_eq!(stat.start, 4711);
     }
 
     #[cfg(target_os = "linux")]
