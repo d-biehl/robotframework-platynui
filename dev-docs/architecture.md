@@ -28,6 +28,7 @@ crates/
 ├─ xpath                     # XPath evaluator and parser — platynui-xpath
 ├─ runtime                   # Runtime, provider registry, XPath pipeline — platynui-runtime
 ├─ link                      # Linking helper macros — platynui-link
+├─ process                   # Process identity (pid + start time) — platynui-process
 ├─ platform-windows          # Windows devices — platynui-platform-windows
 ├─ provider-windows-uia      # UIA provider — platynui-provider-windows-uia
 ├─ provider-java             # The single Java provider, routing to toolkit backends — platynui-provider-java

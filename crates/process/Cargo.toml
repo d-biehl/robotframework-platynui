@@ -1,0 +1,24 @@
+[package]
+name = "platynui-process"
+description = "Which process a pid stands for, and whether it still does"
+version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+repository.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+# Depends on no PlatynUI crate: the providers that create application nodes use
+# it, and `platynui-core` stays free of OS-specific dependencies.
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["process"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Threading"] }

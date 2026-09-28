@@ -3684,6 +3684,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "platynui-process"
+version = "0.13.0-dev.2"
+dependencies = [
+ "rustix 1.1.4",
+ "windows",
+]
+
+[[package]]
 name = "platynui-provider-atspi"
 version = "0.13.0-dev.2"
 dependencies = [
