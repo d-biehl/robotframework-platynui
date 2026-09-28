@@ -342,6 +342,7 @@ mod sys {
 #[cfg(test)]
 mod tests {
     use super::{Liveness, ProcessIdentity};
+    use std::io::{BufRead, BufReader};
     use std::process::{Child, Command, Stdio};
     use std::time::Duration;
 
@@ -351,6 +352,12 @@ mod tests {
     /// When set, [`waiting_child`] exits with this code after a short wait,
     /// instead of waiting until it is killed.
     const CHILD_EXIT_ENV: &str = "PLATYNUI_PROCESS_TEST_CHILD_EXIT";
+
+    /// The line [`waiting_child`] prints once it runs. A test reads the child
+    /// only after it: while `execve` is still under way, Linux reports the
+    /// parent's command line for the child, or an empty one, although `spawn`
+    /// has already returned.
+    const CHILD_READY: &str = "platynui-process-test-child-ready";
 
     /// A pid that no process can have: above Linux's `PID_MAX_LIMIT` (2^22), and
     /// far above any pid Windows hands out.
@@ -362,14 +369,15 @@ mod tests {
         if cfg!(any(windows, target_os = "linux")) { Liveness::Running } else { Liveness::Unknown };
 
     /// The child process of these tests: this test binary, re-executed into
-    /// this test, which only waits. It never runs by itself, and returns at once
-    /// when it is run without [`CHILD_ENV`].
+    /// this test, which says that it runs and then only waits. It never runs by
+    /// itself, and returns at once when it is run without [`CHILD_ENV`].
     #[test]
     #[ignore = "the child process of the other tests; started by them"]
     fn waiting_child() {
         if std::env::var_os(CHILD_ENV).is_none() {
             return;
         }
+        println!("{CHILD_READY}");
         if let Some(code) = std::env::var(CHILD_EXIT_ENV).ok().and_then(|code| code.parse().ok()) {
             std::thread::sleep(Duration::from_millis(500));
             std::process::exit(code);
@@ -404,7 +412,8 @@ mod tests {
             Self::try_spawn_from(&binary, exit_code, &[]).expect("start the child")
         }
 
-        /// A child run from `binary`, a copy of this test binary.
+        /// A child run from `binary`, a copy of this test binary, returned once
+        /// it runs (see [`CHILD_READY`]).
         pub(crate) fn try_spawn_from(
             binary: &std::path::Path,
             exit_code: Option<i32>,
@@ -416,12 +425,16 @@ mod tests {
                 .args(arguments)
                 .env(CHILD_ENV, "1")
                 .stdin(Stdio::null())
-                .stdout(Stdio::null())
+                .stdout(Stdio::piped())
                 .stderr(Stdio::null());
             if let Some(code) = exit_code {
                 command.env(CHILD_EXIT_ENV, code.to_string());
             }
-            command.spawn().map(Self)
+            let mut child = Self(command.spawn()?);
+            let stdout = child.0.stdout.take().expect("the child's output is piped");
+            let ready = BufReader::new(stdout).lines().map_while(Result::ok).any(|line| line.contains(CHILD_READY));
+            assert!(ready, "the child ended before it ran");
+            Ok(child)
         }
 
         pub(crate) fn pid(&self) -> u32 {
