@@ -136,6 +136,11 @@ jobs:
   # targets. Neither the Linux job nor the Linux-side `just clippy-windows`
   # cross-check (Windows crates only) builds those for Windows, so without this
   # job a Windows-only lint surfaces first on a developer's Windows machine.
+  #
+  # It also builds the Win32 test window for 32-bit x86, as the acceptance lane
+  # does. Every other build is 64-bit, so a break that only the i686 target has
+  # (pointer-width-dependent bindings or types) would otherwise show up first in
+  # a local lane run.
 
   rust-windows:
     name: Rust (clippy, Windows)
@@ -156,6 +161,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+          targets: i686-pc-windows-msvc
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
@@ -177,6 +183,9 @@ jobs:
 
       - name: Lint Rust (clippy)
         run: just clippy
+
+      - name: Build the 32-bit Win32 test window
+        run: just build-win32-test-window-x86
 
   python:
     name: Python (pytest, RF mock)

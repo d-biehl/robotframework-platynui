@@ -1,0 +1,21 @@
+[package]
+name = "platynui-win32-test-window"
+description = "A plain Win32 window whose bitness follows the build target, for process-level tests"
+version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+repository.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+# Windows-only, like everything the window does. Elsewhere `main` only says so,
+# and the workspace still builds.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }

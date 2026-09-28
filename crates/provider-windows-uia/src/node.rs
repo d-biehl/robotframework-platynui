@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, Weak};
 
 use platynui_core::platform::{JavaClassifier, WindowId, java};
 use platynui_core::types::{Point as UiPoint, Rect};
-use platynui_core::ui::attribute_names::{common, text_content, text_editable};
+use platynui_core::ui::attribute_names::{application, common, text_content, text_editable};
 use platynui_core::ui::pattern::{
     ActivatableAction, CloseableAction, FocusableAction, MaximizableAction, MinimizableAction, MovableAction,
     PatternError, ResizableAction, ResponsiveAction, RestorableAction, UiPattern,
@@ -19,6 +19,7 @@ use platynui_core::ui::pattern::{
 use platynui_core::ui::{
     Namespace, PatternName, RuntimeId, UiAttribute, UiNode, UiValue, pattern_names, supported_patterns_value,
 };
+use platynui_process::{ProcessAttribute, ProcessIdentity};
 use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, WaitForInputIdle};
 use windows::Win32::UI::Accessibility::{
@@ -1307,15 +1308,13 @@ impl UiAttribute for AppRoleAttr {
     }
 }
 
-/// `control:Name` for Application nodes.
-///
-/// Windows UIA has no separate display name for applications, so this
-/// falls back to the process executable stem (same value as
-/// `app:ProcessName`).
-struct AppDisplayNameAttr {
-    pid: i32,
+/// `control:Name` for Application nodes: the node's cached name, which is its
+/// process name (design D9 of `application-process-attributes`). Windows UIA
+/// has no separate display name for applications.
+struct AppNameAttr {
+    owner: Option<Weak<dyn UiNode>>,
 }
-impl UiAttribute for AppDisplayNameAttr {
+impl UiAttribute for AppNameAttr {
     fn namespace(&self) -> Namespace {
         Namespace::Control
     }
@@ -1323,19 +1322,11 @@ impl UiAttribute for AppDisplayNameAttr {
         platynui_core::ui::attribute_names::common::NAME
     }
     fn value(&self) -> UiValue {
-        if let Some(handle) = crate::map::open_process_query(self.pid) {
-            if let Some(path) = crate::map::query_executable_path(handle) {
-                let _ = unsafe { CloseHandle(handle) };
-                if let Some(stem) = std::path::Path::new(&path).file_stem() {
-                    return UiValue::from(stem.to_string_lossy().to_string());
-                }
-            } else {
-                let _ = unsafe { CloseHandle(handle) };
-            }
-        }
-        UiValue::from("")
+        UiValue::from(self.owner.as_ref().and_then(Weak::upgrade).map(|node| node.name()).unwrap_or_default())
     }
 }
+unsafe impl Send for AppNameAttr {}
+unsafe impl Sync for AppNameAttr {}
 
 struct AppRuntimeIdAttr {
     rid: String,
@@ -1367,191 +1358,123 @@ impl UiAttribute for AppProcessIdAttr {
     }
 }
 
-struct AppProcessNameAttr {
-    pid: i32,
+/// One `app` process attribute, as the reader returned it for the node's
+/// recorded process.
+struct AppProcessAttr {
+    name: &'static str,
+    value: UiValue,
 }
-impl UiAttribute for AppProcessNameAttr {
+impl UiAttribute for AppProcessAttr {
     fn namespace(&self) -> Namespace {
         Namespace::App
     }
     fn name(&self) -> &str {
-        platynui_core::ui::attribute_names::application::PROCESS_NAME
+        self.name
     }
     fn value(&self) -> UiValue {
-        if let Some(handle) = crate::map::open_process_query(self.pid) {
-            if let Some(path) = crate::map::query_executable_path(handle) {
-                let _ = unsafe { CloseHandle(handle) };
-                if let Some(stem) = std::path::Path::new(&path).file_stem() {
-                    return UiValue::from(stem.to_string_lossy().to_string());
-                }
-            } else {
-                let _ = unsafe { CloseHandle(handle) };
-            }
-        }
-        UiValue::from("")
+        self.value.clone()
     }
 }
 
-struct AppExecutablePathAttr {
-    pid: i32,
-}
-impl UiAttribute for AppExecutablePathAttr {
-    fn namespace(&self) -> Namespace {
-        Namespace::App
-    }
-    fn name(&self) -> &str {
-        platynui_core::ui::attribute_names::application::EXECUTABLE_PATH
-    }
-    fn value(&self) -> UiValue {
-        if let Some(h) = crate::map::open_process_query(self.pid) {
-            let out = crate::map::query_executable_path(h).map_or(UiValue::from(""), UiValue::from);
-            unsafe {
-                let _ = CloseHandle(h);
-            }
-            return out;
-        }
-        UiValue::from("")
+/// The `app` name of a process attribute.
+const fn process_attribute_name(attribute: ProcessAttribute) -> &'static str {
+    match attribute {
+        ProcessAttribute::ProcessName => application::PROCESS_NAME,
+        ProcessAttribute::ExecutablePath => application::EXECUTABLE_PATH,
+        ProcessAttribute::CommandLine => application::COMMAND_LINE,
+        ProcessAttribute::UserName => application::USER_NAME,
+        ProcessAttribute::StartTime => application::START_TIME,
+        ProcessAttribute::Architecture => application::ARCHITECTURE,
     }
 }
 
-struct AppCommandLineAttr {
-    pid: i32,
-}
-impl UiAttribute for AppCommandLineAttr {
-    fn namespace(&self) -> Namespace {
-        Namespace::App
-    }
-    fn name(&self) -> &str {
-        platynui_core::ui::attribute_names::application::COMMAND_LINE
-    }
-    fn value(&self) -> UiValue {
-        if let Some(h) = crate::map::open_process_query(self.pid) {
-            let out = crate::map::query_process_command_line(h).map_or(UiValue::Null, UiValue::from);
-            unsafe {
-                let _ = CloseHandle(h);
-            }
-            return out;
-        }
-        UiValue::Null
-    }
+/// The process attribute an `app` name stands for.
+fn process_attribute(name: &str) -> Option<ProcessAttribute> {
+    ProcessAttribute::ALL.into_iter().find(|attribute| process_attribute_name(*attribute) == name)
 }
 
-struct AppUserNameAttr {
-    pid: i32,
-}
-impl UiAttribute for AppUserNameAttr {
-    fn namespace(&self) -> Namespace {
-        Namespace::App
-    }
-    fn name(&self) -> &str {
-        platynui_core::ui::attribute_names::application::USER_NAME
-    }
-    fn value(&self) -> UiValue {
-        if let Some(h) = crate::map::open_process_query(self.pid) {
-            let out = crate::map::query_process_username(h).map_or(UiValue::from(""), UiValue::from);
-            unsafe {
-                let _ = CloseHandle(h);
-            }
-            return out;
-        }
-        UiValue::from("")
-    }
-}
-
-struct AppStartTimeAttr {
-    pid: i32,
-}
-impl UiAttribute for AppStartTimeAttr {
-    fn namespace(&self) -> Namespace {
-        Namespace::App
-    }
-    fn name(&self) -> &str {
-        platynui_core::ui::attribute_names::application::START_TIME
-    }
-    fn value(&self) -> UiValue {
-        if let Some(h) = crate::map::open_process_query(self.pid) {
-            let out = crate::map::query_process_start_time_iso8601(h).map_or(UiValue::from(""), UiValue::from);
-            unsafe {
-                let _ = CloseHandle(h);
-            }
-            return out;
-        }
-        UiValue::from("")
-    }
-}
-
-struct AppArchitectureAttr {
-    pid: i32,
-}
-impl UiAttribute for AppArchitectureAttr {
-    fn namespace(&self) -> Namespace {
-        Namespace::App
-    }
-    fn name(&self) -> &str {
-        platynui_core::ui::attribute_names::application::ARCHITECTURE
-    }
-    fn value(&self) -> UiValue {
-        if let Some(h) = crate::map::open_process_query(self.pid) {
-            if let Some(path) = crate::map::query_executable_path(h)
-                && let Some(a) = crate::map::process_architecture_from_path(&path)
-            {
-                unsafe {
-                    let _ = CloseHandle(h);
-                }
-                return UiValue::from(a);
-            }
-            let out = UiValue::from(crate::map::process_architecture(h));
-            unsafe {
-                let _ = CloseHandle(h);
-            }
-            return out;
-        }
-        UiValue::from("unknown")
-    }
-}
-
+/// An application node's attributes, listed with one process open at most.
+///
+/// The process attributes are read once, through the node's recorded identity,
+/// when the listing first needs them: for `Id`, whose presence depends on the
+/// name when the node has not cached it yet, or for the first `app` attribute.
+/// The same read seeds the node's name, so the two cannot disagree. Only the
+/// process attributes that were read are listed.
 struct AppAttrsIter {
     pid: i32,
+    process: Option<ProcessIdentity>,
+    /// The node's name cell, shared with it.
+    name: Arc<std::sync::OnceLock<String>>,
     rid: String,
     idx: u8,
     owner: Option<Weak<dyn UiNode>>,
+    process_values: Option<std::vec::IntoIter<(ProcessAttribute, String)>>,
 }
 impl AppAttrsIter {
-    fn new(pid: i32, rid: &str, owner: Option<&Arc<dyn UiNode>>) -> Self {
-        Self { pid, rid: rid.to_owned(), idx: 0, owner: owner.map(Arc::downgrade) }
+    fn new(
+        pid: i32,
+        process: Option<ProcessIdentity>,
+        name: Arc<std::sync::OnceLock<String>>,
+        rid: &str,
+        owner: Option<&Arc<dyn UiNode>>,
+    ) -> Self {
+        Self { pid, process, name, rid: rid.to_owned(), idx: 0, owner: owner.map(Arc::downgrade), process_values: None }
+    }
+
+    /// Reads the process attributes, on the first call only, and seeds the
+    /// node's name from the process name when it has none yet.
+    fn read_process(&mut self) -> &mut std::vec::IntoIter<(ProcessAttribute, String)> {
+        let (process, name) = (&self.process, &self.name);
+        self.process_values.get_or_insert_with(|| {
+            let read = process.as_ref().map(ProcessIdentity::read_all).unwrap_or_default();
+            let _ = name.set(read.get(ProcessAttribute::ProcessName).unwrap_or_default().to_owned());
+            read.iter().map(|(attribute, value)| (attribute, value.to_owned())).collect::<Vec<_>>().into_iter()
+        })
+    }
+
+    /// The node's name; read together with the process attributes when it is
+    /// not cached yet.
+    fn name(&mut self) -> &str {
+        if self.name.get().is_none() {
+            self.read_process();
+        }
+        self.name.get_or_init(String::new)
     }
 }
 impl Iterator for AppAttrsIter {
     type Item = Arc<dyn UiAttribute>;
     fn next(&mut self) -> Option<Self::Item> {
-        let item = match self.idx {
-            0 => Some(Arc::new(AppRoleAttr) as Arc<dyn UiAttribute>),
-            1 => Some(Arc::new(AppDisplayNameAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
-            2 => Some(Arc::new(AppRuntimeIdAttr { rid: self.rid.clone() }) as Arc<dyn UiAttribute>),
-            // 3: optional developer Id (delegates to node.id())
-            3 => {
-                let present = self.owner.as_ref().and_then(std::sync::Weak::upgrade).and_then(|n| n.id()).is_some();
-                if present {
-                    Some(Arc::new(IdAttr { owner: self.owner.clone() }) as Arc<dyn UiAttribute>)
-                } else {
+        loop {
+            let item = match self.idx {
+                0 => Some(Arc::new(AppRoleAttr) as Arc<dyn UiAttribute>),
+                1 => Some(Arc::new(AppNameAttr { owner: self.owner.clone() }) as Arc<dyn UiAttribute>),
+                2 => Some(Arc::new(AppRuntimeIdAttr { rid: self.rid.clone() }) as Arc<dyn UiAttribute>),
+                // The developer Id is the name, when there is one.
+                3 => (!self.name().is_empty())
+                    .then(|| Arc::new(IdAttr { owner: self.owner.clone() }) as Arc<dyn UiAttribute>),
+                // A process ID of 0 identifies nothing.
+                4 => (self.pid > 0).then(|| Arc::new(AppProcessIdAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+                5 => {
+                    // Stays at this index until the process attributes run out.
+                    if let Some((attribute, value)) = self.read_process().next() {
+                        return Some(Arc::new(AppProcessAttr {
+                            name: process_attribute_name(attribute),
+                            value: UiValue::from(value),
+                        }));
+                    }
                     None
                 }
+                // Common attributes, in `Control` like the element nodes: an
+                // application node is addressable by the same filters.
+                6 => Some(Arc::new(TechnologyAttr) as Arc<dyn UiAttribute>),
+                7 => Some(Arc::new(SupportedPatternsAttr { owner: self.owner.clone() }) as Arc<dyn UiAttribute>),
+                _ => return None,
+            };
+            self.idx = self.idx.saturating_add(1);
+            if item.is_some() {
+                return item;
             }
-            4 => Some(Arc::new(AppProcessIdAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
-            5 => Some(Arc::new(AppProcessNameAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
-            6 => Some(Arc::new(AppExecutablePathAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
-            7 => Some(Arc::new(AppCommandLineAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
-            8 => Some(Arc::new(AppUserNameAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
-            9 => Some(Arc::new(AppStartTimeAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
-            10 => Some(Arc::new(AppArchitectureAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
-            // Common attributes, in `Control` like the element nodes: an
-            // application node is addressable by the same filters.
-            11 => Some(Arc::new(TechnologyAttr) as Arc<dyn UiAttribute>),
-            12 => Some(Arc::new(SupportedPatternsAttr { owner: self.owner.clone() }) as Arc<dyn UiAttribute>),
-            _ => None,
-        };
-        self.idx = self.idx.saturating_add(1);
-        item
+        }
     }
 }
 unsafe impl Send for AppAttrsIter {}
@@ -1767,12 +1690,14 @@ pub struct ApplicationNode {
     pid: i32,
     /// The process this node was created for, recorded at creation so that a
     /// later process with the same pid does not count; `None` when no process
-    /// had the pid by then.
-    process: Option<platynui_process::ProcessIdentity>,
+    /// had the pid by then. Its process attributes are read through it.
+    process: Option<ProcessIdentity>,
     parent: Mutex<Option<Weak<dyn UiNode>>>,
     self_weak: std::sync::OnceLock<Weak<dyn UiNode>>,
     rid_cell: std::sync::OnceLock<RuntimeId>,
-    name_cell: std::sync::OnceLock<String>,
+    /// The process name, cached; shared with the attribute listing, which may
+    /// fill it from the same read as the process attributes.
+    name_cell: Arc<std::sync::OnceLock<String>>,
     /// Whether the window enumeration for this app's children skips windows
     /// claimed by other providers (threaded in from the provider config).
     honor_window_claims: bool,
@@ -1791,11 +1716,11 @@ impl ApplicationNode {
     ) -> Arc<Self> {
         let node = Arc::new(Self {
             pid,
-            process: u32::try_from(pid).ok().and_then(platynui_process::ProcessIdentity::capture),
+            process: u32::try_from(pid).ok().and_then(ProcessIdentity::capture),
             parent: Mutex::new(parent),
             self_weak: std::sync::OnceLock::new(),
             rid_cell: std::sync::OnceLock::new(),
-            name_cell: std::sync::OnceLock::new(),
+            name_cell: Arc::new(std::sync::OnceLock::new()),
             honor_window_claims,
             java_classifier,
         });
@@ -1881,21 +1806,15 @@ impl UiNode for ApplicationNode {
     fn role(&self) -> &'static str {
         "Application"
     }
+    /// The process name, the name every provider gives an application named
+    /// after its program; empty when it cannot be read.
     fn name(&self) -> String {
         self.name_cell
             .get_or_init(|| {
-                // Derive process name from executable path (file name)
-                if let Some(handle) = crate::map::open_process_query(self.pid) {
-                    if let Some(path) = crate::map::query_executable_path(handle) {
-                        let _ = unsafe { CloseHandle(handle) };
-                        if let Some(stem) = std::path::Path::new(&path).file_stem() {
-                            return stem.to_string_lossy().to_string();
-                        }
-                    } else {
-                        let _ = unsafe { CloseHandle(handle) };
-                    }
-                }
-                String::new()
+                self.process
+                    .as_ref()
+                    .and_then(|process| process.read(ProcessAttribute::ProcessName))
+                    .unwrap_or_default()
             })
             .clone()
     }
@@ -1924,7 +1843,45 @@ impl UiNode for ApplicationNode {
 
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
         let owner = self.self_weak.get().and_then(std::sync::Weak::upgrade);
-        Box::new(AppAttrsIter::new(self.pid, self.runtime_id().as_str(), owner.as_ref()))
+        Box::new(AppAttrsIter::new(
+            self.pid,
+            self.process.clone(),
+            Arc::clone(&self.name_cell),
+            self.runtime_id().as_str(),
+            owner.as_ref(),
+        ))
+    }
+    /// A lookup by name reads only what it names: an `app` name reads that one
+    /// process attribute, `Name` and `Id` answer from the cached name, and every
+    /// other name is answered without a process read. It agrees with the listing.
+    fn attribute(&self, namespace: Namespace, name: &str) -> Option<Arc<dyn UiAttribute>> {
+        match namespace {
+            Namespace::App => {
+                let attribute = process_attribute(name)?;
+                let value = self.process.as_ref()?.read(attribute)?;
+                Some(Arc::new(AppProcessAttr { name: process_attribute_name(attribute), value: UiValue::from(value) }))
+            }
+            Namespace::Control => {
+                let owner = || self.self_weak.get().cloned();
+                match name {
+                    common::ROLE => Some(Arc::new(AppRoleAttr)),
+                    common::NAME => Some(Arc::new(AppNameAttr { owner: owner() })),
+                    common::RUNTIME_ID => {
+                        Some(Arc::new(AppRuntimeIdAttr { rid: self.runtime_id().as_str().to_owned() }))
+                    }
+                    common::ID => {
+                        self.id().is_some().then(|| Arc::new(IdAttr { owner: owner() }) as Arc<dyn UiAttribute>)
+                    }
+                    application::PROCESS_ID => {
+                        (self.pid > 0).then(|| Arc::new(AppProcessIdAttr { pid: self.pid }) as Arc<dyn UiAttribute>)
+                    }
+                    common::TECHNOLOGY => Some(Arc::new(TechnologyAttr)),
+                    common::SUPPORTED_PATTERNS => Some(Arc::new(SupportedPatternsAttr { owner: owner() })),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
     }
     fn supported_patterns(&self) -> Vec<PatternName> {
         Vec::new()
@@ -2358,6 +2315,184 @@ mod attribute_surface_tests {
         // Far above any pid Windows hands out.
         let app = ApplicationNode::orphan(0x3FFF_FFFC);
         assert!(!app.is_valid());
+    }
+
+    const PROCESS_ATTRIBUTE_NAMES: [&str; 6] = [
+        application::PROCESS_NAME,
+        application::EXECUTABLE_PATH,
+        application::COMMAND_LINE,
+        application::USER_NAME,
+        application::START_TIME,
+        application::ARCHITECTURE,
+    ];
+
+    /// The `app` attributes a node lists, by name.
+    fn listed_app_attributes(node: &dyn UiNode) -> Vec<(String, UiValue)> {
+        node.attributes()
+            .filter(|attribute| attribute.namespace() == Namespace::App)
+            .map(|attribute| (attribute.name().to_owned(), attribute.value()))
+            .collect()
+    }
+
+    /// Spec (`application-process-attributes`): *An unreadable process carries
+    /// no substituted attributes*.
+    #[test]
+    fn an_application_node_without_a_process_lists_no_process_attribute() {
+        let app = ApplicationNode::orphan(0x3FFF_FFFC);
+        assert_eq!(listed_app_attributes(app.as_ref()), Vec::new());
+    }
+
+    /// Spec: *An application node whose process has ended reports no process
+    /// attributes*.
+    #[test]
+    fn an_application_node_whose_process_has_ended_reports_no_process_attribute() {
+        let mut child = WindowlessChild::start();
+        let app = ApplicationNode::orphan(child.pid());
+        assert!(!listed_app_attributes(app.as_ref()).is_empty(), "the running process is readable");
+
+        child.0.kill().expect("end the process");
+        child.0.wait().expect("reap the process");
+        assert_eq!(listed_app_attributes(app.as_ref()), Vec::new());
+        for name in PROCESS_ATTRIBUTE_NAMES {
+            assert!(app.attribute(Namespace::App, name).is_none(), "app:{name}");
+        }
+    }
+
+    /// Spec: *Listing and predicate agree for a missing attribute*, in both
+    /// directions and for every `control` and `app` name.
+    #[test]
+    fn an_application_nodes_lookups_agree_with_its_listing() {
+        let child = WindowlessChild::start();
+        for pid in [std::process::id().cast_signed(), child.pid()] {
+            let app = ApplicationNode::orphan(pid);
+            let listed: Vec<(Namespace, String, UiValue)> = app
+                .attributes()
+                .map(|attribute| (attribute.namespace(), attribute.name().to_owned(), attribute.value()))
+                .collect();
+            let control_names = [
+                common::ROLE,
+                common::NAME,
+                common::RUNTIME_ID,
+                common::ID,
+                common::TECHNOLOGY,
+                common::SUPPORTED_PATTERNS,
+                application::PROCESS_ID,
+            ];
+            let names = control_names
+                .iter()
+                .map(|name| (Namespace::Control, *name))
+                .chain(PROCESS_ATTRIBUTE_NAMES.iter().map(|name| (Namespace::App, *name)))
+                .chain(PROCESS_ATTRIBUTE_NAMES.iter().map(|name| (Namespace::Control, *name)));
+            for (namespace, name) in names {
+                let found = app.attribute(namespace, name).map(|attribute| attribute.value());
+                let expected = listed
+                    .iter()
+                    .find(|(listed_namespace, listed, _)| *listed_namespace == namespace && listed == name)
+                    .map(|(.., value)| value.clone());
+                assert_eq!(found, expected, "pid {pid}, {namespace:?}:{name}");
+            }
+        }
+    }
+
+    /// Decision M3: `control:ProcessId` stays for every positive pid, and so do
+    /// the common attributes, also on a node whose name cannot be read. The
+    /// listing used to end where `Id` was absent.
+    #[test]
+    fn a_nameless_application_node_keeps_its_process_id_and_common_attributes() {
+        let app = ApplicationNode::orphan(0x3FFF_FFFC);
+        let listed: Vec<(Namespace, String, UiValue)> = app
+            .attributes()
+            .map(|attribute| (attribute.namespace(), attribute.name().to_owned(), attribute.value()))
+            .collect();
+        let control = |name: &str| {
+            listed
+                .iter()
+                .find(|(namespace, listed, _)| *namespace == Namespace::Control && listed == name)
+                .map(|(.., value)| value.clone())
+        };
+        assert_eq!(control(application::PROCESS_ID), Some(UiValue::from(0x3FFF_FFFC_i64)));
+        assert_eq!(control(common::TECHNOLOGY), Some(UiValue::from("UIAutomation")));
+        assert!(control(common::SUPPORTED_PATTERNS).is_some());
+        assert_eq!(control(common::ID), None, "no name, so no developer id");
+        assert_eq!(
+            app.attribute(Namespace::Control, application::PROCESS_ID).map(|attribute| attribute.value()),
+            Some(UiValue::from(0x3FFF_FFFC_i64))
+        );
+    }
+
+    /// Spec: *A process ID of 0 identifies nothing*.
+    #[test]
+    fn a_process_id_of_0_or_below_is_never_listed() {
+        for pid in [0, -1] {
+            let app = ApplicationNode::orphan(pid);
+            assert!(
+                !app.attributes().any(|attribute| attribute.name() == application::PROCESS_ID),
+                "pid {pid} is listed"
+            );
+            assert!(app.attribute(Namespace::Control, application::PROCESS_ID).is_none(), "pid {pid} is looked up");
+        }
+    }
+
+    /// Decision M4: the System process as the partly unreadable one. No
+    /// attribute is an empty or substituted value; `control:Name` may stay
+    /// empty (design Non-Goals). Its process ID stays, and so does its start
+    /// time when one was recorded, which needs an elevated run.
+    #[test]
+    fn the_system_process_lists_no_substituted_value() {
+        let app = ApplicationNode::orphan(4);
+        assert_eq!(
+            app.attribute(Namespace::Control, application::PROCESS_ID).map(|attribute| attribute.value()),
+            Some(UiValue::from(4_i64))
+        );
+        if app.process.as_ref().is_some_and(|process| process.read(ProcessAttribute::StartTime).is_some()) {
+            assert!(app.attributes().any(|attribute| attribute.name() == application::START_TIME));
+        }
+        for attribute in app.attributes() {
+            let name = attribute.name().to_owned();
+            if attribute.namespace() == Namespace::Control && name != application::PROCESS_ID {
+                continue;
+            }
+            let value = attribute.value();
+            assert!(
+                !matches!(&value, UiValue::Null) && value != UiValue::from("") && value != UiValue::from("unknown"),
+                "{:?}:{name} is {value:?}",
+                attribute.namespace()
+            );
+        }
+    }
+
+    /// Design D9: the node is named after its process, and its developer id is
+    /// the same name.
+    #[test]
+    fn an_application_node_is_named_after_its_process_name() {
+        let app = ApplicationNode::orphan(std::process::id().cast_signed());
+        let process_name = app.attribute(Namespace::App, application::PROCESS_NAME).expect("app:ProcessName").value();
+        assert_eq!(
+            app.attribute(Namespace::Control, common::NAME).map(|name| name.value()),
+            Some(process_name.clone())
+        );
+        assert_eq!(app.attribute(Namespace::Control, common::ID).map(|id| id.value()), Some(process_name));
+    }
+
+    /// Spec: *A platform that reports process ID 0 yields no process ID*. The
+    /// hit-test scopes a node to its application only for a positive pid.
+    #[test]
+    fn only_a_positive_pid_scopes_a_hit_to_an_application() {
+        use crate::map::UiaIdScope;
+        assert_eq!(crate::provider::hit_scope(None), UiaIdScope::Desktop);
+        assert_eq!(crate::provider::hit_scope(Some(0)), UiaIdScope::Desktop);
+        assert_eq!(crate::provider::hit_scope(Some(-1)), UiaIdScope::Desktop);
+        assert_eq!(crate::provider::hit_scope(Some(4711)), UiaIdScope::App { pid: 4711 });
+    }
+
+    /// `GetWindowThreadProcessId` leaves `0` when it fails; a target of `0`
+    /// must not match such a window.
+    #[test]
+    fn a_window_belongs_to_a_positive_pid_only() {
+        assert!(!crate::provider::window_belongs_to(0, 0));
+        assert!(!crate::provider::window_belongs_to(-1, u32::MAX));
+        assert!(crate::provider::window_belongs_to(4711, 4711));
+        assert!(!crate::provider::window_belongs_to(4711, 4712));
     }
 
     /// The rule of `UiNode::parent`: every node a listing produces keeps its

@@ -28,9 +28,10 @@ Launch Swing Agent Test App
     [Documentation]    Start one fixture instance with a unique window title and wait until the in-JVM
     ...    agent serves its main window — pinned by the launched ProcessId. Returns the Process handle;
     ...    the query root is untouched (use Launch Default Swing Agent Instance for the pinned suite
-    ...    instance).
-    [Arguments]    ${title}
-    ${handle}=    Start Swing Fixture Process    ${title}
+    ...    instance). ``java``, extra CLI args and further named arguments are forwarded to
+    ...    ``Start Swing Fixture Process``.
+    [Arguments]    ${title}    @{extra_args}    ${java}=${SWING_JAVA}    &{process_options}
+    ${handle}=    Start Swing Fixture Process    ${title}    @{extra_args}    java=${java}    &{process_options}
     ${pid}=    Get Process Id    ${handle}
     BM.Wait Until Exists
     ...    /app:Application[@ProcessId=${pid}]//Window[@Name="${title}"][@Technology="JavaAgent"]

@@ -28,6 +28,7 @@ use platynui_core::ui::{
     Namespace, PatternError, PatternName, ResizableAction, ResponsiveAction, RestorableAction, RuntimeId, UiAttribute,
     UiNode, UiPattern, UiValue, pattern_names, supported_patterns_value,
 };
+use platynui_process::{ProcessAttribute, ProcessIdentity};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use tracing::{debug, trace};
 
@@ -934,8 +935,10 @@ fn push_jvm_classification_attrs(attrs: &mut Vec<Arc<dyn UiAttribute>>, hwnd: is
 }
 
 /// The owning process of a top-level window; `None` when the window is gone.
+/// Every read of a window's process goes through here, so that `0`, which
+/// `GetWindowThreadProcessId` leaves when it fails, never stands for one.
 #[allow(unsafe_code)]
-fn process_id_of(hwnd: isize) -> Option<u32> {
+pub(crate) fn process_id_of(hwnd: isize) -> Option<u32> {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
 
@@ -1325,8 +1328,8 @@ pub(crate) struct JabAppNode {
     pid: u32,
     /// The process this node was created for, recorded at creation so that a
     /// later process with the same pid does not count; `None` when no process
-    /// had the pid by then.
-    process: Option<platynui_process::ProcessIdentity>,
+    /// had the pid by then. Its process attributes are read through it.
+    process: Option<ProcessIdentity>,
     client: Arc<JabClient>,
     window_manager: Option<Arc<dyn WindowManager>>,
     /// Carried rather than snapshot: [`Self::children`] runs long after the
@@ -1370,7 +1373,7 @@ impl JabAppNode {
     ) -> Arc<Self> {
         let node = Arc::new(Self {
             pid,
-            process: platynui_process::ProcessIdentity::capture(pid),
+            process: ProcessIdentity::capture(pid),
             client,
             window_manager,
             exclusions,
@@ -1383,6 +1386,60 @@ impl JabAppNode {
         let _ = node.self_weak.set(Arc::downgrade(&arc));
         node
     }
+
+    fn control_attributes(&self) -> Vec<Arc<dyn UiAttribute>> {
+        let mut attrs = vec![
+            static_attr(Namespace::Control, common::ROLE, UiValue::from("Application")),
+            static_attr(Namespace::Control, common::NAME, UiValue::from(self.name())),
+            static_attr(Namespace::Control, common::RUNTIME_ID, UiValue::from(self.runtime_id().as_str())),
+            static_attr(Namespace::Control, common::TECHNOLOGY, UiValue::from(TECHNOLOGY)),
+        ];
+        // A process ID of 0 identifies nothing.
+        if self.pid > 0 {
+            attrs.push(static_attr(Namespace::Control, application::PROCESS_ID, UiValue::from(i64::from(self.pid))));
+        }
+        attrs
+    }
+}
+
+/// The `app` name of a process attribute.
+const fn process_attribute_name(attribute: ProcessAttribute) -> &'static str {
+    match attribute {
+        ProcessAttribute::ProcessName => application::PROCESS_NAME,
+        ProcessAttribute::ExecutablePath => application::EXECUTABLE_PATH,
+        ProcessAttribute::CommandLine => application::COMMAND_LINE,
+        ProcessAttribute::UserName => application::USER_NAME,
+        ProcessAttribute::StartTime => application::START_TIME,
+        ProcessAttribute::Architecture => application::ARCHITECTURE,
+    }
+}
+
+/// The process attributes of an application node, read once through its
+/// recorded identity: only those that were read. A node without an identity has
+/// none. Needs no bridge client, since the process table answers.
+fn app_process_attributes(process: Option<&ProcessIdentity>) -> Vec<Arc<dyn UiAttribute>> {
+    let Some(process) = process else {
+        return Vec::new();
+    };
+    process
+        .read_all()
+        .iter()
+        .map(|(attribute, value)| static_attr(Namespace::App, process_attribute_name(attribute), UiValue::from(value)))
+        .collect()
+}
+
+/// One process attribute by its `app` name, reading only that one.
+fn app_process_attribute(process: Option<&ProcessIdentity>, name: &str) -> Option<Arc<dyn UiAttribute>> {
+    let attribute = ProcessAttribute::ALL.into_iter().find(|attribute| process_attribute_name(*attribute) == name)?;
+    let value = process?.read(attribute)?;
+    Some(static_attr(Namespace::App, process_attribute_name(attribute), UiValue::from(value)))
+}
+
+/// The name of an application node: its process name, which is also how every
+/// other provider names an application after its program; empty when it
+/// cannot be read.
+fn app_name(process: Option<&ProcessIdentity>) -> String {
+    process.and_then(|process| process.read(ProcessAttribute::ProcessName)).unwrap_or_default()
 }
 
 impl UiNode for JabAppNode {
@@ -1396,7 +1453,7 @@ impl UiNode for JabAppNode {
     }
 
     fn name(&self) -> String {
-        self.name.get_or_init(|| crate::process::query_process_name(self.pid).unwrap_or_default()).clone()
+        self.name.get_or_init(|| app_name(self.process.as_ref())).clone()
     }
 
     fn runtime_id(&self) -> &RuntimeId {
@@ -1437,23 +1494,21 @@ impl UiNode for JabAppNode {
         }))
     }
 
+    /// Presence is decided here: the process attributes are read once, and
+    /// only those that were read are listed.
     fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
-        let pid = self.pid;
-        let rid = self.runtime_id().as_str().to_string();
-        let attrs: Vec<Arc<dyn UiAttribute>> = vec![
-            static_attr(Namespace::Control, common::ROLE, UiValue::from("Application")),
-            static_attr(Namespace::Control, common::NAME, UiValue::from(self.name())),
-            static_attr(Namespace::Control, common::RUNTIME_ID, UiValue::from(rid)),
-            static_attr(Namespace::Control, common::TECHNOLOGY, UiValue::from(TECHNOLOGY)),
-            static_attr(Namespace::Control, application::PROCESS_ID, UiValue::from(i64::from(pid))),
-            Arc::new(AppMetadataAttr { pid, kind: AppMetadataKind::ProcessName }),
-            Arc::new(AppMetadataAttr { pid, kind: AppMetadataKind::ExecutablePath }),
-            Arc::new(AppMetadataAttr { pid, kind: AppMetadataKind::CommandLine }),
-            Arc::new(AppMetadataAttr { pid, kind: AppMetadataKind::UserName }),
-            Arc::new(AppMetadataAttr { pid, kind: AppMetadataKind::StartTime }),
-            Arc::new(AppMetadataAttr { pid, kind: AppMetadataKind::Architecture }),
-        ];
+        let mut attrs = self.control_attributes();
+        attrs.extend(app_process_attributes(self.process.as_ref()));
         Box::new(attrs.into_iter())
+    }
+
+    /// A lookup by name reads only what it names.
+    fn attribute(&self, namespace: Namespace, name: &str) -> Option<Arc<dyn UiAttribute>> {
+        match namespace {
+            Namespace::App => app_process_attribute(self.process.as_ref(), name),
+            Namespace::Control => self.control_attributes().into_iter().find(|attribute| attribute.name() == name),
+            _ => None,
+        }
     }
 
     fn supported_patterns(&self) -> Vec<PatternName> {
@@ -1470,53 +1525,66 @@ impl UiNode for JabAppNode {
     fn invalidate(&self) {}
 }
 
-#[derive(Clone, Copy)]
-enum AppMetadataKind {
-    ProcessName,
-    ExecutablePath,
-    CommandLine,
-    UserName,
-    StartTime,
-    Architecture,
-}
-
-struct AppMetadataAttr {
-    pid: u32,
-    kind: AppMetadataKind,
-}
-
-impl UiAttribute for AppMetadataAttr {
-    fn namespace(&self) -> Namespace {
-        Namespace::App
-    }
-
-    fn name(&self) -> &str {
-        match self.kind {
-            AppMetadataKind::ProcessName => application::PROCESS_NAME,
-            AppMetadataKind::ExecutablePath => application::EXECUTABLE_PATH,
-            AppMetadataKind::CommandLine => application::COMMAND_LINE,
-            AppMetadataKind::UserName => application::USER_NAME,
-            AppMetadataKind::StartTime => application::START_TIME,
-            AppMetadataKind::Architecture => application::ARCHITECTURE,
-        }
-    }
-
-    fn value(&self) -> UiValue {
-        let value = match self.kind {
-            AppMetadataKind::ProcessName => crate::process::query_process_name(self.pid),
-            AppMetadataKind::ExecutablePath => crate::process::query_executable_path(self.pid),
-            AppMetadataKind::CommandLine => crate::process::query_command_line(self.pid),
-            AppMetadataKind::UserName => crate::process::query_user_name(self.pid),
-            AppMetadataKind::StartTime => crate::process::query_start_time(self.pid),
-            AppMetadataKind::Architecture => crate::process::query_architecture(self.pid),
-        };
-        value.map_or(UiValue::Null, UiValue::from)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn own_process() -> ProcessIdentity {
+        ProcessIdentity::capture(std::process::id()).expect("the own process exists")
+    }
+
+    /// The `app` attributes as (name, value) pairs.
+    fn app_pairs(attributes: &[Arc<dyn UiAttribute>]) -> Vec<(String, UiValue)> {
+        attributes
+            .iter()
+            .filter(|attribute| attribute.namespace() == Namespace::App)
+            .map(|attribute| (attribute.name().to_owned(), attribute.value()))
+            .collect()
+    }
+
+    /// Spec (`application-process-attributes`): the node lists the reader's
+    /// values, and is named after its process.
+    #[test]
+    fn an_application_lists_the_readers_process_attributes_and_is_named_after_its_process() {
+        let process = own_process();
+        let listed = app_pairs(&app_process_attributes(Some(&process)));
+        let expected: Vec<(String, UiValue)> = process
+            .read_all()
+            .iter()
+            .map(|(attribute, value)| (process_attribute_name(attribute).to_owned(), UiValue::from(value)))
+            .collect();
+        assert!(!expected.is_empty(), "the own process is readable");
+        assert_eq!(listed, expected);
+        assert_eq!(Some(app_name(Some(&process))), process.read(ProcessAttribute::ProcessName));
+    }
+
+    #[test]
+    fn an_application_without_a_process_lists_no_process_attribute() {
+        assert!(app_process_attributes(None).is_empty());
+        assert_eq!(app_name(None), "");
+        for attribute in ProcessAttribute::ALL {
+            assert!(app_process_attribute(None, process_attribute_name(attribute)).is_none());
+        }
+    }
+
+    #[test]
+    fn a_process_attribute_looked_up_by_name_agrees_with_the_listing() {
+        let process = own_process();
+        let listed = app_pairs(&app_process_attributes(Some(&process)));
+        for attribute in ProcessAttribute::ALL {
+            let name = process_attribute_name(attribute);
+            let found = app_process_attribute(Some(&process), name).map(|attribute| attribute.value());
+            let expected = listed.iter().find(|(listed, _)| listed == name).map(|(_, value)| value.clone());
+            assert_eq!(found, expected, "app:{name}");
+        }
+        assert!(app_process_attribute(Some(&process), "ProcessId").is_none(), "not an app attribute");
+    }
+
+    /// A null window has no process; `0` must never stand for one.
+    #[test]
+    fn a_null_window_has_no_process() {
+        assert_eq!(process_id_of(0), None);
+    }
 
     #[test]
     fn runtime_ids_follow_the_scoped_scheme() {

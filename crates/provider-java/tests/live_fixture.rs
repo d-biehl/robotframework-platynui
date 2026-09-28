@@ -1345,6 +1345,74 @@ fn live_a_killed_jvm_leaves_no_valid_application_node_on_the_bridge() {
     provider.shutdown();
 }
 
+/// The `app` attributes of a node, by name.
+fn app_attributes(node: &Arc<dyn UiNode>) -> Vec<(String, UiValue)> {
+    node.attributes()
+        .filter(|attribute| attribute.namespace() == Namespace::App)
+        .map(|attribute| (attribute.name().to_owned(), attribute.value()))
+        .collect()
+}
+
+/// Spec (`application-process-attributes`): *Two providers report the same
+/// process identically*. One JVM, served once by the agent and once by the
+/// Access Bridge.
+#[test]
+#[ignore = "needs a desktop, a Java runtime, the built Swing fixture and the built agent JAR"]
+fn live_the_agent_and_the_bridge_report_one_process_identically() {
+    let app = FixtureApp::launch_with_agent("process attributes");
+    let agent_provider = build_provider(&RuntimeConfig::default());
+    let bridge_provider = build_provider(&jab_only());
+    let parent = desktop_stub();
+
+    let agent = app_attributes(&fixture_application(&agent_provider, &parent, &app, "JavaAgent"));
+    let bridge = app_attributes(&fixture_application(&bridge_provider, &parent, &app, "JAB"));
+    let mut compared = 0;
+    for (name, value) in &agent {
+        if let Some((_, other)) = bridge.iter().find(|(other, _)| other == name) {
+            assert_eq!(value, other, "app:{name} differs between the agent and the Access Bridge");
+            compared += 1;
+        }
+    }
+    assert!(compared > 0, "no process attribute is present on both nodes: agent {agent:?}, bridge {bridge:?}");
+
+    agent_provider.shutdown();
+    bridge_provider.shutdown();
+}
+
+/// The Access Bridge's application node follows the process-attribute
+/// contract: named after its process, the verbatim command line, and no empty
+/// value.
+#[test]
+#[ignore = "needs a desktop, a Java runtime, and the built Swing fixture (run via just test-acceptance-windows)"]
+fn live_the_bridge_application_node_carries_its_process_attributes() {
+    let app = FixtureApp::launch("process attributes");
+    let provider = build_provider(&jab_only());
+    let parent = desktop_stub();
+
+    let application = fixture_application(&provider, &parent, &app, "JAB");
+    let process_name = application.attribute(Namespace::App, attribute_names::application::PROCESS_NAME);
+    let process_name = process_name.expect("app:ProcessName").value();
+    assert_eq!(attribute_value(&application, attribute_names::common::NAME), Some(process_name));
+    let command_line = application.attribute(Namespace::App, attribute_names::application::COMMAND_LINE);
+    let command_line = command_line.expect("app:CommandLine").value();
+    let quoted_title = format!("\"{}\"", app.title);
+    assert!(
+        matches!(&command_line, UiValue::String(line) if line.contains(&quoted_title)),
+        "{command_line:?} lacks the quoted title {quoted_title}"
+    );
+    for attribute in application.attributes() {
+        let value = attribute.value();
+        assert!(
+            !matches!(&value, UiValue::Null) && value != UiValue::from(""),
+            "{:?}:{} is empty",
+            attribute.namespace(),
+            attribute.name()
+        );
+    }
+
+    provider.shutdown();
+}
+
 /// The fixture's `app:Application` node in the desktop listing, as the backend
 /// named by `technology` serves it.
 fn fixture_application(

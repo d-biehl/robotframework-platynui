@@ -44,8 +44,6 @@ mod map;
 #[cfg(windows)]
 mod node;
 #[cfg(windows)]
-mod process;
-#[cfg(windows)]
 mod provider;
 #[cfg(windows)]
 mod pump;

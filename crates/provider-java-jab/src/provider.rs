@@ -487,7 +487,12 @@ fn awt_windows_without_bridge(
 ) -> JabEnumeration {
     let mut pass = JabEnumeration::default();
     for candidate in candidates {
-        if candidate.pid == *SELF_PID || !candidate.class_name.starts_with("SunAwt") {
+        // A window without a process is gone: neither unserved nor a process
+        // to offer the agent to.
+        let Some(pid) = candidate.pid else {
+            continue;
+        };
+        if pid == *SELF_PID || !candidate.class_name.starts_with("SunAwt") {
             continue;
         }
         let window = hwnd_as_claim(candidate.hwnd);
@@ -496,12 +501,12 @@ fn awt_windows_without_bridge(
         if exclusions.is_some_and(|excluded| excluded.excludes(window)) {
             continue;
         }
-        if !pass.java_processes.contains(&candidate.pid) {
-            pass.java_processes.push(candidate.pid);
+        if !pass.java_processes.contains(&pid) {
+            pass.java_processes.push(pid);
         }
         pass.unserved.push(UnservedWindow {
             window,
-            pid: candidate.pid,
+            pid,
             class_name: candidate.class_name,
             cause: UnservedCause::DllNotFound,
         });
@@ -510,26 +515,27 @@ fn awt_windows_without_bridge(
 }
 
 /// Top-level window under `point` (`WindowFromPoint` → `GetAncestor(GA_ROOT)`)
-/// and its owning process id.
+/// and its owning process id; `None` when there is no window, or its process
+/// cannot be named, which for a top-level window means it is gone. The hit-test
+/// then abstains, and never builds an application node without a process.
 #[allow(unsafe_code)]
 fn top_level_window_at(point: Point) -> Option<(isize, u32)> {
     use windows::Win32::Foundation::POINT;
-    use windows::Win32::UI::WindowsAndMessaging::{GA_ROOT, GetAncestor, GetWindowThreadProcessId, WindowFromPoint};
+    use windows::Win32::UI::WindowsAndMessaging::{GA_ROOT, GetAncestor, WindowFromPoint};
 
     #[expect(clippy::cast_possible_truncation, reason = "desktop coordinates fit in i32")]
     let pt = POINT { x: point.x().round() as i32, y: point.y().round() as i32 };
-    // SAFETY: read-only point/window queries with valid out-parameters.
-    unsafe {
+    // SAFETY: read-only point/window queries.
+    let top_level = unsafe {
         let hwnd = WindowFromPoint(pt);
         if hwnd.is_invalid() {
             return None;
         }
         let root = GetAncestor(hwnd, GA_ROOT);
-        let top_level = if root.is_invalid() { hwnd } else { root };
-        let mut pid = 0u32;
-        GetWindowThreadProcessId(top_level, Some(&raw mut pid));
-        Some((top_level.0 as isize, pid))
-    }
+        if root.is_invalid() { hwnd } else { root }
+    };
+    let hwnd = top_level.0 as isize;
+    Some((hwnd, crate::node::process_id_of(hwnd)?))
 }
 
 /// One attached Java top-level window.
@@ -565,12 +571,14 @@ fn discover_java_windows(
     let mut sunawt_suspects = Vec::new();
 
     for candidate in enumerate_visible_top_level_windows() {
-        if candidate.pid == *SELF_PID {
+        // A window without a process is gone: it gets no application node.
+        let Some(pid) = candidate.pid else {
+            continue;
+        };
+        if pid == *SELF_PID {
             continue;
         }
-        if let Some(pid) = pid_filter
-            && candidate.pid != pid
-        {
+        if pid_filter.is_some_and(|filter| filter != pid) {
             continue;
         }
         // Before the bridge is asked anything: a window another backend serves
@@ -590,7 +598,7 @@ fn discover_java_windows(
             if candidate.class_name.starts_with("SunAwt") {
                 sunawt_suspects.push(UnservedWindow {
                     window: hwnd_as_claim(candidate.hwnd),
-                    pid: candidate.pid,
+                    pid,
                     class_name: candidate.class_name,
                     cause: UnservedCause::BridgeNotEnabled,
                 });
@@ -598,7 +606,7 @@ fn discover_java_windows(
             continue;
         }
         match client.context_from_hwnd(candidate.hwnd) {
-            Ok(Some((vm, ctx))) => windows.push(JavaWindow { hwnd: candidate.hwnd, pid: candidate.pid, vm, ctx }),
+            Ok(Some((vm, ctx))) => windows.push(JavaWindow { hwnd: candidate.hwnd, pid, vm, ctx }),
             Ok(None) => debug!(hwnd = format!("0x{:X}", candidate.hwnd), "Java window without accessible context"),
             Err(err) => debug!(%err, "getAccessibleContextFromHWND failed"),
         }
@@ -609,16 +617,15 @@ fn discover_java_windows(
 
 struct WindowCandidate {
     hwnd: isize,
-    pid: u32,
+    /// `None` when the window's process cannot be named: it is gone.
+    pid: Option<u32>,
     class_name: String,
 }
 
 #[allow(unsafe_code)]
 fn enumerate_visible_top_level_windows() -> Vec<WindowCandidate> {
     use windows::Win32::Foundation::{HWND, LPARAM};
-    use windows::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, GetClassNameW, GetWindowThreadProcessId, IsWindowVisible,
-    };
+    use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetClassNameW, IsWindowVisible};
     use windows::core::BOOL;
 
     unsafe extern "system" fn collect(hwnd: HWND, lparam: LPARAM) -> BOOL {
@@ -627,8 +634,7 @@ fn enumerate_visible_top_level_windows() -> Vec<WindowCandidate> {
         unsafe {
             if IsWindowVisible(hwnd).as_bool() {
                 let out = &mut *(lparam.0 as *mut Vec<WindowCandidate>);
-                let mut pid = 0u32;
-                GetWindowThreadProcessId(hwnd, Some(&raw mut pid));
+                let pid = crate::node::process_id_of(hwnd.0 as isize);
                 let mut class_buffer = [0u16; 256];
                 let class_len = GetClassNameW(hwnd, &mut class_buffer);
                 let class_name = String::from_utf16_lossy(&class_buffer[..usize::try_from(class_len).unwrap_or(0)]);
@@ -762,21 +768,31 @@ mod tests {
                 window == self.0
             }
         }
-        let candidate =
-            |hwnd: isize, pid: u32, class_name: &str| WindowCandidate { hwnd, pid, class_name: class_name.into() };
+        let candidate = |hwnd: isize, pid: Option<u32>, class_name: &str| WindowCandidate {
+            hwnd,
+            pid,
+            class_name: class_name.into(),
+        };
         let candidates = vec![
-            candidate(0x10, 4100, "SunAwtFrame"),
-            candidate(0x11, 4100, "SunAwtDialog"),
-            candidate(0x20, 4200, "Notepad"),
-            candidate(0x30, *SELF_PID, "SunAwtFrame"),
-            candidate(0x40, 4300, "SunAwtFrame"),
+            candidate(0x10, Some(4100), "SunAwtFrame"),
+            candidate(0x11, Some(4100), "SunAwtDialog"),
+            candidate(0x20, Some(4200), "Notepad"),
+            candidate(0x30, Some(*SELF_PID), "SunAwtFrame"),
+            candidate(0x40, Some(4300), "SunAwtFrame"),
+            // Gone before its process was read: no process, so neither an
+            // unserved window nor a process to offer the agent to.
+            candidate(0x50, None, "SunAwtFrame"),
         ];
 
         let pass = awt_windows_without_bridge(candidates, Some(&ExcludeOne(0x40)));
 
         assert!(pass.nodes.is_empty() && pass.served_windows.is_empty(), "without a DLL nothing is served");
         let windows: Vec<u64> = pass.unserved.iter().map(|window| window.window).collect();
-        assert_eq!(windows, [0x10, 0x11], "AWT windows only; not the host's own, not one a stronger backend serves");
+        assert_eq!(
+            windows,
+            [0x10, 0x11],
+            "AWT windows with a process only; not the host's own, not one a stronger backend serves"
+        );
         assert!(pass.unserved.iter().all(|window| window.cause == UnservedCause::DllNotFound));
         assert_eq!(pass.java_processes, [4100], "each process once, so that the agent can be offered to it");
         assert_eq!(UnservedCause::DllNotFound.to_string(), "Access Bridge DLL not found");

@@ -25,15 +25,10 @@ windows = { version = "0.62", features = [
   "Win32_System_Ole",
   "Win32_System_Variant",
   "Win32_System_Threading",
-  "Win32_System_ProcessStatus",
-  "Win32_System_Time",
-  "Win32_System_SystemInformation",
-  "Win32_Security",
   "Win32_Foundation",
   "Win32_UI_Accessibility",
   "Win32_UI_WindowsAndMessaging",
   "Win32_Graphics_Dwm",
-  "Wdk_System_Threading",
 ] }
 
 # Captures the warnings of the configuration check in a unit test. Windows-only

@@ -9,11 +9,13 @@ xdg_data_home := if os() == "linux" { env("XDG_DATA_HOME", env("HOME") / ".local
 python_executable := if os() == "windows" { justfile_directory() / ".venv" / "Scripts" / "python.exe" } else { justfile_directory() / ".venv" / "bin" / "python" }
 export PYO3_PYTHON := env("PYO3_PYTHON", python_executable)
 windows_rust_target := env("PLATYNUI_WINDOWS_TARGET", "x86_64-pc-windows-gnu")
-windows_rust_packages := "--package platynui-core --package platynui-log-filter --package platynui-process --package platynui-link --package platynui-xpath --package platynui-runtime --package platynui-platform-windows --package platynui-provider-windows-uia --package platynui-provider-java-jab --package platynui-provider-java --package platynui-cli --package platynui-inspector --package platynui-cli-bin --package platynui-inspector-bin"
+windows_rust_packages := "--package platynui-core --package platynui-log-filter --package platynui-process --package platynui-link --package platynui-xpath --package platynui-runtime --package platynui-platform-windows --package platynui-provider-windows-uia --package platynui-provider-java-jab --package platynui-provider-java --package platynui-cli --package platynui-inspector --package platynui-cli-bin --package platynui-inspector-bin --package platynui-win32-test-window"
 macos_arm_rust_target := env("PLATYNUI_MACOS_ARM_TARGET", "aarch64-apple-darwin")
 macos_rust_packages := "--package platynui-core --package platynui-log-filter --package platynui-process --package platynui-link --package platynui-xpath --package platynui-runtime --package platynui-platform-macos --package platynui-provider-macos-ax --package platynui-cli --package platynui-inspector --package platynui-cli-bin --package platynui-inspector-bin"
 # Built platynui-test-app-egui binary the acceptance suites launch (via PLATYNUI_TEST_APP_BIN).
 egui_test_app := justfile_directory() / "target" / "debug" / if os() == "windows" { "platynui-test-app-egui.exe" } else { "platynui-test-app-egui" }
+# The 32-bit Win32 test window the Windows lane launches (via PLATYNUI_WIN32_TEST_WINDOW_X86).
+win32_test_window_x86 := justfile_directory() / "target" / "i686-pc-windows-msvc" / "debug" / "platynui-win32-test-window.exe"
 # Built platynui-inspector-rs binary the inspector-picker acceptance suite launches (via PLATYNUI_INSPECTOR_BIN).
 inspector_bin := justfile_directory() / "target" / "debug" / if os() == "windows" { "platynui-inspector-rs.exe" } else { "platynui-inspector-rs" }
 # Qt test app on Windows (handed over via PLATYNUI_TEST_APP_QT_*). Paths must be ABSOLUTE — a relative
@@ -376,15 +378,26 @@ test-acceptance-x11 *ARGS: build-native
 # a HARD prerequisite: a failed build fails the lane — the swing suites are
 # selected by the real-windows profile and never skip. The fixture runs on the
 # provisioned Java 8 runtime (PLATYNUI_TEST_APP_SWING_JAVA, from
-# java-launchers.properties).
+# java-launchers.properties). The 32-bit Win32 test window is a hard
+# prerequisite as well (PLATYNUI_WIN32_TEST_WINDOW_X86); it needs the Rust
+# target i686-pc-windows-msvc.
 [windows]
 test-acceptance-windows *ARGS: build-native
     cargo build -p platynui-test-app-egui -p platynui-inspector
     just build-test-app-swing
+    just build-win32-test-window-x86
     just build-java-agent
     just test-java-agent
-    $env:PLATYNUI_TEST_APP_SWING_CLASSES = "{{ swing_app_classes }}"; if (Test-Path "{{ swing_app_launchers }}") { $env:PLATYNUI_TEST_APP_SWING_JAVA = ((Get-Content -Raw "{{ swing_app_launchers }}") | ConvertFrom-StringData).java8 }; $env:PLATYNUI_JAVA_AGENT_JAR = "{{ java_agent_jar }}"; cargo nextest run -p platynui-provider-java -p platynui-java-agent --run-ignored ignored-only
-    $qtBasePy = & "{{ qt_venv_python }}" -c "import sys; print(sys._base_executable)"; $env:PLATYNUI_TEST_APP_BIN = "{{ egui_test_app }}"; $env:PLATYNUI_INSPECTOR_BIN = "{{ inspector_bin }}"; $env:PLATYNUI_TEST_APP_QT_PYTHON = $qtBasePy; $env:PLATYNUI_TEST_APP_QT_PYVENV_LAUNCHER = "{{ qt_venv_python }}"; $env:PLATYNUI_TEST_APP_QT_MAIN = "{{ qt_app_main }}"; $env:PLATYNUI_TEST_APP_QML_PYTHON = $qtBasePy; $env:PLATYNUI_TEST_APP_QML_PYVENV_LAUNCHER = "{{ qt_venv_python }}"; $env:PLATYNUI_TEST_APP_QML_MAIN = "{{ qml_app_main }}"; $env:PLATYNUI_TEST_APP_SWING_CLASSES = "{{ swing_app_classes }}"; if (Test-Path "{{ swing_app_launchers }}") { $env:PLATYNUI_TEST_APP_SWING_JAVA = ((Get-Content -Raw "{{ swing_app_launchers }}") | ConvertFrom-StringData).java8 }; uv run --no-sync robotcode {{ if ARGS != "" { ARGS } else { "--profile real-windows run" } }}
+    $env:PLATYNUI_WIN32_TEST_WINDOW_X86 = "{{ win32_test_window_x86 }}"; $env:PLATYNUI_TEST_APP_SWING_CLASSES = "{{ swing_app_classes }}"; if (Test-Path "{{ swing_app_launchers }}") { $env:PLATYNUI_TEST_APP_SWING_JAVA = ((Get-Content -Raw "{{ swing_app_launchers }}") | ConvertFrom-StringData).java8 }; $env:PLATYNUI_JAVA_AGENT_JAR = "{{ java_agent_jar }}"; cargo nextest run -p platynui-provider-java -p platynui-java-agent -p platynui-process --run-ignored ignored-only
+    $qtBasePy = & "{{ qt_venv_python }}" -c "import sys; print(sys._base_executable)"; $env:PLATYNUI_WIN32_TEST_WINDOW_X86 = "{{ win32_test_window_x86 }}"; $env:PLATYNUI_TEST_APP_BIN = "{{ egui_test_app }}"; $env:PLATYNUI_INSPECTOR_BIN = "{{ inspector_bin }}"; $env:PLATYNUI_TEST_APP_QT_PYTHON = $qtBasePy; $env:PLATYNUI_TEST_APP_QT_PYVENV_LAUNCHER = "{{ qt_venv_python }}"; $env:PLATYNUI_TEST_APP_QT_MAIN = "{{ qt_app_main }}"; $env:PLATYNUI_TEST_APP_QML_PYTHON = $qtBasePy; $env:PLATYNUI_TEST_APP_QML_PYVENV_LAUNCHER = "{{ qt_venv_python }}"; $env:PLATYNUI_TEST_APP_QML_MAIN = "{{ qml_app_main }}"; $env:PLATYNUI_TEST_APP_SWING_CLASSES = "{{ swing_app_classes }}"; if (Test-Path "{{ swing_app_launchers }}") { $env:PLATYNUI_TEST_APP_SWING_JAVA = ((Get-Content -Raw "{{ swing_app_launchers }}") | ConvertFrom-StringData).java8 }; uv run --no-sync robotcode {{ if ARGS != "" { ARGS } else { "--profile real-windows run" } }}
+
+# The 32-bit process of the process-attribute suite: its bitness follows the
+# build target. Needs `rustup target add i686-pc-windows-msvc` and the MSVC x86
+# libraries (the x64/x86 build tools of Visual Studio's C++ workload).
+# Build the Win32 test window for 32-bit x86
+[windows]
+build-win32-test-window-x86:
+    cargo build -p platynui-win32-test-window --target i686-pc-windows-msvc
 
 # Run the QML (Qt Quick) test app on the project venv (PySide6 is a dev
 # dependency, installed by `uv sync`). Extra args are forwarded to the app.

@@ -35,8 +35,11 @@ Start Swing Fixture Process
     [Documentation]    Start one fixture instance with a unique window title and return the Process
     ...    handle. Waiting for its window is the caller's job, because what it waits *for* differs
     ...    per backend (``@Technology`` is "JAB" or "JavaAgent").
-    [Arguments]    ${title}    @{extra_args}
-    ${handle}=    Start Process    ${SWING_JAVA}    ${SWING_ENABLE_FLAG}    -cp    ${SWING_CLASSES}
+    ...
+    ...    ``java`` names another launcher, for example ``javaw.exe``; further named arguments go to
+    ...    ``Start Process`` as they are, for example ``env:NAME=value``.
+    [Arguments]    ${title}    @{extra_args}    ${java}=${SWING_JAVA}    &{process_options}
+    ${handle}=    Start Process    ${java}    ${SWING_ENABLE_FLAG}    -cp    ${SWING_CLASSES}
     ...    platynui.testapp.Main    --title    ${title}    @{extra_args}
-    ...    stdout=${TEMPDIR}/swing-${title}.log    stderr=STDOUT
+    ...    stdout=${TEMPDIR}/swing-${title}.log    stderr=STDOUT    &{process_options}
     RETURN    ${handle}

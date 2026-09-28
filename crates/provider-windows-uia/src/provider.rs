@@ -253,7 +253,7 @@ pub(crate) fn ready_top_level_elements(
             let mut wpid: u32 = 0;
             // SAFETY: `hwnd` is valid; `wpid` receives the owning process id.
             unsafe { GetWindowThreadProcessId(hwnd, Some(std::ptr::addr_of_mut!(wpid))) };
-            if u32::try_from(target).ok() != Some(wpid) {
+            if !window_belongs_to(target, wpid) {
                 continue;
             }
         }
@@ -531,10 +531,7 @@ impl UiTreeProvider for WindowsUiaProvider {
         }
         // Scope the node to its owning process so its runtime id matches the id
         // top-down traversal produces for the same element (app:Application/PID).
-        let scope = match pid {
-            Some(pid) => crate::map::UiaIdScope::App { pid },
-            None => crate::map::UiaIdScope::Desktop,
-        };
+        let scope = hit_scope(pid);
         let node = crate::node::UiaNode::from_elem_with_scope(elem, scope);
         crate::node::UiaNode::init_self(&node);
         // A point hit-test resolves a node out of tree order, so it has no
@@ -548,6 +545,23 @@ impl UiTreeProvider for WindowsUiaProvider {
         }
         Ok(Some(node as Arc<dyn UiNode>))
     }
+}
+
+/// The scope of a hit-test result: its application for a positive pid, and
+/// the desktop when the platform names no process or answers `0`. A process ID
+/// of `0` identifies nothing, so no application node is built for it.
+pub(crate) const fn hit_scope(pid: Option<i32>) -> crate::map::UiaIdScope {
+    match pid {
+        Some(pid) if pid > 0 => crate::map::UiaIdScope::App { pid },
+        _ => crate::map::UiaIdScope::Desktop,
+    }
+}
+
+/// Whether a window whose process `GetWindowThreadProcessId` reported as
+/// `window_pid` belongs to the application `target`. It leaves `0` when it
+/// fails, so a target of `0` or below matches nothing.
+pub(crate) fn window_belongs_to(target: i32, window_pid: u32) -> bool {
+    target > 0 && u32::try_from(target).ok() == Some(window_pid)
 }
 
 /// Top-level window under `pt` (`WindowFromPoint` → `GetAncestor(GA_ROOT)`),

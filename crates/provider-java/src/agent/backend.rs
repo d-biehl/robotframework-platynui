@@ -264,6 +264,8 @@ impl AgentBackend {
             java_processes
                 .iter()
                 .copied()
+                // Pid 0 is no process; it must not cost an attempt either.
+                .filter(|pid| *pid != 0)
                 .filter(|pid| !sessions.contains_key(pid))
                 // A handshake file means an agent is already in there, whether or
                 // not this backend has connected to it yet.
@@ -563,6 +565,15 @@ mod tests {
             log.contains("[PlatynUI agent]"),
             "it must name where the cause was printed, which nobody can guess: {log}"
         );
+    }
+
+    /// Spec: *A process ID of 0 identifies nothing*. A `0` never costs an
+    /// attempt, so it cannot use up the attempts of a real process either.
+    #[test]
+    fn process_id_0_is_never_offered_the_agent() {
+        let backend = AgentBackend::from_config(None, None);
+        assert!(backend.consider_attaching(&[0]).is_empty());
+        assert!(backend.attach_attempts.lock().expect("attach log").is_empty(), "no attempt is recorded for pid 0");
     }
 
     #[test]

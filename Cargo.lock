@@ -3735,12 +3735,10 @@ dependencies = [
 name = "platynui-provider-java-jab"
 version = "0.13.0-dev.2"
 dependencies = [
- "chrono",
  "libloading 0.9.0",
  "platynui-core",
  "platynui-java-agent",
  "platynui-process",
- "sysinfo",
  "tempfile",
  "thiserror 2.0.20",
  "tracing",
@@ -3849,6 +3847,13 @@ version = "0.13.0-dev.2"
 dependencies = [
  "clap",
  "serde_json",
+]
+
+[[package]]
+name = "platynui-win32-test-window"
+version = "0.13.0-dev.2"
+dependencies = [
+ "windows",
 ]
 
 [[package]]
