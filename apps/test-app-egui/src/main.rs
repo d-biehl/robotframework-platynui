@@ -95,6 +95,13 @@ fn main() -> eframe::Result<()> {
             .with_title(&cli.title)
             .with_app_id(&cli.app_id)
             .with_inner_size([600.0, 500.0]),
+        // A fixture must start the same way every time. eframe restores the stored window
+        // geometry and egui memory whenever it is built with its `persistence` feature, which a
+        // joint build with the Inspector switches on, and its `persist_*` switches only stop the
+        // writes. So the app stores nothing, and its storage is a file that nothing writes,
+        // instead of the per-app-id file an earlier run may have left behind.
+        persist_window: false,
+        persistence_path: Some(std::env::temp_dir().join("platynui-test-app-egui-stateless.ron")),
         ..Default::default()
     };
 
@@ -196,6 +203,11 @@ impl TestApp {
 }
 
 impl eframe::App for TestApp {
+    /// Keeps scroll offsets and other egui state out of the storage (see `main`).
+    fn persist_egui_memory(&self) -> bool {
+        false
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
 
