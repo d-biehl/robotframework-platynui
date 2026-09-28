@@ -5,7 +5,7 @@ No test uses the taskbar, the shell or applications that Windows ships; UI Autom
 ## 1. Before the change
 
 - [ ] 1.1 On the Windows lane with a real build (`just build-native`), read `@SupportedPatterns` of an open context-menu popup of the Qt test app and of an open popup of the QML test app, through a short BareMetal suite or `platynui-cli query` scoped to the app (design decision 9). Record here whether a popup's window advertises Activatable. If it does, verify by hand that activating its root with the Win32 window manager does not close it; if it does close, extend the root determination in 5.3 with a popup check and update design and spec before continuing.
-- [ ] 1.2 Record the Windows lane's state before the change: run `just test-acceptance-windows` and `uv run --no-sync robotcode results log --level WARN --execution-messages`, and note the result and the duration of the egui, Qt and QML suites here. If `window-activation-state` still has its Windows verification open, run it in the same lane first, so that its scenarios are recorded on the old activation path.
+- [ ] 1.2 Record the Windows lane's state before the change: run `just test-acceptance-windows` and `uv run --no-sync robotcode results log --level WARN --execution-messages`, and note the result and the duration of the egui, Qt and QML suites here. The scenarios of `window-activation-state` are already recorded on the old activation path, in its archived tasks (2026-09-28).
 
 ## 2. Tests first — Robot Framework acceptance
 
@@ -34,7 +34,7 @@ Follow the `robot-test-style` skill.
 ## 4. Core and platform
 
 - [ ] 4.1 Implement `verify_pattern_instances` and the `ContractIssue` variants `PatternWithoutInstance`, `InstanceWithoutAdvertisement` and `MarkerWithInstance`, with the list of action patterns next to `declare_action_pattern!` (`crates/core/src/ui/pattern.rs`). Correct the documentation of `validate_control_or_item` (`crates/core/src/ui/contract.rs:16-24`) to what it checks, pointing to the new check. Verify that 3.1 and 3.2 pass (`just test-crate platynui-core`, `just test-crate platynui-provider-mock`).
-- [ ] 4.2 In `crates/platform-windows/src/window_manager.rs`, log a refused foreground change once per episode per window (design decision 6), and correct the comments that call `NativeWindowHandle` UIA property 30005 (it is 30020). Verify with `just test-crate platynui-platform-windows` and a unit test of the episode rule if the episode logic has its own function.
+- [ ] 4.2 In `crates/platform-windows/src/window_manager.rs`, correct the comments that call `NativeWindowHandle` UIA property 30005 (`:10`, `:52`); it is 30020. The record of a refused foreground change stays at debug, as `4b1fc6c` set it (design decision 6). Verify with `just test-crate platynui-platform-windows`, whose `a_refused_foreground_change_is_recorded_at_debug` must stay green.
 
 ## 5. UI Automation
 
@@ -67,8 +67,7 @@ Follow the `robot-test-style` skill.
 
 - [ ] 8.1 Commit in reviewable steps. Each step carries the tests it turns green, so each builds, passes lint and passes its tests on its own:
   - the testkit check, with 3.1, 3.2 and 3.6;
-  - the window manager's warning;
-  - the UIA injection, gate and route, with 3.3–3.5 and the acceptance tests of 2.1 and 2.2;
+  - the UIA injection, gate and route, with 3.3–3.5 and the acceptance tests of 2.1 and 2.2, together with the window manager's comment fix of 4.2;
   - the docs.
 
   Subjects ≤ 72 characters, no `!`. The UIA commit lists the behavior changes of the proposal in its body.

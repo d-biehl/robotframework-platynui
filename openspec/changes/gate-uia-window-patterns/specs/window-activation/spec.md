@@ -1,9 +1,5 @@
 # Spec Delta
 
-## Purpose
-
-Defines what activating a window does to its minimized and maximized state. This applies whether the window is activated directly, brought to the front for one of its elements, or activated implicitly before a pointer or keyboard action. Activation brings a window forward and never resizes it as a side effect.
-
 ## ADDED Requirements
 
 ### Requirement: Activation requests no focus change inside the window

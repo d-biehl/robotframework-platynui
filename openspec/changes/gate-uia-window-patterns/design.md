@@ -29,7 +29,7 @@ See proposal.md for the motivation. Facts were verified in the working tree at `
   - restores an iconic window;
   - attaches the thread input of the foreground thread and the target thread;
   - calls `BringWindowToTop` and `SetForegroundWindow`;
-  - logs `tracing::warn!` on every refusal (`:263-268`).
+  - records a refusal at debug (`:263-267`). This has been so since `4b1fc6c`; the `diagnostic-logging` spec asks for debug in this case, and before that commit it was a warning.
 - `resolve_window` (`:157-178`) takes the node's `native:NativeWindowHandle` as it is. When the handle cannot be read, it falls back to the first visible window of the process (`:108-144`).
 - UIA already builds `WindowId::new(hwnd)` from a handle itself, for the Java classifier (`node.rs:306`).
 
@@ -59,7 +59,7 @@ See proposal.md for the motivation. Facts were verified in the working tree at `
 - The Java live tests check advertised ⇒ instance inline for every non-marker pattern (`crates/provider-java/tests/live_fixture.rs:319-333`, `:1057-1068`).
 - The mock advertises attribute-only patterns without instances by design (`crates/provider-mock/src/tree.rs:571-573`).
 
-**Specs.** `window-activation` exists only as a delta of the active change `window-activation-state`. OpenSpec rejects MODIFIED on a capability without a main spec, so this change only adds requirements. Its delta repeats that capability's Purpose word for word, so that the main spec is the same whichever change is archived first.
+**Specs.** `window-activation` has a main spec since `window-activation-state` was archived (2026-09-28), and this change adds requirements to it.
 
 ## Goals / Non-Goals
 
@@ -134,15 +134,15 @@ The decision is a pure function of (handle found, manager present), unit-tested 
 
 An MDI child, or a UWP `CoreWindow` inside its frame, has a handle whose root is its frame. Activation raises the frame. The nested surface is neither restored nor activated on its own. Its `@IsActive` compares the foreground window with its own handle (`node.rs:1647-1671`), so it reads False after the activation. The spec rule "after activation the window SHALL be the active window" therefore holds for the root, not the nested surface. That limitation is written into `dev-docs/platform-windows.md`. No fixture of the repository has nested windows, and the ones Windows brings are not used for tests.
 
-### 6. The foreground-refusal warning is logged once per episode
+### 6. A refused foreground change stays a debug record
 
-The Win32 window manager logs a warning on every refused `SetForegroundWindow` (`window_manager.rs:263-268`). UIA activation now reaches it before every pointer, keyboard, highlight and screenshot action. It follows the once-per-episode rule of `dev-docs/logging.md`:
+UIA activation now reaches the Win32 window manager before every pointer, keyboard, highlight and screenshot action, so a refused `SetForegroundWindow` is recorded far more often than before.
 
-- a warning the first time for a window;
-- debug while the refusals continue;
-- debug when an activation succeeds again.
+Since `4b1fc6c` that record is at debug (`window_manager.rs:263-267`), and a unit test pins it (`a_refused_foreground_change_is_recorded_at_debug`). The `diagnostic-logging` spec asks for debug here, because Windows may refuse the change despite the `AttachThreadInput` workaround, and an activation before an action goes on either way. The UIA path already records its own refusal that way.
 
-This uses `platynui_core::diagnostics::Transitions`. The Windows lane stays free of warnings.
+The window manager's logging therefore needs no change in this change. The Windows lane stays free of warnings.
+
+*Alternative, planned before `4b1fc6c`:* a warning once per episode, through `platynui_core::diagnostics::Transitions`. Dropped, because the spec keeps this case at debug.
 
 ### 7. A testkit check proves the contract for every provider
 
@@ -169,7 +169,7 @@ Today the implicit activation before a click on a Qt or QML menu item is a UIA `
 
 ## Risks / Trade-offs
 
-- **[Foreground refusals now show up more often]** → Once per episode (decision 6). The lane's zero-warning check makes a regression visible.
+- **[Foreground refusals now show up more often]** → They are debug records (decision 6), so the lane's zero-warning check is unaffected. The check still makes a regression visible, should one ever be raised to a warning.
 - **[`AttachThreadInput` now runs before every UIA pointer action]** → The path is not new (JAB and the agent use it) but is used far more often. A hung target thread can stall it. The lane measures the suites' time before and after; a stall becomes a follow-up in the window manager, not a reason to keep `SetFocus`.
 - **[Qt/QML popups]** → Measured first (decision 9).
 - **[Elements with no window above them lose Bring To Front]** → Correct by the spec ("element without an activatable window"). Listed in the release notes. The implicit activation still proceeds, as before.
@@ -177,7 +177,7 @@ Today the implicit activation before a click on a Qt or QML menu item is a UIA `
 - **[AccessKit dialog nodes]** → A dialog node without a handle inside an egui window resolves through its ancestors to the host window (decision 2), so it no longer takes the focus route. `accesskit_windows` implements a WindowPattern for dialog nodes (`src/node.rs:698-700`), which no repository fixture has.
 - **[Walking the ancestors costs calls]** → The cache request and the short-circuit (decision 3); measured without noticeable cost on Win32 controls.
 - **[UIA tests run only on Windows hosts]** → The Windows job of CI only lints. The tasks require a Windows `just test` run, and the lane.
-- **[Coordination]** → `window-activation-state` changed the same `activate` code and has open tasks. Its Windows lane should run first, so that its SW_RESTORE scenario is recorded on the old path before this change replaces it. `snapshot-validity` and `application-process-attributes` touch `ApplicationNode` and should land one after another with this change.
+- **[Coordination]** → `window-activation-state` changed the same `activate` code. Its Windows verification is recorded on the old activation path, and the change is archived (2026-09-28). `snapshot-validity` and `application-process-attributes` touch `ApplicationNode` and should land one after another with this change.
 
 ## Migration Plan
 
@@ -187,7 +187,7 @@ Today the implicit activation before a click on a Qt or QML menu item is a UIA `
   1. The popup measurement.
   2. The tests: RF acceptance and Rust, red where the spec says so.
   3. The testkit check.
-  4. The window manager's warning.
+  4. The window manager's comments (the property id of `NativeWindowHandle`).
   5. The UIA injection, gate, route and cache.
   6. The docs.
   7. The lanes.
