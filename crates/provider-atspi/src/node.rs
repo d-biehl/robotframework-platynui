@@ -47,8 +47,26 @@ const TECHNOLOGY: &str = "AT-SPI2";
 static TOOLKIT_NAME_CACHE: LazyLock<Mutex<HashMap<String, Option<String>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// Where a node sits relative to the application level of the AT-SPI tree
+/// (spec `atspi-application-level`).
+///
+/// The application level is the set of applications the registry lists: the
+/// root objects applications registered through `Socket.Embed`. It is decided
+/// where a node is built, never from what its object reports — AT-SPI requires
+/// the Application interface on an application's root, but not only there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Level {
+    /// One of the registry's applications.
+    Application,
+    /// Any node below an application.
+    BelowApplication,
+}
+
 pub struct AtspiNode {
     conn: Arc<AccessibilityConnection>,
+    /// Whether this node is one of the registry's applications; fixed by the
+    /// constructor that built it.
+    level: Level,
     /// Per-runtime window manager threaded in from the provider (which received
     /// it via `set_window_manager`). `None` when the provider was created
     /// without a runtime-injected window manager (e.g. some tests); window
@@ -58,9 +76,9 @@ pub struct AtspiNode {
     window_manager: Option<InjectedWindowManager>,
     obj: ObjectRefOwned,
     parent: Mutex<Option<Weak<dyn UiNode>>>,
-    /// Whether the parent is an `Application` accessible. Resolved at
-    /// construction time, when the parent `Arc` is guaranteed alive, and
-    /// cached, so the check needs no parent lookup later.
+    /// Whether the parent is at the application level — the only nodes in the
+    /// `app` namespace. Resolved at construction time, when the parent `Arc` is
+    /// guaranteed alive, and cached, so the check needs no parent lookup later.
     parent_is_application: bool,
     /// Strong reference to the parent, so that a node keeps its chain of
     /// ancestors for as long as it lives (the rule of [`UiNode::parent`]). Set
@@ -71,8 +89,8 @@ pub struct AtspiNode {
     parent_keepalive: Mutex<Option<Arc<dyn UiNode>>>,
     self_weak: OnceLock<Weak<dyn UiNode>>,
     runtime_id: OnceLock<RuntimeId>,
-    pub(crate) role: OnceLock<String>,
-    pub(crate) namespace: OnceLock<Namespace>,
+    role: OnceLock<String>,
+    namespace: OnceLock<Namespace>,
     state: ClearableCell<Option<StateSet>>,
     pub(crate) interfaces: ClearableCell<Option<InterfaceSet>>,
     /// Cached name resolved from the accessibility bus.
@@ -97,7 +115,33 @@ pub struct AtspiNode {
 }
 
 impl AtspiNode {
+    /// A node below the application level.
     pub fn new(
+        conn: Arc<AccessibilityConnection>,
+        obj: ObjectRefOwned,
+        parent: Option<&Arc<dyn UiNode>>,
+        window_manager: Option<InjectedWindowManager>,
+        popups: Option<Arc<PopupRegistry>>,
+        timeouts: Arc<AppTimeouts>,
+    ) -> Arc<Self> {
+        Self::build(Level::BelowApplication, conn, obj, parent, window_manager, popups, timeouts)
+    }
+
+    /// A node for one of the registry's applications: `obj` is a child of the
+    /// registry root.
+    pub(crate) fn new_application(
+        conn: Arc<AccessibilityConnection>,
+        obj: ObjectRefOwned,
+        parent: Option<&Arc<dyn UiNode>>,
+        window_manager: Option<InjectedWindowManager>,
+        popups: Option<Arc<PopupRegistry>>,
+        timeouts: Arc<AppTimeouts>,
+    ) -> Arc<Self> {
+        Self::build(Level::Application, conn, obj, parent, window_manager, popups, timeouts)
+    }
+
+    fn build(
+        level: Level,
         conn: Arc<AccessibilityConnection>,
         obj: ObjectRefOwned,
         parent: Option<&Arc<dyn UiNode>>,
@@ -108,6 +152,7 @@ impl AtspiNode {
         let parent_is_application = parent.is_some_and(|p| p.namespace() == Namespace::App);
         let node = Arc::new(Self {
             conn,
+            level,
             window_manager,
             popups,
             timeouts,
@@ -143,9 +188,7 @@ impl AtspiNode {
     ) {
         self.cached_child_count.set(Some(child_count));
         self.interfaces.set(interfaces);
-        let (namespace, role_name) = map_role_with_interfaces(role, interfaces);
-        let _ = self.namespace.set(namespace);
-        let _ = self.role.set(role_name);
+        self.set_role(role);
         self.cached_name.set(name);
         let _ = recorded_identity(&self.process_identity, local_number);
     }
@@ -176,23 +219,18 @@ impl AtspiNode {
         if self.role.get().is_some() {
             return;
         }
-        let Some(proxy) = self.accessible() else {
-            let _ = self.role.set("Unknown".to_string());
-            let _ = self.namespace.set(Namespace::Control);
-            return;
-        };
-        // Resolve interfaces via the same proxy when not yet cached.
-        if !self.interfaces.is_set() {
-            let ifaces =
-                self.call("Accessible.GetInterfaces", proxy.get_interfaces()).and_then(std::result::Result::ok);
-            self.interfaces.set(ifaces);
-        }
-        let interfaces = self.interfaces.get().flatten();
+        // A role that cannot be read is `Invalid`, which keeps the node at its level.
         let role = self
-            .call("Accessible.GetRole", proxy.get_role())
-            .and_then(std::result::Result::ok)
+            .accessible()
+            .and_then(|proxy| self.call("Accessible.GetRole", proxy.get_role()).and_then(std::result::Result::ok))
             .unwrap_or(Role::Invalid);
-        let (namespace, role_name) = map_role_with_interfaces(role, interfaces);
+        self.set_role(role);
+    }
+
+    /// Record the namespace and role name of this node, whose object reports
+    /// `role` (see [`classify`]).
+    pub(crate) fn set_role(&self, role: Role) {
+        let (namespace, role_name) = classify(self.level, role);
         let _ = self.namespace.set(namespace);
         let _ = self.role.set(role_name);
     }
@@ -220,13 +258,8 @@ impl AtspiNode {
         self.resolve_interfaces().is_some_and(|ifaces| ifaces.contains(Interface::Component))
     }
 
-    fn is_application(&self) -> bool {
-        self.resolve_interfaces().is_some_and(|ifaces| ifaces.contains(Interface::Application))
-    }
-
     /// Returns `true` if this node is a real platform top-level window — i.e.
-    /// a direct child of an accessible exposing the AT-SPI `Application`
-    /// interface, excluding transient popups.
+    /// a direct child of an application-level node, excluding transient popups.
     ///
     /// The role alone is **not** sufficient: Qt MDI subwindows (and similar
     /// embedded surfaces in other toolkits) expose the same `Frame`/`Window`/
@@ -240,7 +273,7 @@ impl AtspiNode {
     /// asking costs no parent lookup and no D-Bus role read.
     ///
     /// Transient popups (a context menu's `PopupMenu`, `Menu`, `ToolTip`) hang
-    /// directly under the `Application` exactly like real top-levels do — Qt
+    /// directly under the application exactly like real top-levels do — Qt
     /// attaches them there (surfaced via popups.rs) — but they are
     /// override-redirect windows the window manager does not manage. Treating
     /// them as window surfaces mis-resolves them to the app's *managed* window:
@@ -253,7 +286,7 @@ impl AtspiNode {
     }
 
     /// Returns `true` if this node is a grafted transient popup: a
-    /// popup-class accessible hanging directly under the `Application`
+    /// popup-class accessible hanging directly under an application-level node
     /// (the shape popups.rs surfaces for Qt-style event-driven popups).
     /// These are exactly the nodes whose bounds may come from the window
     /// manager's popup-geometry query instead of toolkit extents.
@@ -277,10 +310,9 @@ impl AtspiNode {
         self.resolve_peer().number
     }
 
-    /// What this node reports about its process: nothing unless it is an
-    /// application.
+    /// What this node reports about its process (see [`process_attributes_at`]).
     fn process_attributes(&self) -> ProcessAttributes {
-        if self.is_application() { ProcessAttributes::from(self.resolve_peer()) } else { ProcessAttributes::default() }
+        process_attributes_at(self.level, || self.resolve_peer())
     }
 
     fn focusable(&self) -> bool {
@@ -312,14 +344,7 @@ impl UiNode for AtspiNode {
     }
 
     fn id(&self) -> Option<String> {
-        // For Application nodes the process ID is the stable identifier, since
-        // the accessible-id is typically empty.
-        if self.is_application() {
-            return application_id(self.resolve_process_id(), || {
-                resolve_id(self.conn.as_ref(), &self.timeouts, &self.obj)
-            });
-        }
-        resolve_id(self.conn.as_ref(), &self.timeouts, &self.obj)
+        node_id(self.level, || self.resolve_process_id(), || resolve_id(self.conn.as_ref(), &self.timeouts, &self.obj))
     }
 
     fn description(&self) -> Option<String> {
@@ -964,7 +989,7 @@ fn map_role(role: Role) -> (Namespace, String) {
         Footer => (Namespace::Control, "Footer"),
         Paragraph => (Namespace::Control, "Paragraph"),
         Ruler => (Namespace::Control, "Ruler"),
-        Application => (Namespace::App, "Application"),
+        Application => (Namespace::Control, "Application"),
         Autocomplete => (Namespace::Control, "Autocomplete"),
         Editbar => (Namespace::Control, "Editbar"),
         Embedded => (Namespace::Control, "Embedded"),
@@ -1023,11 +1048,18 @@ fn map_role(role: Role) -> (Namespace, String) {
     (namespace, name.to_string())
 }
 
-pub(crate) fn map_role_with_interfaces(role: Role, interfaces: Option<InterfaceSet>) -> (Namespace, String) {
-    if interfaces.is_some_and(|ifaces| ifaces.contains(Interface::Application)) {
-        return (Namespace::App, "Application".to_string());
+/// Namespace and role name of a node at `level` whose object reports `role`.
+///
+/// The level fixes only the namespace: an application is in `app` with the
+/// role its object reports, and every node below it is classified by its role
+/// alone. The node's interfaces are no input — the Application interface below
+/// the application level is visible only as native attributes.
+fn classify(level: Level, role: Role) -> (Namespace, String) {
+    let (namespace, name) = map_role(role);
+    match level {
+        Level::Application => (Namespace::App, name),
+        Level::BelowApplication => (namespace, name),
     }
-    map_role(role)
 }
 
 struct AttrsIter {
@@ -1043,7 +1075,7 @@ struct AttrsIter {
     /// Shared lazy-resolution context for standard attributes.
     /// D-Bus calls are deferred until `.value()` and cached via `OnceLock`.
     ctx: Arc<LazyNodeData>,
-    /// Process-derived attributes (only set for Application nodes).
+    /// Process-derived attributes (only set for application-level nodes).
     process: ProcessAttributes,
     /// The node's recorded process, shared with it.
     process_identity: Arc<OnceLock<Option<ProcessIdentity>>>,
@@ -1051,7 +1083,7 @@ struct AttrsIter {
     /// when the listing reaches the first of them.
     process_values: Option<platynui_process::ProcessAttributes>,
     /// Whether this node is a real platform top-level window
-    /// (direct child of an `Application` accessible).
+    /// (direct child of an application-level node).
     is_window_surface: bool,
     /// Pre-filtered list of native property names applicable to this node.
     native_props: Vec<&'static str>,
@@ -1545,7 +1577,7 @@ impl LazyNodeData {
         let owner = self.owner.as_ref()?.upgrade()?;
         let parent = owner.parent_arc()?;
 
-        // The Application accessible has no meaningful on-screen geometry.
+        // An application-level node has no meaningful on-screen geometry.
         // We should never reach here for a real top-level (those are handled
         // by step 1), but defend against unexpected tree shapes.
         if parent.namespace() == Namespace::App {
@@ -1610,7 +1642,7 @@ impl LazyNodeData {
 
 impl ExtentSources for LazyNodeData {
     /// Whether this node is a real platform top-level window (direct child of
-    /// an accessible exposing the AT-SPI `Application` interface). See
+    /// an application-level node). See
     /// [`AtspiNode::is_window_surface`] for the rationale.
     fn is_real_toplevel(&self) -> bool {
         self.is_real_toplevel
@@ -1912,6 +1944,29 @@ fn recorded_identity(cell: &OnceLock<Option<ProcessIdentity>>, number: Option<u3
     }
     let number = number?;
     cell.get_or_init(|| ProcessIdentity::capture(number)).clone()
+}
+
+/// What a node at `level` reports about its process: its application's peer at
+/// the application level — asked for only there — and nothing below it, whatever
+/// interfaces the node reports.
+fn process_attributes_at(level: Level, peer: impl FnOnce() -> PeerIdentity) -> ProcessAttributes {
+    match level {
+        Level::Application => ProcessAttributes::from(peer()),
+        Level::BelowApplication => ProcessAttributes::default(),
+    }
+}
+
+/// The node identifier of a node at `level`: [`application_id`] at the
+/// application level, the toolkit's accessible-id below it.
+fn node_id(
+    level: Level,
+    process_id: impl FnOnce() -> Option<u32>,
+    accessible_id: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    match level {
+        Level::Application => application_id(process_id(), accessible_id),
+        Level::BelowApplication => accessible_id(),
+    }
 }
 
 /// The node identifier of an application: its process ID in decimal when it has
@@ -2473,6 +2528,33 @@ mod tests {
         }
     }
 
+    // Spec: *Process attributes and Id follow the level, not the interface*. A
+    // node below the application level may report the Application interface
+    // (Avalonia's windows do) and shares its application's bus peer; neither
+    // gives it the application's process.
+    #[test]
+    fn below_the_application_level_a_known_process_is_no_attribute() {
+        let reported =
+            process_attributes_at(Level::BelowApplication, || peer_under(LOCAL, Answer::Definitive(Some(APP))));
+        assert_eq!(reported, ProcessAttributes::default());
+    }
+
+    #[test]
+    fn below_the_application_level_the_id_is_the_accessible_id() {
+        let id = node_id(Level::BelowApplication, || Some(APP), || Some("accessible".to_string()));
+        assert_eq!(id, Some("accessible".to_string()));
+    }
+
+    #[test]
+    fn at_the_application_level_the_process_is_reported() {
+        let peer = peer_under(LOCAL, Answer::Definitive(Some(APP)));
+        assert_eq!(process_attributes_at(Level::Application, || peer), ProcessAttributes::from(peer));
+        assert_eq!(
+            node_id(Level::Application, || Some(APP), || panic!("must not ask for the accessible-id")),
+            Some(APP.to_string())
+        );
+    }
+
     #[test]
     fn a_named_lookup_reads_the_process_table_only_for_the_app_attribute_it_names() {
         for kind in AppAttr::ALL {
@@ -2545,9 +2627,10 @@ mod tests {
     }
 
     #[test]
-    fn map_role_application() {
+    fn map_role_application_is_a_control() {
+        // The `app` namespace comes from the level alone (see `classify`).
         let (ns, name) = map_role(Role::Application);
-        assert_eq!(ns, Namespace::App);
+        assert_eq!(ns, Namespace::Control);
         assert_eq!(name, "Application");
     }
 
@@ -2614,31 +2697,29 @@ mod tests {
         assert_eq!(name, "TreeItem");
     }
 
-    // ---- map_role_with_interfaces ----
+    // ---- classify: the application level and the reported role ----
 
+    // Spec `atspi-application-level`. The interfaces a node reports are no
+    // input, so no row can depend on the Application interface.
     #[test]
-    fn map_role_with_interfaces_application_interface_overrides() {
-        // Even if the role is not Application, the Application interface
-        // should force the App namespace.
-        let ifaces = InterfaceSet::new(Interface::Application);
-        let (ns, name) = map_role_with_interfaces(Role::Frame, Some(ifaces));
-        assert_eq!(ns, Namespace::App);
-        assert_eq!(name, "Application");
-    }
-
-    #[test]
-    fn map_role_with_interfaces_no_override_without_app() {
-        let ifaces = InterfaceSet::new(Interface::Component);
-        let (ns, name) = map_role_with_interfaces(Role::Button, Some(ifaces));
-        assert_eq!(ns, Namespace::Control);
-        assert_eq!(name, "Button");
-    }
-
-    #[test]
-    fn map_role_with_interfaces_none_falls_through() {
-        let (ns, name) = map_role_with_interfaces(Role::Dialog, None);
-        assert_eq!(ns, Namespace::Control);
-        assert_eq!(name, "Dialog");
+    fn the_level_decides_the_namespace_and_the_reported_role_the_role() {
+        let table = [
+            // *A root with the application role is app:Application*, and
+            // *A registered application without the Application interface
+            // stays at the application level*
+            (Level::Application, Role::Application, Namespace::App, "Application"),
+            // *A root with another role keeps that role*
+            (Level::Application, Role::Frame, Namespace::App, "Frame"),
+            // *A root whose role cannot be read stays at the application level*
+            (Level::Application, Role::Invalid, Namespace::App, "Unknown"),
+            // *An Avalonia window is a frame*
+            (Level::BelowApplication, Role::Frame, Namespace::Control, "Frame"),
+            // *An application role inside a tree is a control*
+            (Level::BelowApplication, Role::Application, Namespace::Control, "Application"),
+        ];
+        for (level, role, namespace, name) in table {
+            assert_eq!(classify(level, role), (namespace, name.to_string()), "{level:?} / {role:?}");
+        }
     }
 
     // ---- helper value conversions ----

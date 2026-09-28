@@ -112,7 +112,7 @@ Other C0 control characters (U+0000–U+001F) have no standard keyboard equivale
 **Node Model** (`AtspiNode`):
 - Lazy `children()` and streaming `attributes()`.
 - Role mapping to `control`/`item` namespaces via AT-SPI role enum.
-- `app:Application` nodes for processes with the Application interface.
+- The applications the registry lists are the application level: `app` nodes with the role their root object reports (`app:Application` for every toolkit checked). Below that level the Application interface only shows up as native attributes, and a node with the role `application` is `control:Application`. Details: the `atspi-application-level` spec under `openspec/specs/`.
 
 **Standard Attributes**: `Role`, `Name`, `RuntimeId` (from D-Bus object path), `Technology` = "AT-SPI2", optional `Id` (from `accessible_id`).
 

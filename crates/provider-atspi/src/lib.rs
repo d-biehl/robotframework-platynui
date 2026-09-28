@@ -320,7 +320,7 @@ impl UiTreeProvider for AtspiProvider {
                 .and_then(node::normalize_value);
             timeouts.learned(name, node_name.as_deref(), None);
 
-            let node = AtspiNode::new(
+            let node = AtspiNode::new_application(
                 conn.clone(),
                 child,
                 Some(&parent),
@@ -396,7 +396,7 @@ impl UiTreeProvider for AtspiProvider {
         let window_manager = Some(window_manager);
         let popups = self.popups_handle();
         let timeouts = &self.timeouts;
-        let app_node: Arc<dyn UiNode> = AtspiNode::new(
+        let app_node: Arc<dyn UiNode> = AtspiNode::new_application(
             conn.clone(),
             app_obj.clone(),
             None,

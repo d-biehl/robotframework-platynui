@@ -433,6 +433,71 @@ impl UiTreeProviderFactory for RejectingWindowFactory {
 }
 pub static REJECTING_WINDOW_FACTORY: RejectingWindowFactory = RejectingWindowFactory;
 
+// --- A node of a chosen namespace and role ---
+
+/// A node with a chosen namespace and role and the children [`Self::adopt`]
+/// gave it; `activatable` makes it a top-level window.
+pub struct ShapedNode {
+    runtime_id: RuntimeId,
+    namespace: Namespace,
+    role: &'static str,
+    activatable: bool,
+    parent: Mutex<Option<Weak<dyn UiNode>>>,
+    children: Mutex<Vec<Arc<dyn UiNode>>>,
+}
+
+impl ShapedNode {
+    pub fn new(id: &str, namespace: Namespace, role: &'static str, activatable: bool) -> Arc<Self> {
+        Arc::new(Self {
+            runtime_id: RuntimeId::from(id),
+            namespace,
+            role,
+            activatable,
+            parent: Mutex::new(None),
+            children: Mutex::new(Vec::new()),
+        })
+    }
+
+    /// Makes `child` a child of `parent`.
+    pub fn adopt(parent: &Arc<Self>, child: &Arc<Self>) {
+        let erased: Arc<dyn UiNode> = parent.clone();
+        *child.parent.lock().unwrap() = Some(Arc::downgrade(&erased));
+        parent.children.lock().unwrap().push(child.clone());
+    }
+}
+
+impl UiNode for ShapedNode {
+    fn namespace(&self) -> Namespace {
+        self.namespace
+    }
+    fn role(&self) -> &str {
+        self.role
+    }
+    fn name(&self) -> String {
+        self.role.to_string()
+    }
+    fn runtime_id(&self) -> &RuntimeId {
+        &self.runtime_id
+    }
+    fn parent(&self) -> Option<Weak<dyn UiNode>> {
+        self.parent.lock().unwrap().clone()
+    }
+    fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
+        Box::new(self.children.lock().unwrap().clone().into_iter())
+    }
+    fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
+        Box::new(std::iter::empty())
+    }
+    fn supported_patterns(&self) -> Vec<PatternName> {
+        if self.activatable { vec![PatternName::from(pattern_names::ACTIVATABLE)] } else { Vec::new() }
+    }
+    fn pattern_by_name(&self, pattern: &PatternName) -> Option<Arc<dyn UiPattern>> {
+        (self.activatable && *pattern == PatternName::from(pattern_names::ACTIVATABLE))
+            .then(|| Arc::new(ActivatableAction::new(|| Ok(()))) as Arc<dyn UiPattern>)
+    }
+    fn invalidate(&self) {}
+}
+
 // --- A lazy tree whose window counts its activations ---
 
 /// What happened to the nodes of [`LAZY_TREE_FACTORY`]'s trees, shared by

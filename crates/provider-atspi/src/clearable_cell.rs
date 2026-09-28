@@ -36,6 +36,7 @@ impl<T> ClearableCell<T> {
     }
 
     /// Returns `true` if the cell currently holds a value.
+    #[cfg(test)]
     pub(crate) fn is_set(&self) -> bool {
         self.0.lock().is_ok_and(|g| g.is_some())
     }

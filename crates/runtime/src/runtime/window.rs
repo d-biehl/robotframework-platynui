@@ -39,15 +39,16 @@ impl Runtime {
     }
 
     /// Returns the nearest ancestor (including `node` itself) that exposes the `Activatable`
-    /// pattern (i.e. is a top-level window). For `app:Application` nodes without a direct
-    /// pattern, this method selects the first child that exposes `Activatable`.
+    /// pattern (i.e. is a top-level window). For `app:` nodes without a direct pattern, this
+    /// method selects the first child that exposes `Activatable`. An application node is
+    /// recognised by its namespace alone; its role may be any role its provider reports.
     pub fn top_level_window_for(&self, node: &Arc<dyn UiNode>) -> Option<Arc<dyn UiNode>> {
         for anc in node.ancestors_including_self() {
             if anc.pattern::<ActivatableAction>().is_some() {
                 return Some(anc);
             }
         }
-        if node.namespace() == Namespace::App && node.role() == "Application" {
+        if node.namespace() == Namespace::App {
             for child in node.children() {
                 if child.pattern::<ActivatableAction>().is_some() {
                     return Some(child);
@@ -337,6 +338,31 @@ mod tests {
             super::super::error::BringToFrontError::PatternMissing { .. } => {}
             other => panic!("unexpected error: {other:?}"),
         }
+    }
+
+    // Spec `atspi-application-level`: the application node is recognised by
+    // its namespace, whatever role it carries.
+
+    /// *An application node with another role still leads to its window*.
+    #[rstest]
+    fn an_application_node_with_another_role_leads_to_its_window(rt_runtime_platform: Runtime) {
+        let application = ShapedNode::new("application", Namespace::App, "Frame", false);
+        ShapedNode::adopt(&application, &ShapedNode::new("window", Namespace::Control, "Frame", true));
+        let application: Arc<dyn UiNode> = application;
+
+        let window = rt_runtime_platform.top_level_window_for(&application).expect("the application's window");
+
+        assert_eq!(window.runtime_id().as_str(), "window");
+    }
+
+    /// *A control named Application does not lead to a window*.
+    #[rstest]
+    fn a_control_named_application_does_not_lead_to_a_window(rt_runtime_platform: Runtime) {
+        let control = ShapedNode::new("control", Namespace::Control, "Application", false);
+        ShapedNode::adopt(&control, &ShapedNode::new("window", Namespace::Control, "Frame", true));
+        let control: Arc<dyn UiNode> = control;
+
+        assert!(rt_runtime_platform.top_level_window_for(&control).is_none());
     }
 
     fn single_node(item: Option<EvaluationItem>) -> Arc<dyn UiNode> {

@@ -23,6 +23,27 @@ Element Under The Cursor Is Resolved
     Should Be Equal    ${el.id}    btn-click-me
     ...    msg=element under the cursor was '${el.id}', expected 'btn-click-me'
 
+Hit Test Reaches The Window Through One Application Node
+    [Documentation]    Walk up from the element under the cursor: exactly one ancestor is an
+    ...    application node, the suite's window is that node's direct child, and only the window
+    ...    — not the button — is a top-level window. The hit-test builds this ancestor chain itself,
+    ...    apart from the tree a query enumerates.
+    BM.Pointer Move To    .//*[@Id="btn-click-me"]
+    ${p}=    BM.Get Pointer Position
+    ${el}=    BM.Get Element At Point    ${p.x}    ${p.y}
+    Should Not Be Equal    ${el}    ${None}    msg=hit-test resolved nothing under the cursor
+    Should Be Equal    ${el.id}    btn-click-me
+    ...    msg=element under the cursor was '${el.id}', expected 'btn-click-me'
+    VAR    ${chain}    ${{ $el.ancestors() }}
+    VAR    ${applications}    ${{ [node for node in $chain if str(node.namespace) == "app"] }}
+    Length Should Be    ${applications}    1    msg=the hit-test chain must hold exactly one application node
+    VAR    ${window}    ${{ $chain[$chain.index($applications[0]) - 1] }}
+    ${suite_window}=    BM.Query    .    only_first=${True}
+    Should Be Equal    ${window.runtime_id}    ${suite_window.runtime_id}
+    ...    msg=the application node's child in the hit-test chain must be the suite's window
+    BM.Get Attribute    ${window}    SupportedPatterns    contains    org.platynui.patterns.Activatable
+    BM.Get Attribute    ${el}    SupportedPatterns    not contains    org.platynui.patterns.Activatable
+
 Hit Test Follows The Cursor To A Second Widget
     [Documentation]    Moving to a different widget resolves that widget — proves the result tracks
     ...    the cursor rather than returning a stale/first element.
