@@ -31,7 +31,7 @@ Scrolling Over An Element Moves The Pointer Onto It First
     ${target}=    Get Pointer Position
     Pointer Move To    x=${{ $target.x + 137 }}    y=${{ $target.y + 89 }}
     Pointer Scroll    ${OPS}
-    Get Pointer Position    ==    ${target}    msg=scroll did not move the pointer over the target first
+    Get Pointer Position    ==    ${target}    assertion_message=scroll did not move the pointer over the target first
 
 Scrolling Without A Target Stays At The Current Position
     [Documentation]    With descriptor ${None} and no coordinates there is no point to resolve, so the
@@ -39,7 +39,7 @@ Scrolling Without A Target Stays At The Current Position
     Pointer Move To    x=${42}    y=${17}
     ${before}=    Get Pointer Position
     Pointer Scroll    ${None}
-    Get Pointer Position    ==    ${before}    msg=scroll at the current position should not move the pointer
+    Get Pointer Position    ==    ${before}    assertion_message=scroll at the current position should not move the pointer
 
 Scrolling At Explicit Coordinates Moves There First
     [Documentation]    Absolute x/y (no element) resolve to a screen point, so the pointer moves there

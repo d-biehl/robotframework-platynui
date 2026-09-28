@@ -34,19 +34,19 @@ Scroll Down Then Up Moves And Restores The Vertical Offset
     Reset The Box
     BM.Pointer Scroll    x=${BOX_X}    y=${BOX_Y}    direction=DOWN    ticks=${3}
     BM.Wait Until Query    ${OFFSET_Y}    >    ${0}
-    ...    msg=scrolling down did not increase the vertical offset
+    ...    assertion_message=scrolling down did not increase the vertical offset
     BM.Pointer Scroll    x=${BOX_X}    y=${BOX_Y}    direction=UP    ticks=${10}
     BM.Wait Until Query    ${OFFSET_Y}    ==    ${0}
-    ...    msg=scrolling up did not restore the vertical offset
+    ...    assertion_message=scrolling up did not restore the vertical offset
 
 Scroll Right Then Left Moves And Restores The Horizontal Offset
     Reset The Box
     BM.Pointer Scroll    x=${BOX_X}    y=${BOX_Y}    direction=RIGHT    ticks=${3}
     BM.Wait Until Query    ${OFFSET_X}    >    ${0}
-    ...    msg=scrolling right did not increase the horizontal offset
+    ...    assertion_message=scrolling right did not increase the horizontal offset
     BM.Pointer Scroll    x=${BOX_X}    y=${BOX_Y}    direction=LEFT    ticks=${10}
     BM.Wait Until Query    ${OFFSET_X}    ==    ${0}
-    ...    msg=scrolling left did not restore the horizontal offset
+    ...    assertion_message=scrolling left did not restore the horizontal offset
 
 Scroll Over An Element Scrolls The Box
     [Documentation]    Descriptor targeting (not coordinates): Pointer Scroll over an element moves the
@@ -55,7 +55,7 @@ Scroll Over An Element Scrolls The Box
     Reset The Box
     BM.Pointer Scroll    .//(Label|Text)[@Id="scrollbox-row-00"]    direction=DOWN    ticks=${3}
     BM.Wait Until Query    ${OFFSET_Y}    >    ${0}
-    ...    msg=scrolling over an element did not scroll the box
+    ...    assertion_message=scrolling over an element did not scroll the box
 
 
 *** Keywords ***

@@ -48,7 +48,7 @@ One Runtime Keeps Working While The Other Acts
     ${before}=    B.Get Attribute    ${WINDOW}//*[@Id="status-clicks"]    Name
     A.Pointer Click    ${WINDOW}//*[@Id="btn-click-me"]
     B.Wait Until Query    ${WINDOW}//*[@Id="status-clicks"]/@Name    !=    ${before}
-    ...    msg=B did not observe the click A performed on the shared session
+    ...    assertion_message=B did not observe the click A performed on the shared session
 
 Each Import Keeps Its Own Query Root
     [Documentation]    The suite setup pins BM's root to the launched instance. A and B are separate

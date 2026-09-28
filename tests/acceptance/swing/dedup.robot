@@ -29,11 +29,11 @@ Kill Switch Restores The UIA Shell Alongside The JAB Node
     ...    ``@Technology``. The first query may race the second runtime's JAB rendezvous, hence the
     ...    waiting count queries.
     BMOFF.Wait Until Query    count(/Window[@Name="${SWING_TITLE}"])    ==    ${2}
-    ...    msg=expected the JAB node plus the UIA shell with claims ignored    query_overrides={'timeout': 10}
+    ...    assertion_message=expected the JAB node plus the UIA shell with claims ignored    query_overrides={'timeout': 10}
     BMOFF.Wait Until Query    count(/Window[@Name="${SWING_TITLE}" and @Technology="JAB"])    ==    ${1}
-    ...    msg=exactly one of the two must be the JAB representation
+    ...    assertion_message=exactly one of the two must be the JAB representation
     BMOFF.Wait Until Query    count(/Window[@Name="${SWING_TITLE}" and @Technology="UIAutomation"])    ==    ${1}
-    ...    msg=the other must be the UIA shell, naming its own technology
+    ...    assertion_message=the other must be the UIA shell, naming its own technology
 
 Each Import Keeps Its Own Query Root
     [Documentation]    The suite setup pins BM's root to the launched instance; BMOFF is a separate

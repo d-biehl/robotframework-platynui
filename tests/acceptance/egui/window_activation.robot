@@ -95,7 +95,7 @@ Pointer Click Into A Maximized Background Window Keeps It Maximized
     ${before}=    Get Click Count    ${ALPHA}
     BM.Pointer Click    ${ALPHA}//*[@Id="btn-click-me"]
     BM.Wait Until Query    ${ALPHA}//*[@Id="status-clicks"]/@Name    ==    Clicks: ${{ $before + 1 }}
-    ...    msg=click did not land on the raised window
+    ...    assertion_message=click did not land on the raised window
     BM.Get Attribute    ${ALPHA}    IsActive    ==    ${True}
     BM.Get Attribute    ${ALPHA}    IsMaximized    ==    ${True}
 
