@@ -65,6 +65,13 @@ class AdapterFactory(ABC):
     ) -> list['Adapter']:
         """Return every adapter matching ``locator`` below ``parent``."""
 
+    def discard_snapshot(self) -> None:
+        """Discard what the factory has read of the UI, so the next lookup reads it again.
+
+        Contexts call this before they retry a lookup or a check, and when they
+        give up. The default does nothing, for factories that keep no snapshot.
+        """
+
 
 class RuntimeAdapterFactory(AdapterFactory):
     """`AdapterFactory` that evaluates locators through the native runtime.
@@ -72,6 +79,10 @@ class RuntimeAdapterFactory(AdapterFactory):
     Renders the locator to XPath via ``Locator.to_xpath`` and runs it
     on `runtime.current`, wrapping each returned `UiNode` in a
     `UiNodeAdapter`. Stateless and thread-safe.
+
+    The runtime answers from a snapshot of the UI that the next lookup may
+    reuse. A lookup that finds nothing discards it, so that the next one
+    reads the current UI; a lookup that finds its element keeps it.
     """
 
     @override
@@ -91,6 +102,8 @@ class RuntimeAdapterFactory(AdapterFactory):
         )
         node = self._native_node(parent)
         result = runtime.current.evaluate_single(xpath, node)
+        if result is None:
+            self.discard_snapshot()
         return self._wrap(result, xpath)
 
     @override
@@ -110,7 +123,16 @@ class RuntimeAdapterFactory(AdapterFactory):
         )
         node = self._native_node(parent)
         results = runtime.current.evaluate(xpath, node)
+        if not results:
+            self.discard_snapshot()
         return [a for a in (self._wrap(r, xpath) for r in results) if a is not None]
+
+    @override
+    def discard_snapshot(self) -> None:
+        # A runtime that was never built holds no snapshot; building one here
+        # would only start the providers to clear an empty cache.
+        if runtime.is_initialised():
+            runtime.current.clear_cache()
 
     @staticmethod
     def _native_node(parent: 'Adapter') -> _pn.UiNode:

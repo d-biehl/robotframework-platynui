@@ -41,6 +41,16 @@ __all__ = [
 ]
 
 
+def _discard_snapshot() -> None:
+    """Discard what the adapter factory has read of the UI.
+
+    Only a factory that has been built can have read anything; reading
+    `adapter_factory.current` before that would build and seal it.
+    """
+    if adapter_factory.is_initialised():
+        adapter_factory.current.discard_snapshot()
+
+
 class ContextBase:
     """Context base.
 
@@ -283,14 +293,33 @@ class ContextBase:
         timeout: float | None = None,
         raise_exception: bool | None = None,
     ) -> bool:
-        """Verify ``predicates`` for this context, invalidating between retries."""
-        return ensure_that(
-            self,
-            *predicates,
-            timeout=timeout,
-            raise_exception=raise_exception,
-            failed_func=self.invalidate,
-        )
+        """Verify ``predicates`` for this context, reading the UI again between retries.
+
+        Before each retry, the runtime's snapshot is discarded and the
+        context invalidated, so the next attempt reads the current UI
+        instead of asking the same snapshot again. When the check gives
+        up, whether it returns ``False`` or raises, the snapshot is
+        discarded once more, so the next call starts from the current UI.
+        A check that succeeds keeps the snapshot.
+        """
+        try:
+            succeeded = ensure_that(
+                self,
+                *predicates,
+                timeout=timeout,
+                raise_exception=raise_exception,
+                failed_func=self._before_retry,
+            )
+        except BaseException:
+            _discard_snapshot()
+            raise
+        if not succeeded:
+            _discard_snapshot()
+        return succeeded
+
+    def _before_retry(self) -> None:
+        _discard_snapshot()
+        self.invalidate()
 
     # ------------------------------------------------------------------
     # Property pass-through to the adapter
