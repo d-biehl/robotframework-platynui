@@ -28,7 +28,7 @@ crates/
 ├─ xpath                     # XPath evaluator and parser — platynui-xpath
 ├─ runtime                   # Runtime, provider registry, XPath pipeline — platynui-runtime
 ├─ link                      # Linking helper macros — platynui-link
-├─ process                   # Process identity (pid + start time) — platynui-process
+├─ process                   # Process identity (pid + start time) and process attributes — platynui-process
 ├─ platform-windows          # Windows devices — platynui-platform-windows
 ├─ provider-windows-uia      # UIA provider — platynui-provider-windows-uia
 ├─ provider-java             # The single Java provider, routing to toolkit backends — platynui-provider-java
@@ -50,6 +50,7 @@ apps/
 ├─ wayland-compositor        # Wayland compositor for testing — platynui-wayland-compositor
 ├─ wayland-compositor-ctl    # CLI control for compositor — platynui-wayland-compositor-ctl
 ├─ test-app-egui             # egui test app (accessibility) — platynui-test-app-egui
+├─ win32-test-window         # Plain Win32 window for process-level tests (built 32-bit) — platynui-win32-test-window
 └─ eis-test-client           # EIS/libei protocol validator — platynui-eis-test-client
 
 packages/
@@ -359,7 +360,7 @@ Every `control:`/`item:` node carries a small common attribute set independent o
 | **Resizable** | — | — |
 | **Responsive** | — | — |
 | **DialogSurface** | — | DialogResult |
-| **Application** | ProcessId | ProcessName, ExecutablePath, CommandLine |  <!-- Note: ProcessName is the executable stem; `control:Name` (display name) is inherited from the common attribute set. On Windows, `control:Name` falls back to ProcessName since UIA has no separate app display name. On AT-SPI2, `control:Name` = Accessible.Name (display name). See planning.md §8 (Open Design Questions, item 5). -->
+| **Application** | — | ProcessId, ProcessName, ExecutablePath, CommandLine, UserName, StartTime, Architecture |  <!-- Note: every process attribute is optional and present only when it was read for that process; `ProcessId` is in `control:`, the other six in `app:`. Names, formats and per-platform availability: spec `application-process-attributes`. `control:Name` (display name) is inherited from the common attribute set: UIA and JAB name the node after its process name, AT-SPI2 uses Accessible.Name, the Java agent the main class. -->
 | **Highlightable** | — | — |
 | **Annotatable** | — | — |
 
@@ -499,15 +500,17 @@ The paired reader is `TextContent` (`Text`); `Clearable` follows the same princi
 
 **Application**
 
-| Attribute | UIA | AT-SPI2 | macOS AX |
+Every provider on a platform reads the process attributes through the one reader of `platynui-process`, bound to the process identity the node recorded; the Java provider's JAB and agent nodes on Windows included. Formats and the presence rule: spec `application-process-attributes`.
+
+| Attribute | Windows (UIA, JAB, Java agent) | Linux (AT-SPI2) | macOS AX |
 |-----------|-----|---------|----------|
-| ProcessId | CurrentProcessId | D-Bus peer credentials | AXPid (via kAXPIDAttribute) |
-| ProcessName | Executable filename (without .exe) | /proc/PID/comm or cmdline[0] | NSRunningApplication.localizedName |
-| ExecutablePath | OpenProcess + QueryFullProcessImageName | /proc/PID/exe | NSRunningApplication.executableURL |
-| CommandLine | QueryProcessCommandLine (NtQueryInformationProcess) | /proc/PID/cmdline | — |
-| UserName | Process token → LookupAccountSid | /proc/PID/status Uid → getpwuid | — |
-| StartTime | GetProcessTimes → ISO 8601 | /proc/PID/stat field 22 (ticks → ISO 8601) | — |
-| Architecture | IsWow64Process2 / PE header | — (Linux keeps no architecture per process) | — |
+| ProcessId | CurrentProcessId; the window's or the agent session's process | D-Bus peer credentials | AXPid (via kAXPIDAttribute) |
+| ProcessName | File name of ExecutablePath, trailing `.exe` removed | File name of ExecutablePath | — |
+| ExecutablePath | QueryFullProcessImageNameW (Win32 form) | `sysinfo` `exe()` (/proc/PID/exe, without ` (deleted)`) | — |
+| CommandLine | NtQueryInformationProcess(ProcessCommandLineInformation), verbatim | /proc/PID/cmdline, arguments joined by spaces as they are | — |
+| UserName | Process token → LookupAccountSidW, `DOMAIN\user` | `sysinfo` effective UID → getpwuid_r | — |
+| StartTime | Creation time the identity recorded (GetProcessTimes), to the second | `sysinfo` `start_time()` (/proc/PID/stat field 22), to the second | — |
+| Architecture | GetProcessInformation(ProcessMachineTypeInfo), then IsWow64Process2 | — (Linux keeps no architecture per process) | — |
 
 ## 7. Provider Infrastructure
 
@@ -571,7 +574,7 @@ All providers must:
 - `control:Text` (TextContent) priority: `TextPattern.DocumentRange.GetText` → `ValuePattern.Value`; never the accessible name. Absent when the element supports neither pattern.
 - `control:Description` from `FullDescription` (`UIA_FullDescriptionPropertyId`) only — never `HelpText` or `LegacyIAccessible.Description`. Win10 1703+ property; absent when empty/unsupported. The hardcoded `attribute()` fast-path must agree with the `attributes()` iterator.
 - Window capability patterns (Activatable, Minimizable, Maximizable, Restorable, Closeable, Movable, Resizable) via `WindowPattern`/`TransformPattern`; `ResponsivePattern::accepts_user_input()` via `IsEnabled && IsInView` + `WaitForInputIdle`.
-- Application node: process metadata (`ProcessId`, `Name`, `ExecutablePath`, `CommandLine`, `UserName`, `StartTime`, `Architecture`).
+- Application node: process attributes (`control:ProcessId` for a positive pid; `app:ProcessName`, `ExecutablePath`, `CommandLine`, `UserName`, `StartTime`, `Architecture`), each listed only when it was read for the node's recorded process; `control:Name` and `control:Id` are the process name.
 - `SelectionItemPattern`/`SelectionPattern` sync verified.
 - COM initialized (`CoInitializeEx` MTA) before any UIA call.
 - `VirtualizedItemPattern::Realize()` attempted before child traversal.

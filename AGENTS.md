@@ -12,9 +12,9 @@ PlatynUI is a cross-platform UI automation toolkit for Robot Framework, built on
 	- `crates/provider-{windows-uia,java,java-jab,atspi,macos-ax,mock}` (`provider-java` = the single registered Java provider, a router over toolkit backends; `provider-java-jab` = its Java Access Bridge backend for Swing/AWT on Windows — a library crate, not a provider)
 	- `crates/java-agent` — JVM attach transport, handshake discovery and RPC client for the in-JVM Java agent; provider-neutral, depends on no other PlatynUI crate
 	- `crates/log-filter` (package `platynui-log-filter`) — the shared log-filter builder for the CLI, the Inspector and the Python extension
-	- `crates/process` (package `platynui-process`) — which process a pid stands for (pid plus start time) and whether it still runs; used by the providers' application nodes, depends on no other PlatynUI crate
+	- `crates/process` (package `platynui-process`) — which process a pid stands for (pid plus start time), whether it still runs, and its process attributes, one reader per platform; used by the providers' application nodes, depends on no other PlatynUI crate
 	- `crates/cli`, `crates/xkb-util`, `crates/playground`
-	- `apps/inspector`, `apps/wayland-compositor`, `apps/wayland-compositor-ctl`, `apps/test-app-egui`, `apps/eis-test-client`
+	- `apps/inspector`, `apps/wayland-compositor`, `apps/wayland-compositor-ctl`, `apps/test-app-egui`, `apps/eis-test-client`, `apps/win32-test-window`
 - Java workspace (Gradle, self-contained per project):
 	- `java/agent` — the agent PlatynUI loads **into** a target JVM (a *product*; the Java *fixtures* live under `apps/`)
 - Python/Robot workspace (`uv`):

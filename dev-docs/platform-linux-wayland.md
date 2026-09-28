@@ -651,7 +651,7 @@ AT-SPI provides no direct attribute indicating whether an application uses Wayla
 | `DISPLAY` | may be absent | present |
 | `XDG_SESSION_TYPE` | `wayland` | inherited, unreliable |
 
-**Implementation location:** [`crates/provider-atspi/src/process.rs`](../crates/provider-atspi/src/process.rs) already reads `/proc/{pid}/` for process metadata. Adding environ parsing is straightforward.
+**Implementation location:** [`crates/process`](../crates/process) already reads the process table for the process attributes, through a recorded process identity (on Linux via `sysinfo`, which can refresh `environ` as well). Adding environ parsing is straightforward.
 
 **Algorithm:**
 1. Read `/proc/{pid}/environ` (null-byte-separated key=value pairs).

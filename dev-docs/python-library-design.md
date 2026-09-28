@@ -4394,9 +4394,9 @@ class Application(ContextBase):
     default_prefix = "app"
 
     @property
-    def process_id(self) -> int: ...        # ProcessId
+    def process_id(self) -> int | None: ...    # control:ProcessId; None when absent
     @property
-    def process_name(self) -> str: ...      # ProcessName
+    def process_name(self) -> str | None: ...  # app:ProcessName; None when absent
 
     def is_ready(self) -> bool:
         """User overrides für app-spezifische Readiness-Checks."""
@@ -4414,7 +4414,7 @@ class Application(ContextBase):
         ...
 
     def _force_exit(self, timeout: float) -> None:
-        """Stage 2: pollt process_id, killt nach Timeout. Plattform-Switch via os.kill / ctypes."""
+        """Stage 2: polls process_id (nothing to do when it is None), kills after the timeout. Platform switch via os.kill / ctypes."""
         ...
 ```
 
@@ -4425,10 +4425,11 @@ Beide Stages sind via Underscore-Prefix als überschreibbar markiert
 - `_force_exit` für app-spezifische Force-Strategien (z. B. `SIGINT`
   statt `SIGKILL`, längere Timeouts für asynchron beendende Apps).
 
-Restliche Application-Adapter-Attribute (`ExecutablePath`,
-`CommandLine`, `UserName`, `StartTime`, `Architecture`) sind über
-`get_attribute("ExecutablePath")` zugänglich, ohne dedizierte
-Property.
+Restliche Prozessattribute (`ExecutablePath`, `CommandLine`,
+`UserName`, `StartTime`, `Architecture`) sind über
+`attribute_value("ExecutablePath", namespace="app")` zugänglich, ohne
+dedizierte Property. Jedes kann fehlen; `attribute_value` wirft dann
+`KeyError` (Spec `application-process-attributes`).
 
 `Settings.application_exit_timeout: float = 10.0` ergänzt §A.1.
 

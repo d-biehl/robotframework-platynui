@@ -132,7 +132,7 @@ The provider needs process IDs for four things:
 
 - **Hiding its own user interface.** A host such as the Inspector registers its own accessible application on the same bus it inspects. The provider recognises it and leaves it out of the application list, and out of the event-driven popup candidates.
 - **Reporting an application's identity.** `@ProcessId` on `app:Application`, and the node identifier a consumer reads (`element.id` in Python), which follows it.
-- **Reading the local process table.** The `app:*` attributes (process name, executable path, command line, user name, start time) come from `/proc/<pid>`.
+- **Reading the local process table.** The `app:*` attributes (process name, executable path, command line, user name, start time) come from `/proc/<pid>`, read by `platynui-process` through the process recorded for the node.
 - **Correlating a native window with an application.** The point hit-test maps a window to its application, and the window manager maps an application node back to its windows and popups, through the process ID both sides report.
 
 #### Why a process ID only means something where it was issued
@@ -156,7 +156,7 @@ For each bus connection it holds, the provider asks the daemon once what process
 
 `@ProcessId` does not depend on the outcome. It reports the number the application's own environment knows it by, whether or not that number is valid in the runtime's namespace, and it is **absent** (never `0`) when the daemon cannot tell. Reporting a number is not a comparison. `element.id` is that number when present, otherwise the toolkit's accessible-id or nothing.
 
-A locally valid PID makes the `app:*` attributes possible, but it does not guarantee them. Each one is reported only when its value was actually read for that process. An unreadable value is left out rather than answered with an empty string, a placeholder, or a value describing the automation host. For example, the start time is absent when `/proc/<pid>/stat` cannot be read, instead of being an empty string.
+A locally valid PID makes the `app:*` attributes possible, but it does not guarantee them. Each one is reported only when its value was actually read for that process, and only while the PID still stands for the process recorded for the node (spec `application-process-attributes`). An unreadable value is left out rather than answered with an empty string, a placeholder, or a value describing the automation host. For example, the start time is absent when `/proc/<pid>/stat` cannot be read, instead of being an empty string, and the process name, which is the executable's full file name, is absent when the executable cannot be read, instead of the kernel's truncated command name.
 
 The provider reports no architecture at all. Linux keeps none per process: `/proc/<pid>/status` has no such field, and the platform string in the auxiliary vector sits in the process's own memory. The only source left would be the executable's ELF header, which takes a hand-kept table of machine types, for a value nothing in PlatynUI needs on Linux.
 

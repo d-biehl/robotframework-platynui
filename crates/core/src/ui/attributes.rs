@@ -123,6 +123,8 @@ pub mod pattern {
         pub const CAN_RESIZE: &str = "CanResize";
     }
 
+    /// The process attributes of an application node: `ProcessId` in `control`, the rest in
+    /// `app`, each optional; formats and presence in spec `application-process-attributes`.
     pub mod application {
         pub const PROCESS_ID: &str = "ProcessId";
         pub const PROCESS_NAME: &str = "ProcessName";

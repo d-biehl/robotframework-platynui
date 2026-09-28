@@ -567,8 +567,9 @@ class BareMetal(OurDynamicCore):
     | ``native:`` | raw, technology-specific roles and attributes |
 
     Attributes have no default namespace (unlike element names), so a standard attribute is written
-    bare — ``@Name``, ``@Id``, ``@Bounds``, an application's ``@ProcessId`` — while a
-    technology-specific one keeps its prefix, chiefly the raw values surfaced under ``@native:...``.
+    bare — ``@Name``, ``@Id``, ``@Bounds``, an application's ``@ProcessId`` — while the others keep
+    their prefix: an application's process details under ``@app:...`` (see `Process attributes`),
+    and the raw, technology-specific values under ``@native:...``.
 
     | @{rows}=    `Query`    Window[@Name="Mail"]//List[@Name="Inbox"]/item:ListItem
 
@@ -856,6 +857,32 @@ class BareMetal(OurDynamicCore):
     | ${proc}=    Start Process     editor
     | ${pid}=     Get Process Id    ${proc}
     | `Set Root`    /app:Application[@ProcessId=${pid}]
+
+    == Process attributes ==
+
+    An application element also describes its process. Apart from ``@ProcessId`` these attributes
+    carry the ``app:`` prefix:
+
+    | = Attribute = | = What it holds = |
+    | ``@ProcessId`` | the process id, a positive number |
+    | ``@app:ProcessName`` | the program's file name, without folder or, on Windows, ``.exe``: ``python3.12`` |
+    | ``@app:ExecutablePath`` | the full path of that program |
+    | ``@app:CommandLine`` | Windows: the line the process was started with, quotes included; Linux: the arguments |
+    | ``@app:UserName`` | the account the process runs as: ``DOMAIN\\user`` on Windows, the login name on Linux |
+    | ``@app:StartTime`` | when the process started, in UTC to the second: ``2026-09-28T19:45:59Z`` |
+    | ``@app:Architecture`` | Windows only: ``x86``, ``x64``, ``arm`` or ``arm64``, as the process runs |
+
+    On Linux the command line is the arguments joined by spaces. On Windows a local account has the
+    computer name as its domain, and a 32-bit program on 64-bit Windows reports ``x86``.
+
+    Each of them may be absent. An attribute is there only when it could be read for that very
+    process — a process of another user, for example, may not reveal its command line — and it is
+    never filled in with an empty or a made-up value. So test for one before you rely on it:
+    ``[@app:CommandLine]`` is true exactly when the command line is there, and `Get Attribute` fails
+    for one that is not. Once the process has ended, its application element reports none of them.
+
+    | `Set Root`       /app:Application[@app:ProcessName="ledger"][@app:UserName]
+    | ${started}=    `Get Attribute`    /app:Application[@ProcessId=${pid}]    app:StartTime
 
     = Waiting for elements =
 
@@ -2395,19 +2422,21 @@ class BareMetal(OurDynamicCore):
         """Read one attribute of one element, and optionally assert on it in the same call.
 
         Pass the attribute name bare — ``Name``, ``IsEnabled``, ``Bounds`` — without the leading
-        ``@``; a technology-specific value keeps its prefix (``native:...``). The value comes back
-        typed: ``@IsEnabled`` as a boolean, ``@Bounds`` as a ``Rect``. Add an assertion operator and
-        an expected value to check it, and the keyword fails if the check does not hold. For several
-        values at once, or a computed one, use `Query` instead.
+        ``@``; an application's process attribute keeps its ``app:`` prefix, and a
+        technology-specific value its ``native:`` prefix (see `Process attributes`). The value
+        comes back typed: ``@IsEnabled`` as a boolean, ``@Bounds`` as a ``Rect``. Add an assertion
+        operator and an expected value to check it, and the keyword fails if the check does not
+        hold. For several values at once, or a computed one, use `Query` instead.
 
         Args:
             descriptor: The element to read from — a selector or an element from `Query`.
-            attribute_name: The attribute to read, written bare (or with a ``native:`` prefix).
+            attribute_name: The attribute to read, written bare (or with an ``app:`` or ``native:`` prefix).
 
         Examples:
             | ${enabled}=    `Get Attribute`    Window[@Name="Editor"]//Button[@Name="Save"]    IsEnabled
             | `Get Attribute`    Window[@Name="Editor"]//Button[@Name="Save"]    IsEnabled    ==    ${True}
             | ${bounds}=     `Get Attribute`    Window[@Name="Editor"]//Button[@Name="Save"]    Bounds
+            | ${user}=       `Get Attribute`    /app:Application[@ProcessId=${pid}]    app:UserName
         """
         namespace: str | None = None
         if ':' in attribute_name:

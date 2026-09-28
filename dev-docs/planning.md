@@ -123,7 +123,7 @@ Idea: allow external processes to act as UI tree providers via a JSON-RPC-like p
 - [x] **Extended EWMH**: `_NET_WM_STATE` (minimize/maximize), `_NET_MOVERESIZE_WINDOW` (move/resize)
 - [x] **Provider migration** (`provider-atspi`): removed `ewmh.rs`, removed `x11rb` dependency, replaced window calls with `WindowManager` trait
 - [x] **AT-SPI2 Application node attributes**: Implement process metadata attributes for Application nodes (parity with Windows UIA). Data source: `/proc/PID/` filesystem.
-  - [x] `app:ProcessName` — process name from `/proc/PID/exe` stem or `/proc/PID/comm`
+  - [x] `app:ProcessName` — process name from `/proc/PID/exe` stem or `/proc/PID/comm` (superseded by application-process-attributes)
   - [x] `app:ExecutablePath` — readlink `/proc/PID/exe`
   - [x] `app:CommandLine` — read `/proc/PID/cmdline` (NUL-separated → space-joined)
   - [x] `app:UserName` — `/proc/PID/status` Uid → `/etc/passwd` lookup
@@ -445,8 +445,8 @@ Deep analysis of the XPath crate revealed the following issues to address:
 ## 7. Quality & Process
 
 - [ ] Contract tests for providers & devices (pattern-specific attributes, desktop coordinates, RuntimeId sources)
-- [ ] Application node attribute parity: all providers should emit the same `app:*` metadata set (ProcessId already done everywhere; ProcessName/ExecutablePath/CommandLine/UserName/StartTime implemented on Windows UIA and AT-SPI2, Architecture on Windows UIA and the Java providers but not on AT-SPI2; Mock pending)
-- [x] Rename `application::NAME` → `application::PROCESS_NAME` (`"Name"` → `"ProcessName"`) — see §8.5 for rationale. Implemented for Windows UIA and AT-SPI2; Application nodes now emit both `control:Name` (display name) and `app:ProcessName` (executable stem). Mock pending.
+- [x] Application node attribute parity: every provider reports the process attributes under one contract (spec `application-process-attributes`), read by the shared reader of `platynui-process`; the mock models them on "Mock Application"
+- [x] Rename `application::NAME` → `application::PROCESS_NAME` (`"Name"` → `"ProcessName"`) — see §8.5 for rationale. Implemented for Windows UIA and AT-SPI2; Application nodes now emit both `control:Name` (display name) and `app:ProcessName` (executable stem). Mock pending. (superseded by application-process-attributes)
 - [ ] Release/versioning strategy (SemVer per crate? Workspace version?)
 - [ ] UiNode `Id` tests: core contract tests, provider smoke tests (UIA, AT-SPI, macOS)
 - [x] `Id` mapping for Windows UIA (`AutomationId`)
@@ -462,7 +462,7 @@ Status legend: **NEW** = not yet discussed, **DISCUSSED** = considered but no de
 2. **UIA event scope** — `TreeScope_Subtree` from Desktop or specific context node? — **DISCUSSED**, moot: event-driven invalidation is not pursued (§3.1)
 3. **macOS Space switching** — system setting detection for `kAXRaiseAction` implicit switch? — **DEFERRED** (macOS platform not yet implemented)
 4. **Windows AUMID as Application Id** — prefer over process name? Via `SHGetPropertyStoreForWindow(hwnd)` → `PKEY_AppUserModel_ID`? — **NEW**
-5. **Application `Name` → `ProcessName` rename** — **DECIDED**: Rename `application::NAME` (`"Name"`) to `application::PROCESS_NAME` (`"ProcessName"`) in core constants and all providers. Rationale: AT-SPI2 `Accessible.Name` on Application nodes returns the display name (e.g. "Firefox"), which collides with using the same `Name` attribute for the process executable stem. After rename: `control:Name` = UI display name (from `Accessible.Name` / UIA `NameProperty`), `app:ProcessName` = executable filename without extension (from `/proc/PID/comm` on Linux, `QueryFullProcessImageName` stem on Windows). On Windows, where no separate display name exists for Application nodes, `control:Name` falls back to `ProcessName`. Affects: `crates/core/src/ui/attributes.rs`, `crates/provider-windows-uia/src/node.rs`, `crates/provider-atspi/src/node.rs` (when Application attrs are added), mock provider, architecture.md pattern catalog, Python bindings docs.
+5. **Application `Name` → `ProcessName` rename** — **DECIDED**: Rename `application::NAME` (`"Name"`) to `application::PROCESS_NAME` (`"ProcessName"`) in core constants and all providers. Rationale: AT-SPI2 `Accessible.Name` on Application nodes returns the display name (e.g. "Firefox"), which collides with using the same `Name` attribute for the process name. After rename: `control:Name` = UI display name (from `Accessible.Name` / UIA `NameProperty`), `app:ProcessName` = the process name, in the format of spec `application-process-attributes`. On Windows, where no separate display name exists for Application nodes, `control:Name` is the process name. Affects: `crates/core/src/ui/attributes.rs`, `crates/provider-windows-uia/src/node.rs`, `crates/provider-atspi/src/node.rs` (when Application attrs are added), mock provider, architecture.md pattern catalog, Python bindings docs.
 6. **Python custom exception hierarchy** — extend beyond current set? — **NEW**
 7. **Provider event subscription in Python** — how to expose? — **DEFERRED** (event pipeline not yet exposed to Python)
 8. **Pattern versioning** — needed? How to handle evolution? — **DEFERRED** (premature during preview phase)

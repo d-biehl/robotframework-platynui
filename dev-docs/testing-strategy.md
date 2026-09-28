@@ -272,7 +272,11 @@ same blueprint.
 - **Measurement helpers are not fixtures.** `apps/large-tree-qt` is a PySide6 window with a
   large, deterministic tree, plus the script that measures what a UI snapshot costs in
   memory against it. It has no catalog and no acceptance suite, and it does not follow the
-  blueprint.
+  blueprint. `apps/win32-test-window` is a helper as well: a plain Win32 window whose
+  bitness follows the build target, which the Windows lane builds 32-bit. It has a process
+  and a window and no controls, follows no blueprint, and its one suite,
+  `tests/acceptance/win32`, is about processes, not controls. It is not the planned
+  native-Win32 row.
 
 ### 5.1 The fixture blueprint
 
