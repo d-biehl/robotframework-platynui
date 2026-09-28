@@ -1,6 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <mock-tree>
   <node namespace="app" role="Application" name="Mock Application" runtime_id="mock://app/main">
+    <!-- Process attributes in the formats of application-process-attributes.
+         No CommandLine on purpose: an application whose command line cannot be
+         read, so that listing and predicate can be checked against a missing
+         attribute. The process ID is the one its window carries. -->
+    <attribute namespace="control" name="ProcessId" value="4242" />
+    <attribute namespace="app" name="ProcessName" value="mock-app" />
+    <attribute namespace="app" name="ExecutablePath" value="/opt/mock/bin/mock-app" />
+    <attribute namespace="app" name="UserName" value="mock-user" />
+    <attribute namespace="app" name="StartTime" value="2026-09-28T08:15:00Z" />
     <patterns>org.platynui.patterns.Application</patterns>
     <node namespace="control" role="Window" name="Operations Console" runtime_id="mock://window/main" bounds="80,80,1040,640" expose_flat="true">
       <attribute namespace="control" name="AutomationId" value="MainWindow" />

@@ -78,30 +78,50 @@ def _window_child_adapter(parent: Adapter, *, closeable: CloseableStub | None = 
 # ---------------------------------------------------------------------------
 
 
-def test_process_id_returns_app_namespaced_attribute() -> None:
-    a = Application(adapter=_app_adapter(attributes={('ProcessId', 'app'): 4321}))
+def test_process_id_reads_the_control_process_id() -> None:
+    a = Application(adapter=_app_adapter(attributes={('ProcessId', 'control'): 4321}))
     assert a.process_id == 4321
 
 
-def test_process_id_raises_type_error_when_attribute_missing() -> None:
+def test_process_id_is_none_when_the_attribute_is_absent() -> None:
     a = Application(adapter=_app_adapter())
-    with pytest.raises(TypeError, match='expected int for ProcessId'):
-        _ = a.process_id
+    assert a.process_id is None
+
+
+def test_process_id_is_none_when_the_adapter_reports_the_attribute_missing() -> None:
+    adapter = _app_adapter()
+    adapter.attribute_value.side_effect = KeyError('control:ProcessId')  # type: ignore[attr-defined]
+    assert Application(adapter=adapter).process_id is None
 
 
 def test_process_id_raises_type_error_on_wrong_type() -> None:
-    a = Application(adapter=_app_adapter(attributes={('ProcessId', 'app'): 'oops'}))
+    a = Application(adapter=_app_adapter(attributes={('ProcessId', 'control'): 'oops'}))
     with pytest.raises(TypeError, match='expected int for ProcessId'):
         _ = a.process_id
 
 
+def test_process_id_ignores_the_app_namespace() -> None:
+    a = Application(adapter=_app_adapter(attributes={('ProcessId', 'app'): 4321}))
+    assert a.process_id is None
+
+
 def test_process_name_returns_app_namespaced_attribute() -> None:
-    a = Application(adapter=_app_adapter(attributes={('ProcessName', 'app'): 'notepad.exe'}))
-    assert a.process_name == 'notepad.exe'
+    a = Application(adapter=_app_adapter(attributes={('ProcessName', 'app'): 'ledger'}))
+    assert a.process_name == 'ledger'
 
 
-def test_process_name_raises_type_error_when_attribute_missing() -> None:
+def test_process_name_is_none_when_the_attribute_is_absent() -> None:
     a = Application(adapter=_app_adapter())
+    assert a.process_name is None
+
+
+def test_process_name_under_control_only_gives_none() -> None:
+    a = Application(adapter=_app_adapter(attributes={('ProcessName', 'control'): 'Main'}))
+    assert a.process_name is None
+
+
+def test_process_name_raises_type_error_on_wrong_type() -> None:
+    a = Application(adapter=_app_adapter(attributes={('ProcessName', 'app'): 42}))
     with pytest.raises(TypeError, match='expected str for ProcessName'):
         _ = a.process_name
 
@@ -202,7 +222,7 @@ def test_force_exit_returns_immediately_when_process_id_unavailable() -> None:
 
 
 def test_force_exit_returns_when_pid_non_positive() -> None:
-    a = Application(adapter=_app_adapter(attributes={('ProcessId', 'app'): 0}))
+    a = Application(adapter=_app_adapter(attributes={('ProcessId', 'control'): 0}))
     with (
         patch('PlatynUI.ui.application._process_alive') as alive,
         patch('PlatynUI.ui.application._kill_process') as kill,
@@ -213,7 +233,7 @@ def test_force_exit_returns_when_pid_non_positive() -> None:
 
 
 def test_force_exit_returns_when_process_dies_during_poll() -> None:
-    a = Application(adapter=_app_adapter(attributes={('ProcessId', 'app'): 1234}))
+    a = Application(adapter=_app_adapter(attributes={('ProcessId', 'control'): 1234}))
     with (
         patch('PlatynUI.ui.application._process_alive', return_value=False) as alive,
         patch('PlatynUI.ui.application._kill_process') as kill,
@@ -224,7 +244,7 @@ def test_force_exit_returns_when_process_dies_during_poll() -> None:
 
 
 def test_force_exit_kills_process_when_timeout_expires() -> None:
-    a = Application(adapter=_app_adapter(attributes={('ProcessId', 'app'): 1234}))
+    a = Application(adapter=_app_adapter(attributes={('ProcessId', 'control'): 1234}))
     with (
         patch('PlatynUI.ui.application._process_alive', return_value=True),
         patch('PlatynUI.ui.application._kill_process') as kill,
@@ -239,7 +259,7 @@ def test_force_exit_kills_process_when_timeout_expires() -> None:
 
 
 def test_exit_runs_request_exit_then_force_exit_then_invalidates() -> None:
-    a = Application(adapter=_app_adapter(attributes={('ProcessId', 'app'): 1234}))
+    a = Application(adapter=_app_adapter(attributes={('ProcessId', 'control'): 1234}))
     calls: list[str] = []
 
     def _record_request(self: Application) -> None:
@@ -262,7 +282,7 @@ def test_exit_runs_request_exit_then_force_exit_then_invalidates() -> None:
 
 
 def test_exit_uses_settings_default_when_timeout_omitted() -> None:
-    a = Application(adapter=_app_adapter(attributes={('ProcessId', 'app'): 1234}))
+    a = Application(adapter=_app_adapter(attributes={('ProcessId', 'control'): 1234}))
     captured: list[float] = []
 
     with (
@@ -276,7 +296,7 @@ def test_exit_uses_settings_default_when_timeout_omitted() -> None:
 
 
 def test_exit_continues_to_force_when_request_exit_raises() -> None:
-    a = Application(adapter=_app_adapter(attributes={('ProcessId', 'app'): 1234}))
+    a = Application(adapter=_app_adapter(attributes={('ProcessId', 'control'): 1234}))
     forced: list[float] = []
     invalidated: list[bool] = []
 

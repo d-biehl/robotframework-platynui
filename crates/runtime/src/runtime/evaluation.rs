@@ -313,6 +313,51 @@ mod tests {
         assert_eq!(inter_count, buttons_count);
     }
 
+    /// The nodes an expression selects, by name.
+    fn selected_names(runtime: &Runtime, xpath: &str) -> Vec<String> {
+        runtime
+            .evaluate(None, xpath)
+            .expect("evaluate")
+            .into_iter()
+            .filter_map(|item| match item {
+                EvaluationItem::Node(node) => Some(node.name()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Spec (`application-process-attributes`): *Listing and predicate agree
+    /// for a missing attribute*. The mock's application models a command line
+    /// that cannot be read, next to a process name that can.
+    #[rstest]
+    fn a_missing_process_attribute_is_neither_listed_nor_matched(rt_runtime_mock: Runtime) {
+        use platynui_core::ui::Namespace;
+
+        assert_eq!(
+            selected_names(&rt_runtime_mock, "/app:Application[@ProcessId][@app:ProcessName][not(@app:CommandLine)]"),
+            ["Mock Application"]
+        );
+        let application = rt_runtime_mock
+            .evaluate(None, "/app:Application")
+            .expect("evaluate")
+            .into_iter()
+            .find_map(|item| match item {
+                EvaluationItem::Node(node) if node.name() == "Mock Application" => Some(node),
+                _ => None,
+            })
+            .expect("the mock application");
+        let listed: Vec<String> = application
+            .attributes()
+            .filter(|attribute| attribute.namespace() == Namespace::App)
+            .map(|attribute| attribute.name().to_owned())
+            .collect();
+        assert!(listed.iter().any(|name| name == "ProcessName"), "{listed:?}");
+        assert!(!listed.iter().any(|name| name == "CommandLine"), "{listed:?}");
+        let with_process_id = selected_names(&rt_runtime_mock, "/app:Application[@ProcessId]");
+        assert!(with_process_id.iter().all(|name| name != "Mock Settings"), "an unknown process has no process ID");
+        assert!(selected_names(&rt_runtime_mock, "/app:Application").iter().any(|name| name == "Mock Settings"));
+    }
+
     #[rstest]
     fn runtime_evaluate_executes_xpath(rt_runtime_stub: Runtime) {
         let runtime = rt_runtime_stub;

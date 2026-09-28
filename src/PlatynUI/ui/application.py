@@ -29,19 +29,29 @@ class Application(ContextBase):
     default_prefix = 'app'
 
     @property
-    def process_id(self) -> int:
-        """The OS process ID of the application."""
-        value = self.attribute_value('ProcessId', namespace='app')
-        if not isinstance(value, int):
+    def process_id(self) -> int | None:
+        """The OS process ID of the application (``control:ProcessId``).
+
+        ``None`` when the application node reports none.
+        """
+        value = self._optional_attribute('ProcessId', 'control')
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int):
             raise TypeError(
                 f'expected int for ProcessId, got {type(value).__name__}',
             )
         return value
 
     @property
-    def process_name(self) -> str:
-        """The OS process name of the application."""
-        value = self.attribute_value('ProcessName', namespace='app')
+    def process_name(self) -> str | None:
+        """The OS process name of the application (``app:ProcessName``).
+
+        ``None`` when the application node reports none.
+        """
+        value = self._optional_attribute('ProcessName', 'app')
+        if value is None:
+            return None
         if not isinstance(value, str):
             raise TypeError(
                 f'expected str for ProcessName, got {type(value).__name__}',
@@ -81,7 +91,7 @@ class Application(ContextBase):
             pid = self.process_id
         except Exception:  # noqa: BLE001 (adapter is gone — application has already exited)
             return
-        if pid <= 0:
+        if pid is None or pid <= 0:
             return
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -99,6 +109,17 @@ class Application(ContextBase):
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _optional_attribute(self, name: str, namespace: str) -> object:
+        """The attribute's value, or ``None`` when the node does not report it.
+
+        A process attribute may be absent. The adapter then either answers
+        ``None`` or raises ``KeyError``, and both mean the same.
+        """
+        try:
+            return self.attribute_value(name, namespace=namespace)
+        except KeyError:
+            return None
 
     def _top_level_windows(self) -> list['Window']:
         """Collect every direct-child `Window` context."""

@@ -39,6 +39,7 @@ from PlatynUI.core.exceptions import PatternNotSupportedError
 from PlatynUI.core.patterns import ActivationTarget, Element, Focusable, Readable, TextContent, Toggleable
 from PlatynUI.core.runtime import runtime
 from PlatynUI.core.types import Point, Rect
+from PlatynUI.ui.application import Application
 
 # ----------------------------------------------------------------------
 # Fixtures
@@ -445,3 +446,26 @@ def test_get_pattern_text_content_none_without_attribute(
     main_window_adapter: UiNodeAdapter,
 ) -> None:
     assert main_window_adapter.get_pattern(TextContent, raise_exception=False) is None
+
+
+# ----------------------------------------------------------------------
+# Application process attributes (application-process-attributes)
+# ----------------------------------------------------------------------
+
+
+def test_application_reads_the_process_of_the_mock_application(native_runtime: _pn.Runtime) -> None:
+    node = native_runtime.evaluate_single("/app:Application[@app:Name='Mock Application']")
+    assert isinstance(node, _pn.UiNode), 'mock tree must expose Mock Application'
+    application = Application(adapter=UiNodeAdapter.from_node(node))
+    assert application.process_id == 4242
+    assert application.process_name == 'mock-app'
+
+
+def test_application_without_process_attributes_gives_none(native_runtime: _pn.Runtime) -> None:
+    # The real adapter raises KeyError for an absent attribute; the properties
+    # turn that into None.
+    node = native_runtime.evaluate_single("/app:Application[@app:Name='Mock Settings']")
+    assert isinstance(node, _pn.UiNode), 'mock tree must expose Mock Settings'
+    application = Application(adapter=UiNodeAdapter.from_node(node))
+    assert application.process_id is None
+    assert application.process_name is None
