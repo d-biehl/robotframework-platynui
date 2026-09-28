@@ -511,10 +511,16 @@ class BareMetal(OurDynamicCore):
 
     Everything you automate is an *element* — a window, a button, a list, a single row in that list,
     a text box. PlatynUI presents the whole desktop as one tree of these elements: each running
-    application is a branch, and the elements inside it are the branches below. The tree is live: it
-    always reflects what is on screen at that moment, so as an application opens a window, loads
-    content or closes a dialog, elements appear in and vanish from the tree with it. Every query is
-    answered against this current state, never a stored snapshot.
+    application is a branch, and the elements inside it are the branches below. The tree follows the
+    screen: as an application opens a window, loads content or closes a dialog, elements appear in
+    and vanish from the tree with it.
+
+    To stay fast, a keyword may reuse what an earlier keyword read of the tree, as long as the
+    elements it read still exist. The library reads the screen again after a lookup that found
+    nothing (so an action keyword or `Wait Until Exists` keeps retrying against the current UI
+    until the element appears), before every `Query`, and on every attempt of `Wait Until Gone`
+    and `Wait Until Query`. So when a step changes the UI, wait for what it brings to appear, or,
+    with `Wait Until Gone` or `Wait Until Query`, for what it removes or changes to go.
 
     Every element has a *role* and a set of *attributes*.
 

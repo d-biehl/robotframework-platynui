@@ -261,6 +261,22 @@ toolkit-neutrally even though the mechanism lives in the Swing adapter.
   (`platynui_core::platform::window_claims`): whichever provider handles a Java
   window claims its HWND and the others abstain. A preferred-provider priority
   (agent > JAB > native-for-FX/SWT) is part of the forward design.
+- **A pinned JAB application root does not move to the agent.** When the agent
+  takes over a JVM in a later enumeration, a root pinned to the JAB
+  `app:Application` node stays valid, because the process still runs; its
+  children come back empty, because those windows now belong to the agent.
+  Within one enumeration the router enumerates again after attaching, so a root
+  pinned after the agent serves the JVM is the agent's node. A suite that pins a
+  root before that keeps the JAB node until it sets the root again.
+- **A root pinned by pid alone can land there after an agent degradation.**
+  While an agent session is degraded its `app:Application` node is invalid, so a
+  root pinned as `/app:Application[@ProcessId=…]` is looked up again, and the
+  lookup finds the JAB (or UI Automation) application node that serves the
+  process meanwhile. That node stays valid by process, and goes empty once the
+  agent serves again, as above. A `[@Technology="JavaAgent"]` predicate on the
+  root prevents this: the lookup then waits for the agent or fails with
+  `RootNotFoundError`. The agent-facing acceptance resource pins its root that
+  way.
 
 ## Getting the agent
 

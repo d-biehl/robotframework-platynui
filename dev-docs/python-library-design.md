@@ -6048,7 +6048,7 @@ Wegfallend:
 - WeakSet-basiertes Children-Tracking — Rust-Cache regelt
 - `invalidate()`-Propagation — `runtime.clear_cache()` reicht
 
-> Note (2026-09-27): the Rust cache is a snapshot that the caller clears when a lookup fails (`architecture.md` §9.3). Dropping the propagation above therefore needs a `runtime.clear_cache()` on a failed lookup; today no code under `src/PlatynUI/core` calls it (`adapter_factory.py` evaluates against the shared cache).
+> Note (2026-09-28): the Rust cache is a snapshot that the caller clears when a lookup fails (`architecture.md` §9.3). `PlatynUI.core` does so since `snapshot-validity`: `RuntimeAdapterFactory` discards the snapshot when a lookup finds nothing (`AdapterFactory.discard_snapshot()`, which calls `runtime.clear_cache()`), and `ContextBase.ensure_that` discards it before each retry and when it gives up. The `invalidate()` propagation above still runs alongside it, for the Python-side adapters.
 
 Bleibend (1:1):
 - Locator-Verwaltung, Parent-Beziehungen
