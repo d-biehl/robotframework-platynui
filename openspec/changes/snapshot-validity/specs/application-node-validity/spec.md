@@ -54,7 +54,7 @@ When the provider cannot tell whether the process is still the one the node was 
 - **GIVEN** an application node for a process whose start time cannot be read because access is denied
 - **WHEN** the node is asked whether it is valid
 - **THEN** it SHALL report itself valid
-- **NOTE:** Exercised at the unit level with an identity whose check answers that it cannot tell.
+- **NOTE:** Exercised at the unit level through the functions that map a denied open or signal to "cannot tell", and with an identity without a recorded start time whose check answers that it cannot tell.
 
 #### Scenario: The start time could not be recorded, and the process is gone
 
@@ -72,7 +72,7 @@ The application node served by the Java agent SHALL also report itself invalid w
 - **GIVEN** an application node served by the Java agent
 - **WHEN** its agent session becomes degraded
 - **THEN** the node SHALL report itself invalid, and a root pinned to it SHALL be looked up again
-- **NOTE:** Exercised at the unit level with a fake session. Against a real JVM the live Java tests cover it.
+- **NOTE:** Exercised at the unit level with a fake session. A real JVM cannot be made to degrade on demand.
 
 #### Scenario: The agent session is closed
 

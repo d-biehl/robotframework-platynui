@@ -47,5 +47,5 @@ None. The agent's application node is brought in line with the existing `java-pr
   - Linux: only the identity helper, which the agent's application node uses once `java-provider-linux` makes the Java provider portable. AT-SPI has no synthetic application nodes; its application nodes are the registry's accessibles, and they already answer `is_valid` over D-Bus.
   - macOS: nothing.
 - **Coordination:**
-  - `application-process-attributes` (0/17 tasks) plans `crates/process` and rewrites the same three application node types. Whichever change lands second rebases onto the other.
-  - Until `xdm-snapshot-release` lands, every discarded snapshot stays in memory. `PlatynUI.core` discards more often after this change, so implementing `xdm-snapshot-release` first is preferred.
+  - `application-process-attributes` plans `crates/process` and rewrites the same three application node types. Its proposal declares that this change lands first and creates the crate. That change then adds its process readers to the crate and rebases onto the nodes.
+  - `xdm-snapshot-release` has landed (archived 2026-09-28), so a discarded snapshot is released from memory. `PlatynUI.core` discarding more often costs reading the UI again, not memory.
