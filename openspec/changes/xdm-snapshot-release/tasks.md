@@ -147,7 +147,7 @@ Follow the `robot-test-style` skill.
   - Final run: 118 of 119. The failure was `Activating A Context Submenu Item Updates The Last Action` (QML), a submenu that opens on hover; it passed in the first run and in three reruns of its suite.
   - No WARN or ERROR message from PlatynUI, and no crash in the Application event log.
   - The live tests of `platynui-java-agent`, which this change does not touch, failed in two of four further runs with `NotAJvm` when attaching to a freshly started JVM, each time in a different test; they passed in both lane runs.
-- [ ] 7.3 Memory measurements (design decision 8), recorded here. They run only against an application the repository owns, and every query is scoped to that application's `app:Application` node.
+- [x] 7.3 Memory measurements (design decision 8), recorded here. They run only against an application the repository owns, and every query is scoped to that application's `app:Application` node.
   - [x] 7.3.1 Add `apps/large-tree-qt/main.py`, a PySide6 window with a large, deterministic tree.
     - It shows `--groups` group boxes (`group-<g>`) of `--items` widgets each (`item-<g>-<i>`), cycling through a push button, a label and a check box, under stable accessible names.
     - It is a measurement helper, not a fixture of the blueprint. `README.md` in its directory says so and describes how to run the measurement.
@@ -187,13 +187,34 @@ Follow the `robot-test-style` skill.
     - The positive control grows by about 4.1 MiB per discarded snapshot, about 4,100 bytes per element. That matches the first measurement under the editor. The positive control used fewer runs per round only to keep the leaking process small.
     - With this change the growth stays within ±6 KiB per evaluation, below 6 bytes per element. That is at least 700 times less than the leak.
     - The measurement can also see a leak of the size of 4.6. At about 100 bytes per element (0.63 MiB for about 6,000 elements), that leak would show as about 110 KiB per evaluation here.
-  - [ ] 7.3.4 Run the same pair on a Linux host, inside the lanes' session scripts, which bring up AT-SPI and enable Qt's accessibility. For example:
+  - [x] 7.3.4 Run the same pair on a Linux host, inside the lanes' session scripts, which bring up AT-SPI and enable Qt's accessibility. For example:
 
     ```sh
     scripts/startxsession.sh -- scripts/platynui-robot-session.sh uv run python apps/large-tree-qt/measure_snapshot_memory.py
     ```
 
     Record it here.
+
+    Outcome (2026-09-28, CachyOS, X11 session on Xvfb through `startxsession.sh` and `platynui-robot-session.sh`, AT-SPI, Python 3.12, PySide6 6.11, release builds, 50 groups of 20 widgets, 1,057 elements under the application node):
+    - This change was built from `4b1fc6c`, which carries it.
+    - `0802be7` was built in a git worktree with its own environment.
+    - Each run used its environment's `.venv/bin/python` directly rather than `uv run`, so that a sync could not replace the native build.
+
+    | Build | Snapshot | Runs per round | Growth per evaluation, 3 rounds | Per element | Time per evaluation |
+    |---|---|---|---|---|---|
+    | this change | retained | 100 | 0.4, 0.0, 0.0 KiB | at most 0.4 B | 101 to 102 ms |
+    | this change | discarded | 100 | 0.2, 0.1, 0.0 KiB | at most 0.2 B | 212 to 215 ms |
+    | `0802be7` | retained | 30 | 0.0, 0.0, 0.0 KiB | 0 B | 106 to 112 ms |
+    | `0802be7` | discarded | 30 | 2,019.5, 2,019.9, 2,019.7 KiB | about 1,960 B | 219 to 222 ms |
+
+    `clear_cache()` after a full snapshot takes:
+    - 0.6 to 1.0 ms with this change;
+    - 0.0 ms before it, where nothing was released.
+
+    The results:
+    - The positive control grows by about 2.0 MiB per discarded snapshot, about 1,960 bytes per element, the same in every round. That is about half of the leak per element under UI Automation on Windows; the providers' nodes differ in size.
+    - With this change the growth stays below 0.5 KiB per evaluation and below 0.5 bytes per element. That is more than 8,000 times less than the leak.
+    - Both runs ended the app and tore the session down.
 
   Dropped from the earlier plan, each for its reason:
   - **The first JAB query's latency after `clear_cache()`, and the Swing suite times.** Only JAB releases native objects one by one (`crates/provider-java-jab/src/handle.rs:39-44`). The agent backend, the preferred path for Java, holds no host-side resource per node. The cost concerns only the JAB fallback (design, Open Questions).
