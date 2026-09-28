@@ -17,7 +17,6 @@ mod node;
 #[cfg(test)]
 mod pidns_harness;
 mod popups;
-mod process;
 #[cfg(test)]
 mod test_log;
 mod timeout;
@@ -330,12 +329,7 @@ impl UiTreeProvider for AtspiProvider {
                 Arc::clone(&timeouts),
             );
             // Seed caches directly — no additional D-Bus calls inside.
-            node.cached_child_count.set(Some(child_count));
-            node.interfaces.set(interfaces);
-            let (ns, role_name) = node::map_role_with_interfaces(role, interfaces);
-            let _ = node.namespace.set(ns);
-            let _ = node.role.set(role_name);
-            node.cached_name.set(node_name.clone());
+            node.seed_application(child_count, interfaces, role, node_name.clone(), peer.local_number);
 
             let elapsed = app_start.elapsed();
             // Milliseconds of one app resolution fit in u64 (~584 million years).

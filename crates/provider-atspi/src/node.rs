@@ -25,6 +25,7 @@ use platynui_core::ui::{
     Namespace, PatternError, PatternName, ResizableAction, ResponsiveAction, RestorableAction, RuntimeId, UiAttribute,
     UiNode, UiNodeExt, UiPattern, UiValue, pattern_names, supported_patterns_value,
 };
+use platynui_process::{ProcessAttribute, ProcessIdentity};
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, OnceLock, Weak};
@@ -87,6 +88,12 @@ pub struct AtspiNode {
     /// that times out counts against its application's bus name. Propagated
     /// to every descendant node, exactly like `popups`.
     timeouts: Arc<AppTimeouts>,
+    /// The process an application node was created for, recorded once: by the
+    /// desktop enumeration, which knows the local number, or on the first
+    /// definitive local number otherwise. Its `app:*` attributes are read
+    /// through it, so a node held across a pid reuse reads nothing. Never
+    /// cleared by `invalidate`.
+    process_identity: Arc<OnceLock<Option<ProcessIdentity>>>,
 }
 
 impl AtspiNode {
@@ -116,10 +123,31 @@ impl AtspiNode {
             interfaces: ClearableCell::new(),
             cached_name: ClearableCell::new(),
             cached_child_count: ClearableCell::new(),
+            process_identity: Arc::new(OnceLock::new()),
         });
         let arc: Arc<dyn UiNode> = node.clone();
         let _ = node.self_weak.set(Arc::downgrade(&arc));
         node
+    }
+
+    /// Seeds an application node's caches from what the desktop enumeration
+    /// has already read, and records the process its locally valid number
+    /// stands for now, as the one the node was created for.
+    pub(crate) fn seed_application(
+        &self,
+        child_count: i32,
+        interfaces: Option<InterfaceSet>,
+        role: Role,
+        name: Option<String>,
+        local_number: Option<u32>,
+    ) {
+        self.cached_child_count.set(Some(child_count));
+        self.interfaces.set(interfaces);
+        let (namespace, role_name) = map_role_with_interfaces(role, interfaces);
+        let _ = self.namespace.set(namespace);
+        let _ = self.role.set(role_name);
+        self.cached_name.set(name);
+        let _ = recorded_identity(&self.process_identity, local_number);
     }
 
     /// Keep `parent` alive for the lifetime of this node, so that its ancestor
@@ -389,7 +417,9 @@ impl UiNode for AtspiNode {
     /// present at all — only to throw them away.
     fn attribute(&self, namespace: Namespace, name: &str) -> Option<Arc<dyn UiAttribute>> {
         if let Some(kind) = AppAttr::named(namespace, name) {
-            return app_attribute(kind, self.process_attributes().process_table?);
+            // The process table is read only under a locally valid number.
+            let number = self.process_attributes().process_table?;
+            return app_attribute(kind, &recorded_identity(&self.process_identity, Some(number))?);
         }
         let mut attrs = AttrsIter::new(self, self.runtime_id().as_str().to_string());
         attrs.process.process_table = None;
@@ -1015,6 +1045,11 @@ struct AttrsIter {
     ctx: Arc<LazyNodeData>,
     /// Process-derived attributes (only set for Application nodes).
     process: ProcessAttributes,
+    /// The node's recorded process, shared with it.
+    process_identity: Arc<OnceLock<Option<ProcessIdentity>>>,
+    /// The `app:*` values, read once, through the node's recorded process,
+    /// when the listing reaches the first of them.
+    process_values: Option<platynui_process::ProcessAttributes>,
     /// Whether this node is a real platform top-level window
     /// (direct child of an `Application` accessible).
     is_window_surface: bool,
@@ -1059,10 +1094,26 @@ impl AttrsIter {
             role,
             ctx,
             process,
+            process_identity: Arc::clone(&node.process_identity),
+            process_values: None,
             is_window_surface,
             native_props,
             native_idx: 0,
         }
+    }
+
+    /// The `app:*` values of the node's process, read on the first call
+    /// through the process recorded for the node: empty without a locally
+    /// valid number, or once that process has ended or been replaced.
+    fn process_values(&mut self) -> &platynui_process::ProcessAttributes {
+        let (number, cell) = (self.process.process_table, &self.process_identity);
+        self.process_values.get_or_insert_with(|| {
+            // Gated on the number, so a lookup that clears it reads nothing.
+            number
+                .and_then(|number| recorded_identity(cell, Some(number)))
+                .map(|identity| identity.read_all())
+                .unwrap_or_default()
+        })
     }
 }
 
@@ -1297,10 +1348,12 @@ impl Iterator for AttrsIter {
                     }
                 }
                 13 => self.process.process_id.map(|pid| Arc::new(ProcessIdAttr { pid }) as Arc<dyn UiAttribute>),
-                14..=18 => self
-                    .process
-                    .process_table
-                    .and_then(|pid| app_attribute(AppAttr::ALL[usize::from(self.idx - 14)], pid)),
+                14..=18 => {
+                    let kind = AppAttr::ALL[usize::from(self.idx - 14)];
+                    self.process_values().get(kind.attribute()).map(|value| {
+                        Arc::new(AppValueAttr { name: kind.name(), value: value.to_owned() }) as Arc<dyn UiAttribute>
+                    })
+                }
                 19 => {
                     if self.is_window_surface {
                         Some(Arc::new(LazyStdAttr {
@@ -1849,6 +1902,18 @@ impl From<PeerIdentity> for ProcessAttributes {
     }
 }
 
+/// The process an application node reads its `app:*` block through: the one
+/// recorded in `cell`, or, before one is, the process `number` stands for now,
+/// which is then recorded. Nothing is recorded without a number, so a node
+/// whose number is not known yet records it later.
+fn recorded_identity(cell: &OnceLock<Option<ProcessIdentity>>, number: Option<u32>) -> Option<ProcessIdentity> {
+    if let Some(recorded) = cell.get() {
+        return recorded.clone();
+    }
+    let number = number?;
+    cell.get_or_init(|| ProcessIdentity::capture(number)).clone()
+}
+
 /// The node identifier of an application: its process ID in decimal when it has
 /// one, otherwise the toolkit's accessible-id — asked for only then. Never `"0"`.
 pub(crate) fn application_id(
@@ -1894,24 +1959,26 @@ impl AppAttr {
         }
     }
 
-    fn read(self, pid: u32) -> Option<String> {
+    /// The process attribute of `platynui-process` this one reads.
+    const fn attribute(self) -> ProcessAttribute {
         match self {
-            Self::ProcessName => crate::process::query_process_name(pid),
-            Self::ExecutablePath => crate::process::query_executable_path(pid),
-            Self::CommandLine => crate::process::query_command_line(pid),
-            Self::UserName => crate::process::query_user_name(pid),
-            Self::StartTime => crate::process::query_start_time(pid),
+            Self::ProcessName => ProcessAttribute::ProcessName,
+            Self::ExecutablePath => ProcessAttribute::ExecutablePath,
+            Self::CommandLine => ProcessAttribute::CommandLine,
+            Self::UserName => ProcessAttribute::UserName,
+            Self::StartTime => ProcessAttribute::StartTime,
         }
     }
 }
 
-/// A process-table attribute, present only when its value could be read.
+/// A process-table attribute, present only when its value could be read, and
+/// only while the process is still the recorded one.
 ///
 /// Presence is decided here, when the attribute is enumerated, rather than at
 /// `value()` time: a value that cannot be read is no attribute at all, never an
 /// empty string, a null or `"unknown"` that nothing could tell from a real one.
-fn app_attribute(kind: AppAttr, pid: u32) -> Option<Arc<dyn UiAttribute>> {
-    let value = kind.read(pid)?;
+fn app_attribute(kind: AppAttr, process: &ProcessIdentity) -> Option<Arc<dyn UiAttribute>> {
+    let value = process.read(kind.attribute())?;
     Some(Arc::new(AppValueAttr { name: kind.name(), value }))
 }
 
@@ -2298,12 +2365,56 @@ mod tests {
     // the attribute-layer half of task 2.5.
     #[test]
     fn a_process_table_value_that_cannot_be_read_is_no_attribute() {
-        for kind in AppAttr::ALL {
-            assert!(
-                app_attribute(kind, NO_SUCH_PROCESS).is_none(),
-                "{kind:?} must be absent for an unreadable process, not a stand-in"
-            );
+        let cell = OnceLock::new();
+        assert!(
+            recorded_identity(&cell, Some(NO_SUCH_PROCESS)).is_none(),
+            "no process has the number, so no app attribute is read"
+        );
+        // The positive control: a process that can be read gives attributes.
+        let own = ProcessIdentity::capture(std::process::id()).expect("the own process exists");
+        for kind in [AppAttr::ProcessName, AppAttr::StartTime] {
+            assert!(app_attribute(kind, &own).is_some(), "{kind:?} of the own process");
         }
+    }
+
+    /// Set for the child process that [`waiting_child`] runs as.
+    const WAITING_CHILD_ENV: &str = "PLATYNUI_ATSPI_TEST_WAITING_CHILD";
+
+    /// Not a test of its own: the child process of the test below, which only
+    /// waits until it is killed, or half a minute at most.
+    #[test]
+    #[ignore = "the child process of a test that starts it"]
+    fn waiting_child() {
+        if std::env::var_os(WAITING_CHILD_ENV).is_some() {
+            std::thread::sleep(std::time::Duration::from_secs(30));
+        }
+    }
+
+    /// Spec (`application-process-attributes`): *An application node whose
+    /// process has ended reports no process attributes*. The process is
+    /// recorded once, so a later number, such as one reused by another
+    /// process, is never read in its place.
+    #[test]
+    fn a_node_reads_only_the_process_recorded_for_it() {
+        let mut child = std::process::Command::new(std::env::current_exe().expect("test binary"))
+            .args(["--exact", "node::tests::waiting_child", "--ignored"])
+            .env(WAITING_CHILD_ENV, "1")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("start the child");
+        let cell = OnceLock::new();
+        let recorded = recorded_identity(&cell, Some(child.id())).expect("the child exists");
+        assert!(!recorded.read_all().is_empty(), "the living child is readable");
+
+        child.kill().expect("kill the child");
+        child.wait().expect("reap the child");
+        // Another number now: the own process, which is readable. The node
+        // still reads through the ended child's record, and gets nothing.
+        let again = recorded_identity(&cell, Some(std::process::id())).expect("the record stays");
+        assert_eq!(again, recorded);
+        assert!(again.read_all().is_empty(), "the ended child reads nothing");
     }
 
     // Task 2.6: the attribute split, as a pure choice over the daemon's number

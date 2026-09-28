@@ -133,7 +133,11 @@ fn run_probe(dir: &Path, label: &str, address: &str) {
         let classified = identity::peer_of(conn, &published["name"]);
         // What the attribute path would read with the number it is allowed to
         // use: the command line names the process it was read from.
-        let command_line = classified.local_number.and_then(crate::process::query_command_line).unwrap_or_default();
+        let command_line = classified
+            .local_number
+            .and_then(platynui_process::ProcessIdentity::capture)
+            .and_then(|process| process.read(platynui_process::ProcessAttribute::CommandLine))
+            .unwrap_or_default();
         record.extend([
             (format!("{peer}.number"), format!("{:?}", classified.number)),
             (format!("{peer}.is_own"), classified.is_own.to_string()),

@@ -3072,17 +3072,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "objc2-open-directory"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb82bed227edf5201dfedf072bba4015a33d3d4a98519837295a90f0a23f676d"
-dependencies = [
- "objc2 0.6.4",
- "objc2-core-foundation",
- "objc2-foundation 0.3.2",
-]
-
-[[package]]
 name = "objc2-quartz-core"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3701,12 +3690,10 @@ dependencies = [
  "atspi-common 0.14.0",
  "atspi-connection",
  "atspi-proxies 0.14.0",
- "chrono",
  "futures-lite",
  "inventory",
- "libc",
  "platynui-core",
- "sysinfo",
+ "platynui-process",
  "thiserror 2.0.20",
  "tracing",
  "tracing-subscriber",
@@ -5170,7 +5157,6 @@ dependencies = [
  "ntapi",
  "objc2-core-foundation",
  "objc2-io-kit",
- "objc2-open-directory",
  "windows",
 ]
 
