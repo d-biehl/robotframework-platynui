@@ -16,7 +16,7 @@ The motivation is in proposal.md (Why), and the contract is in `specs/applicatio
   - the start time with milliseconds :458-479 (`'.{:03}Z'` :474);
   - the architecture from the PE header of the executable path :495-525. Its mapping turns `ARM` (0x1C0) into `arm64` and anything else, `ARMNT` (0x1C4) included, into `"unknown"` (:518-523). Otherwise `GetNativeSystemInfo` :481-493, which ignores the process handle and reports the host.
 
-  All seven attribute objects are listed unconditionally (`node.rs:1513-1557`, indices 4-10 at `:1540-1546`). Each `value()` answers `""`, a null or `"unknown"` when it cannot read:
+  All seven attribute objects are listed (`node.rs:1513-1557`, indices 4-10 at `:1540-1546`) — unless the node's name is empty, for example because the process cannot be opened: the iterator then ends at the absent `Id` (index 3, `:1531-1539`), and the node lists only `Role`, `Name ""` and `RuntimeId`. Each `value()` answers `""`, a null or `"unknown"` when it cannot read:
   - `ProcessName` `:1391`
   - `ExecutablePath` `:1407`/`:1413`
   - `CommandLine` `:1429`/`:1435`
@@ -24,7 +24,7 @@ The motivation is in proposal.md (Why), and the contract is in `specs/applicatio
   - `StartTime` `:1473`/`:1479`
   - `Architecture`: the host at `:1503`, `"unknown"` at `:1509`
 
-  `ProcessId` always answers the node's pid, `0` included (`:1355-1368`). **Verified.**
+  `ProcessId` answers the node's pid, `0` included (`:1355-1368`), wherever the listing reaches it. **Verified** (the early end of the listing during implementation, 2026-09-28).
 
   The display name comes from the same helpers, in three places that each call `open_process_query`, `query_executable_path` and `Path::file_stem`:
   - `AppDisplayNameAttr` (`node.rs:1310-1338`), read again on every `value()`;
@@ -81,7 +81,7 @@ The motivation is in proposal.md (Why), and the contract is in `specs/applicatio
 
   `sidecar-deployment` already requires the Linux window manager and the compositor backend to resolve nothing for `0` (`openspec/specs/sidecar-deployment/spec.md:259`). **Verified.**
 - **Process ID `0` elsewhere:**
-  - The UIA point hit-test takes `get_process_id(&elem).ok()` with only a check against its own process (`provider.rs:528-531`). It builds an app-scoped ancestor chain from it (`:534-548`), which `UiaNode::attach_ancestor_chain` caps with `ApplicationNode::orphan(pid)` (`node.rs:221`; `orphan` at `:1816-1823`). For pid `0` that node lists `ProcessId = 0` and the runtime id `uia://app/0`. It records no identity and reports itself invalid (`node.rs:1934-1936`), but it still lists the `0`.
+  - The UIA point hit-test takes `get_process_id(&elem).ok()` with only a check against its own process (`provider.rs:528-531`). It builds an app-scoped ancestor chain from it (`:534-548`), which `UiaNode::attach_ancestor_chain` caps with `ApplicationNode::orphan(pid)` (`node.rs:221`; `orphan` at `:1816-1823`). For pid `0` that node has the runtime id `uia://app/0` and an empty name, so its listing ends before `ProcessId` (see above). It records no identity and reports itself invalid (`node.rs:1934-1936`).
   - The root enumeration already skips pids ≤ 0 (`provider.rs:294`, `:316`), so only the hit-test builds an application node for `0`.
   - UIA's per-application window filter compares a target of `0` with the `0` that `GetWindowThreadProcessId` leaves when it fails (`provider.rs:252-258`). It fails only for a window destroyed after `EnumWindows`, which `window_is_ready` and `ElementFromHandle` then drop (`:265-270`). The comparison is latent; the guard is defence in depth (**assumed** from the code path).
   - JAB's enumeration turns a served window's process ID into an application node (`JabAppNode::new`, `provider.rs:349-357`). Its hit-test builds `JabAppNode::orphan(pid)` with a non-optional process ID (`node.rs:764-775`).
@@ -137,9 +137,9 @@ Each opens the process once, confirms that it is still the recorded process, rea
 
 - **Windows**: native Win32, next to the identity, through its `sys::Process::open` (`:124-137`): `PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE`, then the limited right alone. Every read works with the limited right: `QueryFullProcessImageNameW`, `NtQueryInformationProcess(ProcessCommandLineInformation)`, `OpenProcessToken(TOKEN_QUERY)`, `GetProcessInformation(ProcessMachineTypeInfo)` and `IsWow64Process2`. This is **assumed** from the API documentation, and for the undocumented command-line class from others' reports; task 2.2's own-process test proves it. The reads start from `crates/provider-windows-uia/src/map.rs:289-479`. Its first open with `PROCESS_QUERY_INFORMATION | PROCESS_VM_READ` (`:292`) and its PE-header path (`:495-525`) are not carried over. `sysinfo`'s Windows backend is not used.
 - **Linux**: `sysinfo`, as AT-SPI uses it today, plus `getpwuid_r` (decision M1):
-  - one targeted refresh per read, of only this pid and only what the read needs (`ProcessesToUpdate::Some(&[pid])` with a `ProcessRefreshKind` of exe, cmd and user), instead of a fresh `System` per attribute as today (`crates/provider-atspi/src/process.rs:11-25`);
+  - one targeted refresh per read, of only this pid and only what the read needs (`ProcessesToUpdate::Some(&[pid])` with a `ProcessRefreshKind` of exe and user), instead of a fresh `System` per attribute as today (`crates/provider-atspi/src/process.rs:11-25`);
   - `exe()` for the executable path, which `sysinfo` already strips of the ` (deleted)` suffix;
-  - `cmd()` for the command line;
+  - the command line from `/proc/<pid>/cmdline` itself, not `sysinfo`'s `cmd()`, which trims every argument and drops empty ones (`split_content`, `sysinfo` 0.39.3 `src/unix/linux/process.rs:988-1004`; maintainer decision during implementation, 2026-09-28);
   - `effective_user_id()` for the account, resolved to a name through `getpwuid_r`, because `sysinfo` has only the UID and its user list can miss accounts from LDAP, SSSD or NIS (the reason recorded at `process.rs:63-68`, `:85-88`);
   - `start_time()` for the start, in seconds since the epoch, which `sysinfo` computes from the boot time and field 22 of `stat`.
 
@@ -183,7 +183,7 @@ These are per-platform sources in the reader. Each row produces the format the s
 |---|---|---|---|
 | `ProcessName` | the file name of `ExecutablePath`, with a trailing `.exe` removed (case-insensitively) | the file name of `ExecutablePath`, unchanged | the executable path is absent. There is no fallback to `comm` or to the image name, which is truncated or can be changed by the process |
 | `ExecutablePath` | `QueryFullProcessImageNameW` (Win32 form), with one 32 768-unit buffer. The UIA loop's growth never runs (`map.rs:327`) and is not carried over | `sysinfo`'s `exe()`, the target of `/proc/<pid>/exe` without the ` (deleted)` the kernel appends once the file has been replaced or removed | the process cannot be opened or the link read |
-| `CommandLine` | `NtQueryInformationProcess(ProcessCommandLineInformation)`, verbatim; limited rights **assumed** (the class is undocumented) | `sysinfo`'s `cmd()`, arguments joined by single spaces | unreadable, or empty (a kernel thread has none) |
+| `CommandLine` | `NtQueryInformationProcess(ProcessCommandLineInformation)`, verbatim; limited rights **assumed** (the class is undocumented) | `/proc/<pid>/cmdline`, arguments joined by single spaces, each as it is (not `sysinfo`'s `cmd()`, see D1) | unreadable, or empty (a kernel thread has none) |
 | `UserName` | the token user through `LookupAccountSidW`, as `DOMAIN\user`. For a local account the returned domain is the computer name (**assumed** from the API documentation) | `sysinfo`'s `effective_user_id()` through `getpwuid_r`, with no fallback to the real UID (today `process.rs:73`) | no token or UID, or the account has no name |
 | `StartTime` | the creation time the identity recorded (`GetProcessTimes`), in UTC, truncated to the second | `sysinfo`'s `start_time()`, in UTC, to the second | no start was recorded, or `0` |
 | `Architecture` | D3 | not supplied (spec) | D3 |
@@ -244,7 +244,7 @@ UIA today opens the process once per `value()`, and since `snapshot-validity` on
 
 On JAB, every `value()` today builds a fresh `sysinfo::System` and refreshes the process (`crates/provider-java-jab/src/process.rs:11-24`). The reader opens the process once per read with the limited right, so JAB's listings should not get more expensive (not measured). Listings happen in the Inspector's attribute view and in `platynui-cli query` and `snapshot` (`query.rs:104-115`, `snapshot.rs:232`, `:403`).
 
-A node reads through the `ProcessIdentity` it recorded at creation (UIA `node.rs:1771`, JAB `node.rs:1329`, agent `app.rs:65`). AT-SPI records one when it builds a node's process attributes at enumeration (`crates/provider-atspi/src/node.rs:1836-1850`), from the local process number, and reads through it later (`:1897-1905`):
+A node reads through the `ProcessIdentity` it recorded at creation (UIA `node.rs:1771`, JAB `node.rs:1329`, agent `app.rs:65`). AT-SPI records one once per application node, from the local process number: the desktop enumeration records it when it creates the node, since it already knows the number, and a node built elsewhere records it on its first definitive local number. Every later listing and lookup of the node reads through it (`crates/provider-atspi/src/node.rs`, `recorded_identity`):
 
 - On Windows the read opens the pid, confirms on that handle that the process runs and that its creation time equals the recorded start, and reads through the same handle. Windows does not reuse a pid while a handle to its process is open (**assumed**).
 - On Linux it compares field 22 before and after the read.
@@ -331,6 +331,8 @@ So the repository gains `apps/win32-test-window`, a helper for process-level tes
 - **M2: an identity recorded without a start time reads nothing.** `start` is `None` only when capture could not read it; a later read with the same rights normally fails too, so this costs nothing in practice. It is the only rule under which "never reports the process that received its pid" holds. A later macOS reader would first need a start time in the identity.
 - **M3: `control:ProcessId` stays for every positive pid**, also on a node whose process has ended or that has no identity. It is the pid the platform reported, part of the node's runtime id (`uia://app/<pid>`, `node.rs:1902-1904`) and the selector key. Only the six `app:` attributes depend on the identity.
 - **M4: PID 4, the System process, may serve as the partly unreadable process in tests.** It is the kernel's process, not an application that ships with Windows, and no process a test starts can be made unreadable without UAC.
+  - *Measured during implementation (2026-09-28):* without elevation PID 4 cannot be opened at all, so its identity has no start time and nothing of it is read; its tests then check only that nothing is empty.
+  - The partly readable process of every run is a test child instead. Its token's DACL denies the test's user `TOKEN_QUERY`, which the token's owner may set without elevation, so its user name is absent while everything else is read.
 - **M5: `IsWow64Process2` stays a static import** (Risks).
 
 ## Risks / Trade-offs

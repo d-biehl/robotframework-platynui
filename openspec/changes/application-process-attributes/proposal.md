@@ -46,7 +46,7 @@ This change comes first among the Java changes: the Java agent is the main Java 
     - `CommandLine`: as the platform shows it, the verbatim line on Windows and the arguments joined like `ps` on Linux and macOS.
     - `Architecture`: from the closed vocabulary `x86`/`x64`/`arm`/`arm64`.
   - **Process attributes describe the process, not the toolkit.** They come from the platform, by process ID, for every provider. The Java agent's self-reported values — main class, a path derived from `java.home`, the overridable `user.name` — are no source for them.
-  - **An application node reports the process it was created for.** Its `app:` attributes are read through the process identity recorded for it; once that process has ended or its pid belongs to another process, it reports none of them. `control:ProcessId` stays. UIA, JAB and the Java agent record the identity when the node is created, AT-SPI when it builds the node's process attributes.
+  - **An application node reports the process it was created for.** Its `app:` attributes are read through the process identity recorded for it; once that process has ended or its pid belongs to another process, it reports none of them. `control:ProcessId` stays. UIA, JAB and the Java agent record the identity when the node is created. AT-SPI records it when its desktop enumeration creates the node, or on the node's first definitive local number.
   - **Availability per platform.** A provider reports an attribute only where its platform has a real source for it, and the spec says which. For example, there is no architecture on Linux, while Windows reads it through `GetProcessInformation(ProcessMachineTypeInfo)`, with `IsWow64Process2` as the fallback on older versions, instead of parsing a PE header.
   - **`ProcessId` is never `0`**, and no consumer correlates a window with an application by `0`.
 - **Align the providers with it:**
@@ -76,7 +76,9 @@ This change comes first among the Java changes: the Java agent is the main Java 
   - Windows UIA's `StartTime` loses its milliseconds.
   - JAB's `UserName` gains the domain, and its `CommandLine` becomes the verbatim line. Its `ProcessName`, and with it the name of its application node, loses the `.exe` it carried under limited rights.
   - AT-SPI's `ProcessName` becomes the executable's full file name, for example `python3.12` instead of `python3`, and it is absent instead of the kernel's truncated name when the executable cannot be read.
+  - AT-SPI's `CommandLine` keeps every argument as it is: an argument's surrounding whitespace and an empty argument are no longer dropped.
   - The name of a UIA or JAB application node whose image does not end in `.exe` keeps its extension.
+  - A UIA application node whose process name cannot be read — for example a process of another user that cannot be opened — now carries `control:ProcessId`, `Technology` and `SupportedPatterns`. Its listing used to end at the absent `Id`, so `[@ProcessId=N]` and `[@Technology="UIAutomation"]` now select such a node.
   - `Application.process_id` returns the process ID where it always failed before, and both properties return `None` instead of raising when the attribute is absent.
 
 ## Capabilities
@@ -118,7 +120,7 @@ Both are special cases of this contract. The new capability points to that spec 
     - the application metadata and name in `node.rs`;
     - `provider.rs` and `node.rs`: `WindowCandidate`'s process ID becomes optional through `process_id_of`. Both discovery passes, including the one without the DLL, skip a window without a process, and the hit-test abstains for it.
   - `crates/provider-java`: the agent application node, `src/agent/app.rs`, whose `ProcessFacts` drops the fields it no longer reads; and `src/agent/backend.rs`, where `attach_to_agentless` drops process ID `0`.
-  - `crates/provider-atspi`: its process reading moves into `crates/process`. Its process name becomes the executable's file name, with no stem and no fallback to the truncated kernel name (design D2). `sysinfo`, `chrono` and `libc` leave its manifest; `sysinfo` and `libc` move with the reader into `crates/process`.
+  - `crates/provider-atspi`: its process reading moves into `crates/process`. Its process name becomes the executable's file name, with no stem and no fallback to the truncated kernel name (design D2), and its command line keeps every argument as it is (design D1). `sysinfo`, `chrono` and `libc` leave its manifest; `sysinfo` and `libc` move with the reader into `crates/process`.
   - `crates/provider-mock` and its tree asset.
   - The window-manager process-ID readers in `platform-windows`, `platform-linux-x11` and `platform-linux-wayland`.
   - The attribute documentation in `crates/core`.

@@ -48,7 +48,7 @@ An application node SHALL report only the process it was created for. Once that 
 - **GIVEN** an application whose process the runtime is not permitted to query, for example a process of another user or an elevated process on Windows
 - **WHEN** its application node's attributes are listed
 - **THEN** every process attribute that could not be read SHALL be missing from the listing, and none SHALL be present with an empty string, a null, `"unknown"` or `0`
-- **NOTE** Real provider only. Today the Windows UIA provider lists all seven attributes for such a process and answers `""`, a null or `"unknown"`. The JAB provider answers a null, an empty executable path, the image name with `.exe` as the process name, and `"unknown"` for an architecture its PE parser does not know.
+- **NOTE** Real provider only. Today the Windows UIA provider answers `""`, a null or `"unknown"` for what it cannot read of a process it can open. For a process it cannot open, the node's name is empty, and its listing ends there, before even `ProcessId`. The JAB provider answers a null, an empty executable path, the image name with `.exe` as the process name, and `"unknown"` for an architecture its PE parser does not know.
 
 #### Scenario: Listing and predicate agree for a missing attribute
 
@@ -87,7 +87,7 @@ An application node SHALL report only the process it was created for. Once that 
 - **GIVEN** an element whose platform reports the process ID `0`, for example an element found at a point whose process the platform cannot name
 - **WHEN** the element is resolved and its ancestors are read
 - **THEN** no application node with the process ID `0` SHALL be built for it: the element is resolved without an application ancestor, or not at all
-- **NOTE** Real provider only. Today the Windows UIA provider caps such an element's ancestor chain with an application node whose `ProcessId` is `0`. Since `snapshot-validity` that node reports itself invalid, but it still lists the `0`.
+- **NOTE** Real provider only. Today the Windows UIA provider caps such an element's ancestor chain with an application node for the process ID `0`, whose runtime id is `uia://app/0`. Since `snapshot-validity` that node reports itself invalid.
 
 #### Scenario: A window is never looked up by process ID 0
 
