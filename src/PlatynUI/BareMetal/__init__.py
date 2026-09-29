@@ -20,6 +20,7 @@ from platynui_native import (
     Maximizable,
     Minimizable,
     Movable,
+    Namespace,
     Point,
     PointerButton,
     PointerButtonLike,
@@ -249,11 +250,7 @@ class UiNodeDescriptor:
             if self.node.is_valid():
                 return self.node
             if self.query is None:
-                raise PinnedElementGoneError(
-                    f'The pinned element {self.node.runtime_id!r} is no longer available, and this '
-                    f'reference holds no selector to look it up again. Query it again to get a '
-                    f'current element, or use a selector, which is re-evaluated on every use.'
-                )
+                raise _pinned_element_gone(self.node)
 
         if self.query is None:
             raise NoQueryError('This element reference has no selector to look the element up with.')
@@ -367,6 +364,74 @@ def _assertion_value(result: Any) -> Any:
     return result
 
 
+def _pinned_element_gone(node: UiNode) -> PinnedElementGoneError:
+    """The error for a captured element that no longer exists and has no selector to be found again."""
+    return PinnedElementGoneError(
+        f'The pinned element {node.runtime_id!r} is no longer available, and this reference holds no '
+        f'selector to look it up again. Query it again to get a current element, or use a selector, '
+        f'which is re-evaluated on every use.'
+    )
+
+
+# The namespace prefixes an attribute name can carry: the runtime's four namespaces.
+_ATTRIBUTE_PREFIXES = tuple(ns.as_str() for ns in (Namespace.Control, Namespace.Item, Namespace.App, Namespace.Native))
+
+
+def _split_attribute_name(attribute_name: str) -> tuple[str | None, str]:
+    """Split ``prefix:Name`` into its namespace and its name, as `Get Attribute` reads it.
+
+    A prefix that names no namespace is rejected here, before any element is read, so that a wait
+    fails at once on it, even when the element has not appeared yet or errors are being ignored.
+    """
+    if ':' not in attribute_name:
+        return None, attribute_name
+    namespace, name = attribute_name.split(':', 1)
+    if namespace and namespace not in _ATTRIBUTE_PREFIXES:
+        raise ValueError(
+            f'Unknown namespace prefix {namespace!r} in attribute {attribute_name!r}; '
+            f'the prefixes are {", ".join(_ATTRIBUTE_PREFIXES)}.'
+        )
+    return namespace, name
+
+
+# What an attempt of `Wait Until Attribute Value` saw, for the error at its deadline: no element
+# yet, a captured element never read (every attempt raised), the attribute missing, a value that
+# was not truthy, or a check that failed.
+_AttributeOutcome: TypeAlias = tuple[Literal['not-found', 'unread', 'missing', 'falsy', 'mismatch'], UiNode | None, Any]
+
+
+def _attribute_wait_error(
+    outcome: _AttributeOutcome,
+    query: str | None,
+    attribute_name: str,
+    custom_message: bool,
+    timeout: float,
+) -> Exception:
+    """The error `Wait Until Attribute Value` raises at its deadline, reporting what its last attempt saw.
+
+    ``outcome`` is ``(kind, element, detail)``: ``detail`` is the value for ``falsy`` and the check's
+    `AssertionError` or `TypeError` for ``mismatch``. With a ``custom_message`` the check's error
+    already starts with it, so the element is not named in front of it.
+    """
+    kind, node, detail = outcome
+    within = f'within timeout of {timeout} seconds'
+    if node is None:
+        return ElementNotFoundError(f'No element matched {query!r} {within}.')
+    element = _element_text(node)
+    if kind == 'unread':
+        return AttributeNotFoundError(f'Attribute {attribute_name!r} of {element} could not be read {within}.')
+    if kind == 'missing':
+        return AttributeNotFoundError(f'Attribute {attribute_name!r} did not appear on {element} {within}.')
+    if kind == 'falsy':
+        return AssertionError(
+            f'Attribute {attribute_name!r} of {element} was {detail!r} and did not become truthy {within}.'
+        )
+    if isinstance(detail, TypeError):
+        return TypeError(f'Attribute {attribute_name!r} of {element}: {detail} ({within})')
+    text = str(detail) if custom_message else f'Attribute {attribute_name!r} of {element}: {detail}'
+    return AssertionError(f'{text} ({within})')
+
+
 ScrollDirection = Literal['UP', 'DOWN', 'LEFT', 'RIGHT']
 """The visually intended direction for `Pointer Scroll`."""
 
@@ -418,9 +483,18 @@ def _describe(node: UiNode | None) -> str | None:
     """
     if node is None or not _LOG.isEnabledFor(logging.DEBUG):
         return None
+    return _element_text(node)
+
+
+def _element_text(node: UiNode) -> str:
+    """The element's one-line description, falling back to its runtime id when the provider cannot answer.
+
+    Describing asks the provider, and the element may be gone by then; a message about the element
+    must not fail because of that.
+    """
     try:
         return node.describe()
-    except Exception:  # noqa: BLE001 (a log line must not fail the keyword)
+    except Exception:  # noqa: BLE001 (a description must not fail the keyword)
         return f'element {node.runtime_id!r}'
 
 
@@ -518,9 +592,10 @@ class BareMetal(OurDynamicCore):
     To stay fast, a keyword may reuse what an earlier keyword read of the tree, as long as the
     elements it read still exist. The library reads the screen again after a lookup that found
     nothing (so an action keyword or `Wait Until Exists` keeps retrying against the current UI
-    until the element appears), before every `Query`, and on every attempt of `Wait Until Gone`
-    and `Wait Until Query`. So when a step changes the UI, wait for what it brings to appear, or,
-    with `Wait Until Gone` or `Wait Until Query`, for what it removes or changes to go.
+    until the element appears), before every `Query`, and on every attempt of `Wait Until Gone`,
+    `Wait Until Query` and `Wait Until Attribute Value`. So when a step changes the UI, wait for
+    what it brings to appear, or, with `Wait Until Gone`, `Wait Until Query` or `Wait Until
+    Attribute Value`, for what it removes to go or what it changes to take effect.
 
     Every element has a *role* and a set of *attributes*.
 
@@ -761,6 +836,14 @@ class BareMetal(OurDynamicCore):
     [https://github.com/MarketSquare/AssertionEngine|AssertionEngine]). For several values at once,
     or a computed one, read them through `Query` instead.
 
+    `Get Attribute` reads and checks the value once, at the moment it runs. When an action changes a
+    value a moment later — a window that finishes maximizing, a label that updates after a click —
+    wait for the new value with `Wait Until Attribute Value` instead: it takes the same element,
+    attribute and operators, and reads the attribute again until the check holds.
+
+    | `Maximize Window`    Window[@Name="Settings"]
+    | `Wait Until Attribute Value`    Window[@Name="Settings"]    IsMaximized    ==    ${True}
+
     = Scoping queries to a container =
 
     Every query runs against a *context node*, the desktop by default. Scope it to a container you
@@ -964,7 +1047,7 @@ class BareMetal(OurDynamicCore):
     Most of the time you never wait by hand — you state what you expect and the action or read keyword
     waits for exactly that. Now and then, though, you want a *pure* synchronization point: wait for a
     splash screen to vanish before carrying on, wait for a window to open without acting on it yet, or
-    wait for a row count to settle. Three keywords cover this, all governed by the same query settings as
+    wait for a row count to settle. Four keywords cover this, all governed by the same query settings as
     everything else (see `Tuning the wait`) and tuned per call with ``query_overrides``:
 
     - `Wait Until Exists` waits for a selector to resolve to an element and *returns* it — the waiting
@@ -976,10 +1059,14 @@ class BareMetal(OurDynamicCore):
       operators as `Get Attribute`; with no operator it waits until the result is truthy. Unlike `Get
       Attribute` it works on the raw query result, so an attribute step yields the attribute value and
       ``count(...)`` a number.
+    - `Wait Until Attribute Value` waits until one attribute of one element has the value you expect,
+      and returns that value. It takes the element, the attribute and the operators as `Get
+      Attribute` does; with no operator it waits until the value is truthy.
 
     | `Wait Until Exists`    Window[@Name="Save As"]    # wait for the dialog, then return it
     | `Wait Until Gone`      Window[@Name="Please wait"]    # wait until the splash is gone
     | `Wait Until Query`     count(//item:ListItem)    >    0    # wait until the list has filled
+    | `Wait Until Attribute Value`    Window[@Name="Import"]//Button[@Id="next"]    IsEnabled    # wait until enabled
 
     = Input timing and motion =
 
@@ -1799,6 +1886,147 @@ class BareMetal(OurDynamicCore):
 
             time.sleep(settings.retry_interval)
 
+    @keyword
+    def wait_until_attribute_value(
+        self,
+        descriptor: UiNodeDescriptor,
+        attribute_name: str,
+        assertion_operator: AssertionOperator | None = None,
+        assertion_expected: Any = None,
+        assertion_message: str | None = None,
+        *,
+        query_overrides: QuerySettingsDict | None = None,
+    ) -> Any:
+        """Wait until an attribute of an element has the value you expect, then return that value.
+
+        The waiting counterpart to `Get Attribute`: it reads the attribute every ``retry_interval``
+        until its value satisfies the condition, and returns the value it had at that moment — or
+        fails once ``timeout`` elapses. Reach for it after an action whose effect lands a moment
+        later: a window that finishes maximizing, a label that shows a new count, a button that
+        becomes enabled once a form is complete. `Get Attribute` reads and checks a value once, which
+        suits a value that has already settled.
+
+        Give the element and the attribute as for `Get Attribute`: a selector or an element from
+        `Query`, and the attribute name bare — ``Name``, ``IsEnabled`` — or with its ``app:`` or
+        ``native:`` prefix (see `Process attributes`). The condition takes the same assertion operators
+        as `Get Attribute` and `Wait Until Query` (``==``, ``!=``, ``contains``, ``matches``, ``>``,
+        ``validate`` …; see [https://github.com/MarketSquare/AssertionEngine|AssertionEngine]). With no
+        operator the keyword waits until the value is truthy — a true boolean, a non-zero number, a
+        non-empty string. The ``then`` operator is not supported, since it transforms the value instead
+        of checking it; use ``validate`` for a condition written as an expression.
+
+        A selector is looked up again on every attempt, so the keyword also waits for the element to
+        appear and for an attribute the element does not report yet. An element from `Query` stays
+        that element: it is read afresh on every attempt, and the keyword fails at once when the
+        element is gone, because it can then never reach the value. When ``timeout`` elapses, the
+        error says what the last attempt found — no element, no such attribute, or the value and why
+        it did not satisfy the condition. Per-call waiting is tuned with ``query_overrides`` (see
+        `Tuning the wait`).
+
+        The value comes back typed, as from `Get Attribute`: ``IsEnabled`` as a boolean, ``Bounds`` as
+        a ``Rect``. It is always the attribute's value — with ``matches`` too, which elsewhere can hand
+        back the groups the pattern captured.
+
+        Args:
+            descriptor: The element to read — a selector or an element from `Query`.
+            attribute_name: The attribute to wait on, written bare (or with an ``app:`` or ``native:`` prefix).
+            assertion_operator: Optional AssertionEngine operator; without one the keyword waits
+                for a truthy value.
+            assertion_expected: The expected value the operator compares against.
+            assertion_message: Optional custom failure message.
+            query_overrides: Per-call query settings, e.g. ``{'timeout': 10}``.
+
+        Returns:
+            The attribute's value in the attempt that satisfied the condition.
+
+        Examples:
+            | `Maximize Window`    Window[@Name="Editor"]
+            | `Wait Until Attribute Value`    Window[@Name="Editor"]    IsMaximized    ==    ${True}
+            | `Wait Until Attribute Value`    Window[@Name="Import"]//Button[@Id="next"]    IsEnabled    # until truthy
+            | ${label}=    `Query`    Window[@Name="Import"]//*[@Id="status"]    only_first=${True}
+            | ${status}=    `Wait Until Attribute Value`    ${label}    Name    starts    Imported
+            | `Wait Until Attribute Value`    ${label}    Name    ==    Done    query_overrides={'timeout': 60}
+        """
+        # ``then`` transforms rather than asserts, so it never reports a mismatch and cannot wait.
+        if assertion_operator is not None and assertion_operator is AssertionOperator['then']:
+            raise ResultTypeError(
+                "Wait Until Attribute Value cannot wait on the 'then' operator (it transforms rather than "
+                "asserts). Use 'validate' for a boolean wait condition, or a comparison operator."
+            )
+        namespace, name = _split_attribute_name(attribute_name)
+
+        settings = replace(self.query_settings, **query_overrides) if query_overrides else self.query_settings
+        query = descriptor.query
+        captured: UiNode | None = None
+        if query is None:
+            if not isinstance(descriptor.node, UiNode):
+                raise NoQueryError('This element reference has no selector to look the element up with.')
+            # A capture belongs to the runtime that produced it; one from another import cannot be
+            # read here.
+            captured = descriptor.node
+            self.require_own_node(captured)
+
+        # What the last attempt that did not raise saw, for the error at the deadline. A swallowed
+        # error leaves it as it was, so it can never satisfy the wait.
+        outcome: _AttributeOutcome = ('not-found', None, None) if captured is None else ('unread', captured, None)
+        start = time.monotonic()
+        while True:
+            try:
+                self.runtime.clear_cache()
+                node: UiNode | None = None
+                if query is not None:
+                    # A selector is evaluated afresh on every attempt and without an inner wait: the
+                    # element appearing is part of what this keyword waits for, within one deadline.
+                    root = self.root if descriptor.needs_root(self) else None
+                    result = self.runtime.evaluate_single(query, root)
+                    if result is not None and not isinstance(result, UiNode):
+                        raise ResultTypeError(
+                            f'Wait Until Attribute Value expects an element selector or a captured element; '
+                            f'query {query!r} returned a value. Use Wait Until Query for value conditions.'
+                        )
+                    node = result
+                elif captured is not None:
+                    # A capture stays the element it names: refresh it, and stop once it is gone.
+                    captured.invalidate()
+                    if not captured.is_valid():
+                        raise _pinned_element_gone(captured)
+                    node = captured
+
+                if node is None:
+                    outcome = ('not-found', None, None)
+                else:
+                    try:
+                        value = node.attribute(name, namespace)
+                    except AttributeNotFoundError:
+                        outcome = ('missing', node, None)
+                    else:
+                        if assertion_operator is None:
+                            if value:
+                                return value
+                            outcome = ('falsy', node, value)
+                        else:
+                            try:
+                                verify_assertion(value, assertion_operator, assertion_expected, assertion_message or '')
+                            except (AssertionError, TypeError) as error:
+                                # A mismatch, or a value the operator cannot compare yet: keep polling.
+                                outcome = ('mismatch', node, error)
+                            else:
+                                # The value itself, not verify_assertion's result: for ``matches``
+                                # that would be the captured groups.
+                                return value
+            except (ResultTypeError, PinnedElementGoneError, RuntimeError):
+                raise  # a usage error, a capture that is gone, or an unknown operator: none can succeed
+            except (SystemExit, KeyboardInterrupt):
+                raise
+            except Exception:
+                if not settings.ignore_exceptions:
+                    raise
+
+            if (time.monotonic() - start) > settings.timeout:
+                raise _attribute_wait_error(outcome, query, attribute_name, bool(assertion_message), settings.timeout)
+
+            time.sleep(settings.retry_interval)
+
     # Internal helpers
     def _maybe_bring_to_front(
         self,
@@ -2426,7 +2654,9 @@ class BareMetal(OurDynamicCore):
         technology-specific value its ``native:`` prefix (see `Process attributes`). The value
         comes back typed: ``@IsEnabled`` as a boolean, ``@Bounds`` as a ``Rect``. Add an assertion
         operator and an expected value to check it, and the keyword fails if the check does not
-        hold. For several values at once, or a computed one, use `Query` instead.
+        hold. The check runs once, on the value read at that moment; to wait until the value holds,
+        use `Wait Until Attribute Value`. For several values at once, or a computed one, use `Query`
+        instead.
 
         Args:
             descriptor: The element to read from — a selector or an element from `Query`.

@@ -1,10 +1,11 @@
 *** Settings ***
 Documentation     Mock-backed checks for the explicit wait keywords — Wait Until Exists, Wait Until
-...               Gone and Wait Until Query. The import sets a small 0.2 s default so the
-...               timeout-driven checks stay fast; waits are observed through the timeout value in
-...               the raised error, exactly like query_settings.robot. The captured-node "gone
-...               success" direction is covered in the egui acceptance lane, since the mock never
-...               invalidates a captured node.
+...               Gone, Wait Until Query and Wait Until Attribute Value. The import sets a small
+...               0.2 s default so the timeout-driven checks stay fast; waits are observed through
+...               the timeout value in the raised error, exactly like query_settings.robot. The
+...               captured-node "gone success" direction, and a value that changes while a keyword
+...               waits, are covered in the egui acceptance lane, since the mock neither invalidates
+...               a captured node nor changes a value on its own.
 Library           PlatynUI.BareMetal    use_mock=${True}    query_settings={'timeout': 0.2}
 
 
@@ -132,3 +133,74 @@ Wait Until Query Matches Get Attribute For A Present Attribute
 Wait Until Query With Ignore Exceptions Times Out On A Bad Expression
     Run Keyword And Expect Error    *did not become truthy*within timeout of 0.2 seconds*
     ...    Wait Until Query    count(//control:Window[broken    query_overrides={'ignore_exceptions': True}
+
+# --- Wait Until Attribute Value ------------------------------------------------
+
+Wait Until Attribute Value Returns A Value That Already Holds
+    [Documentation]    The value comes back typed as Get Attribute reads it — here the boolean False.
+    ${value}=    Wait Until Attribute Value    ${OPS}    IsMaximized    ==    ${False}
+    ${read}=    Get Attribute    ${OPS}    IsMaximized
+    Should Be Equal    ${value}    ${read}
+    Should Be True    ${{ type($value) is bool }}
+
+Wait Until Attribute Value Default Returns A Truthy Value
+    ${name}=    Wait Until Attribute Value    ${OPS}    Name
+    Should Be Equal    ${name}    Operations Console
+
+Wait Until Attribute Value Default Times Out On A Falsy Value
+    Run Keyword And Expect Error
+    ...    *'IsMaximized'*was False and did not become truthy within timeout of 0.2 seconds.
+    ...    Wait Until Attribute Value    ${OPS}    IsMaximized
+
+Wait Until Attribute Value Returns The Value For Matches With Groups
+    [Documentation]    AssertionEngine hands back the capture groups for ``matches``; the keyword
+    ...    returns the attribute's value instead.
+    ${name}=    Wait Until Attribute Value    ${OPS}    Name    matches    (Operations) (Console)
+    Should Be Equal    ${name}    Operations Console
+
+Wait Until Attribute Value Polls With The Validate Operator
+    Run Keyword And Expect Error    *should validate to true*within timeout of 0.2 seconds*
+    ...    Wait Until Attribute Value    ${OPS}    IsMaximized    validate    value == True
+
+Wait Until Attribute Value Rejects The Then Operator
+    Run Keyword And Expect Error    *Use 'validate'*
+    ...    Wait Until Attribute Value    ${OPS}    Name    then    value.upper()
+
+Wait Until Attribute Value Surfaces The Assertion Diagnostic On Timeout
+    Run Keyword And Expect Error
+    ...    *'Name'*'Operations Console' (str) should be 'Wrong Name' (str) (within timeout of 0.2 seconds)
+    ...    Wait Until Attribute Value    ${OPS}    Name    ==    Wrong Name
+
+Wait Until Attribute Value Times Out When The Element Never Appears
+    Run Keyword And Expect Error    *No element matched*within timeout of 0.2 seconds.
+    ...    Wait Until Attribute Value    ${MISSING}    Name    ==    OK
+
+Wait Until Attribute Value Waits For A Missing Attribute And Names It
+    [Documentation]    The window has no ToggleState: the keyword waits for it instead of failing at
+    ...    once, and the timeout error names the attribute and the element.
+    Run Keyword And Expect Error
+    ...    *'ToggleState' did not appear on Window "Operations Console" within timeout of 0.2 seconds.
+    ...    Wait Until Attribute Value    ${OPS}    ToggleState    ==    On
+
+Wait Until Attribute Value Rejects An Unknown Namespace Prefix
+    Run Keyword And Expect Error    *Unknown namespace prefix 'nosuch'*
+    ...    Wait Until Attribute Value    ${OPS}    nosuch:Name    ==    Operations Console
+
+Wait Until Attribute Value Rejects A Value Selector
+    Run Keyword And Expect Error    *Use Wait Until Query for value conditions*
+    ...    Wait Until Attribute Value    count(//control:Window)    Name
+    Run Keyword And Expect Error    *Use Wait Until Query for value conditions*
+    ...    Wait Until Attribute Value    ${OPS_NAME}    Name
+
+Wait Until Attribute Value Honors Per Call Timeout
+    Run Keyword And Expect Error    *within timeout of 0.6 seconds*
+    ...    Wait Until Attribute Value    ${OPS}    Name    ==    Wrong Name    query_overrides={'timeout': 0.6}
+
+Wait Until Attribute Value With Ignore Exceptions Never Succeeds On A Bad Selector
+    Run Keyword And Expect Error    *No element matched*within timeout of 0.2 seconds.
+    ...    Wait Until Attribute Value    //control:Window[broken    Name
+    ...    query_overrides={'ignore_exceptions': True}
+
+Wait Until Attribute Value Keeps Waiting On A Value It Cannot Compare
+    Run Keyword And Expect Error    *not supported between*within timeout of 0.2 seconds*
+    ...    Wait Until Attribute Value    ${OPS}    Name    >    ${5}

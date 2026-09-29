@@ -87,6 +87,11 @@ A Node From Another Import Is Never Reported As Gone
     ${node}=    A.Query    ${OPS}    only_first=${True}
     Run Keyword And Expect Error    *different library instance*    B.Wait Until Gone    ${node}
 
+A Node From Another Import Is Rejected By Wait Until Attribute Value
+    ${node}=    A.Query    ${OPS}    only_first=${True}
+    Run Keyword And Expect Error    *different library instance*
+    ...    B.Wait Until Attribute Value    ${node}    Name
+
 A Root From Another Import Is Rejected
     ${node}=    A.Query    ${OPS}    only_first=${True}
     Run Keyword And Expect Error    *different library instance*    B.Set Root    ${node}

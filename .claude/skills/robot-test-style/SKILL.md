@@ -34,14 +34,14 @@ checklist. Reference implementation: `tests/acceptance/qml/`.
 | Element appears | `BM.Wait Until Exists` (returns it; `query_overrides={'timeout': N}` to tune, default 30 s) |
 | Element disappears / stays absent briefly | `BM.Wait Until Gone` (instant when already absent) |
 | Permanent absence | `BM.Query … only_first=${True}` + `Should Be Equal    ${node}    ${None}` |
-| Attribute reaches a value | `BM.Wait Until Query    <loc>/@<attr>    ==    <value>` — re-evaluates until it passes; for a captured element `./@<attr>` with `root=${node}` |
+| Attribute reaches a value | `BM.Wait Until Attribute Value    <loc>    <attr>    ==    <value>` — reads again until it passes and returns the value; a captured element is passed as `<loc>` directly |
 | Attribute has a value now | `BM.Get Attribute    <loc>    <attr>    ==    <value>` — waits for the element, then checks **once** (no retry) |
 | Computed condition | `BM.Wait Until Query    <xpath>    <op>    <value>` |
 | Before an action | Nothing — `Pointer Click` etc. wait for their target themselves |
 
 `Get Attribute` fits synchronous effects (the mock) and states that must stay unchanged. In
 real lanes, effects the window manager or app apply asynchronously (maximize, minimize,
-activation, a counter label) need `Wait Until Query`. To assert that a state does *not*
+activation, a counter label) need `Wait Until Attribute Value`. To assert that a state does *not*
 change, first wait for the action's own effect (window active, click counted, bounds
 settled), then read it once — otherwise a late change slips past the check.
 

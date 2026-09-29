@@ -136,8 +136,8 @@ behavior under test.
   (`tests/acceptance/<app>/resources/testapp.resource`) holds only the launch/teardown
   flow, never a page-object locator layer or wrappers around BareMetal keywords: assert
   appearance/disappearance with the self-waiting `Wait Until Exists` / `Wait Until Gone`,
-  attribute effects with `Wait Until Query    …/@Attr    ==` (`Get Attribute    ==` waits for
-  the element but checks its value only once), and rely on the action
+  attribute effects with `Wait Until Attribute Value    …    <Attr>    ==` (`Get Attribute    ==`
+  waits for the element but checks its value only once), and rely on the action
   keywords' built-in waiting instead of pre-checks (§7).
 - **Needs:** the **non-mock** native build and an isolated session, which the lane
   profile brings up itself (`just test-acceptance*`, or `robotcode --profile real-x11 run`).
