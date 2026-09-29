@@ -378,7 +378,7 @@ _ATTRIBUTE_PREFIXES = tuple(ns.as_str() for ns in (Namespace.Control, Namespace.
 
 
 def _split_attribute_name(attribute_name: str) -> tuple[str | None, str]:
-    """Split ``prefix:Name`` into its namespace and its name, as `Get Attribute` reads it.
+    """Split ``prefix:Name`` into its namespace and its name, as `Get Attribute Value` reads it.
 
     A prefix that names no namespace is rejected here, before any element is read, so that a wait
     fails at once on it, even when the element has not appeared yet or errors are being ignored.
@@ -656,7 +656,7 @@ class BareMetal(OurDynamicCore):
 
     | `Pointer Click`    //Button[@Name="OK"]    # exact text
     | `Keyboard Type`    //Edit[starts-with(@Name, "Address")]    12 Main St    # partial text
-    | `Get Attribute`    //CheckBox[matches(@Name, "Option [0-9]+")]    IsEnabled    # regular expression
+    | `Get Attribute Value`    //CheckBox[matches(@Name, "Option [0-9]+")]    IsEnabled    # regular expression
     | `Pointer Click`    (//Button)[last()]    # by position
 
     ``=`` is exact and case-sensitive; use ``contains()``, ``starts-with()`` or ``matches()`` for
@@ -825,18 +825,18 @@ class BareMetal(OurDynamicCore):
 
     = Reading and checking values =
 
-    `Get Attribute` reads one attribute of one element and, in the same call, can assert on it: add
+    `Get Attribute Value` reads one attribute of one element and, in the same call, can assert on it: add
     an operator and the expected value, and the keyword fails if it does not hold.
 
-    | ${enabled}=    `Get Attribute`    Window[@Name="Settings"]//Button[@Name="Save"]    IsEnabled
-    | `Get Attribute`    Window[@Name="Settings"]//Button[@Name="Save"]    IsEnabled    ==    ${True}
-    | `Get Attribute`    Window[@Name="Settings"]//CheckBox[@Name="Dark mode"]    IsEnabled    ==    ${False}
+    | ${enabled}=    `Get Attribute Value`    Window[@Name="Settings"]//Button[@Name="Save"]    IsEnabled
+    | `Get Attribute Value`    Window[@Name="Settings"]//Button[@Name="Save"]    IsEnabled    ==    ${True}
+    | `Get Attribute Value`    Window[@Name="Settings"]//CheckBox[@Name="Dark mode"]    IsEnabled    ==    ${False}
 
     Operators include ``==``, ``!=``, ``contains``, ``starts``, ``ends`` and ``matches`` (see
     [https://github.com/MarketSquare/AssertionEngine|AssertionEngine]). For several values at once,
     or a computed one, read them through `Query` instead.
 
-    `Get Attribute` reads and checks the value once, at the moment it runs. When an action changes a
+    `Get Attribute Value` reads and checks the value once, at the moment it runs. When an action changes a
     value a moment later — a window that finishes maximizing, a label that updates after a click —
     wait for the new value with `Wait Until Attribute Value` instead: it takes the same element,
     attribute and operators, and reads the attribute again until the check holds.
@@ -961,11 +961,11 @@ class BareMetal(OurDynamicCore):
     Each of them may be absent. An attribute is there only when it could be read for that very
     process — a process of another user, for example, may not reveal its command line — and it is
     never filled in with an empty or a made-up value. So test for one before you rely on it:
-    ``[@app:CommandLine]`` is true exactly when the command line is there, and `Get Attribute` fails
+    ``[@app:CommandLine]`` is true exactly when the command line is there, and `Get Attribute Value` fails
     for one that is not. Once the process has ended, its application element reports none of them.
 
     | `Set Root`       /app:Application[@app:ProcessName="ledger"][@app:UserName]
-    | ${started}=    `Get Attribute`    /app:Application[@ProcessId=${pid}]    app:StartTime
+    | ${started}=    `Get Attribute Value`    /app:Application[@ProcessId=${pid}]    app:StartTime
 
     = Waiting for elements =
 
@@ -1056,12 +1056,12 @@ class BareMetal(OurDynamicCore):
       that becomes invalid. For a value condition — a count dropping to zero, say — use `Wait Until
       Query` instead.
     - `Wait Until Query` waits until an XPath result satisfies a condition. It takes the same assertion
-      operators as `Get Attribute`; with no operator it waits until the result is truthy. Unlike `Get
-      Attribute` it works on the raw query result, so an attribute step yields the attribute value and
-      ``count(...)`` a number.
+      operators as `Get Attribute Value`; with no operator it waits until the result is truthy. Unlike
+      `Get Attribute Value` it works on the raw query result, so an attribute step yields the attribute
+      value and ``count(...)`` a number.
     - `Wait Until Attribute Value` waits until one attribute of one element has the value you expect,
-      and returns that value. It takes the element, the attribute and the operators as `Get
-      Attribute` does; with no operator it waits until the value is truthy.
+      and returns that value. It takes the element, the attribute and the operators as
+      `Get Attribute Value` does; with no operator it waits until the value is truthy.
 
     | `Wait Until Exists`    Window[@Name="Save As"]    # wait for the dialog, then return it
     | `Wait Until Gone`      Window[@Name="Please wait"]    # wait until the splash is gone
@@ -1149,7 +1149,7 @@ class BareMetal(OurDynamicCore):
 
     | `Pointer Click`     Window[@Name="Editor"]//Button[@Name="New"]    # start a new document
     | `Keyboard Type`     ${None}    Q3 Report    # type into the focused field
-    | `Get Attribute`     Window[@Name="Editor"]//Button[@Name="Save"]    IsEnabled    ==    ${True}    # Save enabled
+    | `Get Attribute Value`    Window[@Name="Editor"]//Button[@Name="Save"]    IsEnabled    ==    ${True}    # enabled
     | `Take Screenshot`
     """
 
@@ -1797,11 +1797,11 @@ class BareMetal(OurDynamicCore):
         for a computed condition: a row count to settle, a value to reach a target, an attribute
         to flip.
 
-        It takes the same assertion arguments as `Get Attribute` — an operator and an expected
+        It takes the same assertion arguments as `Get Attribute Value` — an operator and an expected
         value (``==``, ``!=``, ``contains``, ``starts``, ``ends``, ``matches``, ``>``, ``<`` …;
         see [https://github.com/MarketSquare/AssertionEngine|AssertionEngine]). With no operator
         it waits until the result is *truthy* — a non-zero number, a non-empty string, a true
-        boolean, a present element. Unlike `Get Attribute`, it works on the raw XPath result, so
+        boolean, a present element. Unlike `Get Attribute Value`, it works on the raw XPath result, so
         ``.../@X`` yields an attribute value, ``count(...)`` a number and ``//X`` an element; a
         missing attribute is an empty result here, not an error.
 
@@ -1899,17 +1899,17 @@ class BareMetal(OurDynamicCore):
     ) -> Any:
         """Wait until an attribute of an element has the value you expect, then return that value.
 
-        The waiting counterpart to `Get Attribute`: it reads the attribute every ``retry_interval``
+        The waiting counterpart to `Get Attribute Value`: it reads the attribute every ``retry_interval``
         until its value satisfies the condition, and returns the value it had at that moment — or
         fails once ``timeout`` elapses. Reach for it after an action whose effect lands a moment
         later: a window that finishes maximizing, a label that shows a new count, a button that
-        becomes enabled once a form is complete. `Get Attribute` reads and checks a value once, which
+        becomes enabled once a form is complete. `Get Attribute Value` reads and checks a value once, which
         suits a value that has already settled.
 
-        Give the element and the attribute as for `Get Attribute`: a selector or an element from
+        Give the element and the attribute as for `Get Attribute Value`: a selector or an element from
         `Query`, and the attribute name bare — ``Name``, ``IsEnabled`` — or with its ``app:`` or
         ``native:`` prefix (see `Process attributes`). The condition takes the same assertion operators
-        as `Get Attribute` and `Wait Until Query` (``==``, ``!=``, ``contains``, ``matches``, ``>``,
+        as `Get Attribute Value` and `Wait Until Query` (``==``, ``!=``, ``contains``, ``matches``, ``>``,
         ``validate`` …; see [https://github.com/MarketSquare/AssertionEngine|AssertionEngine]). With no
         operator the keyword waits until the value is truthy — a true boolean, a non-zero number, a
         non-empty string. The ``then`` operator is not supported, since it transforms the value instead
@@ -1923,7 +1923,7 @@ class BareMetal(OurDynamicCore):
         it did not satisfy the condition. Per-call waiting is tuned with ``query_overrides`` (see
         `Tuning the wait`).
 
-        The value comes back typed, as from `Get Attribute`: ``IsEnabled`` as a boolean, ``Bounds`` as
+        The value comes back typed, as from `Get Attribute Value`: ``IsEnabled`` as a boolean, ``Bounds`` as
         a ``Rect``. It is always the attribute's value — with ``matches`` too, which elsewhere can hand
         back the groups the pattern captured.
 
@@ -2644,7 +2644,7 @@ class BareMetal(OurDynamicCore):
 
     @keyword
     @assertable
-    def get_attribute(
+    def get_attribute_value(
         self, descriptor: UiNodeDescriptor, attribute_name: str, *, query_overrides: QuerySettingsDict | None = None
     ) -> Any:
         """Read one attribute of one element, and optionally assert on it in the same call.
@@ -2663,11 +2663,30 @@ class BareMetal(OurDynamicCore):
             attribute_name: The attribute to read, written bare (or with an ``app:`` or ``native:`` prefix).
 
         Examples:
-            | ${enabled}=    `Get Attribute`    Window[@Name="Editor"]//Button[@Name="Save"]    IsEnabled
-            | `Get Attribute`    Window[@Name="Editor"]//Button[@Name="Save"]    IsEnabled    ==    ${True}
-            | ${bounds}=     `Get Attribute`    Window[@Name="Editor"]//Button[@Name="Save"]    Bounds
-            | ${user}=       `Get Attribute`    /app:Application[@ProcessId=${pid}]    app:UserName
+            | ${enabled}=    `Get Attribute Value`    Window[@Name="Editor"]//Button[@Name="Save"]    IsEnabled
+            | `Get Attribute Value`    Window[@Name="Editor"]//Button[@Name="Save"]    IsEnabled    ==    ${True}
+            | ${bounds}=     `Get Attribute Value`    Window[@Name="Editor"]//Button[@Name="Save"]    Bounds
+            | ${user}=       `Get Attribute Value`    /app:Application[@ProcessId=${pid}]    app:UserName
         """
+        return self._read_attribute(descriptor, attribute_name, query_overrides)
+
+    @keyword
+    @assertable
+    def get_attribute(
+        self, descriptor: UiNodeDescriptor, attribute_name: str, *, query_overrides: QuerySettingsDict | None = None
+    ) -> Any:
+        """*DEPRECATED* Use `Get Attribute Value` instead; this alias will be removed before PlatynUI 1.0.
+
+        Behaves exactly like `Get Attribute Value`: the same arguments, the same value, the same check.
+        """
+        # The shared body, not the decorated keyword: calling `get_attribute_value` would check the
+        # assertion a second time.
+        return self._read_attribute(descriptor, attribute_name, query_overrides)
+
+    def _read_attribute(
+        self, descriptor: UiNodeDescriptor, attribute_name: str, query_overrides: QuerySettingsDict | None
+    ) -> Any:
+        """Read one attribute of one element, for `Get Attribute Value` and its deprecated alias."""
         namespace: str | None = None
         if ':' in attribute_name:
             namespace, attribute_name = attribute_name.split(':', 1)

@@ -410,6 +410,7 @@ The `PlatynUI.BareMetal` library provides low-level keywords backed by `platynui
 - [ ] **High-level PlatynUI library**: keyword layer above BareMetal with element abstractions, implicit waits, and human-readable API
 - [ ] **Acceptance test suites** under `tests/BareMetal/` covering core workflows (launch app, find element, interact, verify)
 - [ ] **Documentation**: keyword reference, example `.robot` files, getting-started guide
+- [ ] **Remove deprecated keyword aliases before 1.0**: `Get Attribute`, deprecated in favor of `Get Attribute Value`, goes away before the 1.0 release
 
 ## 6. XPath Optimization Backlog
 
