@@ -145,6 +145,27 @@ An Absolute Selector Does Not Resolve The Root At All
     Run Keyword And Expect Error    *NoSuchButton*within timeout of 0.7 seconds*
     ...    Get Attribute Value    ${MISSING}    Name    query_overrides={'timeout': 0.7}
 
+Query Does Not Resolve The Root For An Absolute Expression
+    [Documentation]    Query follows the same rule as the keywords that wait: an absolute expression
+    ...    starts at the desktop, so a root that cannot be found neither stops it nor delays it.
+    Set Root    ${MISSING_ROOT}    scope=TEST
+    ${n}=    Query    count(//control:Window)    only_first=${True}
+    Should Be True    ${n} > 0
+
+Query Names The Expression A Missing Root Kept From Being Evaluated
+    Set Root    ${MISSING_ROOT}    scope=TEST
+    Run Keyword And Expect Error
+    ...    RootNotFoundError: *NoSuchWindow*within timeout of 0.2 seconds; 'count(.//control:Button)' was not evaluated.
+    ...    Query    count(.//control:Button)    only_first=${True}
+
+Query Evaluates A Computed Expression Against The Root
+    [Documentation]    The relative path sits inside the function's argument, which is enough to need
+    ...    the root: the count is taken inside it, where the window holds 4 of the desktop's 8 list
+    ...    items.
+    Set Root    ${OPS}    scope=TEST
+    ${n}=    Query    count(.//item:ListItem)    only_first=${True}
+    Should Be Equal As Integers    ${n}    4
+
 Per Call Override Reaches Each Keyword Shape
     [Documentation]    The mechanism is mostly exercised through Get Attribute Value; verify the per-call
     ...    override also reaches the other distinct wiring shapes — pointer (resolved via helpers),

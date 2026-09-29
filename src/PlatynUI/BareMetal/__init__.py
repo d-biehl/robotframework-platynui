@@ -1801,7 +1801,9 @@ class BareMetal(OurDynamicCore):
         """
 
         if root is None:
-            root = self.root
+            # A relative expression evaluates against the Set Root root, and an absolute one does
+            # without it, as in every keyword (see `UiNodeDescriptor.needs_root`).
+            root = self.descriptor_from_query(expression).context_node(self)
         else:
             self.require_own_node(root)
 
