@@ -19,7 +19,7 @@ Every loop swallows any other `Exception` when `ignore_exceptions` is on, and dr
 
 - **The root's settings.** The `root` property (`:1441-1454`) resolves the stored root with `as_root=True` and no per-call override. The root's lookup therefore runs with the scope or import settings, never with `query_overrides`. The library documents this (`:1036-1043`), and `tests/BareMetal/query_settings.robot:120-136` pins it.
 - **Reusing the root.** A root reuses the element it resolved to while that element belongs to this runtime and `is_valid()` (`:264-271`). `is_valid()` costs one provider call: AT-SPI reads the role over D-Bus (`crates/provider-atspi/src/node.rs:510-516`), UI Automation reads `CurrentProcessId` (`crates/provider-windows-uia/src/node.rs:743-749`). It is `true` where a provider does not implement it (`crates/core/src/ui/node.rs:106-108`); the mock does not implement it.
-- **Whether a selector needs the root.** `needs_root` (`:219-234`) memoizes `is_context_dependent` per selector. An expression that does not parse counts as needing the root, so the real evaluation reports the error.
+- **Whether a selector needs the root.** `needs_root` (`:219-234`) memoizes `is_context_dependent` per selector. An expression that does not parse counts as needing the root, so the real evaluation reports the error. `is_context_dependent` classifies only the top-level node selection (`crates/xpath/src/parser/ast.rs:95-123`, tests in `crates/xpath/tests/it/parser_context_dependence.rs`). A function call counts as independent whatever its arguments hold: `count(.//x)` does, and so do `name()` and `position()`, although the commit that added the classifier (`3b4b5def`) names zero-argument context functions as dependent. An `if` condition and a `for` or `let` binding are ignored as well, so `let $a := .//x return $a` counts as independent. That suits the top-level node selection of an element selector, but it classifies an expression that computes a value wrongly (checked on the mock build). Decision 12 changes this.
 - **The snapshot policy.** The element lookup discards the runtime's snapshot only after an attempt that found nothing (`:313-314`). `Wait Until Gone`, `Wait Until Query` and `Wait Until Attribute Value` discard it before every attempt (`:1738`, `:1845`, `:1975`). The library docs (`:592-598`) and `dev-docs/architecture.md:766` describe exactly this.
 
 **What can raise inside an attempt.**
@@ -28,17 +28,18 @@ Every loop swallows any other `Exception` when `ignore_exceptions` is on, and dr
 - `UiNode.is_valid()`, `invalidate()` and `bool(UiNode)` return plain values and cannot raise (`runtime.rs:216-231`).
 - `UiNode.attribute()` raises `ValueError` for an unknown namespace and `AttributeNotFoundError` when the element returns nothing (`runtime.rs:103-115`). The element interface has no error path at all: `attribute` returns an `Option` and `value` a plain `UiValue` (`crates/core/src/ui/node.rs:63`, `:225`). Neither do `children` and `attributes` (`:50`, `:60`). An attribute read therefore never raises a provider error. *Inferred:* what reaches a wait as an error today comes from the XPath engine (`crates/runtime/src/xpath.rs:152-159`), not from a provider.
 - The runtime evaluates against a held element as it is, without a resolver (`crates/runtime/src/runtime/evaluation.rs:15-17`, `xpath.rs:306-324`). *Inferred:* for an element that died, the provider decides what the evaluation sees, typically no children.
-- AssertionEngine 5.0.1 (`assertionengine/assertion_engine.py:188-219`): `verify_assertion` raises `AssertionError` on a mismatch and the operator's own `TypeError` when the values cannot be compared. It raises `RuntimeError` only for an operator without a handler (`:208-211`). Enumerating `AssertionOperator` shows that every member except `then` has a handler, and `then` is rejected before the loops. `validate` evaluates through Robot Framework, which reports any failure of the expression as `DataError` (`robot/variables/evaluation.py:30-65`, RF 7.5).
+- AssertionEngine 5.0.1 (`assertionengine/assertion_engine.py:188-219`): `verify_assertion` raises `AssertionError` on a mismatch and the operator's own `TypeError` when the values cannot be compared. It raises `RuntimeError` itself only for an operator without a handler (`:208-211`). Enumerating `AssertionOperator` shows that every member except `then` has a handler, and `then` is rejected before the loops.
+- `validate` evaluates its expression with Robot Framework's `BuiltIn().evaluate` (`assertion_engine.py:151-152`). Robot Framework reports any failure of the expression as `DataError` (`robot/variables/evaluation.py:30-65`), and `BuiltIn.evaluate` turns that into a `RuntimeError` with the same message (`robot/libraries/BuiltIn.py:4570-4571`, RF 7.5; RF 7.0 does the same). A `DataError` stands for invalid test data (`robot/errors.py:56-61`); the `RuntimeError` makes a failing expression an ordinary keyword failure. So a `validate` expression that raises reaches the loops as a `RuntimeError`, whether it is misspelled or fails on the current value, such as `int(value) > 3` on `'Loading'`. Robot Framework shows a `RuntimeError` without its type name: the message reads `Evaluating expression … failed: …`.
 - Robot Framework's own timeout is a `BaseException` (`robot/errors.py:90`), so `except Exception` does not catch it.
 
-**Robot Framework's form of a last error.** `Wait Until Keyword Succeeds` fails with `… The last error was: {err}` (`robot/libraries/BuiltIn.py:3419-3420`). The error text there is formatted by `ErrorDetails` (`robot/utils/error.py:44-66`, `:117-134`): `Type: message`, with the type left out for `AssertionError`, `Error`, `Exception`, `RuntimeError` (`:52`) and for Robot Framework's own errors. Checked in RF 7.5: `ErrorDetails(EvaluationError('x')).message` is `EvaluationError: x`, and a `DataError` gives its bare message. *Assumed:* RF 7.0, the project's floor (`pyproject.toml:31`), takes the error in the same constructor argument; task 4.1 checks it. BareMetal's errors set no name suppression, so Robot Framework shows their type. `tests/acceptance/egui/app_root_after_exit.robot:29` expects `STARTS:RootNotFoundError: `.
+**Robot Framework's form of a last error.** `Wait Until Keyword Succeeds` fails with `… The last error was: {err}` (`robot/libraries/BuiltIn.py:3419-3420`). The error text there is formatted by `ErrorDetails` (`robot/utils/error.py:44-66`, `:117-134`): `Type: message`, with the type left out for `AssertionError`, `Error`, `Exception`, `RuntimeError` (`:52`) and for Robot Framework's own errors. Checked in RF 7.5: `ErrorDetails(EvaluationError('x')).message` is `EvaluationError: x`, and a `DataError` or a `RuntimeError` gives its bare message. RF 7.0, the project's floor (`pyproject.toml:31`), takes the error in the same constructor argument (task 4.1). BareMetal's errors set no name suppression, so Robot Framework shows their type. `tests/acceptance/egui/app_root_after_exit.robot:29` expects `STARTS:RootNotFoundError: `.
 
 **Where the code and the specs or docs disagree today.** The code is reality; these are the places where it misses the stated intent.
 
 - `Wait Until Query` evaluates against a `root` from another import (`:1839`). `baremetal-selector-resolution` requires the mismatch error for every capture a keyword evaluates against (`openspec/specs/baremetal-selector-resolution/spec.md:85-87`).
 - `Wait Until Query` looks the root up for an absolute expression (`:1839`). The same spec says an absolute selector does not resolve the root (`spec.md:29-32`).
 - `Wait Until Gone`'s documentation promises the root's own error (`:1710-1711`), but the code swallows it (`:1739`, `:1760-1763`).
-- `Wait Until Attribute Value` under `ignore_exceptions` reports "No element matched" for an element it found on every attempt when the *check* raises, for example a `validate` expression that cannot be evaluated. The outcome is assigned only in branches that the raise skips (`:1995-2016`), so it keeps its initial "not found" (`:1971`). The maintainer did not list this defect; the new failure rule fixes it.
+- `Wait Until Attribute Value` under `ignore_exceptions` reports "No element matched" for an element it found on every attempt when the *check* raises, for example `matches` with a pattern that is not a valid regular expression (`re.error`; checked on the mock). The outcome is assigned only in branches that the raise skips (`:1995-2016`), so it keeps its initial "not found" (`:1971`). The maintainer did not list this defect; the new failure rule fixes it.
 - `Wait Until Gone` reports a reference that holds neither a selector nor an element as gone (`:1749-1751`), while `resolve` and `Wait Until Attribute Value` raise `NoQueryError` (`:255-256`, `:1962-1963`). Robot Framework's argument conversion never produces such a reference.
 
 **Tests that pin today's behavior.**
@@ -62,14 +63,15 @@ Every loop swallows any other `Exception` when `ignore_exceptions` is on, and dr
   - what each keyword returns on success;
   - the checks each keyword makes before its first attempt;
   - the error type for each situation.
+- The check whether a selector or expression needs the root sees every place it reads its context, a function's arguments included (decision 12).
 
 **Non-Goals:**
 
 - Retrying in `Get Attribute Value`. It reads and checks once ("one keyword, one action").
 - Changing error types. In particular, `Wait Until Query`'s truthy timeout stays a `ResultTypeError`, where `Wait Until Attribute Value` raises `AssertionError` for the same situation. The archived design of `add-wait-until-attribute-value` kept the two apart on purpose (its decision 8).
 - A DEBUG record per swallowed error (decision 9).
-- `Query`, which is a snapshot and not a wait (Open Questions).
-- How `validate` reports an expression that raises. That stays a `DataError`, which is an error and not a "not yet".
+- Waiting in `Query`, which stays a snapshot. Only its lookup of the root follows decision 12, like every keyword's.
+- Waiting out a `validate` expression that raises. It arrives as a `RuntimeError`, which ends every wait at once (decision 3).
 - `Highlight`'s broad `except` and the runtime's pointer `ensure_move` double report. Both are separate items.
 - The text of `Wait Until Query`'s mismatch message. It keeps AssertionEngine's diagnostic plus the timeout, without naming the expression.
 
@@ -87,7 +89,7 @@ A private module-level helper in `BareMetal/__init__.py` runs every wait. It tak
 
 A loop through the helper goes like this:
 
-1. It runs the context step, outside the error handling (decision 2).
+1. It runs the context step, outside the error handling (decision 2). The clock starts after the first context step.
 2. It runs the attempt. An error that waiting cannot fix is re-raised at once (decision 3). Any other `Exception` is re-raised without `ignore_exceptions`. With it, the error is kept as the last error, and an attempt that completes clears it (decision 4).
 3. After the attempt, if the timeout has elapsed, it raises what the failure builder returns, chained to the last error. Otherwise it sleeps `retry_interval`, discards the snapshot and starts again.
 
@@ -120,6 +122,7 @@ Looking the root up on every attempt makes a failing root fail the same way for 
 Consequences:
 
 - **The per-call timeout does not bound the root's lookup.** This is documented (`:1036-1039`) and stays so. What changes is that a missing root costs one root timeout and then ends the wait with `RootNotFoundError`. Before, the root was retried until the per-call timeout, and the wait failed with an error that blamed the target.
+- **The wait's clock starts after the first lookup of the root**, as it did when the root was looked up before the loop. A root that is found late therefore does not use up the target's timeout, and a lookup during the wait counts as part of its attempt. The first version started the clock before that lookup; the review of 2026-09-30 found it, since a keyword with a short `query_overrides` timeout then failed while an application was still starting.
 - **`Wait Until Gone` cannot tell whether a target left together with its root.** A target inside a root that goes away for good fails with `RootNotFoundError` after the root's timeout. The keyword cannot tell "the container closed" from "the root selector is wrong". To wait for a container to close, wait on the container itself. The keyword's documentation already says a vanishing root surfaces as the root's error (`:1710-1711`), and it names that way.
 - **What surfaces from the root's lookup:**
   - `RootNotFoundError`, re-raised with the target named, as `:279-282` already does. It gains an optional last error, carried from the root's own lookup when that lookup swallowed errors under the root's settings, and appended to the message.
@@ -128,7 +131,7 @@ Consequences:
 
   *Rejected:* wrapping every root failure in `RootNotFoundError`. Its message states that the timeout elapsed, which would be false for an error raised on the first attempt.
 - **`Wait Until Query` follows the same rule.**
-  - Its expression goes through the same `needs_root` memo, so an absolute expression never looks the root up.
+  - Its expression goes through the same `needs_root` memo, so an absolute expression never looks the root up. That takes the classifier of decision 12: the one before it calls `count(.//x)` absolute, and `Wait Until Query` would count on the whole desktop, silently.
   - An explicit `root` is checked with `require_own_node` before the first attempt, as `Query` does (`:1654`).
   - Its validity is checked in the context step of every attempt. An element that is no longer valid raises `PinnedElementGoneError`, as a pinned `Set Root` root does.
 
@@ -145,11 +148,16 @@ One module-level tuple lists the errors that end a wait at once, whatever `ignor
 | `ForeignNodeError` | A captured target or an explicit `root` from another import, checked before the first attempt |
 | `PinnedElementGoneError` | A captured element that is no longer valid where the wait needs it: `Wait Until Attribute Value`'s target, a pinned root, `Wait Until Query`'s `root` |
 | `RootNotFoundError` | The root's lookup. It already runs outside the `try` (decision 2); the entry keeps the rule complete should it ever be raised inside an attempt |
-| `RuntimeError` | AssertionEngine, for an operator it has no handler for |
+| `RuntimeError` | AssertionEngine, for an operator it has no handler for; Robot Framework, for a `validate` expression that raises |
 
 `Wait Until Gone` never raises `PinnedElementGoneError` for its captured target, because a target that is no longer valid is the success it waits for.
 
-`RuntimeError` is on the list only because AssertionEngine raises it (`assertion_engine.py:208-211`), and nothing else in an attempt does: native errors derive from `PlatynUiError`, and Robot Framework's are `RobotError`s. Robot Framework cannot even reach it, since its argument conversion yields an `AssertionOperator` and every member but `then` has a handler. It is kept as the defensive check that both assertion loops already make today (`:1857-1858`, `:2017-2018`). Listing it for the loops that never call AssertionEngine changes nothing for them.
+`RuntimeError` has two sources in an attempt, and no native error is one, since they derive from `PlatynUiError`:
+
+- AssertionEngine raises it for an operator without a handler (`assertion_engine.py:208-211`). Robot Framework cannot reach that, since its argument conversion yields an `AssertionOperator` and every member but `then` has a handler.
+- Robot Framework raises it for a `validate` expression that raises (Context).
+
+The maintainer decided on 2026-09-29 that a `RuntimeError` ends a wait at once, like `SystemExit`, also with `ignore_exceptions`: a `validate` expression that cannot be evaluated is wrong, and waiting does not make it right. Both assertion loops already re-raise it today (`:1857-1858`, `:2017-2018`). The user documentation says what follows: write a `validate` expression so that it copes with every value it can get (decision 10). Listing `RuntimeError` for the loops that never call AssertionEngine changes nothing for them.
 
 *Rejected:* treating every `BareMetalError` as an error that waiting cannot fix. The timeout errors are `BareMetalError`s too, and a rule by class would silently turn every future library error into one. An explicit list is also the "one shared list" the maintainer asked for.
 
@@ -242,19 +250,43 @@ A later change can add such a record without touching these rules (Open Question
 
 ### 10. The documentation states the rules in the library's voice
 
-The section "Waiting for elements" and its query-settings text on `ignore_exceptions` (`:970-1012`) say three things, without naming provider internals:
+The rules are said briefly where users look for them, without naming provider internals:
 
-- Some errors are never waited out: a selector that yields a value, an element from another import, a captured element that no longer exists, and a root that cannot be found.
-- The root is checked on every attempt, so a root that goes away ends the wait with the root's error, and one that is replaced is followed.
-- A wait that swallowed errors quotes the last one in its failure.
+- The text on `ignore_exceptions` under "Waiting for elements" says that a failure quotes the error the last attempt raised, and names the few errors that end a wait even with `ignore_exceptions`: a selector that yields a value, an element from `Query` or a root pinned to one that no longer exists, a root that is not found within its own timeout, and a `validate` expression that raises. It explains the setting with an XPath example (`xs:integer(@Name)` on a label that shows no number yet) instead of provider errors, which cannot reach a wait (Open Questions, answered).
+- The section "Scope" says that a root keeps the element it found while that element exists, that a waiting keyword checks the root on every attempt, and that a root that cannot be found fails the keyword with its own error.
+- Each wait keyword's docstring states its failure in a sentence. `Wait Until Query` also says that an absolute expression does not use the root and that its `root` must come from the same import. `Wait Until Query` and `Wait Until Attribute Value` say that a `validate` expression that raises ends the wait at once, with an expression that copes with every value it can get.
+- The type documentation of an element argument is written for users. Libdoc shows the converter's docstring, and falls back to the class docstring of `UiNodeDescriptor`, which is written for developers, when the converter has none; `UiNodeDescriptor.convert` gets one.
 
-Each wait keyword's docstring then states its own failure in one sentence and links to that section. `Wait Until Query` also says that an absolute expression does not use the root, and that its `root` must come from the same import.
+A first version gave the rules a section of their own, "When a wait gives up". The maintainer found it too long and too complicated (2026-09-30), and its content went into the places above. The review of the same day also corrected older text that the waits touch: the examples compare numbers with `${0}` rather than the string `0`, `Query` is no longer recommended for checking that a dialog has gone, and `Get Attribute Value` says that it waits for its element.
 
 ### 11. Tests are placed by what they need
 
-- **Robot Framework mock suites** (`tests/BareMetal`) cover everything the static mock tree can show: the changed messages, a root that matches nothing, an absolute expression, a foreign `root`, a value selector under `ignore_exceptions`, and a `validate` expression that raises. They come first.
-- **A pytest module with a fake runtime**, next to `test_baremetal_root_reuse.py`, covers what needs something to change between attempts: a completed attempt that clears the last error, a root replaced or gone during the wait, a pinned root or an explicit `root` that stops being valid, an attribute read that raises, and a single evaluation when the first attempt already overruns the timeout.
+- **Robot Framework mock suites** (`tests/BareMetal`) cover everything the static mock tree can show: the changed messages, a root that matches nothing, an absolute expression and an expression that computes a value, each under a root, a foreign `root`, a value selector and a `validate` expression that raises, both under `ignore_exceptions`, and a `matches` pattern that is not a valid regular expression. They come first.
+- **A pytest module with a fake runtime**, next to `test_baremetal_root_reuse.py`, covers what needs something to change between attempts: a completed attempt that clears the last error, a root replaced or gone during the wait, a pinned root or an explicit `root` that stops being valid, a root found late that leaves the target its whole timeout, a root whose own lookup raises under its own `ignore_exceptions`, an attribute read that raises, and a single evaluation when the first attempt already overruns the timeout.
 - **One egui acceptance test** covers a root pinned to an application that has ended, under `ignore_exceptions`, on real providers. It has no platform tag, so every lane runs it.
+- **Rust tests** pin the classifier of decision 12: one case per kind of context read and per place where the focus changes, in the XPath crate (`crates/xpath/tests/it/parser_context_dependence.rs`), and the main cases in the runtime crate, whose function the binding calls.
+
+### 12. The classifier sees every place an expression reads its context
+
+`Expr::is_context_dependent` answers whether evaluating an expression reads its context: the context item, its position or its size. It used to answer that only for the top-level node selection (Context). This change makes it look into every operand, condition, binding and function argument, and counts three kinds of context read:
+
+- a relative path (`.//x`, `child::x`) and the context item (`.`);
+- a standard function that falls back to the context when an argument is left out: `data()`, `number()`, `string()`, `string-length()`, `normalize-space()`, `name()`, `local-name()`, `namespace-uri()`, `root()`, `base-uri()` and `document-uri()`, and `lang(…)`, `id(…)`, `element-with-id(…)` and `idref(…)` with one argument. These are the registered forms (`crates/xpath/src/engine/functions/mod.rs`) whose implementations call `require_context_item`;
+- `position()` and `last()`, which the compiler turns into opcodes that read the focus (`crates/xpath/src/compiler/mod.rs:169-179`).
+
+It does not look where the focus changes: into a predicate, and into the steps of a path after the first, which evaluate against the items of the step before. An absolute path is independent, since it starts at the root of the tree whichever of its nodes is the context. A function name counts when it has no prefix or the prefix `fn`. The match lists every kind of expression, with no catch-all arm, so a new kind of expression needs a decision.
+
+Consequences:
+
+- `Wait Until Query` can skip the root for an absolute expression (decision 2): `count(//x)` evaluates without it, and `count(.//x)` inside it.
+- The element lookup and `Set Root` get the same answer. A selector that reads its context only in such a place now counts as relative: `root()/x`, `id('a')`, `let $a := .//x return $a` or `if (exists(.//x)) then //a else //b`. The element lookup looks the root up for it, and `Set Root` drills into the current root instead of starting at the desktop. Both follow what the expression says. No suite or document of the repository passes such a selector (checked with grep).
+- `Query` follows the same rule, as the maintainer chose on 2026-09-30: it evaluates an absolute expression without the root, and a root that cannot be found names the expression it kept from being evaluated (`BareMetal.root_for`). Before, it looked the root up for every expression, against the scenario *An absolute selector does not resolve the root* of `baremetal-selector-resolution`.
+
+*Alternatives rejected:*
+
+- **Looking the root up for every expression of `Wait Until Query`.** It keeps today's behavior, but an absolute expression then fails when the root is gone, and `Wait Until Query` and the element lookup answer the same question differently. The maintainer chose the classifier on 2026-09-29, in this change.
+- **A second classifier only for `Wait Until Query`.** Two answers to one question: `Set Root` and the element lookup would keep the wrong one.
+- **Reading the list of context functions from the function registry.** The registry records no such property. The list follows the implementations, and the tests name every entry.
 
 ## Risks / Trade-offs
 
@@ -264,7 +296,7 @@ Each wait keyword's docstring then states its own failure in one sentence and li
 - **[Suites whose expected-error patterns end in `seconds.` under `ignore_exceptions`, or match "still present"]** → The proposal marks these message changes as breaking. The error types stay.
 - **[A provider whose `is_valid()` answers `False` for a live element now fails `Wait Until Query` with an explicit `root`]** → The same check already guards captured targets and pinned roots. No provider is known to do this.
 - **[`ErrorDetails(error)` is checked only in RF 7.5; the project supports RF ≥ 7.0]** → A task checks the 7.0 constructor. If it differs, the loop formats the error inside its `except` with `robot.utils.get_error_message()`, which reads the error being handled.
-- **[A long last error makes a long message; `validate`'s `DataError` can add a hint]** → Robot Framework's `Wait Until Keyword Succeeds` quotes errors the same way.
+- **[A long last error makes a long message]** → Robot Framework's `Wait Until Keyword Succeeds` quotes errors the same way.
 
 ## Migration Plan
 
@@ -279,19 +311,21 @@ Each wait keyword's docstring then states its own failure in one sentence and li
     - needs no root for an absolute expression;
     - checks its `root`;
     - reports a failing operator wait as `AssertionError` or `TypeError` with the timeout, where the raw error used to escape;
-  - `Wait Until Gone` names a captured element in the one form.
+  - `Wait Until Gone` names a captured element in the one form;
+  - the element lookup and `Set Root` treat a selector that reads its context inside a function argument, a condition or a binding as relative (decision 12).
 
   The proposal lists which of these are breaking.
-- **No native rebuild.** The change is Python only. The helper uses existing binding API: `Runtime.evaluate_single`, `is_context_dependent` and `clear_cache`, and `UiNode.is_valid`, `invalidate`, `attribute`, `describe` and `owner_id`. The `just` recipes build the native variant they need.
+- **A native rebuild.** The classifier of decision 12 is Rust; the binding's signature does not change. The helper uses existing binding API: `Runtime.evaluate_single`, `is_context_dependent` and `clear_cache`, and `UiNode.is_valid`, `invalidate`, `attribute`, `describe` and `owner_id`. The `just` recipes build the native variant they need.
 - **Sequence:**
   1. the tests: mock suites, the pytest module, the acceptance test;
   2. the helper and the element lookup;
   3. `Wait Until Gone`;
-  4. `Wait Until Query`;
-  5. `Wait Until Attribute Value`;
-  6. the documentation;
-  7. the verification lanes.
-- **Rollback:** revert the commits. Nothing is persisted and no format changes, and the tests revert together with the code.
+  4. the classifier (Rust);
+  5. `Wait Until Query`;
+  6. `Wait Until Attribute Value`;
+  7. the documentation;
+  8. the verification lanes.
+- **Rollback:** revert the commits. Nothing is persisted and no format changes, and the tests revert together with the code. After the classifier's commit is reverted, the native module has to be rebuilt.
 - **Bookkeeping at archive:**
   - The Purpose paragraph of `openspec/specs/baremetal-waiting/spec.md` names only the "two supporting rules". It is outside the delta and is extended by hand to name the shared polling rule.
   - The three triage entries get a `Status:` line saying this change implements them.
@@ -300,5 +334,4 @@ Each wait keyword's docstring then states its own failure in one sentence and li
 
 - **A DEBUG record for swallowed errors.** Should a later change add one, as the absorbed A2 entries proposed? It would add a record and leave the rules of this change as they are (decision 9).
 - **`Wait Until Query`'s truthy type.** Should its truthy timeout later become an `AssertionError`, like `Wait Until Attribute Value`'s? The maintainer kept the types for this change.
-- **`Query` and the root.** `Query`, the snapshot, still looks up the `Set Root` root for an absolute expression (`:1651-1652`). After this change no wait does that. Should `Query` follow the same `needs_root` rule?
-- **The rationale for `ignore_exceptions`.** The query-settings section explains it with provider errors: "a node disappears in the middle of a traversal, or the accessibility bridge returns a transient error" (`:1007-1008`). But the element interface has no error path (`crates/core/src/ui/node.rs:50-108`), so what reaches a wait as an error today is an XPath error. This change keeps that rationale and only adds its rules around it. Should it be reworded?
+- **The rationale for `ignore_exceptions`** (answered 2026-09-30). The query-settings section explained it with provider errors: "a node disappears in the middle of a traversal, or the accessibility bridge returns a transient error". But the element interface has no error path (`crates/core/src/ui/node.rs:50-108`), so what reaches a wait as an error is an XPath error. The review reworded it with an XPath example that raises until the application has settled: `xs:integer(@Name)` on a label that does not show a number yet (checked on the mock, `FORG0001`).

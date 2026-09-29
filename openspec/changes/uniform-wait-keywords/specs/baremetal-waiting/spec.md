@@ -12,7 +12,7 @@ The library SHALL wait the same way wherever it waits:
 
 **Attempts.** A wait SHALL make attempts, pausing `retry_interval` between them, until an attempt satisfies it or `timeout` has elapsed. The effective query settings SHALL govern the wait. A keyword's `query_overrides` SHALL govern only the keyword's own target, not the lookup of the root. A wait SHALL make at least one attempt, and it SHALL compare the elapsed time with `timeout` only after an attempt. The attempt after which the timeout has elapsed SHALL be the last one. The wait SHALL NOT evaluate anything after it, and its failure SHALL describe that attempt.
 
-**The root.** A relative selector or expression needs the root; an absolute one never does. When a target needs the root, every attempt SHALL look the root up first. The lookup SHALL reuse the element the root resolved to for as long as that element is still valid. The lookup SHALL apply the root's own settings to its own attempts. The waiting target SHALL NOT swallow a failure of that lookup, whatever `ignore_exceptions` says: when the lookup fails, the wait SHALL fail at once with the root's error.
+**The root.** A relative selector or expression needs the root; an absolute one never does. An expression is relative when it reads its context anywhere outside a predicate and outside the later steps of a path: through a relative path, the context item, or a standard function that reads the context when an argument is left out. So `count(.//x)` is relative and `count(//x)` is absolute. When a target needs the root, every attempt SHALL look the root up first. The lookup SHALL reuse the element the root resolved to for as long as that element is still valid. The lookup SHALL apply the root's own settings to its own attempts. The waiting target SHALL NOT swallow a failure of that lookup, whatever `ignore_exceptions` says: when the lookup fails, the wait SHALL fail at once with the root's error. The wait's `timeout` SHALL start when the lookup before its first attempt has found the root: finding the root takes the root's own timeout. A lookup during the wait, when the root has to be found again, SHALL count as part of its attempt.
 
 - A root selector that matches nothing within its timeout SHALL fail with `RootNotFoundError`, naming the root, its timeout and the target that was not evaluated.
 - A root that pins an element which is no longer valid SHALL fail with the error for a pinned element that is no longer available.
@@ -27,7 +27,7 @@ When the element that a root selector resolved to stops being valid during a wai
 - `PinnedElementGoneError`: a captured element that is no longer valid where the wait needs it;
 - `NoQueryError`: an element reference that holds neither a selector nor an element;
 - `RootNotFoundError`: a root that cannot be found;
-- the `RuntimeError` that AssertionEngine raises for an operator it does not know.
+- `RuntimeError`, which AssertionEngine raises for an operator it does not know, and Robot Framework for a `validate` expression that cannot be evaluated.
 
 For `Wait Until Gone`, a captured target that is no longer valid is not an error: it is what the keyword waits for.
 
@@ -92,6 +92,12 @@ The error's type SHALL be the one the keyword raises for what it was waiting for
 - **WHEN** `Wait Until Query` is called with the absolute expression `count(//control:Window)`, the operator `>` and the expected value `${0}`
 - **THEN** it SHALL return the count, without looking the root up
 
+#### Scenario: An expression that computes a value is evaluated against the root
+
+- **GIVEN** a root set with `Set Root` to a window that holds 4 of the desktop's 8 list items
+- **WHEN** `Wait Until Query` is called with `count(.//item:ListItem)`, whose relative path is a function's argument
+- **THEN** it SHALL return 4, the count inside the root
+
 #### Scenario: A root that is replaced during the wait is followed
 
 - **GIVEN** a root whose element stops being valid after the first attempt, while the root's selector then matches a new element that holds the target
@@ -113,6 +119,13 @@ The error's type SHALL be the one the keyword raises for what it was waiting for
 - **WHEN** `Wait Until Exists` waits for a relative selector under that root, with `ignore_exceptions` enabled and a long timeout
 - **THEN** the next attempt SHALL fail at once with the error for a pinned element that is no longer available
 - **NOTE** Verified with a unit test on a fake runtime: the mock never invalidates an element.
+
+#### Scenario: A root that is found late leaves the target its whole timeout
+
+- **GIVEN** a root that is found only after 0.5 seconds, within its own timeout of 2 seconds, and a target under it that appears 0.1 seconds after the root
+- **WHEN** `Wait Until Exists` waits for a relative selector for that target with `query_overrides={'timeout': 0.3}`
+- **THEN** it SHALL return the target
+- **NOTE** Verified with a unit test on a fake runtime.
 
 #### Scenario: Nothing is evaluated after the deadline
 
@@ -258,9 +271,15 @@ When the last attempt raised, the error SHALL say how far that attempt got, and 
 #### Scenario: A check that raises is reported with the result it checked
 
 - **GIVEN** a window whose `@Name` is `Operations Console`, and `ignore_exceptions` enabled for the call
-- **WHEN** `Wait Until Query` is called with that window's `…/@Name` step, the operator `validate` and the expression `valu == 'x'`, which cannot be evaluated
+- **WHEN** `Wait Until Query` is called with that window's `…/@Name` step, the operator `matches` and the pattern `(`, which is not a valid regular expression
 - **THEN** it SHALL fail after the timeout with an `AssertionError`
-- **AND** the error's message SHALL say that the result was `'Operations Console'` and could not be checked, state `within timeout of {timeout} seconds.` and end with the last error, which names the expression that could not be evaluated
+- **AND** the error's message SHALL say that the result was `'Operations Console'` and could not be checked, state `within timeout of {timeout} seconds.` and end with the last error, which says what is wrong with the pattern
+
+#### Scenario: A validate expression that cannot be evaluated ends the wait at once
+
+- **GIVEN** a window whose `@Name` is `Operations Console`, and `ignore_exceptions` enabled for the call
+- **WHEN** `Wait Until Query` is called with that window's `…/@Name` step, the operator `validate` and the expression `valu == 'x'`, which cannot be evaluated
+- **THEN** it SHALL fail on the first attempt with the error that names the expression, not with a timeout error
 
 #### Scenario: A root element from another library import fails at once
 
@@ -303,7 +322,7 @@ The library SHALL provide a `Wait Until Attribute Value` keyword that repeatedly
 
 **Result.** The keyword SHALL return the attribute's value as read in the attempt that satisfied the condition, typed as `Get Attribute Value` returns it. It SHALL NOT return a result an operator derives from the value, such as the capture groups AssertionEngine returns for `matches`.
 
-**Waiting.** The effective query settings (`timeout`, `retry_interval`, `ignore_exceptions`) SHALL govern the wait, configurable per call only via `query_overrides`. One `timeout` SHALL bound the whole call, including the time until the element appears. The lookup of a `Set Root` root SHALL keep its own timeout, as in every wait (*Every wait polls and fails the same way*). Every attempt SHALL observe the current UI: a selector SHALL be evaluated against the live tree on each attempt, and a captured element SHALL be read afresh on each attempt while remaining the same element. An attempt in which the selector matches nothing, in which the element does not have the attribute, or in which the operator cannot yet compare the value SHALL count as not yet satisfied. With `ignore_exceptions` enabled, an attempt that raises SHALL count as not yet satisfied and SHALL never satisfy the condition.
+**Waiting.** The effective query settings (`timeout`, `retry_interval`, `ignore_exceptions`) SHALL govern the wait, configurable per call only via `query_overrides`. One `timeout` SHALL bound the whole call, including the time until the element appears. The lookup of a `Set Root` root SHALL keep its own timeout, as in every wait (*Every wait polls and fails the same way*). Every attempt SHALL observe the current UI: a selector SHALL be evaluated against the live tree on each attempt, and a captured element SHALL be read afresh on each attempt while remaining the same element. An attempt in which the selector matches nothing, in which the element does not have the attribute, or in which the operator cannot yet compare the value SHALL count as not yet satisfied. With `ignore_exceptions` enabled, an attempt that raises SHALL count as not yet satisfied and SHALL never satisfy the condition, unless its error is one that waiting cannot fix (*Every wait polls and fails the same way*).
 
 **Failing.** When the timeout elapses, the keyword SHALL fail with an error that describes its last attempt and states the timeout.
 
@@ -433,11 +452,17 @@ A captured element that is no longer valid SHALL also fail at once, because it c
 
 #### Scenario: A check that raises is reported with the value it checked
 
+- **GIVEN** a window whose `@Name` is `Operations Console`, and `ignore_exceptions` enabled for the call
+- **WHEN** `Wait Until Attribute Value` is called for that window and `Name` with the operator `matches` and the pattern `(`, which is not a valid regular expression
+- **THEN** it SHALL fail after the timeout with an `AssertionError`
+- **AND** the error's message SHALL name the attribute and the element, say that the value was `'Operations Console'` and could not be checked, and end with the last error, which says what is wrong with the pattern
+- **AND** it SHALL NOT report that no element matched
+
+#### Scenario: A validate expression that cannot be evaluated ends the wait at once
+
 - **GIVEN** a window whose `@IsMaximized` is `False`, and `ignore_exceptions` enabled for the call
 - **WHEN** `Wait Until Attribute Value` is called for that window and `IsMaximized` with the operator `validate` and the expression `valu == True`, which cannot be evaluated
-- **THEN** it SHALL fail after the timeout with an `AssertionError`
-- **AND** the error's message SHALL name the attribute and the element, say that the value was `False` and could not be checked, and end with the last error, which names the expression that could not be evaluated
-- **AND** it SHALL NOT report that no element matched
+- **THEN** it SHALL fail on the first attempt with the error that names the expression, not with a timeout error
 
 #### Scenario: An attribute that cannot be read is reported with the last error
 

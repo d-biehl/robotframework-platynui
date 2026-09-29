@@ -12,7 +12,10 @@ waits for exactly that" model.
 `Wait Until Exists`, `Wait Until Gone` and `Wait Until Query` close that gap, and `Wait
 Until Attribute Value` waits for one attribute of one element to reach a value — the
 waiting counterpart to `Get Attribute Value`, which reads and checks a value once. All four are
-governed by the effective query settings and tunable per call. Two supporting rules keep the waits
+governed by the effective query settings and tunable per call, and they poll exactly as the wait
+inside every keyword does: every attempt looks up the `Set Root` root first and never swallows its
+failure, an error that waiting cannot fix ends the wait at once, and the failure describes the
+last attempt, quoting the last error that `ignore_exceptions` swallowed. Two supporting rules keep the waits
 honest: a dedicated `ElementStillPresentError` so a target that never disappeared cannot be
 confused with one that was never found, and Python value semantics on evaluated results —
 `bool(UiNode)` reflecting node validity, an attribute result behaving like its own value —
