@@ -13,7 +13,7 @@ An application node SHALL report its process attributes under these names and na
 - `ProcessId` in the `control` namespace — addressed as `@ProcessId`, the form every window lookup and every suite uses.
 - `ProcessName`, `ExecutablePath`, `CommandLine`, `UserName`, `StartTime` and `Architecture` in the `app` namespace — addressed as `@app:ProcessName` and so on.
 
-A provider SHALL NOT report one of these facts under a second name or namespace as well. A node's display name (`control:Name`) and developer id (`control:Id`) are not process attributes. Where a provider names an application node after its program — UI Automation and the Java Access Bridge do — that name SHALL be the node's `ProcessName`, and a `control:Id` that carries the name SHALL carry the same value.
+A provider SHALL NOT report one of these facts under a second name or namespace as well. A node's display name (`control:Name`) and developer id (`control:Id`) are not process attributes. Where a provider names an application node after its program — UI Automation and the Java Access Bridge do — that name SHALL be the node's `ProcessName`. An application node carries no `control:Id` at all (capability `id-attribute`).
 
 #### Scenario: An application named after its program carries its process name
 

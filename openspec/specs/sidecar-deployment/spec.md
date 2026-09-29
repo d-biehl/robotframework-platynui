@@ -150,7 +150,7 @@ The point hit-test SHALL likewise not resolve the host's own UI, but it starts f
 - **THEN** the host's own application MAY appear in the tree, and this SHALL NOT cause any other application to be hidden
 - **NOTE** Real provider only. This is the accepted loss, and in the sidecar topology it is the normal outcome rather than an edge case: a daemon that cannot see the runtime cannot identify it either. Exposing our own UI is recoverable by a query and, where the runtime has no user interface on that display at all, costs nothing; mistaking somebody else's application for ours is neither.
 
-### Requirement: An application reports its own process ID, and process-table data only through a process ID valid in the runtime's namespace
+### Requirement: An application reports its own process ID, and reads process-table data only through a process ID valid in the runtime's namespace
 
 An application node SHALL report as its process ID the number the application's own environment knows it by — the process ID the accessibility bus daemon reports for that application's connection — and SHALL read process-table data only through a process ID valid in the runtime's own namespace. Whether the reported number *is* such a process ID is decided once per connection rather than per application: it is one exactly under *local numbering*, where the daemon has shown that it numbers processes as the runtime does. Under *no identity* the provider has no process ID valid in its own namespace for any application on that bus, whatever the reported number looks like. In a shared namespace the two coincide, which is why an ordinary desktop sees no change. The provider SHALL NOT compare a reported process ID with one from another namespace; reporting a process ID as an attribute is not a comparison.
 
@@ -160,7 +160,7 @@ Every attribute read from the local process table — process name, executable p
 
 A locally valid process ID is a precondition for those attributes, not a guarantee of them: each process-table attribute SHALL be reported only when its value was actually read for that process, and SHALL be absent otherwise. In particular, an attribute the provider cannot determine SHALL NOT be answered with a substituted value — an empty string, a placeholder, or a value that describes the automation host instead of the application; a plausible wrong answer is worse than a missing one, because nothing distinguishes it from a real one. The presence of the process-ID attribute SHALL NOT imply the presence of the process-table attributes.
 
-The identifier a consumer reads from an application node SHALL be the value of its process-ID attribute when that attribute is present, and otherwise what the node reports without a process ID — the toolkit's accessible-id, or nothing. It SHALL NEVER be `0`.
+Whether an application node carries a node identifier (`Id`) is stated by the capability `id-attribute`, for every provider.
 
 #### Scenario: The application's own process ID is reported across the namespace boundary
 
@@ -204,25 +204,11 @@ The identifier a consumer reads from an application node SHALL be the value of i
 - **THEN** its process-ID attribute SHALL report the application's own process ID, and its process-table attributes SHALL be absent and SHALL in particular not describe the automation binary or any unrelated local process
 - **NOTE** Real provider only. Measured today: the target application reports the automation binary's own name as its process name, and with an unrelated process parked on the colliding ID, that process's name, command line and executable path. That the reported process ID equals the runtime's own is not a finding: it is the application's number, and it is not compared with ours.
 
-#### Scenario: An application's node identifier follows its process ID
-
-- **GIVEN** an application for whose connection the bus daemon reports the process ID `N`, whether or not `N` is valid in the runtime's namespace
-- **WHEN** its node identifier is read
-- **THEN** the identifier SHALL be `N`, the same value as its process-ID attribute
-- **NOTE** This is the node identifier a consumer reads (`element.id` in the Python surface), not the XPath attribute `@Id`, which is the toolkit's accessible-id — set when the toolkit provides one, empty when it does not. Decidable from injected inputs; on an ordinary desktop observable through the real provider.
-
-#### Scenario: An application without a process ID has no PID-derived node identifier
-
-- **GIVEN** two applications on the bus for which the bus daemon cannot tell the process ID, in any of the three ways listed above
-- **WHEN** their node identifiers are read
-- **THEN** neither identifier SHALL be `0` or any other value derived from a process ID; each SHALL be the toolkit's accessible-id when the toolkit provides one, and absent otherwise
-- **NOTE** Decidable from injected inputs. Measured today on dbus-daemon 1.14 and dbus-broker: the node identifier reads `0` for every such application — one identifier for distinct applications.
-
 #### Scenario: On an ordinary desktop the process attributes are unchanged
 
 - **GIVEN** a single-namespace desktop session where the bus daemon resolves process IDs
-- **WHEN** an application node's attributes and node identifier are read
-- **THEN** the process-ID attribute, the process-table attributes and the node identifier SHALL describe that application exactly as before
+- **WHEN** an application node's attributes are read
+- **THEN** the process-ID attribute and the process-table attributes SHALL describe that application exactly as before
 - **NOTE** Real provider only; this is the regression guard for the normal case, where the process ID the daemon reports and the one valid in the runtime's namespace are the same number.
 
 ### Requirement: Only definitive identity answers are remembered
