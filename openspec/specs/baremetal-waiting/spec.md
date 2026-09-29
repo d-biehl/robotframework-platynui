@@ -9,8 +9,10 @@ approximated all three with `Sleep` or `Query` polling wrapped in `Wait Until Ke
 Succeeded`: verbose, flaky, and against the library's "state what you expect, the keyword
 waits for exactly that" model.
 
-`Wait Until Exists`, `Wait Until Gone` and `Wait Until Query` close that gap, governed by
-the effective query settings and tunable per call. Two supporting rules keep the waits
+`Wait Until Exists`, `Wait Until Gone` and `Wait Until Query` close that gap, and `Wait
+Until Attribute Value` waits for one attribute of one element to reach a value — the
+waiting counterpart to `Get Attribute`, which reads and checks a value once. All four are
+governed by the effective query settings and tunable per call. Two supporting rules keep the waits
 honest: a dedicated `ElementStillPresentError` so a target that never disappeared cannot be
 confused with one that was never found, and Python value semantics on evaluated results —
 `bool(UiNode)` reflecting node validity, an attribute result behaving like its own value —

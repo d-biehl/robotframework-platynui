@@ -101,11 +101,12 @@ The keyword returns the value it read in that attempt, not what `verify_assertio
 
 ### 8. The failure reports the last attempt that did not raise
 
-The keyword keeps the outcome of the last attempt that did not raise. Before any such attempt, the outcome is "element not found". When the timeout elapses, the keyword raises for that outcome, without the extra evaluation `Wait Until Query` runs after the deadline. The error therefore always matches what the loop saw.
+The keyword keeps the outcome of the last attempt that did not raise. Before any such attempt, the outcome is "element not found" for a selector and "attribute not read" for a captured element, which exists by definition. When the timeout elapses, the keyword raises for that outcome, without the extra evaluation `Wait Until Query` runs after the deadline. The error therefore always matches what the loop saw.
 
 | Last outcome | Error |
 |---|---|
-| Selector matched nothing | `ElementNotFoundError`, with the message element resolution uses (`No element matched … within timeout of {timeout} seconds.`, [__init__.py:312-314](../../../src/PlatynUI/BareMetal/__init__.py#L312-L314)) |
+| Selector matched nothing (also when every attempt raised and `ignore_exceptions` swallowed it) | `ElementNotFoundError`, with the message element resolution uses (`No element matched … within timeout of {timeout} seconds.`, [__init__.py:312-314](../../../src/PlatynUI/BareMetal/__init__.py#L312-L314)) |
+| Captured element, every attempt raised and was swallowed | `AttributeNotFoundError`: the attribute could not be read, naming the attribute and the element and ending in `within timeout of {timeout} seconds.` |
 | Attribute missing | `AttributeNotFoundError`, the class `Get Attribute` raises for a missing attribute, naming the attribute and the element and ending in `within timeout of {timeout} seconds.` |
 | Operator not satisfied | The `AssertionError` from that attempt, with ` (within timeout of {timeout} seconds)` appended, as in `Wait Until Query` |
 | Operator could not compare the value (`TypeError`) | That comparison error, with the timeout appended |
