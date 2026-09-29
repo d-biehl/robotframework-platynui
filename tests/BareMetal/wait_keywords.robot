@@ -6,6 +6,14 @@ Documentation     Mock-backed checks for the explicit wait keywords — Wait Unt
 ...               captured-node "gone success" direction, and a value that changes while a keyword
 ...               waits, are covered in the egui acceptance lane, since the mock neither invalidates
 ...               a captured node nor changes a value on its own.
+...
+...               All four poll the same way. Every attempt looks up the Set Root root first, and a
+...               root that cannot be found ends the wait with its own error, even with
+...               ignore_exceptions. An error that waiting cannot fix, such as a selector that yields
+...               a value, ends it at once. At the timeout, the failure says what the last attempt
+...               saw, and quotes the last error when ignore_exceptions swallowed one. What needs the
+...               tree to change between attempts — a root that is replaced or goes away, an error
+...               that stops — is covered by tests/PlatynUI/test_baremetal_wait_loop.py.
 Library           PlatynUI.BareMetal    use_mock=${True}    query_settings={'timeout': 0.2}
 
 
@@ -282,10 +290,32 @@ Wait Until Attribute Value Honors Per Call Timeout
     ...    Wait Until Attribute Value    ${OPS}    Name    ==    Wrong Name    query_overrides={'timeout': 0.6}
 
 Wait Until Attribute Value With Ignore Exceptions Never Succeeds On A Bad Selector
-    Run Keyword And Expect Error    *No element matched*within timeout of 0.2 seconds.
+    Run Keyword And Expect Error
+    ...    *No element matched*within timeout of 0.2 seconds. The last error was: EvaluationError: *
     ...    Wait Until Attribute Value    //control:Window[broken    Name
     ...    query_overrides={'ignore_exceptions': True}
 
 Wait Until Attribute Value Keeps Waiting On A Value It Cannot Compare
     Run Keyword And Expect Error    *not supported between*within timeout of 0.2 seconds*
     ...    Wait Until Attribute Value    ${OPS}    Name    >    ${5}
+
+Wait Until Attribute Value Names The Value A Raising Check Could Not Check
+    [Documentation]    Every attempt finds the element and reads the value, and only the check raises,
+    ...    since the pattern is not a valid regular expression: the failure names the value, not a
+    ...    missing element.
+    ${message}=    Run Keyword And Expect Error
+    ...    *could not be checked within timeout of 0.2 seconds. The last error was: *missing ), unterminated subpattern*
+    ...    Wait Until Attribute Value    ${OPS}    Name    matches    (    query_overrides={'ignore_exceptions': True}
+    Should Start With    ${message}    Attribute 'Name' of Window "Operations Console" was 'Operations Console'
+
+Wait Until Attribute Value Ends At Once When A Validate Expression Raises
+    Run Keyword And Expect Error    Evaluating expression*failed: NameError: *
+    ...    Wait Until Attribute Value    ${OPS}    IsMaximized    validate    valu == True
+    ...    query_overrides={'ignore_exceptions': True}
+
+Wait Until Attribute Value Fails On A Missing Root Even With Ignore Exceptions
+    Set Root    ${MISSING_ROOT}    scope=TEST
+    Run Keyword And Expect Error
+    ...    RootNotFoundError: *NoSuchWindow*within timeout of 0.2 seconds; *NoSuchButton*was not evaluated.
+    ...    Wait Until Attribute Value    ${MISSING_INSIDE_ROOT}    Name
+    ...    query_overrides={'timeout': 1, 'ignore_exceptions': True}

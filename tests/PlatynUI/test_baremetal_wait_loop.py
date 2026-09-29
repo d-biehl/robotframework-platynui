@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from assertionengine import AssertionOperator
-from platynui_native import UiNode
+from platynui_native import AttributeNotFoundError, UiNode
 
 from PlatynUI.BareMetal import (
     BareMetal,
@@ -236,6 +236,23 @@ def test_an_explicit_root_that_stops_being_valid_ends_wait_until_query(library: 
         library.wait_until_query(
             'count(.//control:Button)', root=window, query_overrides={'timeout': 1, 'ignore_exceptions': True}
         )
+
+
+def test_an_attribute_that_cannot_be_read_names_the_last_error(library: BareMetal) -> None:
+    """No provider can raise on a read today; the rule must hold should one ever do."""
+    label = make_node('Status')
+    label.attribute.side_effect = FlakyBridgeError('the bridge did not answer')
+    with_runtime(library, lambda query, context: None)
+
+    with pytest.raises(AttributeNotFoundError) as caught:
+        library.wait_until_attribute_value(
+            UiNodeDescriptor(label, None), 'Name', query_overrides={'ignore_exceptions': True}
+        )
+
+    assert str(caught.value) == (
+        'Attribute \'Name\' of Window "Status" could not be read within timeout of 0.05 seconds. '
+        'The last error was: FlakyBridgeError: the bridge did not answer'
+    )
 
 
 def test_the_failure_is_chained_to_the_last_swallowed_error(library: BareMetal) -> None:

@@ -534,14 +534,9 @@ def _split_attribute_name(attribute_name: str) -> tuple[str | None, str]:
     return namespace, name
 
 
-# What an attempt of `Wait Until Attribute Value` saw, for the error at its deadline: no element
-# yet, a captured element never read (every attempt raised), the attribute missing, a value that
-# was not truthy, or a check that failed.
-_AttributeOutcome: TypeAlias = tuple[Literal['not-found', 'unread', 'missing', 'falsy', 'mismatch'], UiNode | None, Any]
-
-
 def _attribute_wait_error(
-    outcome: _AttributeOutcome,
+    seen: _Attempt,
+    last_error: Exception | None,
     query: str | None,
     attribute_name: str,
     custom_message: bool,
@@ -549,26 +544,32 @@ def _attribute_wait_error(
 ) -> Exception:
     """The error `Wait Until Attribute Value` raises at its deadline, reporting what its last attempt saw.
 
-    ``outcome`` is ``(kind, element, detail)``: ``detail`` is the value for ``falsy`` and the check's
-    `AssertionError` or `TypeError` for ``mismatch``. With a ``custom_message`` the check's error
-    already starts with it, so the element is not named in front of it.
+    When that attempt completed, the error says what it saw: no element, no such attribute, or the
+    value and why it did not satisfy the condition. When it raised, the error says how far it got —
+    no element, the attribute not read, the value not checked — and quotes its error. With a
+    ``custom_message`` the check's error already starts with it, so the element is not named in
+    front of it.
     """
-    kind, node, detail = outcome
     within = f'within timeout of {timeout} seconds'
+    node = seen.result if isinstance(seen.result, UiNode) else None
     if node is None:
-        return ElementNotFoundError(f'No element matched {query!r} {within}.')
+        return ElementNotFoundError(_with_last_error(f'No element matched {query!r} {within}.', last_error))
     element = _element_text(node)
-    if kind == 'unread':
-        return AttributeNotFoundError(f'Attribute {attribute_name!r} of {element} could not be read {within}.')
-    if kind == 'missing':
+    if seen.value is _UNSEEN:
+        if last_error is not None:
+            message = f'Attribute {attribute_name!r} of {element} could not be read {within}.'
+            return AttributeNotFoundError(_with_last_error(message, last_error))
         return AttributeNotFoundError(f'Attribute {attribute_name!r} did not appear on {element} {within}.')
-    if kind == 'falsy':
+    if last_error is not None:
+        message = f'Attribute {attribute_name!r} of {element} was {seen.value!r} and could not be checked {within}.'
+        return AssertionError(_with_last_error(message, last_error))
+    if seen.mismatch is None:
         return AssertionError(
-            f'Attribute {attribute_name!r} of {element} was {detail!r} and did not become truthy {within}.'
+            f'Attribute {attribute_name!r} of {element} was {seen.value!r} and did not become truthy {within}.'
         )
-    if isinstance(detail, TypeError):
-        return TypeError(f'Attribute {attribute_name!r} of {element}: {detail} ({within})')
-    text = str(detail) if custom_message else f'Attribute {attribute_name!r} of {element}: {detail}'
+    if isinstance(seen.mismatch, TypeError):
+        return TypeError(f'Attribute {attribute_name!r} of {element}: {seen.mismatch} ({within})')
+    text = str(seen.mismatch) if custom_message else f'Attribute {attribute_name!r} of {element}: {seen.mismatch}'
     return AssertionError(f'{text} ({within})')
 
 
@@ -2116,66 +2117,54 @@ class BareMetal(OurDynamicCore):
             captured = descriptor.node
             self.require_own_node(captured)
 
-        # What the last attempt that did not raise saw, for the error at the deadline. A swallowed
-        # error leaves it as it was, so it can never satisfy the wait.
-        outcome: _AttributeOutcome = ('not-found', None, None) if captured is None else ('unread', captured, None)
-        start = time.monotonic()
-        while True:
+        def attempt(context: UiNode | None, seen: _Attempt) -> Any:
+            node: UiNode | None = None
+            if query is not None:
+                # A selector is evaluated afresh on every attempt and without an inner wait: the
+                # element appearing is part of what this keyword waits for, within one deadline.
+                result = self.runtime.evaluate_single(query, context)
+                if result is not None and not isinstance(result, UiNode):
+                    raise ResultTypeError(
+                        f'Wait Until Attribute Value expects an element selector or a captured element; '
+                        f'query {query!r} returned a value. Use Wait Until Query for value conditions.'
+                    )
+                node = result
+            elif captured is not None:
+                # A capture stays the element it names: refresh it, and stop once it is gone.
+                captured.invalidate()
+                if not captured.is_valid():
+                    raise _pinned_element_gone(captured)
+                node = captured
+            seen.result = node
+            if node is None:
+                return _NOT_YET
             try:
-                self.runtime.clear_cache()
-                node: UiNode | None = None
-                if query is not None:
-                    # A selector is evaluated afresh on every attempt and without an inner wait: the
-                    # element appearing is part of what this keyword waits for, within one deadline.
-                    root = self.root if descriptor.needs_root(self) else None
-                    result = self.runtime.evaluate_single(query, root)
-                    if result is not None and not isinstance(result, UiNode):
-                        raise ResultTypeError(
-                            f'Wait Until Attribute Value expects an element selector or a captured element; '
-                            f'query {query!r} returned a value. Use Wait Until Query for value conditions.'
-                        )
-                    node = result
-                elif captured is not None:
-                    # A capture stays the element it names: refresh it, and stop once it is gone.
-                    captured.invalidate()
-                    if not captured.is_valid():
-                        raise _pinned_element_gone(captured)
-                    node = captured
+                value = node.attribute(name, namespace)
+            except AttributeNotFoundError:
+                return _NOT_YET  # the attribute has not appeared yet
+            seen.value = value
+            if assertion_operator is None:
+                return value if value else _NOT_YET
+            try:
+                verify_assertion(value, assertion_operator, assertion_expected, assertion_message or '')
+            except (AssertionError, TypeError) as mismatch:
+                # A mismatch, or a value the operator cannot compare yet: keep polling.
+                seen.mismatch = mismatch
+                return _NOT_YET
+            # The value itself, not verify_assertion's result: for ``matches`` that would be the
+            # captured groups.
+            return value
 
-                if node is None:
-                    outcome = ('not-found', None, None)
-                else:
-                    try:
-                        value = node.attribute(name, namespace)
-                    except AttributeNotFoundError:
-                        outcome = ('missing', node, None)
-                    else:
-                        if assertion_operator is None:
-                            if value:
-                                return value
-                            outcome = ('falsy', node, value)
-                        else:
-                            try:
-                                verify_assertion(value, assertion_operator, assertion_expected, assertion_message or '')
-                            except (AssertionError, TypeError) as error:
-                                # A mismatch, or a value the operator cannot compare yet: keep polling.
-                                outcome = ('mismatch', node, error)
-                            else:
-                                # The value itself, not verify_assertion's result: for ``matches``
-                                # that would be the captured groups.
-                                return value
-            except (ResultTypeError, PinnedElementGoneError, RuntimeError):
-                raise  # a usage error, a capture that is gone, or an unknown operator: none can succeed
-            except (SystemExit, KeyboardInterrupt):
-                raise
-            except Exception:
-                if not settings.ignore_exceptions:
-                    raise
-
-            if (time.monotonic() - start) > settings.timeout:
-                raise _attribute_wait_error(outcome, query, attribute_name, bool(assertion_message), settings.timeout)
-
-            time.sleep(settings.retry_interval)
+        return _poll(
+            self,
+            settings,
+            lambda: descriptor.context_node(self),
+            attempt,
+            lambda seen, last_error: _attribute_wait_error(
+                seen, last_error, query, attribute_name, bool(assertion_message), settings.timeout
+            ),
+            discard_first=True,
+        )
 
     # Internal helpers
     def _maybe_bring_to_front(
