@@ -93,34 +93,95 @@ pub enum Expr {
 }
 
 impl Expr {
-    /// Returns whether this expression's *top-level node selection* is relative to the context
-    /// node — a relative path (`.//x`, `child::x`) or the context item (`.`).
+    /// Returns whether evaluating this expression reads its context — the context item, its
+    /// position or its size — so that the result depends on which node it is evaluated against.
     ///
-    /// Absolute paths (`/x`, `//x`), filtered/parenthesized absolute paths (`(//x)[1]`), and
-    /// expressions that do not select nodes from the context (value expressions like `count(...)`,
-    /// comparisons, function calls, literals) are independent. Compound forms that *produce* a node
-    /// selection — `if/then/else`, `for`/`let` returns, and comma sequences — are relative iff a
-    /// produced branch is. Predicates have their own focus, so `//x[.='y']` is independent.
+    /// The context is read by a relative path (`.//x`, `child::x`), by the context item (`.`), and
+    /// by a function that falls back to the context when an argument is left out (`name()`,
+    /// `string()`, `root()`, `lang('en')`, `id('a')`) or that reads the position or the size
+    /// (`position()`, `last()`). The check looks into every operand, condition, binding and
+    /// function argument, so `count(.//x)`, `1 + count(.//x)` and
+    /// `if (exists(.//x)) then //a else //b` are dependent, and `count(//x)` is not.
     ///
-    /// This drives `Set Root`: a context-relative selector drills into the current root, an
-    /// independent one starts fresh from the desktop. (Expressions that do not yield nodes cannot
-    /// be a root at all, so their classification only needs to be "not relative".)
+    /// It does not look where the focus changes: a predicate and every step of a path after the
+    /// first evaluate with their own focus, so `//x[.='y']` and `//x/string()` are independent.
+    /// Absolute paths (`/x`, `//x`) are independent as well: they start at the root of the tree,
+    /// whichever of its nodes is the context.
+    ///
+    /// This drives `Set Root`, where a dependent selector drills into the current root and an
+    /// independent one starts fresh from the desktop, and it tells a keyword whether it has to look
+    /// its root up at all.
     #[must_use]
     pub fn is_context_dependent(&self) -> bool {
         match self {
             Expr::ContextItem => true,
+            // A relative path starts with an axis step: the parser turns one that starts with an
+            // expression into `PathFrom`. The steps after the first evaluate with their own focus.
             Expr::Path(path) => matches!(path.start, PathStart::Relative),
-            Expr::PathFrom { base, .. } => base.is_context_dependent(),
-            Expr::Parenthesized(inner) => inner.is_context_dependent(),
-            Expr::Filter { input, .. } => input.is_context_dependent(),
-            Expr::SetOp { left, right, .. } => left.is_context_dependent() || right.is_context_dependent(),
-            Expr::IfThenElse { then_expr, else_expr, .. } => {
-                then_expr.is_context_dependent() || else_expr.is_context_dependent()
+            Expr::PathFrom { base, .. } | Expr::Filter { input: base, .. } => base.is_context_dependent(),
+            Expr::FunctionCall { name, args } => {
+                reads_context_by_default(name, args.len()) || args.iter().any(Expr::is_context_dependent)
             }
-            Expr::ForExpr { return_expr, .. } | Expr::LetExpr { return_expr, .. } => return_expr.is_context_dependent(),
+            Expr::Parenthesized(inner)
+            | Expr::Unary { expr: inner, .. }
+            | Expr::InstanceOf { expr: inner, .. }
+            | Expr::TreatAs { expr: inner, .. }
+            | Expr::CastableAs { expr: inner, .. }
+            | Expr::CastAs { expr: inner, .. } => inner.is_context_dependent(),
+            Expr::Binary { left, right, .. }
+            | Expr::GeneralComparison { left, right, .. }
+            | Expr::ValueComparison { left, right, .. }
+            | Expr::NodeComparison { left, right, .. }
+            | Expr::SetOp { left, right, .. }
+            | Expr::Range { start: left, end: right } => left.is_context_dependent() || right.is_context_dependent(),
+            Expr::IfThenElse { cond, then_expr, else_expr } => {
+                cond.is_context_dependent() || then_expr.is_context_dependent() || else_expr.is_context_dependent()
+            }
+            Expr::ForExpr { bindings, return_expr } => {
+                bindings.iter().any(|binding| binding.in_expr.is_context_dependent())
+                    || return_expr.is_context_dependent()
+            }
+            Expr::LetExpr { bindings, return_expr } => {
+                bindings.iter().any(|binding| binding.value.is_context_dependent())
+                    || return_expr.is_context_dependent()
+            }
+            Expr::Quantified { bindings, satisfies, .. } => {
+                bindings.iter().any(|binding| binding.in_expr.is_context_dependent())
+                    || satisfies.is_context_dependent()
+            }
             Expr::Sequence(items) => items.iter().any(Expr::is_context_dependent),
-            _ => false,
+            Expr::Literal(_) | Expr::VarRef(_) => false,
         }
+    }
+}
+
+/// Whether the standard function `name`, called with `arity` arguments, reads the context: the
+/// forms whose left-out argument defaults to the context item, and `position()` and `last()`,
+/// which read the context position and size.
+fn reads_context_by_default(name: &QName, arity: usize) -> bool {
+    if !matches!(name.prefix.as_deref(), None | Some("fn")) {
+        return false;
+    }
+    let local = name.local.as_str();
+    match arity {
+        0 => matches!(
+            local,
+            "position"
+                | "last"
+                | "data"
+                | "number"
+                | "string"
+                | "string-length"
+                | "normalize-space"
+                | "name"
+                | "local-name"
+                | "namespace-uri"
+                | "root"
+                | "base-uri"
+                | "document-uri"
+        ),
+        1 => matches!(local, "lang" | "id" | "element-with-id" | "idref"),
+        _ => false,
     }
 }
 

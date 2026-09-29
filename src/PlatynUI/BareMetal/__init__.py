@@ -221,7 +221,9 @@ class UiNodeDescriptor:
 
         An absolute selector (``/`` or ``//``) starts at the document root and ignores the context
         node, so resolving the root for it is not just wasted work — it makes the lookup fail when
-        the root itself has vanished, for a query that never needed it.
+        the root itself has vanished, for a query that never needed it. The runtime's check looks
+        into function arguments and operands too: ``count(.//x)`` needs the root, ``count(//x)``
+        does not.
         """
         if self.query is None:
             return False

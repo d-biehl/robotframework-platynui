@@ -925,13 +925,14 @@ impl PyRuntime {
         }
     }
 
-    /// Returns whether an `XPath` expression's top-level node selection is relative to the context node.
+    /// Returns whether evaluating an `XPath` expression reads its context node.
     ///
-    /// ``True`` for relative paths (``.//x``, ``child::x``) and the context item (``.``); ``False``
-    /// for absolute paths (``/x``, ``//x``), filtered/parenthesized absolute paths (``(//x)[1]``)
-    /// and expressions that do not select nodes from the context (``count(...)``, comparisons, ...).
-    /// Compound forms (if/for/let, sequences) follow their produced branch. Parses only; it needs no
-    /// backend and resolves nothing.
+    /// ``True`` when a relative path (``.//x``, ``child::x``), the context item (``.``) or a
+    /// function that falls back to the context (``name()``, ``position()``) appears anywhere in
+    /// the expression's operands, conditions, bindings or function arguments, as in
+    /// ``count(.//x)``. ``False`` for absolute paths (``/x``, ``//x``) and for expressions that
+    /// read the context only inside a predicate or a later step of a path, which have their own
+    /// focus: ``count(//x)``, ``//x[.='y']``. Parses only; it needs no backend and resolves nothing.
     #[pyo3(signature = (xpath), text_signature = "(xpath: str)")]
     // Part of the Python `Runtime` instance API; it must stay an instance method.
     #[allow(clippy::unused_self)]

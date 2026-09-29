@@ -778,7 +778,7 @@ Whatever the query selects, each result comes back as an **`EvaluationItem`**, w
 A few supporting pieces shape how expressions are understood:
 
 - **Static prefixes.** The static context registers a fixed set of namespace prefixes you can use in queries: `control`, `item`, `app`, and `native`.
-- **Context-dependence.** `is_context_dependent(xpath)` answers whether an expression reads the context node at its top level — a relative path, `.`, or a context function taking no arguments — and it recurses through `if`/`for`/`let`/sequence/filter/union to decide. The BareMetal `Set Root` keyword uses this to choose between drilling relative to a node and starting from an absolute root.
+- **Context-dependence.** `is_context_dependent(xpath)` answers whether evaluating an expression reads its context node: a relative path, `.`, or a function that falls back to the context when an argument is left out (`name()`, `position()`, `lang('en')`). It looks into every operand, condition, binding and function argument, so `count(.//x)` is dependent and `count(//x)` is not, but not into predicates and the later steps of a path, which have their own focus. BareMetal uses it twice: `Set Root` drills into the current root for a dependent selector and starts from the desktop for an independent one, and a keyword looks its root up only for a dependent selector or expression.
 - **Typed values.** Every node must be able to report a typed value, returned as XDM-conformant atomics (`xs:boolean`, `xs:integer`, `xs:double`, `xs:string`). Complex structures such as Rect, Point, and Size stay as JSON-encoded strings, but their derived components (`Bounds.X`, and the like) come back as numeric atomics.
 
 ## 10. Platform Implementations
