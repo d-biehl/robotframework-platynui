@@ -136,7 +136,7 @@ behavior under test.
   (`tests/acceptance/<app>/resources/testapp.resource`) holds only the launch/teardown
   flow, never a page-object locator layer or wrappers around BareMetal keywords: assert
   appearance/disappearance with the self-waiting `Wait Until Exists` / `Wait Until Gone`,
-  attribute effects with `Wait Until Attribute Value    …    <Attr>    ==` (`Get Attribute    ==`
+  attribute effects with `Wait Until Attribute Value    …    <Attr>    ==` (`Get Attribute Value    ==`
   waits for the element but checks its value only once), and rely on the action
   keywords' built-in waiting instead of pre-checks (§7).
 - **Needs:** the **non-mock** native build and an isolated session, which the lane
@@ -355,7 +355,7 @@ Launch configuration comes from `PLATYNUI_TEST_APP_<TECH>_*` env vars; no per-te
 variable files. A technology limitation is an explicitly skipped or platform-scoped test
 naming the limitation and where it is tracked; core-tier behavior is never silently
 absent. Before a suite encodes a name or state, verify it against the real tree
-(Inspector / `Get Attribute`) per §7.
+(Inspector / `Get Attribute Value`) per §7.
 
 **Custom-controls chapter (optional).** A fixture may add hand-built controls to probe the
 default-proxy lower bound: `custom-button` (self-drawn, manually wired accessibility,
@@ -390,7 +390,7 @@ concrete job list; the strategy only requires that no lane is left ungated.
   The only sanctioned skip is the blueprint's documented technology limitation (§2.6, §5.1).
 - **Verify platform facts against reality.** Before encoding an attribute namespace/value
   or a liveness expectation, read the *actual* value from a real target — run the
-  **Inspector** (see [dev-docs/inspector.md](inspector.md)) or a `Query` / `Get Attribute`
+  **Inspector** (see [dev-docs/inspector.md](inspector.md)) or a `Query` / `Get Attribute Value`
   against a non-mock build of the running app — and assert that exact value. Do not infer
   it from the mock tree.
 - **Robot Framework:** keyword names in Title Case; return values instead of `print`.
