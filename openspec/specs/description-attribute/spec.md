@@ -20,7 +20,7 @@ The system SHALL define `Description` as a common attribute in the `control:` na
 
 #### Scenario: Description is readable via attribute lookup
 - **GIVEN** an element with a non-empty accessible description
-- **WHEN** `attribute("Description")` is read in the control namespace (e.g. RF `Get Attribute`)
+- **WHEN** `attribute("Description")` is read in the control namespace (e.g. RF `Get Attribute Value`)
 - **THEN** the platform's description string is returned
 
 ### Requirement: Description is emitted only when non-empty

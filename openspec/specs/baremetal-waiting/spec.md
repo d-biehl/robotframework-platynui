@@ -89,7 +89,7 @@ The library SHALL provide a `Wait Until Gone` keyword that waits until a target 
 
 ### Requirement: Wait Until Query waits until an XPath result satisfies an assertion
 
-The library SHALL provide a `Wait Until Query` keyword that repeatedly evaluates an XPath expression against the live UI tree until its result satisfies a condition, then returns the satisfying result. It SHALL accept the same `assertion_operator`, `assertion_expected`, and `assertion_message` arguments as `Get Attribute`, with the same operator spellings, by declaring those parameters on its own signature and calling AssertionEngine's `verify_assertion` inside its retry loop; it SHALL NOT use the `@assertable` decorator. When no operator is given, the keyword SHALL wait until the result is truthy. When an operator is given, the value tested by `verify_assertion` SHALL be the meaningful value of the result (the typed value of an attribute, the element, or the native value). The wait SHALL be governed by the effective query settings, configurable per call only via `query_overrides`.
+The library SHALL provide a `Wait Until Query` keyword that repeatedly evaluates an XPath expression against the live UI tree until its result satisfies a condition, then returns the satisfying result. It SHALL accept the same `assertion_operator`, `assertion_expected`, and `assertion_message` arguments as `Get Attribute Value`, with the same operator spellings, by declaring those parameters on its own signature and calling AssertionEngine's `verify_assertion` inside its retry loop; it SHALL NOT use the `@assertable` decorator. When no operator is given, the keyword SHALL wait until the result is truthy. When an operator is given, the value tested by `verify_assertion` SHALL be the meaningful value of the result (the typed value of an attribute, the element, or the native value). The wait SHALL be governed by the effective query settings, configurable per call only via `query_overrides`.
 
 #### Scenario: Default waits for a truthy value
 
@@ -158,9 +158,9 @@ The native binding SHALL give evaluated query results truthiness and equality th
 
 The library SHALL provide a `Wait Until Attribute Value` keyword that repeatedly reads one attribute of one element until the attribute's value satisfies a condition, and then returns that value.
 
-**Arguments.** The keyword SHALL take the element as a selector or as a captured element, and the attribute name bare or with a namespace prefix, as `Get Attribute` does. It SHALL accept the same `assertion_operator`, `assertion_expected` and `assertion_message` arguments as `Wait Until Query`, with the same operator spellings. Without an operator it SHALL wait until the value is truthy. It SHALL reject the `then`/`evaluate` operator, which transforms the value instead of asserting on it and therefore cannot express a wait condition.
+**Arguments.** The keyword SHALL take the element as a selector or as a captured element, and the attribute name bare or with a namespace prefix, as `Get Attribute Value` does. It SHALL accept the same `assertion_operator`, `assertion_expected` and `assertion_message` arguments as `Wait Until Query`, with the same operator spellings. Without an operator it SHALL wait until the value is truthy. It SHALL reject the `then`/`evaluate` operator, which transforms the value instead of asserting on it and therefore cannot express a wait condition.
 
-**Result.** The keyword SHALL return the attribute's value as read in the attempt that satisfied the condition, typed as `Get Attribute` returns it. It SHALL NOT return a result an operator derives from the value, such as the capture groups AssertionEngine returns for `matches`.
+**Result.** The keyword SHALL return the attribute's value as read in the attempt that satisfied the condition, typed as `Get Attribute Value` returns it. It SHALL NOT return a result an operator derives from the value, such as the capture groups AssertionEngine returns for `matches`.
 
 **Waiting.** The effective query settings (`timeout`, `retry_interval`, `ignore_exceptions`) SHALL govern the wait, configurable per call only via `query_overrides`, and one `timeout` SHALL bound the whole call, including the time until the element appears. Every attempt SHALL observe the current UI: a selector SHALL be evaluated against the live tree on each attempt, and a captured element SHALL be read afresh on each attempt while remaining the same element. An attempt in which the selector matches nothing, in which the element does not have the attribute, or in which the operator cannot yet compare the value SHALL count as not yet satisfied. With `ignore_exceptions` enabled, an attempt that raises SHALL count as not yet satisfied and SHALL never satisfy the condition.
 
@@ -170,7 +170,7 @@ The library SHALL provide a `Wait Until Attribute Value` keyword that repeatedly
 
 - **GIVEN** a window whose `@IsMaximized` is `False`
 - **WHEN** `Wait Until Attribute Value` is called with a selector for that window, the attribute `IsMaximized`, the operator `==` and the expected value `${False}`
-- **THEN** it SHALL return on the first attempt with the boolean `False`, equal in value and type to what `Get Attribute` reads for the same element and attribute
+- **THEN** it SHALL return on the first attempt with the boolean `False`, equal in value and type to what `Get Attribute Value` reads for the same element and attribute
 
 #### Scenario: Without an operator a truthy value is returned at once
 

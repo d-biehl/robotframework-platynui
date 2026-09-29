@@ -30,7 +30,7 @@ The catalog controls SHALL carry the same kebab-case accessible names in every t
 
 #### Scenario: Name verified against the real tree before encoding
 - **WHEN** a fixture implementation maps a canonical name onto a technology's accessibility API
-- **THEN** the surfaced `@Name` is verified against the running app through a real provider (Inspector or `Get Attribute`) before the acceptance suite encodes it, per the testing strategy's verify-against-reality rule
+- **THEN** the surfaced `@Name` is verified against the running app through a real provider (Inspector or `Get Attribute Value`) before the acceptance suite encodes it, per the testing strategy's verify-against-reality rule
 
 #### Scenario: Window naming falls back to launch configuration
 - **GIVEN** a technology whose bridge reports a window's title as its accessible name and offers no independent window name
