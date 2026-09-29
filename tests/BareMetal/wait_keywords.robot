@@ -112,14 +112,19 @@ Wait Until Query Default Passes On A Truthy Value
     Should Be True    ${n} > 0
 
 Wait Until Query Default Times Out On A Falsy Value
-    Run Keyword And Expect Error    *did not become truthy*within timeout of 0.2 seconds*
+    Run Keyword And Expect Error    *was 0 and did not become truthy within timeout of 0.2 seconds.
     ...    Wait Until Query    ${MISSING_CNT}
 
 Wait Until Query Default Times Out On A Falsy Attribute
     [Documentation]    A fresh mock window is not maximized, so @IsMaximized is False. The default
-    ...    must test the attribute's value (falsy) — not the always-true wrapper — and time out.
-    Run Keyword And Expect Error    *did not become truthy*within timeout of 0.2 seconds*
+    ...    must test the attribute's value (falsy) — not the always-true wrapper — time out, and
+    ...    name that value in its failure.
+    Run Keyword And Expect Error    *was False and did not become truthy within timeout of 0.2 seconds.
     ...    Wait Until Query    ${OPS_MAX}
+
+Wait Until Query Default Names An Expression That Matched Nothing
+    Run Keyword And Expect Error    *matched nothing and did not become truthy within timeout of 0.2 seconds.
+    ...    Wait Until Query    ${MISSING}/@Name
 
 Wait Until Query Default Returns The Raw Result
     ${r}=    Wait Until Query    ${OPS_NAME}
@@ -162,8 +167,57 @@ Wait Until Query Matches Get Attribute Value For A Present Attribute
     Get Attribute Value    ${OPS}    Name    ==    Operations Console
 
 Wait Until Query With Ignore Exceptions Times Out On A Bad Expression
-    Run Keyword And Expect Error    *did not become truthy*within timeout of 0.2 seconds*
+    Run Keyword And Expect Error
+    ...    *did not become truthy within timeout of 0.2 seconds. The last error was: EvaluationError: *
     ...    Wait Until Query    count(//control:Window[broken    query_overrides={'ignore_exceptions': True}
+
+Wait Until Query With An Operator Names The Last Error Instead Of Raising It
+    [Documentation]    The evaluation raises on every attempt. The wait neither evaluates once more
+    ...    after the timeout nor lets the error escape: it fails with an assertion error that quotes it.
+    ${message}=    Run Keyword And Expect Error
+    ...    *did not satisfy the assertion within timeout of 0.2 seconds. The last error was: EvaluationError: *
+    ...    Wait Until Query    count(//control:Window[broken    >    ${0}    query_overrides={'ignore_exceptions': True}
+    Should Start With    ${message}    Query 'count(//control:Window[broken' did not satisfy
+
+Wait Until Query Keeps Waiting On A Value It Cannot Compare
+    Run Keyword And Expect Error    *not supported between*within timeout of 0.2 seconds*
+    ...    Wait Until Query    ${OPS_NAME}    >    ${5}
+
+Wait Until Query Names The Result A Raising Check Could Not Check
+    [Documentation]    The expression is evaluated, but the pattern is not a valid regular expression, so
+    ...    the check raises: the failure names the result the check was given, and the error it raised.
+    ${message}=    Run Keyword And Expect Error
+    ...    *was 'Operations Console' and could not be checked within timeout of 0.2 seconds. The last error was: *unterminated subpattern*
+    ...    Wait Until Query    ${OPS_NAME}    matches    (    query_overrides={'ignore_exceptions': True}
+    Should Start With    ${message}    Query '${OPS_NAME}' was 'Operations Console'
+
+Wait Until Query Ends At Once When A Validate Expression Raises
+    [Documentation]    Robot Framework reports a validate expression that cannot be evaluated as a
+    ...    RuntimeError, and a RuntimeError ends every wait at once, whatever ignore_exceptions says:
+    ...    the error comes back as it is, not as a timeout.
+    Run Keyword And Expect Error    Evaluating expression*failed: NameError: *
+    ...    Wait Until Query    ${OPS_NAME}    validate    valu == 'x'    query_overrides={'ignore_exceptions': True}
+
+Wait Until Query Names The Expression A Missing Root Kept From Being Evaluated
+    Set Root    ${MISSING_ROOT}    scope=TEST
+    Run Keyword And Expect Error
+    ...    RootNotFoundError: *NoSuchWindow*within timeout of 0.2 seconds; 'count(.//control:Button)' was not evaluated.
+    ...    Wait Until Query    count(.//control:Button)
+
+Wait Until Query Evaluates A Computed Expression Against The Root
+    [Documentation]    The relative path sits inside the function's argument, and that is enough to
+    ...    need the root: the count is taken inside it, where the window holds 4 of the desktop's
+    ...    8 list items.
+    Set Root    ${OPS}    scope=TEST
+    ${n}=    Wait Until Query    count(.//item:ListItem)
+    Should Be Equal As Integers    ${n}    4
+
+Wait Until Query Does Not Need The Root For An Absolute Expression
+    [Documentation]    An absolute expression starts at the desktop, so a root that cannot be found
+    ...    does not stop it: the root is never looked up.
+    Set Root    ${MISSING_ROOT}    scope=TEST
+    ${n}=    Wait Until Query    count(//control:Window)    >    ${0}
+    Should Be True    ${n} > 0
 
 # --- Wait Until Attribute Value ------------------------------------------------
 

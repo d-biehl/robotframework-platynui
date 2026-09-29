@@ -83,6 +83,11 @@ A Node From Another Import Is Rejected As A Query Root
     ${node}=    A.Query    ${OPS}    only_first=${True}
     Run Keyword And Expect Error    *different library instance*    B.Query    .//item:ListItem    root=${node}
 
+A Node From Another Import Is Rejected As A Wait Until Query Root
+    ${node}=    A.Query    ${OPS}    only_first=${True}
+    Run Keyword And Expect Error    *different library instance*
+    ...    B.Wait Until Query    count(.//item:ListItem)    root=${node}
+
 A Node From Another Import Is Never Reported As Gone
     ${node}=    A.Query    ${OPS}    only_first=${True}
     Run Keyword And Expect Error    *different library instance*    B.Wait Until Gone    ${node}

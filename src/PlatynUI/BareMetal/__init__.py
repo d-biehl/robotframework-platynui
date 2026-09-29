@@ -479,6 +479,19 @@ def _assertion_value(result: Any) -> Any:
     return result
 
 
+def _result_text(result: Any) -> str:
+    """How a failure of `Wait Until Query` names what its last attempt got: ``was 0``, ``matched nothing``.
+
+    An attribute is named by its value, since its own representation shows only which attribute it
+    is, and an element in the one form in which PlatynUI describes elements.
+    """
+    if result is None:
+        return 'matched nothing'
+    if isinstance(result, UiNode):
+        return f'was {_element_text(result)}'
+    return f'was {_assertion_value(result)!r}'
+
+
 def _pinned_element_gone(node: UiNode) -> PinnedElementGoneError:
     """The error for a captured element that no longer exists and has no selector to be found again."""
     return PinnedElementGoneError(
@@ -1968,55 +1981,58 @@ class BareMetal(OurDynamicCore):
             )
 
         settings = replace(self.query_settings, **query_overrides) if query_overrides else self.query_settings
-        ctx = root if root is not None else self.root
-        start = time.monotonic()
-        while True:
-            satisfied = False
-            ret: Any = None
+        if root is not None:
+            # An explicit root is a captured element, so it has to come from this import.
+            self.require_own_node(root)
+
+        descriptor = self.descriptor_from_query(expression)
+
+        def context() -> UiNode | None:
+            # Without an explicit root, a relative expression evaluates against the Set Root root and
+            # an absolute one does without it; `UiNodeDescriptor.needs_root` also finds a relative path
+            # inside a function's arguments, as in ``count(.//x)``. An explicit root is checked on every
+            # attempt instead: once it is gone, nothing can look it up again.
+            if root is None:
+                return descriptor.context_node(self)
+            if not root.is_valid():
+                raise _pinned_element_gone(root)
+            return root
+
+        def attempt(context: UiNode | None, seen: _Attempt) -> Any:
+            seen.result = self.runtime.evaluate_single(expression, context)
+            if assertion_operator is None:
+                # An element is truthy while it is valid, an attribute by its value.
+                return seen.result if seen.result else _NOT_YET
             try:
-                self.runtime.clear_cache()
-                result = self.runtime.evaluate_single(expression, ctx)
-                if assertion_operator is None:
-                    ret = result
-                    satisfied = bool(result)  # relies on UiNode/EvaluatedAttribute __bool__
-                else:
-                    ret = verify_assertion(
-                        _assertion_value(result), assertion_operator, assertion_expected, assertion_message or ''
-                    )
-                    satisfied = True
-            except (SystemExit, KeyboardInterrupt):
-                raise
-            except RuntimeError:
-                raise  # unknown operator — a programming error, surface immediately
-            except (AssertionError, TypeError):
-                satisfied = False  # mismatch, or not-yet-comparable early value — keep polling
-            except Exception:
-                if not settings.ignore_exceptions:
-                    raise
-                satisfied = False
-
-            if satisfied:
-                return ret
-
-            if (time.monotonic() - start) > settings.timeout:
-                if assertion_operator is None:
-                    raise ResultTypeError(
-                        f'Query {expression!r} did not become truthy within timeout of {settings.timeout} seconds.'
-                    )
-                # Final assertion outside the loop so AssertionEngine's actual-vs-expected message surfaces.
-                self.runtime.clear_cache()
-                result = self.runtime.evaluate_single(expression, ctx)
-                try:
-                    verify_assertion(
-                        _assertion_value(result), assertion_operator, assertion_expected, assertion_message or ''
-                    )
-                except AssertionError as ae:
-                    raise AssertionError(f'{ae} (within timeout of {settings.timeout} seconds)') from None
-                raise ResultTypeError(
-                    f'Query {expression!r} did not satisfy the assertion within timeout of {settings.timeout} seconds.'
+                return verify_assertion(
+                    _assertion_value(seen.result), assertion_operator, assertion_expected, assertion_message or ''
                 )
+            except (AssertionError, TypeError) as mismatch:
+                # A mismatch, or a value the operator cannot compare yet: keep polling.
+                seen.mismatch = mismatch
+                return _NOT_YET
 
-            time.sleep(settings.retry_interval)
+        def failure(seen: _Attempt, last_error: Exception | None) -> Exception:
+            within = f'within timeout of {settings.timeout} seconds'
+            if seen.result is _UNSEEN:
+                # The evaluation raised, so there is no result to name.
+                if assertion_operator is None:
+                    message = f'Query {expression!r} did not become truthy {within}.'
+                    return ResultTypeError(_with_last_error(message, last_error))
+                message = f'Query {expression!r} did not satisfy the assertion {within}.'
+                return AssertionError(_with_last_error(message, last_error))
+            if last_error is not None:
+                # The expression was evaluated, and only the check raised.
+                message = f'Query {expression!r} {_result_text(seen.result)} and could not be checked {within}.'
+                return AssertionError(_with_last_error(message, last_error))
+            if assertion_operator is None:
+                message = f'Query {expression!r} {_result_text(seen.result)} and did not become truthy {within}.'
+                return ResultTypeError(message)
+            if isinstance(seen.mismatch, TypeError):
+                return TypeError(f'Query {expression!r}: {seen.mismatch} ({within})')
+            return AssertionError(f'{seen.mismatch} ({within})')
+
+        return _poll(self, settings, context, attempt, failure, discard_first=True)
 
     @keyword
     def wait_until_attribute_value(

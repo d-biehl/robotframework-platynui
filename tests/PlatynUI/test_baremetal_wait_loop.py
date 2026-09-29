@@ -18,6 +18,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from assertionengine import AssertionOperator
 from platynui_native import UiNode
 
 from PlatynUI.BareMetal import (
@@ -222,6 +223,21 @@ def test_a_pinned_root_that_stops_being_valid_ends_the_wait(
         )
 
 
+def test_an_explicit_root_that_stops_being_valid_ends_wait_until_query(library: BareMetal) -> None:
+    window = make_node('Main')
+
+    def answer(query: str, context: Any) -> Any:
+        window.is_valid.return_value = False
+        return 0
+
+    with_runtime(library, answer)
+
+    with pytest.raises(PinnedElementGoneError):
+        library.wait_until_query(
+            'count(.//control:Button)', root=window, query_overrides={'timeout': 1, 'ignore_exceptions': True}
+        )
+
+
 def test_the_failure_is_chained_to_the_last_swallowed_error(library: BareMetal) -> None:
     attempts = 0
 
@@ -241,3 +257,18 @@ def test_the_failure_is_chained_to_the_last_swallowed_error(library: BareMetal) 
     assert isinstance(caught.value.__cause__, FlakyBridgeError)
     assert str(caught.value.__cause__) == f'attempt {attempts} failed'
     assert str(caught.value).endswith(f'The last error was: FlakyBridgeError: attempt {attempts} failed')
+
+
+def test_nothing_is_evaluated_after_the_deadline(library: BareMetal) -> None:
+    """The first evaluation already overruns the timeout: the failure describes it, and it stays the only one."""
+
+    def answer(query: str, context: Any) -> Any:
+        time.sleep(0.1)
+        return 0
+
+    runtime = with_runtime(library, answer)
+
+    with pytest.raises(AssertionError, match=r'within timeout of 0\.05 seconds'):
+        library.wait_until_query('count(//control:Button)', AssertionOperator['>'], 0)
+
+    assert len(runtime.calls) == 1, runtime.calls
