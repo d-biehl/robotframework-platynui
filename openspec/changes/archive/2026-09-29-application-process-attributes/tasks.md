@@ -214,7 +214,7 @@ The application nodes of 3.1 to 3.3 read their `app:` attributes through the `Pr
   - Against the old node, three new tests failed: the `app:` attributes, the JVM's self-description, and pid `0` on attach. The listing/lookup agreement and "no call into the JVM" were already green, as guards.
   - With the change, the 53 unit tests pass and `just check` is clean.
   - The Swing suite of 1.2 passes in full, and so does the live test *The agent and the bridge report one process identically*.
-- [ ] 3.2 Windows UIA.
+- [x] 3.2 Windows UIA.
   - **Tests first** (`cfg(windows)`, `attribute_surface_tests`, `node.rs:2024-2384`, next to `application_node_carries_the_common_attributes` `:2124-2139` and the validity tests `:2344-2361`):
     - an application node for a pid without a process (`ApplicationNode::orphan(0x3FFF_FFFC)`, as at `:2357-2361`) lists no `app:` process attribute;
     - a `WindowlessChild` (`:2313-2338`) that is killed and reaped after its node was created, as at `:2344-2352`: the node lists no `app:` process attribute, and every `app:` lookup by name answers nothing;
@@ -243,8 +243,8 @@ The application nodes of 3.1 to 3.3 read their `app:` attributes through the `Pr
   - After review, a lookup by a `control` name other than `Name` and `Id` reads no process. A listing opens the process once: the read that lists the `app:` attributes also seeds the node's shared name cell, which `Id`'s presence depends on.
   - Positive controls followed: a nameless node keeps `ProcessId`, `Technology` and `SupportedPatterns`; pid `0` and `-1` list no `ProcessId`; PID 4 keeps `ProcessId = 4`. The UIA tests pass 34 of 34.
 
-  Open: `hit_test.robot` and `inspector_picker.robot` move the pointer and run with the lane (7.1).
-- [ ] 3.3 JAB.
+  Lane (2026-09-29, 7.1): `hit_test.robot` and `inspector_picker.robot` stay green.
+- [x] 3.3 JAB.
   - **Tests first**:
     - `JabAppNode` needs a live bridge client (`node.rs:1364-1385`, `provider.rs:222-226`). Its process attributes and its name therefore come from one function of pid and identity that needs no client. Unit tests:
       - it lists the reader's values for this process, and the name equals `ProcessName`;
@@ -268,7 +268,7 @@ The application nodes of 3.1 to 3.3 read their `app:` attributes through the `Pr
   - The 61 unit tests pass, and `just check` is clean.
   - The JAB half of 1.2 passes, and so do the live tests *The bridge application node carries its process attributes* and the two killed-JVM tests.
 
-  Open: the full lane with `picker.robot` (7.1).
+  Lane (2026-09-29, 7.1): the full lane passes, with `picker.robot` and the live step.
 - [x] 3.4 Move AT-SPI onto the reader (on a Linux host).
   - `crates/provider-atspi/src/process.rs` and `mod process;` (`lib.rs:20`) go away. The node records `ProcessIdentity::capture(local_number)` once. The desktop enumeration records it when it creates the node, and a node built elsewhere records it on its first definitive local number. `AppAttr` reads through that identity, so a pid reused after the node was created is never read (design D5). `pidns_harness.rs:136` captures an identity for its number and reads through it. `AppAttr`, `app_attribute` and the named lookup (`node.rs:386-397`, `:1864-1936`) stay.
   - `platynui-process` joins `[dependencies]`. `sysinfo` and `chrono` (`Cargo.toml:26-27`) and `libc` (`:33-35`) leave AT-SPI's manifest; `process.rs` is their only user there, and `sysinfo` and `libc` now sit in `crates/process`.
@@ -371,13 +371,27 @@ The application nodes of 3.1 to 3.3 read their `app:` attributes through the `Pr
 
 ## 7. Verification and commit
 
-- [ ] 7.1 On a Windows machine, run `just check` and `just test`, then `just install-provider-java`, `just test-acceptance-windows` (with the maintainer's go-ahead: it takes over pointer and keyboard), and `uv run --no-sync robotcode results log --level WARN --execution-messages`. Verify:
+- [x] 7.1 On a Windows machine, run `just check` and `just test`, then `just install-provider-java`, `just test-acceptance-windows` (with the maintainer's go-ahead: it takes over pointer and keyboard), and `uv run --no-sync robotcode results log --level WARN --execution-messages`. Verify:
   - the lane is green, the live step included (`justfile:386`), with the egui, Swing and win32 suites;
   - there is no WARN or ERROR from PlatynUI;
   - compared with `snapshot-validity` 9.2 (125 of 125, `openspec/changes/snapshot-validity/tasks.md:89`), only the new tests are added;
   - the notes record whether the lane account is local, since only then does the `UserName` check prove *A Windows process owned by a local account names the computer as its domain*.
 
   Record the results in the change notes.
+
+  Outcome (2026-09-29), on `3315d9a`, with the maintainer's go-ahead:
+  - `just check` is clean, and `just test` passes 2444 of 2444. `just install-provider-java` reinstalled the agent package, which the pre-push hook's `bootstrap` had removed.
+  - `just test-acceptance-windows` passes in about 4 minutes: Robot 138 of 138, and the live step 36 of 36.
+  - The live step includes `a_32_bit_process_reads_as_x86` and the two new Java live tests.
+  - Compared with `snapshot-validity` 9.2 (125 of 125), exactly the 13 new tests are added (8 egui, 4 Swing, 1 win32), none is missing, and all pass. The live step grows from 32 to 36 by the two new Java live tests and the process crate's two ignored tests.
+  - `output.xml` holds no WARN and no ERROR message.
+  - The lane account is local: `%USERDOMAIN%` equals `%COMPUTERNAME%` (`VULCAN`), and its SID is a local machine SID (RID 1001). So the `UserName` checks prove *A Windows process owned by a local account names the computer as its domain*.
+  - Evidence is in `playground/lane-2026-09-29-0908`, which is gitignored.
+
+  Afterwards, on `f2d3ef6`, which adds the test-child fix of 2.4 (`2391d6c`; the child's output is now piped on Windows too):
+  - `just check` is clean, and `just test` passes 2447 of 2447.
+  - The process crate passes 200 stress rounds on Windows (`cargo nextest run -p platynui-process --stress-count 200`, 29 tests each).
+  - Neither the lane's Robot tests nor its live tests use that test child, so the lane result on `3315d9a` stands.
 - [x] 7.2 On a Linux host, run the full gate:
   1. `just check` and `just test`.
   2. `just test-python` and `just test-baremetal`, which build the mock native module.
