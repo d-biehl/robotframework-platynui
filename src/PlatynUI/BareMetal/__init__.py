@@ -2,6 +2,7 @@ import base64
 import logging
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from functools import cached_property
 from pathlib import Path
@@ -33,12 +34,12 @@ from platynui_native import (
     Restorable,
     Runtime,
     UiNode,
-    UiValue,
 )
 from robot.api import logger
 from robot.api.deco import library
 from robot.libraries.BuiltIn import BuiltIn
 from robot.running.context import EXECUTION_CONTEXTS
+from robot.utils import ErrorDetails
 
 from ..__version__ import __version__
 from .._assertable import assertable
@@ -73,11 +74,21 @@ class ElementNotFoundError(BareMetalError):
 class RootNotFoundError(ElementNotFoundError):
     """Raised when the root set by `Set Root` is not found, so a query relative to it was not evaluated."""
 
-    def __init__(self, root_query: str | None, timeout: float, query: str | None = None) -> None:
+    def __init__(
+        self,
+        root_query: str | None,
+        timeout: float,
+        query: str | None = None,
+        *,
+        last_error: Exception | None = None,
+    ) -> None:
         self.root_query = root_query
         self.timeout = timeout
+        # The error the root's own lookup raised last, when the root's settings ignore errors.
+        self.last_error = last_error
         message = f'The root set by Set Root, {root_query!r}, was not found within timeout of {timeout} seconds'
-        super().__init__(f'{message}; {query!r} was not evaluated.' if query is not None else f'{message}.')
+        message = f'{message}; {query!r} was not evaluated.' if query is not None else f'{message}.'
+        super().__init__(_with_last_error(message, last_error))
 
 
 class ResultTypeError(BareMetalError):
@@ -142,9 +153,9 @@ PLATYNUI_QUERY_SETTINGS = (
 class QuerySettings:
     """Fully resolved settings for the query wait/retry loop.
 
-    These are the values ``UiNodeDescriptor.__call__`` consults while waiting for a node to appear:
-    how long to keep retrying (``timeout``), how long to pause between attempts (``retry_interval``)
-    and whether to swallow evaluation errors instead of raising them (``ignore_exceptions``).
+    These are the values `_poll` consults on every wait: how long to keep retrying (``timeout``),
+    how long to pause between attempts (``retry_interval``) and whether to swallow the errors an
+    attempt raises instead of failing on them (``ignore_exceptions``).
     """
 
     timeout: float = 30.0
@@ -162,6 +173,113 @@ class QuerySettingsDict(TypedDict, total=False):
     timeout: float
     retry_interval: float
     ignore_exceptions: bool
+
+
+# The errors that waiting cannot fix: a wait ends at once on them, whatever ``ignore_exceptions``
+# says. A `RuntimeError` comes from AssertionEngine, for an operator it does not know, or from
+# Robot Framework, for a ``validate`` expression that cannot be evaluated; like `SystemExit`, it
+# ends the wait.
+_UNWAITABLE_ERRORS: tuple[type[Exception], ...] = (
+    ResultTypeError,
+    NoQueryError,
+    ForeignNodeError,
+    PinnedElementGoneError,
+    RootNotFoundError,
+    RuntimeError,
+)
+
+
+def _with_last_error(message: str, last_error: Exception | None) -> str:
+    """``message``, followed by the error the last attempt raised, the way Robot Framework quotes one.
+
+    ``Wait Until Keyword Succeeds`` ends its failure the same way, and the error reads as it would
+    had it failed the keyword itself: its type, then its message, with the type left out where Robot
+    Framework leaves it out, as for an ``AssertionError``.
+    """
+    if last_error is None:
+        return message
+    return f'{message} The last error was: {ErrorDetails(last_error).message}'
+
+
+class _NotYet:
+    """What an attempt returns when it did not satisfy its wait."""
+
+
+_NOT_YET = _NotYet()
+
+# A step that the attempt did not reach.
+_UNSEEN: Any = object()
+
+
+@dataclass(slots=True)
+class _Attempt:
+    """How far one attempt of a wait got, for the failure at the deadline.
+
+    The attempt fills it in step by step, so an attempt that raises still tells how far it got:
+    ``result`` is what the selector or expression gave (for `Wait Until Attribute Value` the element,
+    or ``None``), ``value`` the attribute's value, and ``mismatch`` why the check did not hold. A
+    step the attempt did not reach stays `_UNSEEN`.
+    """
+
+    result: Any = _UNSEEN
+    value: Any = _UNSEEN
+    mismatch: AssertionError | TypeError | None = None
+
+
+def _poll[R](
+    library: 'BareMetal',
+    settings: QuerySettings,
+    context: Callable[[], 'UiNode | None'],
+    attempt: Callable[['UiNode | None', _Attempt], R | _NotYet],
+    failure: Callable[[_Attempt, Exception | None], Exception],
+    *,
+    discard_first: bool,
+) -> R:
+    """Wait until an attempt satisfies the wait, or fail once ``settings.timeout`` has elapsed.
+
+    Every wait of the library runs here: the element lookup of every keyword and of a root, and
+    `Wait Until Gone`, `Wait Until Query` and `Wait Until Attribute Value`. So they agree on this:
+
+    - ``context`` runs first in every attempt and yields the element to evaluate against. It looks
+      up the root, and nothing it raises is swallowed: a root that cannot be found ends the wait,
+      whatever ``ignore_exceptions`` says.
+    - ``attempt`` returns its result, or `_NOT_YET`. An error of `_UNWAITABLE_ERRORS` ends the
+      wait. Any other error ends it too, unless ``ignore_exceptions`` is on: then the attempt did
+      not satisfy the wait, and its error is the last error, until an attempt completes.
+    - The elapsed time is compared with the timeout after each attempt. So there is at least one,
+      and nothing is evaluated after the deadline: ``failure`` gets what the last attempt saw and
+      the error it raised, and its exception is raised chained to that error.
+    - The clock starts after the first ``context``: finding the root takes the root's own timeout,
+      not the wait's. A root looked up again during the wait counts, as the attempt it belongs to.
+
+    ``discard_first`` discards the runtime's snapshot before the first attempt as well as before
+    every later one. The element lookup keeps it for its first attempt, so that an action right
+    after another reuses what that one read. `SystemExit`, `KeyboardInterrupt` and Robot
+    Framework's own timeout pass through, since only an `Exception` is caught.
+    """
+    start: float | None = None
+    while True:
+        if discard_first or start is not None:
+            library.runtime.clear_cache()
+        node = context()
+        if start is None:
+            start = time.monotonic()
+        seen = _Attempt()
+        last_error: Exception | None = None
+        try:
+            result = attempt(node, seen)
+        except _UNWAITABLE_ERRORS:
+            raise
+        except Exception as error:
+            if not settings.ignore_exceptions:
+                raise
+            last_error = error
+        else:
+            if not isinstance(result, _NotYet):
+                return result
+        if (time.monotonic() - start) > settings.timeout:
+            raise failure(seen, last_error) from last_error
+        time.sleep(settings.retry_interval)
 
 
 class UiNodeDescriptor:
@@ -183,13 +301,13 @@ class UiNodeDescriptor:
 
     One exception to "holds no resolved element": a selector used **as a root** keeps the element
     it resolved to, reused while that element is still live and still belongs to the resolving
-    instance. A root is looked up once per keyword on top of the keyword's own target, so it is
-    repetition the suite never asked for — and unlike a target selector, whose re-evaluation *is*
-    the observation the keyword makes, a root names a container that was pinned on purpose. The
-    element is dropped as soon as it stops being valid, so a root still survives its window closing
-    and reopening. Note what this rests on: `platynui_native.UiNode.is_valid` is a provider-side
-    liveness check whose trait default is ``True`` — a provider that does not implement it gets a
-    root that is never looked up again.
+    instance. A root is looked up on every attempt of a keyword's wait, on top of the keyword's own
+    target, so it is repetition the suite never asked for — and unlike a target selector, whose
+    re-evaluation *is* the observation the keyword makes, a root names a container that was pinned
+    on purpose. The element is dropped as soon as it stops being valid, so a root still survives its
+    window closing and reopening, even in the middle of a wait. Note what this rests on:
+    `platynui_native.UiNode.is_valid` is a provider-side liveness check whose trait default is
+    ``True`` — a provider that does not implement it gets a root that is never looked up again.
     """
 
     def __init__(
@@ -240,6 +358,14 @@ class UiNodeDescriptor:
         """The runtime that produced this reference's element, or ``None`` for a selector."""
         return self.node.owner_id if isinstance(self.node, UiNode) else None
 
+    def context_node(self, library: 'BareMetal') -> UiNode | None:
+        """The element a keyword evaluates this selector against: the library's root, or ``None``.
+
+        ``None`` is the desktop. Only a selector that needs the root looks it up (see `needs_root`),
+        through `BareMetal.root_for`.
+        """
+        return library.root_for(self.query) if self.needs_root(library) else None
+
     def resolve(
         self,
         library: 'BareMetal',
@@ -254,15 +380,16 @@ class UiNodeDescriptor:
             if self.query is None:
                 raise _pinned_element_gone(self.node)
 
-        if self.query is None:
+        query = self.query
+        if query is None:
             raise NoQueryError('This element reference has no selector to look the element up with.')
 
-        # A root is looked up once per keyword *in addition* to the keyword's own target, so it is
-        # the one repetition the suite did not ask for. Reuse it while it is live: a root names a
-        # container that was pinned deliberately, and skipping its lookup skips a descendant search
-        # with an attribute read per visited node — on a deep tree (Electron, WPF) that is the
-        # dominant cost, and `is_valid()` is a single provider call. Target selectors are never
-        # cached: re-evaluating them *is* what the keyword is for (see the class docs).
+        # A root is looked up on every attempt of a keyword's wait *in addition* to the keyword's own
+        # target, so it is the one repetition the suite did not ask for. Reuse it while it is live: a
+        # root names a container that was pinned deliberately, and skipping its lookup skips a
+        # descendant search with an attribute read per visited node — on a deep tree (Electron, WPF)
+        # that is the dominant cost, and `is_valid()` is a single provider call. Target selectors are
+        # never cached: re-evaluating them *is* what the keyword is for (see the class docs).
         if as_root and self._root_node is not None:
             cached = self._root_node
             # A selector root may legitimately be handed to another import, which then shares this
@@ -272,56 +399,42 @@ class UiNodeDescriptor:
                 return cached
             self._root_node = None
 
-        # Resolving a stored root (as_root=True) evaluates the query against the captured parent
-        # chain, so a relative root drills into the enclosing root while an absolute query ignores
-        # it. As a query target (as_root=False) it evaluates against the library's current root.
-        if as_root:
-            context = self.parent.resolve(library, as_root=True) if self.parent is not None else None
-        else:
-            try:
-                context = library.root if self.needs_root(library) else None
-            except RootNotFoundError as exc:
-                raise RootNotFoundError(exc.root_query, exc.timeout, self.query) from exc
-
         # Effective settings for this resolution: the scoped/default base, with this call's partial
         # override applied on top. Computed once — neither layer changes during a synchronous resolve.
         base = library.query_settings
         settings = replace(base, **overrides) if overrides else base
 
-        start_time = time.monotonic()
-        result: UiNode | UiValue | EvaluatedAttribute | None = None
-        while True:
-            try:
-                result = library.runtime.evaluate_single(self.query, context)
-            except (SystemExit, KeyboardInterrupt):
-                raise  # Don't interfere with user-initiated interrupts
-            except Exception:
-                if not settings.ignore_exceptions:
-                    raise
-                result = None  # Swallow the error, but keep honouring the timeout below
-            else:
-                if result is not None:
-                    break
+        def context() -> UiNode | None:
+            # A stored root (as_root=True) evaluates against the captured parent chain, so a relative
+            # root drills into the enclosing root while an absolute query ignores it. A query target
+            # evaluates against the library's current root.
+            if as_root:
+                return self.parent.resolve(library, as_root=True) if self.parent is not None else None
+            return self.context_node(library)
 
-            # Not resolved yet — no match, or a swallowed error. Retry until the timeout elapses, so
-            # ignore_exceptions cannot spin forever on a persistently failing query.
-            if (time.monotonic() - start_time) > settings.timeout:
-                if as_root:
-                    raise RootNotFoundError(self.query, settings.timeout)
-                raise ElementNotFoundError(
-                    f'No element matched {self.query!r} within timeout of {settings.timeout} seconds.'
+        def attempt(context: UiNode | None, seen: _Attempt) -> UiNode | _NotYet:
+            result = library.runtime.evaluate_single(query, context)
+            if result is None:
+                return _NOT_YET
+            if not isinstance(result, UiNode):
+                raise ResultTypeError(f'Query {query!r} did not return an element, got: {result!r}')
+            return result
+
+        def failure(seen: _Attempt, last_error: Exception | None) -> Exception:
+            if as_root:
+                return RootNotFoundError(query, settings.timeout, last_error=last_error)
+            return ElementNotFoundError(
+                _with_last_error(
+                    f'No element matched {query!r} within timeout of {settings.timeout} seconds.', last_error
                 )
+            )
 
-            time.sleep(settings.retry_interval)
-            library.runtime.clear_cache()  # Clear runtime cache to attempt to resolve transient UI states
-
-        if not isinstance(result, UiNode):
-            raise ResultTypeError(f'Query {self.query!r} did not return an element, got: {result!r}')
-
+        # The snapshot is kept for the first attempt: an action right after another reuses what that
+        # one read. It is discarded before every retry, to resolve transient UI states.
+        node = _poll(library, settings, context, attempt, failure, discard_first=False)
         if as_root:
-            self._root_node = result
-
-        return result
+            self._root_node = node
+        return node
 
     @staticmethod
     def convert(value: str | UiNode, library: 'BareMetal') -> 'UiNodeDescriptor':
@@ -1384,6 +1497,18 @@ class BareMetal(OurDynamicCore):
                 return current.node
             current = current.parent
         return None
+
+    def root_for(self, query: str | None) -> UiNode | None:
+        """The root to evaluate ``query`` against, or ``None`` when no root is set.
+
+        The lookup waits with the root's own settings, never with a keyword's ``query_overrides``.
+        Its failure is the root's, whatever the keyword's ``ignore_exceptions`` says: a
+        `RootNotFoundError` is raised again naming ``query`` as the one it kept from being evaluated.
+        """
+        try:
+            return self.root
+        except RootNotFoundError as exc:
+            raise RootNotFoundError(exc.root_query, exc.timeout, query, last_error=exc.last_error) from exc
 
     def require_own_node(self, node: UiNode) -> None:
         """Reject an element produced by another import's runtime.

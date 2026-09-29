@@ -46,6 +46,19 @@ Wait Until Exists Does Not Leak Overrides Across The Shared Cache
     ...    Wait Until Exists    ${MISSING}    query_overrides={'timeout': 0.2}
     Run Keyword And Expect Error    *within timeout of 0.5 seconds*    Wait Until Exists    ${MISSING}
 
+Wait Until Exists With Ignore Exceptions Names The Last Error
+    [Documentation]    The malformed selector raises on every attempt. ignore_exceptions keeps the wait
+    ...    going until the timeout, and the failure then quotes the error it swallowed last.
+    Run Keyword And Expect Error
+    ...    *No element matched*within timeout of 0.2 seconds. The last error was: EvaluationError: *
+    ...    Wait Until Exists    //control:Window[broken    query_overrides={'ignore_exceptions': True}
+
+Wait Until Exists With Ignore Exceptions Still Rejects A Value Selector
+    [Documentation]    A selector that yields a value can never yield an element, so waiting cannot
+    ...    fix it: the wait ends on the first attempt, whatever ignore_exceptions says.
+    Run Keyword And Expect Error    ResultTypeError: Query 'count(//control:Window)' did not return an element*
+    ...    Wait Until Exists    count(//control:Window)    query_overrides={'ignore_exceptions': True}
+
 # --- Wait Until Gone -----------------------------------------------------------
 
 Wait Until Gone Returns Fast When Already Absent

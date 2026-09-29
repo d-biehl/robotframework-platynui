@@ -86,9 +86,11 @@ No Leak Across The Shared Descriptor Cache
 Ignore Exceptions Keeps Retrying On Errors
     [Documentation]    A malformed selector raises while evaluating. By default the error propagates
     ...    immediately; with ignore_exceptions the lookup swallows it and keeps retrying until the
-    ...    inherited timeout, then reports ElementNotFound — proving both the flag and that the
-    ...    timeout-only default is inherited (0.2 s) rather than reset.
-    Run Keyword And Expect Error    *within timeout of 0.2 seconds*
+    ...    inherited timeout, then reports ElementNotFound and quotes the error it swallowed last —
+    ...    proving both the flag and that the timeout-only default is inherited (0.2 s) rather than
+    ...    reset.
+    Run Keyword And Expect Error
+    ...    *No element matched*within timeout of 0.2 seconds. The last error was: EvaluationError: *
     ...    Get Attribute Value    //control:Window[broken    Name    query_overrides={'ignore_exceptions': True}
 
 Suite Scope Set In One Test
