@@ -11,7 +11,7 @@ waits for exactly that" model.
 
 `Wait Until Exists`, `Wait Until Gone` and `Wait Until Query` close that gap, and `Wait
 Until Attribute Value` waits for one attribute of one element to reach a value — the
-waiting counterpart to `Get Attribute`, which reads and checks a value once. All four are
+waiting counterpart to `Get Attribute Value`, which reads and checks a value once. All four are
 governed by the effective query settings and tunable per call. Two supporting rules keep the waits
 honest: a dedicated `ElementStillPresentError` so a target that never disappeared cannot be
 confused with one that was never found, and Python value semantics on evaluated results —

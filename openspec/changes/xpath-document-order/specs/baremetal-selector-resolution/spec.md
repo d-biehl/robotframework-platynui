@@ -9,7 +9,7 @@ When a selector matches several elements, a keyword that acts on one element, `Q
 #### Scenario: A keyword acts on the first match in document order
 
 - **GIVEN** the mock, and the root set to `//control:Window[@Name="Operations Console"]`, whose tree holds the tree items Dashboard (with Overview and Metrics) and Reports (with Täglich, Monatlich and Jährlich)
-- **WHEN** `Get Attribute    .//item:TreeItem[@Name!="Dashboard"]    Name` runs
+- **WHEN** `Get Attribute Value    .//item:TreeItem[@Name!="Dashboard"]    Name` runs
 - **THEN** it SHALL return Overview
 - **NOTE:** Before this change it returns Reports, the first match of the shallower level.
 
@@ -30,7 +30,7 @@ When a selector matches several elements, a keyword that acts on one element, `Q
 #### Scenario: A parenthesized selector counts over all matches
 
 - **GIVEN** the same root
-- **WHEN** `Get Attribute    (.//item:TreeItem)[2]    Name    ==    Overview` runs
+- **WHEN** `Get Attribute Value    (.//item:TreeItem)[2]    Name    ==    Overview` runs
 - **THEN** it SHALL pass
 - **NOTE:** Before this change the selector resolves Reports.
 
@@ -44,6 +44,6 @@ When a selector matches several elements, a keyword that acts on one element, `Q
 #### Scenario: A position that no parent reaches matches nothing
 
 - **GIVEN** the same root and `query_settings={'timeout': 0.2}`
-- **WHEN** `Get Attribute    .//item:TreeItem[4]    Name` runs
+- **WHEN** `Get Attribute Value    .//item:TreeItem[4]    Name` runs
 - **THEN** it SHALL fail with an error that says no element matched `.//item:TreeItem[4]` within timeout of 0.2 seconds
 - **NOTE:** No parent holds four tree items. Before this change the selector resolves Metrics, the fourth match overall.

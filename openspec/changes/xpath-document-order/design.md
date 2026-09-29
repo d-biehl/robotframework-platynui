@@ -254,7 +254,7 @@ The change updates:
 ## Risks / Trade-offs
 
 - **[`.//*[@Name="main-table"]/*[544]` reads every preceding cell]**
-  - Document order requires reading the lists of the 543 cells before cell 544, because a nested `main-table` inside one of them would come first. On the agent and JAB that is one call per cell, for every `Get Attribute` (`tests/acceptance/swing/native_attributes.robot:66-67`, `agent_table.robot:50-129`).
+  - Document order requires reading the lists of the 543 cells before cell 544, because a nested `main-table` inside one of them would come first. On the agent and JAB that is one call per cell, for every `Get Attribute Value` (`tests/acceptance/swing/native_attributes.robot:66-67`, `agent_table.robot:50-129`).
   - → Measure the suites' keyword times on the Swing fixture before and after. If the regression is noticeable, rewrite the repo's suites to `(.//*[@Name="main-table"])[1]/*[n]`, which reads only the table's list, and document the idiom (decision 10). The engine cost is the price of a correct answer, and it is accepted.
 - **[Shapes that must sort read all their input before the first result]**
   - These shapes are sibling, parent and reverse axes from several contexts, filter-expression steps (including the idiom `.//(Frame|Window)[@Name=…]`), and `(E)/…` bases. `evaluate_single` on them reads every matching context.
