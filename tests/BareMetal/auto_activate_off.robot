@@ -19,13 +19,13 @@ Import Auto Activate False Does Not Raise By Default
     ...    target window forward: the background window stays inactive, the foreground one stays active.
     Activate Window    ${OC}
     Pointer Click      ${DETAIL_TEXT}
-    Get Attribute      ${DETAIL}    IsActive    ==    ${False}
-    Get Attribute      ${OC}        IsActive    ==    ${True}
+    Get Attribute Value      ${DETAIL}    IsActive    ==    ${False}
+    Get Attribute Value      ${OC}        IsActive    ==    ${True}
 
 Per Call Activate True Overrides The Import Default
     [Documentation]    activate=${True} overrides the import's auto_activate=${False}: the window is
     ...    raised, and being exclusive the previously active one drops.
     Activate Window    ${OC}
     Pointer Click      ${DETAIL_TEXT}    activate=${True}
-    Get Attribute      ${DETAIL}    IsActive    ==    ${True}
-    Get Attribute      ${OC}        IsActive    ==    ${False}
+    Get Attribute Value      ${DETAIL}    IsActive    ==    ${True}
+    Get Attribute Value      ${OC}        IsActive    ==    ${False}

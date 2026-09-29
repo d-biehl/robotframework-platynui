@@ -48,7 +48,7 @@ Completed Pick Announces The Picked Element
     [Documentation]    A completed pick produces a transient "Picked: …" message identifying the
     ...    element while the persistent armed segment stays visible — both segments at once.
     Lay Windows Out Side By Side    ${WINDOW}
-    ${bounds}=    BM.Get Attribute    ${WINDOW}//*[@Id="btn-click-me"]    Bounds
+    ${bounds}=    BM.Get Attribute Value    ${WINDOW}//*[@Id="btn-click-me"]    Bounds
     VAR    ${cx}    ${{ $bounds.x + $bounds.width / 2 }}
     VAR    ${cy}    ${{ $bounds.y + $bounds.height / 2 }}
 

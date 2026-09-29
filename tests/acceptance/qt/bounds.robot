@@ -42,7 +42,7 @@ Main Window And Child Dialogs Are Exposed
 Main Window Bounds Match Its Designed Size
     [Documentation]    Anchor the comparison baseline: the main window itself resolves to its own
     ...    ~900x640 bounds (if this were wrong, the dialog comparisons below would be meaningless).
-    ${b}=    BM.Get Attribute    .//(Frame|Window)[@Name="main-window"]    Bounds
+    ${b}=    BM.Get Attribute Value    .//(Frame|Window)[@Name="main-window"]    Bounds
     Should Be True    abs($b.width - 900) <= 40 and abs($b.height - 640) <= 40
     ...    msg=main window bounds ${b.width}x${b.height} are not ~900x640
 
@@ -50,12 +50,12 @@ Child Dialog Bounds Are Their Own Not The Main Window's
     [Documentation]    Each dialog must report its own client rect. Before the fix every dialog reported
     ...    the main window's size (900x640) and position; here we assert each dialog is smaller than the
     ...    main window and matches its designed size.
-    ${main}=    BM.Get Attribute    .//(Frame|Window)[@Name="main-window"]    Bounds
+    ${main}=    BM.Get Attribute Value    .//(Frame|Window)[@Name="main-window"]    Bounds
     FOR    ${dialog}    ${ew}    ${eh}    IN
     ...    child-dialog-1    ${260}    ${180}
     ...    child-dialog-2    ${300}    ${220}
     ...    child-dialog-3    ${220}    ${160}
-        ${b}=    BM.Get Attribute    .//(Dialog|Window|Frame)[@Name="${dialog}"]    Bounds
+        ${b}=    BM.Get Attribute Value    .//(Dialog|Window|Frame)[@Name="${dialog}"]    Bounds
         Should Be True    $b.width < $main.width and $b.height < $main.height
         ...    msg=${dialog} reports the main window size (${main.width}x${main.height}) — the resolve_window bug
         Should Be True    abs($b.width - ${ew}) <= ${SIZE_TOL} and abs($b.height - ${eh}) <= ${SIZE_TOL}
@@ -70,9 +70,9 @@ Child Dialogs Have Distinct Bounds
     [Documentation]    Guards against a regression where every dialog resolves to the SAME window (each
     ...    would then be small enough to pass the test above yet still be wrong). The dialogs have
     ...    distinct designed sizes, so their bounds must differ pairwise.
-    ${b1}=    BM.Get Attribute    .//(Dialog|Window|Frame)[@Name="child-dialog-1"]    Bounds
-    ${b2}=    BM.Get Attribute    .//(Dialog|Window|Frame)[@Name="child-dialog-2"]    Bounds
-    ${b3}=    BM.Get Attribute    .//(Dialog|Window|Frame)[@Name="child-dialog-3"]    Bounds
+    ${b1}=    BM.Get Attribute Value    .//(Dialog|Window|Frame)[@Name="child-dialog-1"]    Bounds
+    ${b2}=    BM.Get Attribute Value    .//(Dialog|Window|Frame)[@Name="child-dialog-2"]    Bounds
+    ${b3}=    BM.Get Attribute Value    .//(Dialog|Window|Frame)[@Name="child-dialog-3"]    Bounds
     Bounds Differ    ${b1}    ${b2}
     Bounds Differ    ${b1}    ${b3}
     Bounds Differ    ${b2}    ${b3}

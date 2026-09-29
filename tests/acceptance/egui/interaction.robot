@@ -50,14 +50,14 @@ A Selector Stops Matching An Element That No Longer Fits It
     ${before}=    Get Click Count
     VAR    ${old_name}    Clicks: ${before}
     ${captured}=    BM.Query    .//*[@Name="${old_name}"]    only_first=${True}
-    BM.Get Attribute    .//*[@Name="${old_name}"]    Id    ==    status-clicks
+    BM.Get Attribute Value    .//*[@Name="${old_name}"]    Id    ==    status-clicks
     BM.Pointer Click    .//*[@Id="btn-click-me"]
     BM.Wait Until Query    .//*[@Id="status-clicks"]/@Name    ==    Clicks: ${{ $before + 1 }}
     ...    assertion_message=precondition: the click must have renamed the label
     Should Be True    ${{ $captured.is_valid() }}
     ...    msg=precondition: the element must still be alive — otherwise this proves nothing
     Run Keyword And Expect Error    *${old_name}*within timeout of 2.0 seconds*
-    ...    BM.Get Attribute    .//*[@Name="${old_name}"]    Id    query_overrides={'timeout': 2}
+    ...    BM.Get Attribute Value    .//*[@Name="${old_name}"]    Id    query_overrides={'timeout': 2}
 
 A Selector Follows The Element That Now Fits It
     [Documentation]    The other direction of the same property: after the rename, the selector for
@@ -66,4 +66,4 @@ A Selector Follows The Element That Now Fits It
     ${before}=    Get Click Count
     BM.Pointer Click    .//*[@Id="btn-click-me"]
     VAR    ${new_name}    Clicks: ${{ $before + 1 }}
-    BM.Get Attribute    .//*[@Name="${new_name}"]    Id    ==    status-clicks
+    BM.Get Attribute Value    .//*[@Name="${new_name}"]    Id    ==    status-clicks

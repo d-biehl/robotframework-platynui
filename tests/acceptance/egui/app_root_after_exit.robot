@@ -27,7 +27,7 @@ A Root Pinned To An Ended Application Is Looked Up Again
     # At the scope level, so that the root's own lookup is short as well.
     BM.Set Query Settings    {'timeout': 2}    scope=LOCAL
     Run Keyword And Expect Error    STARTS:RootNotFoundError: The root set by Set Root, '/app:Application[@ProcessId=${pid}]', was not found
-    ...    BM.Get Attribute    ./(Frame|Window)    Name
+    ...    BM.Get Attribute Value    ./(Frame|Window)    Name
     [Teardown]    Run Keyword And Ignore Error    Terminate App    ${handle}
 
 A Captured Application Node Is Gone Once Its Process Ended

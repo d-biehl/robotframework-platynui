@@ -31,8 +31,8 @@ Modal Dialog Is Exposed
 Modal Dialog Bounds Are Its Own Not The Main Window's
     [Documentation]    The modal dialog must report its own ~340x200 client rect, smaller than and
     ...    distinct from the main window — the same guarantee as the modeless dialogs.
-    ${main}=    BM.Get Attribute    .//(Frame|Window)[@Name="main-window"]    Bounds
-    ${b}=    BM.Get Attribute    .//(Dialog|Window|Frame)[@Name="dialog-modal"]    Bounds
+    ${main}=    BM.Get Attribute Value    .//(Frame|Window)[@Name="main-window"]    Bounds
+    ${b}=    BM.Get Attribute Value    .//(Dialog|Window|Frame)[@Name="dialog-modal"]    Bounds
     Should Be True    $b.width < $main.width and $b.height < $main.height
     ...    msg=modal dialog reports the main window size (${main.width}x${main.height})
     Should Be True    abs($b.width - 340) <= ${SIZE_TOL} and abs($b.height - 200) <= ${SIZE_TOL}

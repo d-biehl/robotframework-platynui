@@ -15,9 +15,9 @@ Suite Teardown      Terminate Default Instance
 Query Window By Name And Read Its Attributes
     ${win}=    BM.Query    .    only_first=${True}
     Should Not Be Equal    ${win}    ${None}    msg=egui window not found
-    BM.Get Attribute    ${win}    Name    ==    PlatynUI Test App
-    ${bounds}=    BM.Get Attribute    ${win}    Bounds
-    # `Get Attribute` fetches directly, so an ABSENT attribute already failed the read above — unlike
+    BM.Get Attribute Value    ${win}    Name    ==    PlatynUI Test App
+    ${bounds}=    BM.Get Attribute Value    ${win}    Bounds
+    # `Get Attribute Value` fetches directly, so an ABSENT attribute already failed the read above — unlike
     # `Query`, where a non-matching XPath yields ${None}. What is left for this check is the other
     # case: the attribute is there and its value is null.
     Should Not Be Equal    ${bounds}    ${None}    msg=window Bounds is present but null
@@ -26,7 +26,7 @@ Known Buttons Exist By Id
     [Documentation]    Each expected button — the three action buttons and the three menu buttons —
     ...    resolves by its stable @Id and reports Role Button.
     FOR    ${id}    IN    btn-click-me    btn-reset    btn-conditional    menu-file    menu-edit    menu-help
-        BM.Get Attribute    .//*[@Id="${id}"]    Role    ==    Button
+        BM.Get Attribute Value    .//*[@Id="${id}"]    Role    ==    Button
     END
 
 Query The Link Widget
@@ -45,26 +45,26 @@ Set Root Narrows Subsequent Relative Queries
 Text Input Exposes Its Content Via control:Text
     [Documentation]    A text-bearing widget (the TextEdit exposes the AT-SPI Text interface) surfaces
     ...    its current content as the canonical read-only ``control:Text`` attribute (TextContent).
-    BM.Get Attribute    .//*[@Id="input-name"]    control:Text    ==    PlatynUI
+    BM.Get Attribute Value    .//*[@Id="input-name"]    control:Text    ==    PlatynUI
 
 Non-Text Widget Has No control:Text
     [Documentation]    ``control:Text`` is sourced only from a genuine text interface, never the
     ...    accessible name — a button (no text interface) exposes no ``control:Text`` even though it
     ...    has a label in ``control:Name``.
-    BM.Get Attribute    .//*[@Id="btn-click-me"]    Name    ==    Click Me
+    BM.Get Attribute Value    .//*[@Id="btn-click-me"]    Name    ==    Click Me
     Run Keyword And Expect Error    *attribute not found*Text*
-    ...    BM.Get Attribute    .//*[@Id="btn-click-me"]    control:Text
+    ...    BM.Get Attribute Value    .//*[@Id="btn-click-me"]    control:Text
 
 Widget With AccessKit Description Exposes control:Description
     [Documentation]    The Click Me button sets an AccessKit description, forwarded through
     ...    AT-SPI ``Accessible.Description`` to the common ``control:Description`` attribute.
-    BM.Get Attribute    .//*[@Id="btn-click-me"]    Description    ==    Increments the click counter
+    BM.Get Attribute Value    .//*[@Id="btn-click-me"]    Description    ==    Increments the click counter
 
 Widget Without A Description Has No control:Description
     [Documentation]    ``control:Description`` is emitted only when the platform value is non-empty —
     ...    the Reset button sets no AccessKit description, so the attribute is absent (not empty).
     Run Keyword And Expect Error    *attribute not found*Description*
-    ...    BM.Get Attribute    .//*[@Id="btn-reset"]    Description
+    ...    BM.Get Attribute Value    .//*[@Id="btn-reset"]    Description
 
 Application Has No Id
     [Documentation]    An application is identified by its ``@ProcessId`` and carries no ``Id`` (spec
@@ -75,7 +75,7 @@ Application Has No Id
     Should Not Be Equal    ${app}    ${None}    msg=no application with the launched process ID ${pid}
     Should Be Equal    ${app.id}    ${None}
     Run Keyword And Expect Error    *attribute not found*Id*
-    ...    BM.Get Attribute    ${app}    Id
+    ...    BM.Get Attribute Value    ${app}    Id
     ${listed}=    BM.Query    count(/app:Application[@ProcessId=${pid}]/@*[local-name()="Id"])    only_first=${True}
     Should Be Equal As Integers    ${listed}    0    msg=an Id is enumerated on the application
     Should Not Contain    ${app.describe()}    \#
@@ -96,7 +96,7 @@ Element Without An Author Id Has No Id
     ${with_id}=    BM.Query    .//*[@Name="Buttons"][@Id]    only_first=${True}
     Should Be Equal    ${with_id}    ${None}    msg=[@Id] matches the heading
     Run Keyword And Expect Error    *attribute not found*Id*
-    ...    BM.Get Attribute    ${heading}    Id
+    ...    BM.Get Attribute Value    ${heading}    Id
     Should Be Equal    ${heading.id}    ${None}
     ${listed}=    BM.Query    count(.//*[@Name="Buttons"]/@*[local-name()="Id"])    only_first=${True}
     Should Be Equal As Integers    ${listed}    0    msg=an Id is enumerated on the heading
@@ -110,5 +110,5 @@ Author Id Is The Same Through Every Read
     ${listed}=    BM.Query    .//*[@Name="Click Me"]/@*[local-name()="Id"]    only_first=${True}
     Should Not Be Equal    ${listed}    ${None}    msg=no Id is enumerated on the button
     Should Be Equal    ${listed.value}    btn-click-me
-    BM.Get Attribute    ${button}    Id    ==    btn-click-me
+    BM.Get Attribute Value    ${button}    Id    ==    btn-click-me
     Should Be Equal    ${button.id}    btn-click-me

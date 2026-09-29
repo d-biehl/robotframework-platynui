@@ -25,7 +25,7 @@ Picker Selects The Element Under The Cursor
     # The picked button's subtree is not revealed in the Inspector yet.
     ${before}=    BM.Query    ${INSP_WIN}//*[contains(@Name,"Click Me")]    only_first=${True}
     Should Be Equal    ${before}    ${None}    msg=Inspector already shows the button before picking
-    ${bounds}=    BM.Get Attribute    ${WINDOW}//*[@Id="btn-click-me"]    Bounds
+    ${bounds}=    BM.Get Attribute Value    ${WINDOW}//*[@Id="btn-click-me"]    Bounds
     VAR    ${cx}    ${{ $bounds.x + $bounds.width / 2 }}
     VAR    ${cy}    ${{ $bounds.y + $bounds.height / 2 }}
     Log    Button centre = (${cx}, ${cy})

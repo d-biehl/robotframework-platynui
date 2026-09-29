@@ -45,7 +45,7 @@ Pick At Center Of
     ...    top-most at the point), read the target's calibrated Bounds, and hit-test its center.
     [Arguments]    ${locator}
     BM.Activate Window    .//Window[@Name="${SWING_TITLE}"]
-    ${bounds}=    BM.Get Attribute    ${locator}    Bounds
+    ${bounds}=    BM.Get Attribute Value    ${locator}    Bounds
     ${picked}=    BM.Get Element At Point    ${{ $bounds.center().x }}    ${{ $bounds.center().y }}
     Should Not Be Equal    ${picked}    ${None}    msg=nothing resolved at the center of ${locator}
     RETURN    ${picked}

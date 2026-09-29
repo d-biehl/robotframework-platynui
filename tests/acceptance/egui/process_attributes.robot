@@ -37,23 +37,23 @@ The Process Name Is The Program's File Name
     VAR    ${file_name}    ${{ os.path.basename(os.path.realpath($TEST_APP_BIN)) }}
     IF    $ON_WINDOWS
         VAR    ${expected}    ${{ os.path.splitext($file_name)[0] }}
-        BM.Get Attribute    .    app:ProcessName    ==    ${expected}
-        BM.Get Attribute    .    Name    ==    ${expected}
+        BM.Get Attribute Value    .    app:ProcessName    ==    ${expected}
+        BM.Get Attribute Value    .    Name    ==    ${expected}
     ELSE
-        BM.Get Attribute    .    app:ProcessName    ==    ${file_name}
+        BM.Get Attribute Value    .    app:ProcessName    ==    ${file_name}
     END
 
 The Executable Path Names The Launched Binary
     [Documentation]    Compared normalized: the lane may hand the path over with ``/`` where Windows
     ...    reports ``\\``, and Linux reports the path with its symlinks resolved.
-    ${path}=    BM.Get Attribute    .    app:ExecutablePath
+    ${path}=    BM.Get Attribute Value    .    app:ExecutablePath
     Should Be Equal    ${{ os.path.normcase(os.path.realpath($path)) }}
     ...    ${{ os.path.normcase(os.path.realpath($TEST_APP_BIN)) }}
 
 The Command Line Holds The Launch
     [Documentation]    On Windows the command line is verbatim, so the title the launch passed as one
     ...    argument keeps its quotes.
-    ${command_line}=    BM.Get Attribute    .    app:CommandLine
+    ${command_line}=    BM.Get Attribute Value    .    app:CommandLine
     Should Contain    ${command_line}    ${{ os.path.basename($TEST_APP_BIN) }}
     IF    $ON_WINDOWS
         Should Contain    ${command_line}    "${TITLE}"
@@ -62,7 +62,7 @@ The Command Line Holds The Launch
     END
 
 The Start Time Is UTC To The Second
-    ${start}=    BM.Get Attribute    .    app:StartTime
+    ${start}=    BM.Get Attribute Value    .    app:StartTime
     Should Match Regexp    ${start}    ^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$
     VAR    ${started}    ${{ datetime.datetime.strptime($start, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc) }}
     Should Be True    abs(($started - $LAUNCHED).total_seconds()) < 60
@@ -73,17 +73,17 @@ The User Name Is The Current Account
     ...    name, which ``%USERDOMAIN%`` then holds as well; Windows account names ignore case. The
     ...    login name of the effective user on Linux.
     IF    $ON_WINDOWS
-        ${user}=    BM.Get Attribute    .    app:UserName
+        ${user}=    BM.Get Attribute Value    .    app:UserName
         Should Be Equal    ${user}    %{USERDOMAIN}\\%{USERNAME}    ignore_case=${True}
     ELSE
-        BM.Get Attribute    .    app:UserName    ==    ${{ pwd.getpwuid(os.geteuid()).pw_name }}
+        BM.Get Attribute Value    .    app:UserName    ==    ${{ pwd.getpwuid(os.geteuid()).pw_name }}
     END
 
 The Architecture Is The Process's Own Or Absent
     [Documentation]    The lane's egui build is an x64 program on Windows. Linux keeps no
     ...    architecture per process, so the attribute is absent there, while the other five are present.
     IF    $ON_WINDOWS
-        BM.Get Attribute    .    app:Architecture    ==    x64
+        BM.Get Attribute Value    .    app:Architecture    ==    x64
     ELSE
         ${application}=    BM.Query    .[@app:Architecture]    only_first=${True}
         Should Be Equal    ${application}    ${None}    msg=a Linux application carries no architecture
@@ -93,10 +93,10 @@ The Architecture Is The Process's Own Or Absent
         END
     END
 
-Get Attribute Reads The App Namespace
+Get Attribute Value Reads The App Namespace
     ${attribute}=    BM.Query    ./@app:ProcessName    only_first=${True}
     Should Not Be Equal    ${attribute}    ${None}    msg=the XPath read found no app:ProcessName
-    BM.Get Attribute    .    app:ProcessName    ==    ${attribute.value}
+    BM.Get Attribute Value    .    app:ProcessName    ==    ${attribute.value}
 
 
 *** Keywords ***

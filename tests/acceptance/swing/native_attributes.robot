@@ -5,8 +5,8 @@ Documentation       JAB interface-attribute projection (``native:<Interface>.<Pr
 ...                 ``TableCell.*`` resolved on demand from the parent table, everything gated by the
 ...                 element's supported-interface set (an unsupported interface contributes nothing).
 ...                 Reads are live per access, so state changes show up on the next read without any
-...                 cache invalidation; Swing applies input on its event-dispatch thread, so the
-...                 assertions after input rely on the self-waiting ``Get Attribute    ==``.
+...                 cache invalidation. Swing applies input on its event-dispatch thread, and the
+...                 assertions after input read the state back once with ``Get Attribute Value    ==``.
 ...
 ...                 Table cells are addressed by POSITION (row-major enumeration order, XPath
 ...                 1-based; 100×6 grid → cell (row, col) is child [row*6 + col + 1]), never by
@@ -34,57 +34,57 @@ The Table Reports Its Dimensions And Selection Counts
     ...    selection-count calls — the fixture table is fixed at 100×6 with row 2 preselected (row
     ...    selection, no column selection) and carries neither caption nor summary. The counts are
     ...    the model's, so scrolling does not change them.
-    BM.Get Attribute    .//*[@Name="main-table"]    native:Table.RowCount    ==    ${100}
-    BM.Get Attribute    .//*[@Name="main-table"]    native:Table.ColumnCount    ==    ${6}
-    BM.Get Attribute    .//*[@Name="main-table"]    native:Table.SelectedRowCount    ==    ${1}
-    BM.Get Attribute    .//*[@Name="main-table"]    native:Table.SelectedColumnCount    ==    ${0}
-    BM.Get Attribute    .//*[@Name="main-table"]    native:Table.HasCaption    ==    ${False}
-    BM.Get Attribute    .//*[@Name="main-table"]    native:Table.HasSummary    ==    ${False}
+    BM.Get Attribute Value    .//*[@Name="main-table"]    native:Table.RowCount    ==    ${100}
+    BM.Get Attribute Value    .//*[@Name="main-table"]    native:Table.ColumnCount    ==    ${6}
+    BM.Get Attribute Value    .//*[@Name="main-table"]    native:Table.SelectedRowCount    ==    ${1}
+    BM.Get Attribute Value    .//*[@Name="main-table"]    native:Table.SelectedColumnCount    ==    ${0}
+    BM.Get Attribute Value    .//*[@Name="main-table"]    native:Table.HasCaption    ==    ${False}
+    BM.Get Attribute Value    .//*[@Name="main-table"]    native:Table.HasSummary    ==    ${False}
 
 A Data Cell Reports Its Coordinates
     [Documentation]    Per-cell ``native:TableCell.*`` resolves on demand (targeted attribute lookup,
     ...    never during enumeration): the designated data cell — positionally the table's 9th child
     ...    (1*6 + 2 + 1), holding "r1c2" — sits at row 1 / column 2, spans one cell in each
     ...    direction, and is outside the preselected row.
-    BM.Get Attribute    .//*[@Name="main-table"]/*[9]    native:TableCell.Row    ==    ${1}
-    BM.Get Attribute    .//*[@Name="main-table"]/*[9]    native:TableCell.Column    ==    ${2}
-    BM.Get Attribute    .//*[@Name="main-table"]/*[9]    native:TableCell.RowExtent    ==    ${1}
-    BM.Get Attribute    .//*[@Name="main-table"]/*[9]    native:TableCell.ColumnExtent    ==    ${1}
-    BM.Get Attribute    .//*[@Name="main-table"]/*[9]    native:TableCell.IsSelected    ==    ${False}
+    BM.Get Attribute Value    .//*[@Name="main-table"]/*[9]    native:TableCell.Row    ==    ${1}
+    BM.Get Attribute Value    .//*[@Name="main-table"]/*[9]    native:TableCell.Column    ==    ${2}
+    BM.Get Attribute Value    .//*[@Name="main-table"]/*[9]    native:TableCell.RowExtent    ==    ${1}
+    BM.Get Attribute Value    .//*[@Name="main-table"]/*[9]    native:TableCell.ColumnExtent    ==    ${1}
+    BM.Get Attribute Value    .//*[@Name="main-table"]/*[9]    native:TableCell.IsSelected    ==    ${False}
 
 A Cell In The Preselected Row Reports Its Selection
     [Documentation]    The table's 14th child (2*6 + 1 + 1) is cell (2, 1) — inside the preselected
     ...    row 2.
-    BM.Get Attribute    .//*[@Name="main-table"]/*[14]    native:TableCell.Row    ==    ${2}
-    BM.Get Attribute    .//*[@Name="main-table"]/*[14]    native:TableCell.Column    ==    ${1}
-    BM.Get Attribute    .//*[@Name="main-table"]/*[14]    native:TableCell.IsSelected    ==    ${True}
+    BM.Get Attribute Value    .//*[@Name="main-table"]/*[14]    native:TableCell.Row    ==    ${2}
+    BM.Get Attribute Value    .//*[@Name="main-table"]/*[14]    native:TableCell.Column    ==    ${1}
+    BM.Get Attribute Value    .//*[@Name="main-table"]/*[14]    native:TableCell.IsSelected    ==    ${True}
 
 A Cell Far Down The Model Is Still Addressable
     [Documentation]    The point of a table that does not fit its viewport: the accessible view
     ...    reports every cell of the model, not only the realized ones, so a cell 90 rows below the
     ...    fold answers its coordinates without anyone scrolling to it. Child (90*6 + 3 + 1).
-    BM.Get Attribute    .//*[@Name="main-table"]/*[544]    native:TableCell.Row    ==    ${90}
-    BM.Get Attribute    .//*[@Name="main-table"]/*[544]    native:TableCell.Column    ==    ${3}
-    BM.Get Attribute    .//*[@Name="main-table"]/*[544]    native:TableCell.IsSelected    ==    ${False}
+    BM.Get Attribute Value    .//*[@Name="main-table"]/*[544]    native:TableCell.Row    ==    ${90}
+    BM.Get Attribute Value    .//*[@Name="main-table"]/*[544]    native:TableCell.Column    ==    ${3}
+    BM.Get Attribute Value    .//*[@Name="main-table"]/*[544]    native:TableCell.IsSelected    ==    ${False}
 
 The Slider Reports Its Value Range And Tracks Changes Live
     [Documentation]    ``native:Value.*`` on an ``AccessibleValue`` element (fixture default: 50 in
     ...    0..100); one keyboard unit-increment must be visible on the next read of the same runtime —
     ...    live reads, no sticky cache.
-    BM.Get Attribute    .//*[@Name="stage2-slider"]    native:Value.Current    ==    ${50}
-    BM.Get Attribute    .//*[@Name="stage2-slider"]    native:Value.Minimum    ==    ${0}
-    BM.Get Attribute    .//*[@Name="stage2-slider"]    native:Value.Maximum    ==    ${100}
+    BM.Get Attribute Value    .//*[@Name="stage2-slider"]    native:Value.Current    ==    ${50}
+    BM.Get Attribute Value    .//*[@Name="stage2-slider"]    native:Value.Minimum    ==    ${0}
+    BM.Get Attribute Value    .//*[@Name="stage2-slider"]    native:Value.Maximum    ==    ${100}
     BM.Keyboard Type    .//*[@Name="stage2-slider"]    <Right>
-    BM.Get Attribute    .//*[@Name="stage2-slider"]    native:Value.Current    ==    ${51}
+    BM.Get Attribute Value    .//*[@Name="stage2-slider"]    native:Value.Current    ==    ${51}
 
 The Text Field Reports Char Count And Caret Live
     [Documentation]    ``native:Text.CharCount``/``native:Text.CaretIndex`` from
     ...    ``getAccessibleTextInfo``: empty field first, then real keyboard input; the caret lands
     ...    behind the typed text, read back on the same runtime.
-    BM.Get Attribute    .//*[@Name="stage1-textfield"]    native:Text.CharCount    ==    ${0}
+    BM.Get Attribute Value    .//*[@Name="stage1-textfield"]    native:Text.CharCount    ==    ${0}
     BM.Keyboard Type    .//*[@Name="stage1-textfield"]    live
-    BM.Get Attribute    .//*[@Name="stage1-textfield"]    native:Text.CharCount    ==    ${4}
-    BM.Get Attribute    .//*[@Name="stage1-textfield"]    native:Text.CaretIndex    ==    ${4}
+    BM.Get Attribute Value    .//*[@Name="stage1-textfield"]    native:Text.CharCount    ==    ${4}
+    BM.Get Attribute Value    .//*[@Name="stage1-textfield"]    native:Text.CaretIndex    ==    ${4}
 
 Only Supported Interfaces Contribute Attributes
     [Documentation]    The bitfield gate: a plain label supports neither Table nor Value nor Text, so
@@ -95,6 +95,6 @@ Only Supported Interfaces Contribute Attributes
         ${node}=    BM.Query    .//*[@Name="stage1-status-clicks-0"][@${attribute}]    only_first=${True}
         Should Be Equal    ${node}    ${None}    msg=label unexpectedly exposes ${attribute}
     END
-    ${interfaces}=    BM.Get Attribute    .//*[@Name="stage1-status-clicks-0"]    native:Interfaces
+    ${interfaces}=    BM.Get Attribute Value    .//*[@Name="stage1-status-clicks-0"]    native:Interfaces
     Should Contain    ${interfaces}    component
     Should Not Contain    ${interfaces}    table

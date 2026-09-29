@@ -23,7 +23,7 @@ A Root Pinned To An Ended Agent Application Is Looked Up Again
     BM.Set Query Settings    {'timeout': 2}    scope=LOCAL
     Run Keyword And Expect Error
     ...    STARTS:RootNotFoundError: The root set by Set Root, '/app:Application[@ProcessId=${pid}][@Technology="JavaAgent"]', was not found
-    ...    BM.Get Attribute    ./Window    Name
+    ...    BM.Get Attribute Value    ./Window    Name
     [Teardown]    Run Keyword And Ignore Error    Terminate Process    ${handle}    kill=${True}
 
 A Captured Agent Application Node Is Gone Once Its Process Ended

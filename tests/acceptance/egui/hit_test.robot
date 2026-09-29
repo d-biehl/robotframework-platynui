@@ -41,8 +41,8 @@ Hit Test Reaches The Window Through One Application Node
     ${suite_window}=    BM.Query    .    only_first=${True}
     Should Be Equal    ${window.runtime_id}    ${suite_window.runtime_id}
     ...    msg=the application node's child in the hit-test chain must be the suite's window
-    BM.Get Attribute    ${window}    SupportedPatterns    contains    org.platynui.patterns.Activatable
-    BM.Get Attribute    ${el}    SupportedPatterns    not contains    org.platynui.patterns.Activatable
+    BM.Get Attribute Value    ${window}    SupportedPatterns    contains    org.platynui.patterns.Activatable
+    BM.Get Attribute Value    ${el}    SupportedPatterns    not contains    org.platynui.patterns.Activatable
 
 Hit Test Follows The Cursor To A Second Widget
     [Documentation]    Moving to a different widget resolves that widget — proves the result tracks

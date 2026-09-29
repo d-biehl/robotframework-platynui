@@ -69,8 +69,8 @@ Terminate App
 
 Get Click Count
     [Documentation]    Read the integer N from the "Clicks: N" status label of the given window
-    ...    (default: the current query root's instance). ``Get Attribute`` waits/retries for the
+    ...    (default: the current query root's instance). ``Get Attribute Value`` waits/retries for the
     ...    label, then N is scraped from ``@Name`` — the dynamic count stays in the label text.
     [Arguments]    ${window}=.
-    ${name}=    BM.Get Attribute    ${window}//*[@Id="status-clicks"]    Name
+    ${name}=    BM.Get Attribute Value    ${window}//*[@Id="status-clicks"]    Name
     RETURN    ${{ int($name.split(":")[1]) }}

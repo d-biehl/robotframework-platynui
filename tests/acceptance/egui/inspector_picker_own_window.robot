@@ -29,7 +29,7 @@ A Pick Over The Inspectors Own Window Resolves The Window Behind It
     ...    that button by reading the Inspector's OWN a11y tree: the button's subtree is not loaded until a
     ...    pick reveals and selects it.
     BM.Move And Resize Window    ${WINDOW}    20    20    640    480
-    ${bounds}=    BM.Get Attribute    ${WINDOW}//*[@Id="btn-click-me"]    Bounds
+    ${bounds}=    BM.Get Attribute Value    ${WINDOW}//*[@Id="btn-click-me"]    Bounds
     VAR    ${cx}    ${{ $bounds.x + $bounds.width / 2 }}
     VAR    ${cy}    ${{ $bounds.y + $bounds.height / 2 }}
     # Cover the app, and the button, with the Inspector's own window.

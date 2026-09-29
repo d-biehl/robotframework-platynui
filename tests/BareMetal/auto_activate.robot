@@ -51,18 +51,18 @@ Pointer Activation Raises The Target Window By Default
     ...    background window then flips @IsActive and, because the mock is exclusive, deactivates the
     ...    previously active window.
     Activate Window    ${OC}
-    Get Attribute      ${DETAIL}    IsActive    ==    ${False}
+    Get Attribute Value      ${DETAIL}    IsActive    ==    ${False}
     Pointer Click      ${DETAIL_TEXT}
-    Get Attribute      ${DETAIL}    IsActive    ==    ${True}
-    Get Attribute      ${OC}        IsActive    ==    ${False}
+    Get Attribute Value      ${DETAIL}    IsActive    ==    ${True}
+    Get Attribute Value      ${OC}        IsActive    ==    ${False}
 
 Per Call Activate False Suppresses The Raise
     [Documentation]    activate=${False} overrides the import's auto_activate=True: the click acts
     ...    without raising, so the background window stays inactive and the foreground one stays active.
     Activate Window    ${OC}
     Pointer Click      ${DETAIL_TEXT}    activate=${False}
-    Get Attribute      ${DETAIL}    IsActive    ==    ${False}
-    Get Attribute      ${OC}        IsActive    ==    ${True}
+    Get Attribute Value      ${DETAIL}    IsActive    ==    ${False}
+    Get Attribute Value      ${OC}        IsActive    ==    ${True}
 
 Focus Always Focuses But Activate Gates The Window Raise
     [Documentation]    Focus sets element focus regardless of activate (focus is app-local), while the
@@ -71,10 +71,10 @@ Focus Always Focuses But Activate Gates The Window Raise
     ...    drops). This is exactly why keyboard/focus need the raise: focus alone is not desktop-wide.
     Activate Window    ${DETAIL}
     Focus              ${OC_OK}    activate=${False}
-    Get Attribute      ${OC_OK}     IsFocused    ==    ${True}
-    Get Attribute      ${OC}        IsActive     ==    ${False}
-    Get Attribute      ${DETAIL}    IsActive     ==    ${True}
+    Get Attribute Value      ${OC_OK}     IsFocused    ==    ${True}
+    Get Attribute Value      ${OC}        IsActive     ==    ${False}
+    Get Attribute Value      ${DETAIL}    IsActive     ==    ${True}
     Focus              ${OC_OK}    activate=${True}
-    Get Attribute      ${OC}        IsActive     ==    ${True}
-    Get Attribute      ${DETAIL}    IsActive     ==    ${False}
-    Get Attribute      ${OC_OK}     IsFocused    ==    ${True}
+    Get Attribute Value      ${OC}        IsActive     ==    ${True}
+    Get Attribute Value      ${DETAIL}    IsActive     ==    ${False}
+    Get Attribute Value      ${OC_OK}     IsFocused    ==    ${True}

@@ -42,7 +42,7 @@ A Doubled Backslash Types The Bracket
     Keyboard Type    ${None}    pa\\<ss>wd
 
 An Assertion Without A Message
-    Get Attribute    //Button[@Name="OK"]    Name    ==    Cancel
+    Get Attribute Value    //Button[@Name="OK"]    Name    ==    Cancel
 
 A Failed Activation Is Traced
     Pointer Click    /

@@ -34,8 +34,8 @@ Dragging Empty Menu-Bar Space Moves The Window
     # request only on a focused window (its guard against an X11 input-grab
     # bug). A real user drags a window they clicked into anyway.
     BM.Activate Window    ${INSP_WIN}
-    BM.Get Attribute    ${INSP_WIN}    IsActive    ==    ${True}
-    ${before}=    BM.Get Attribute    ${INSP_WIN}    Bounds
+    BM.Get Attribute Value    ${INSP_WIN}    IsActive    ==    ${True}
+    ${before}=    BM.Get Attribute Value    ${INSP_WIN}    Bounds
     ${x}    ${y}=    Empty Menu Bar Point
     Drag Pointer From    ${x}    ${y}
     Wait Until Keyword Succeeds    5s    0.3s    Window Moved From    ${before}
@@ -43,7 +43,7 @@ Dragging Empty Menu-Bar Space Moves The Window
 Maximize Button Toggles The Window State
     [Documentation]    The Maximize button grows the window to the output; the same control —
     ...    now presenting as Restore under the unchanged @Id — restores the previous size.
-    ${before}=    BM.Get Attribute    ${INSP_WIN}    Bounds
+    ${before}=    BM.Get Attribute Value    ${INSP_WIN}    Bounds
     BM.Pointer Click    ${INSP_WIN}//*[@Id="window-maximize"]
     Wait Until Keyword Succeeds    5s    0.3s    Window Grew Beyond    ${before}
     BM.Pointer Click    ${INSP_WIN}//*[@Id="window-maximize"]
@@ -51,7 +51,7 @@ Maximize Button Toggles The Window State
 
 Double-Click On Empty Menu-Bar Space Maximizes
     [Documentation]    Double-clicking the move grip toggles maximized, like a title bar would.
-    ${before}=    BM.Get Attribute    ${INSP_WIN}    Bounds
+    ${before}=    BM.Get Attribute Value    ${INSP_WIN}    Bounds
     ${x}    ${y}=    Empty Menu Bar Point
     # Two fast single clicks instead of Pointer Multi Click: the default
     # multi-click pacing (double_click_time/2 between clicks plus the click
@@ -87,8 +87,8 @@ Close Button Removes The Window
 Empty Menu Bar Point
     [Documentation]    Screen point on the menu bar's empty middle: horizontally between the last
     ...    menu (Help) and the Maximize button, vertically centered on the menu row.
-    ${help}=    BM.Get Attribute    ${INSP_WIN}//*[@Name="Help"]    Bounds
-    ${max}=    BM.Get Attribute    ${INSP_WIN}//*[@Id="window-maximize"]    Bounds
+    ${help}=    BM.Get Attribute Value    ${INSP_WIN}//*[@Name="Help"]    Bounds
+    ${max}=    BM.Get Attribute Value    ${INSP_WIN}//*[@Id="window-maximize"]    Bounds
     VAR    ${x}    ${{ ($help.x + $help.width + $max.x) / 2 }}
     VAR    ${y}    ${{ $help.y + $help.height / 2 }}
     RETURN    ${x}    ${y}
@@ -110,18 +110,18 @@ Drag Pointer From
 
 Window Moved From
     [Arguments]    ${before}
-    ${now}=    BM.Get Attribute    ${INSP_WIN}    Bounds
+    ${now}=    BM.Get Attribute Value    ${INSP_WIN}    Bounds
     Should Be True    abs(${now.x} - ${before.x}) > 30 or abs(${now.y} - ${before.y}) > 30
     ...    msg=window did not move (before ${before}, now ${now})
 
 Window Grew Beyond
     [Arguments]    ${before}
-    ${now}=    BM.Get Attribute    ${INSP_WIN}    Bounds
+    ${now}=    BM.Get Attribute Value    ${INSP_WIN}    Bounds
     Should Be True    ${now.width} > ${before.width}
     ...    msg=window did not maximize (before ${before}, now ${now})
 
 Window Restored To
     [Arguments]    ${before}
-    ${now}=    BM.Get Attribute    ${INSP_WIN}    Bounds
+    ${now}=    BM.Get Attribute Value    ${INSP_WIN}    Bounds
     Should Be True    ${now.width} == ${before.width} and ${now.height} == ${before.height}
     ...    msg=window did not restore (before ${before}, now ${now})

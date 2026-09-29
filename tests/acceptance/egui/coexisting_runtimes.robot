@@ -45,7 +45,7 @@ One Runtime Keeps Working While The Other Acts
     [Documentation]    An action through one runtime does not disturb the other: A clicks the button and
     ...    B, reading the same live tree through its own connection, observes the incremented count
     ...    (Wait Until Query polls B's view instead of sleeping a fixed time).
-    ${before}=    B.Get Attribute    ${WINDOW}//*[@Id="status-clicks"]    Name
+    ${before}=    B.Get Attribute Value    ${WINDOW}//*[@Id="status-clicks"]    Name
     A.Pointer Click    ${WINDOW}//*[@Id="btn-click-me"]
     B.Wait Until Query    ${WINDOW}//*[@Id="status-clicks"]/@Name    !=    ${before}
     ...    assertion_message=B did not observe the click A performed on the shared session
@@ -66,4 +66,4 @@ An Element From One Runtime Is Rejected By The Other
     ${wb}=    B.Query    ${WINDOW}    only_first=${True}
     Should Be Equal    ${{ $wa.runtime_id }}    ${{ $wb.runtime_id }}
     ...    msg=precondition: both runtimes resolve the same element
-    Run Keyword And Expect Error    *different library instance*    B.Get Attribute    ${wa}    Name
+    Run Keyword And Expect Error    *different library instance*    B.Get Attribute Value    ${wa}    Name

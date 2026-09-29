@@ -16,7 +16,7 @@ The Parent Suite Query Settings Do Not Reach This Suite
     [Documentation]    This import's own 0.2 s default applies; the parent's suite-scoped 0.5 s does
     ...    not travel any further than its own suite.
     Run Keyword And Expect Error    *within timeout of 0.2 seconds*
-    ...    Get Attribute    //control:Button[@Name="NoSuchButton"]    Name
+    ...    Get Attribute Value    //control:Button[@Name="NoSuchButton"]    Name
 
 This Suite Pins Its Own Context
     [Documentation]    The boundary is not a restriction on the suite itself: a root set here works

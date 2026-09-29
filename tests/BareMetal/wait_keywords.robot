@@ -59,7 +59,7 @@ Wait Until Gone Times Out For A Still Valid Captured Node
     Run Keyword And Expect Error    *still valid*within timeout of 0.2 seconds*    Wait Until Gone    ${el}
 
 Wait Until Gone Ignores A Stale Cached Descriptor Node
-    Get Attribute    ${OPS}    Name
+    Get Attribute Value    ${OPS}    Name
     Run Keyword And Expect Error    *still present*within timeout of 0.2 seconds*    Wait Until Gone    ${OPS}
 
 Wait Until Gone Rejects A Value Selector
@@ -126,9 +126,9 @@ Wait Until Query Evaluates Against A Root Node
     ${r}=    Wait Until Query    count(.//item:ListItem)    >    ${0}    root=${win}
     Should Be True    ${r} > 0
 
-Wait Until Query Matches Get Attribute For A Present Attribute
+Wait Until Query Matches Get Attribute Value For A Present Attribute
     Wait Until Query    ${OPS_NAME}    ==    Operations Console
-    Get Attribute    ${OPS}    Name    ==    Operations Console
+    Get Attribute Value    ${OPS}    Name    ==    Operations Console
 
 Wait Until Query With Ignore Exceptions Times Out On A Bad Expression
     Run Keyword And Expect Error    *did not become truthy*within timeout of 0.2 seconds*
@@ -137,9 +137,9 @@ Wait Until Query With Ignore Exceptions Times Out On A Bad Expression
 # --- Wait Until Attribute Value ------------------------------------------------
 
 Wait Until Attribute Value Returns A Value That Already Holds
-    [Documentation]    The value comes back typed as Get Attribute reads it — here the boolean False.
+    [Documentation]    The value comes back typed as Get Attribute Value reads it — here the boolean False.
     ${value}=    Wait Until Attribute Value    ${OPS}    IsMaximized    ==    ${False}
-    ${read}=    Get Attribute    ${OPS}    IsMaximized
+    ${read}=    Get Attribute Value    ${OPS}    IsMaximized
     Should Be Equal    ${value}    ${read}
     Should Be True    ${{ type($value) is bool }}
 

@@ -36,7 +36,7 @@ A Captured Element Still Raises Its Window After The Snapshot Was Discarded
     BM.Wait Until Query    .//Window[@Name="${SWING_AGENT_TITLE}"]/@Bounds.Y    ==    ${160}
     BM.Wait Until Exists    .//*[@Name="stage1-status-clicks-0"]
     ${button}=    BM.Query    .//*[@Name="stage1-button"]    only_first=${True}
-    ${bounds}=    BM.Get Attribute    ${button}    Bounds
+    ${bounds}=    BM.Get Attribute Value    ${button}    Bounds
     # This Query discards the snapshot the button was found in.
     ${cover}=    BM.Query    ${COVER_WINDOW}    only_first=${True}
     BM.Activate Window    ${cover}
@@ -45,7 +45,7 @@ A Captured Element Still Raises Its Window After The Snapshot Was Discarded
     BM.Wait Until Query    .//Window[@Name="${SWING_AGENT_TITLE}"]/@IsActive    ==    ${True}
     ...    assertion_message=the captured button's window was not raised
     BM.Wait Until Exists    .//*[@Name="stage1-status-clicks-1"]
-    BM.Get Attribute    ${button}    Bounds    ==    ${bounds}
+    BM.Get Attribute Value    ${button}    Bounds    ==    ${bounds}
 
 
 *** Keywords ***

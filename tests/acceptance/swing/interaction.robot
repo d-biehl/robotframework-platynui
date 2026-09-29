@@ -3,9 +3,9 @@ Documentation       Interaction proof through the JAB provider: pointer clicks l
 ...                 bounds (click-counter observable), real keyboard input round-trips through the
 ...                 accessibility text API, and toggle/selection state is visible — all read back on the
 ...                 same runtime, because the provider reads JAB state live per access. Swing applies
-...                 input on its event-dispatch thread, so the assertions use the self-waiting
-...                 ``Wait Until Exists`` / ``Get Attribute    ==`` instead of assuming the change is
-...                 instant.
+...                 input on its event-dispatch thread: click counts are awaited with the self-waiting
+...                 ``Wait Until Exists``, while text and toggle state are read back once with
+...                 ``Get Attribute Value    ==``.
 
 Resource            resources/testapp.resource
 
@@ -30,30 +30,30 @@ Typed Text Is Readable Through The Accessibility Text API
     [Documentation]    Focus via the JAB ``requestFocus`` pattern, typing through the real OS keyboard,
     ...    then ``@Text`` read back through chunked ``getAccessibleTextRange`` — never the accessible
     ...    name.
-    BM.Get Attribute    .//*[@Name="stage1-textfield"]    Text    ==    ${EMPTY}
+    BM.Get Attribute Value    .//*[@Name="stage1-textfield"]    Text    ==    ${EMPTY}
     BM.Keyboard Type    .//*[@Name="stage1-textfield"]    hello
-    BM.Get Attribute    .//*[@Name="stage1-textfield"]    Text    ==    hello
-    BM.Get Attribute    .//*[@Name="stage1-textfield"]    IsFocused    ==    ${True}
+    BM.Get Attribute Value    .//*[@Name="stage1-textfield"]    Text    ==    hello
+    BM.Get Attribute Value    .//*[@Name="stage1-textfield"]    IsFocused    ==    ${True}
 
 Toggling The Checkbox Flips ToggleState
     [Documentation]    ``@ToggleState`` derives from the JAB ``checked`` state: Off → click → On.
-    BM.Get Attribute    .//*[@Name="stage2-checkbox"]    ToggleState    ==    Off
+    BM.Get Attribute Value    .//*[@Name="stage2-checkbox"]    ToggleState    ==    Off
     BM.Pointer Click    .//*[@Name="stage2-checkbox"]
-    BM.Get Attribute    .//*[@Name="stage2-checkbox"]    ToggleState    ==    On
+    BM.Get Attribute Value    .//*[@Name="stage2-checkbox"]    ToggleState    ==    On
 
 Radio Selection Is Visible As ToggleState
     [Documentation]    Swing radio buttons carry the JAB ``checked`` state, surfaced as ``@ToggleState``:
     ...    radio-a starts On; clicking radio-b moves the selection within the button group.
-    BM.Get Attribute    .//*[@Name="stage2-radio-a"]    ToggleState    ==    On
-    BM.Get Attribute    .//*[@Name="stage2-radio-b"]    ToggleState    ==    Off
+    BM.Get Attribute Value    .//*[@Name="stage2-radio-a"]    ToggleState    ==    On
+    BM.Get Attribute Value    .//*[@Name="stage2-radio-b"]    ToggleState    ==    Off
     BM.Pointer Click    .//*[@Name="stage2-radio-b"]
-    BM.Get Attribute    .//*[@Name="stage2-radio-b"]    ToggleState    ==    On
-    BM.Get Attribute    .//*[@Name="stage2-radio-a"]    ToggleState    ==    Off
+    BM.Get Attribute Value    .//*[@Name="stage2-radio-b"]    ToggleState    ==    On
+    BM.Get Attribute Value    .//*[@Name="stage2-radio-a"]    ToggleState    ==    Off
 
 Slider And Progress Bar Expose Their Numeric Values
     [Documentation]    StatefulValue surface: ``@Value``/``@MinValue``/``@MaxValue`` parse the JAB value
     ...    interface numerically (fixture defaults: slider 50 in 0..100, progress 30).
-    BM.Get Attribute    .//*[@Name="stage2-slider"]    Value    ==    ${50}
-    BM.Get Attribute    .//*[@Name="stage2-slider"]    MinValue    ==    ${0}
-    BM.Get Attribute    .//*[@Name="stage2-slider"]    MaxValue    ==    ${100}
-    BM.Get Attribute    .//*[@Name="stage2-progress"]    Value    ==    ${30}
+    BM.Get Attribute Value    .//*[@Name="stage2-slider"]    Value    ==    ${50}
+    BM.Get Attribute Value    .//*[@Name="stage2-slider"]    MinValue    ==    ${0}
+    BM.Get Attribute Value    .//*[@Name="stage2-slider"]    MaxValue    ==    ${100}
+    BM.Get Attribute Value    .//*[@Name="stage2-progress"]    Value    ==    ${30}

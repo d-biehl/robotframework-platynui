@@ -37,17 +37,17 @@ Maximized State Is Read Live From The Same Window
     ...    reports False, then True after Maximize Window — and a maximized window is never also
     ...    reported as minimized.
     ${window}=    BM.Query    ${ALPHA}    only_first=${True}
-    BM.Get Attribute    ${window}    IsMaximized    ==    ${False}
+    BM.Get Attribute Value    ${window}    IsMaximized    ==    ${False}
     BM.Maximize Window    ${window}
     BM.Wait Until Query    ./@IsMaximized    ==    ${True}    root=${window}
-    BM.Get Attribute    ${window}    IsMinimized    ==    ${False}
+    BM.Get Attribute Value    ${window}    IsMinimized    ==    ${False}
 
 Minimized State Is Reported And Activation Brings The Window Back
     [Documentation]    A minimized window reports @IsMinimized (and not @IsMaximized), stays resolvable
     ...    while it is minimized, and Activate Window brings it back as the active window.
     BM.Minimize Window    ${ALPHA}
     BM.Wait Until Query    ${ALPHA}/@IsMinimized    ==    ${True}
-    BM.Get Attribute    ${ALPHA}    IsMaximized    ==    ${False}
+    BM.Get Attribute Value    ${ALPHA}    IsMaximized    ==    ${False}
     BM.Activate Window    ${ALPHA}
     BM.Wait Until Query    ${ALPHA}/@IsMinimized    ==    ${False}
     BM.Wait Until Query    ${ALPHA}/@IsActive    ==    ${True}
@@ -60,7 +60,7 @@ A Window Minimized From Maximized Comes Back Maximized
     BM.Activate Window    ${ALPHA}
     BM.Wait Until Query    ${ALPHA}/@IsActive    ==    ${True}
     BM.Wait Until Query    ${ALPHA}/@IsMaximized    ==    ${True}
-    BM.Get Attribute    ${ALPHA}    IsMinimized    ==    ${False}
+    BM.Get Attribute Value    ${ALPHA}    IsMinimized    ==    ${False}
 
 Activating A Maximized Background Window Keeps Its Size
     BM.Maximize Window    ${ALPHA}
@@ -72,7 +72,7 @@ Activating A Maximized Background Window Keeps Its Size
     BM.Wait Until Query    ${ALPHA}/@IsActive    ==    ${True}
     ${after}=    Settled Bounds    ${ALPHA}
     Should Be Equal    ${after}    ${before}    msg=activation changed the window's bounds
-    BM.Get Attribute    ${ALPHA}    IsMaximized    ==    ${True}
+    BM.Get Attribute Value    ${ALPHA}    IsMaximized    ==    ${True}
 
 Bring To Front Brings Back A Minimized Window
     [Documentation]    Brings the window itself to the front, not an element inside it: while a window
@@ -96,8 +96,8 @@ Pointer Click Into A Maximized Background Window Keeps It Maximized
     BM.Pointer Click    ${ALPHA}//*[@Id="btn-click-me"]
     BM.Wait Until Query    ${ALPHA}//*[@Id="status-clicks"]/@Name    ==    Clicks: ${{ $before + 1 }}
     ...    assertion_message=click did not land on the raised window
-    BM.Get Attribute    ${ALPHA}    IsActive    ==    ${True}
-    BM.Get Attribute    ${ALPHA}    IsMaximized    ==    ${True}
+    BM.Get Attribute Value    ${ALPHA}    IsActive    ==    ${True}
+    BM.Get Attribute Value    ${ALPHA}    IsMaximized    ==    ${True}
 
 Window State Attributes Exist Only On Windows
     @{attributes}=    BM.Query    ${ALPHA}//*[@Id="btn-click-me"]/(@IsMinimized|@IsMaximized|@IsTopmost)
@@ -105,7 +105,7 @@ Window State Attributes Exist Only On Windows
 
 The Compositor Reports No Window As Topmost
     [Tags]    platform:wayland
-    BM.Get Attribute    ${ALPHA}    IsTopmost    ==    ${False}
+    BM.Get Attribute Value    ${ALPHA}    IsTopmost    ==    ${False}
 
 
 *** Keywords ***
@@ -146,8 +146,8 @@ Bounds Unchanged Over A Few Frames
     [Documentation]    Predicate for Settled Bounds: read @Bounds twice, 100 ms apart (several frames
     ...    at the compositor's refresh rate), and pass when both reads agree.
     [Arguments]    ${window}
-    ${first}=    BM.Get Attribute    ${window}    Bounds
+    ${first}=    BM.Get Attribute Value    ${window}    Bounds
     Sleep    0.1s
-    ${second}=    BM.Get Attribute    ${window}    Bounds
+    ${second}=    BM.Get Attribute Value    ${window}    Bounds
     Should Be Equal    ${first}    ${second}    msg=window bounds are still changing
     RETURN    ${second}

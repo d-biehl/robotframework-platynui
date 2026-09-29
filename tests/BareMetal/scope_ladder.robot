@@ -33,7 +33,7 @@ A Selector Root Can Be Set Globally
 Query Settings Can Be Set Globally
     Set Query Settings    {'timeout': 0.4}    scope=GLOBAL
     Run Keyword And Expect Error    *within timeout of 0.4 seconds*
-    ...    Get Attribute    //control:Button[@Name="NoSuchButton"]    Name
+    ...    Get Attribute Value    //control:Button[@Name="NoSuchButton"]    Name
 
 A Captured Element Cannot Be Shared Across Suites
     [Documentation]    The element is this runtime's handle; a suite below could not find it again,

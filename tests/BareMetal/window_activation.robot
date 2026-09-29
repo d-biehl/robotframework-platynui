@@ -19,55 +19,55 @@ ${DETAIL}         //control:Window[@Name="Detail View"]
 Activating A Window Minimized From Normal Brings It Back Normal
     Restore Window     ${OC}
     Minimize Window    ${OC}
-    Get Attribute      ${OC}    IsMinimized    ==    ${True}
+    Get Attribute Value      ${OC}    IsMinimized    ==    ${True}
     Activate Window    ${OC}
-    Get Attribute      ${OC}    IsMinimized    ==    ${False}
-    Get Attribute      ${OC}    IsMaximized    ==    ${False}
-    Get Attribute      ${OC}    IsActive       ==    ${True}
+    Get Attribute Value      ${OC}    IsMinimized    ==    ${False}
+    Get Attribute Value      ${OC}    IsMaximized    ==    ${False}
+    Get Attribute Value      ${OC}    IsActive       ==    ${True}
 
 Activating A Window Minimized From Maximized Brings It Back Maximized
     Restore Window      ${OC}
     Maximize Window     ${OC}
     Minimize Window     ${OC}
-    Get Attribute       ${OC}    IsMinimized    ==    ${True}
+    Get Attribute Value       ${OC}    IsMinimized    ==    ${True}
     Activate Window     ${OC}
-    Get Attribute       ${OC}    IsMinimized    ==    ${False}
-    Get Attribute       ${OC}    IsMaximized    ==    ${True}
-    Get Attribute       ${OC}    IsActive       ==    ${True}
+    Get Attribute Value       ${OC}    IsMinimized    ==    ${False}
+    Get Attribute Value       ${OC}    IsMaximized    ==    ${True}
+    Get Attribute Value       ${OC}    IsActive       ==    ${True}
 
 Activating A Maximized Background Window Keeps It Maximized
     Restore Window     ${OC}
     Maximize Window    ${OC}
     Activate Window    ${DETAIL}
-    ${before}=         Get Attribute    ${OC}    Bounds
+    ${before}=         Get Attribute Value    ${OC}    Bounds
     Activate Window    ${OC}
-    Get Attribute      ${OC}    IsActive       ==    ${True}
-    Get Attribute      ${OC}    IsMaximized    ==    ${True}
-    Get Attribute      ${OC}    Bounds         ==    ${before}
+    Get Attribute Value      ${OC}    IsActive       ==    ${True}
+    Get Attribute Value      ${OC}    IsMaximized    ==    ${True}
+    Get Attribute Value      ${OC}    Bounds         ==    ${before}
 
 Activating A Normal Window Keeps It Normal
     Restore Window     ${OC}
     Activate Window    ${DETAIL}
-    ${before}=         Get Attribute    ${OC}    Bounds
+    ${before}=         Get Attribute Value    ${OC}    Bounds
     Activate Window    ${OC}
-    Get Attribute      ${OC}    IsActive       ==    ${True}
-    Get Attribute      ${OC}    IsMaximized    ==    ${False}
-    Get Attribute      ${OC}    Bounds         ==    ${before}
+    Get Attribute Value      ${OC}    IsActive       ==    ${True}
+    Get Attribute Value      ${OC}    IsMaximized    ==    ${False}
+    Get Attribute Value      ${OC}    Bounds         ==    ${before}
 
 Bring To Front On An Element Of A Maximized Window Keeps It Maximized
     Restore Window     ${OC}
     Maximize Window    ${OC}
     Activate Window    ${DETAIL}
     Bring To Front     ${OC}//*[@Name="OK"]
-    Get Attribute      ${OC}    IsActive       ==    ${True}
-    Get Attribute      ${OC}    IsMaximized    ==    ${True}
+    Get Attribute Value      ${OC}    IsActive       ==    ${True}
+    Get Attribute Value      ${OC}    IsMaximized    ==    ${True}
 
 Bring To Front On An Element Of A Minimized Window Brings It Back
     Restore Window     ${OC}
     Minimize Window    ${OC}
     Bring To Front     ${OC}//*[@Name="OK"]
-    Get Attribute      ${OC}    IsMinimized    ==    ${False}
-    Get Attribute      ${OC}    IsActive       ==    ${True}
+    Get Attribute Value      ${OC}    IsMinimized    ==    ${False}
+    Get Attribute Value      ${OC}    IsActive       ==    ${True}
 
 Pointer Click Into A Maximized Background Window Keeps It Maximized
     [Documentation]    auto_activate is on by default, so the click raises the window first — and
@@ -76,20 +76,20 @@ Pointer Click Into A Maximized Background Window Keeps It Maximized
     Maximize Window    ${OC}
     Activate Window    ${DETAIL}
     Pointer Click      ${OC}//*[@Name="OK"]
-    Get Attribute      ${OC}    IsActive       ==    ${True}
-    Get Attribute      ${OC}    IsMaximized    ==    ${True}
+    Get Attribute Value      ${OC}    IsActive       ==    ${True}
+    Get Attribute Value      ${OC}    IsMaximized    ==    ${True}
 
 Restore Window Un-Maximizes
     Restore Window     ${OC}
     Maximize Window    ${OC}
-    Get Attribute      ${OC}    IsMaximized    ==    ${True}
+    Get Attribute Value      ${OC}    IsMaximized    ==    ${True}
     Restore Window     ${OC}
-    Get Attribute      ${OC}    IsMaximized    ==    ${False}
-    Get Attribute      ${OC}    IsMinimized    ==    ${False}
+    Get Attribute Value      ${OC}    IsMaximized    ==    ${False}
+    Get Attribute Value      ${OC}    IsMinimized    ==    ${False}
 
 Restore Window Brings Back A Minimized Window
     Restore Window     ${OC}
     Minimize Window    ${OC}
-    Get Attribute      ${OC}    IsMinimized    ==    ${True}
+    Get Attribute Value      ${OC}    IsMinimized    ==    ${True}
     Restore Window     ${OC}
-    Get Attribute      ${OC}    IsMinimized    ==    ${False}
+    Get Attribute Value      ${OC}    IsMinimized    ==    ${False}

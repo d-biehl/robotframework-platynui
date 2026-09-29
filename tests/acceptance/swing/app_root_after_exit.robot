@@ -22,7 +22,7 @@ A Root Pinned To An Ended JAB Application Is Looked Up Again
     # At the scope level, so that the root's own lookup is short as well.
     BM.Set Query Settings    {'timeout': 2}    scope=LOCAL
     Run Keyword And Expect Error    STARTS:RootNotFoundError: The root set by Set Root, '/app:Application[@ProcessId=${pid}]', was not found
-    ...    BM.Get Attribute    ./Window    Name
+    ...    BM.Get Attribute Value    ./Window    Name
     [Teardown]    Run Keyword And Ignore Error    Terminate Process    ${handle}    kill=${True}
 
 A Captured JAB Application Node Is Gone Once Its Process Ended

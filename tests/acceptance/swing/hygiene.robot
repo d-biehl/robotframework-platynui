@@ -31,7 +31,7 @@ Ten Full Walks Return The Same Structure
         Dictionaries Should Be Equal    ${walk}    ${baseline}    msg=walk ${round + 2} diverged from the first
     END
     # The JVM is still healthy after the handle churn: a fresh identifying read still succeeds.
-    BM.Get Attribute    .//*[@Name="stage1-button"]    Technology    ==    JAB
+    BM.Get Attribute Value    .//*[@Name="stage1-button"]    Technology    ==    JAB
 
 
 *** Keywords ***

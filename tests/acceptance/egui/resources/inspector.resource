@@ -50,7 +50,7 @@ Lay Windows Out Side By Side
     ...    derived from the app's actual bounds, so it adapts to whatever size the toolkit grants.
     [Arguments]    ${app_window}
     BM.Move And Resize Window    ${app_window}    20    20    640    480
-    ${app}=    BM.Get Attribute    ${app_window}    Bounds
+    ${app}=    BM.Get Attribute Value    ${app_window}    Bounds
     VAR    ${insp_x}    ${{ int($app.x + $app.width + 20) }}
     BM.Move Window    ${INSP_WIN}    ${insp_x}    20
     Sleep    0.5s

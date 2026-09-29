@@ -85,7 +85,7 @@ Cached Node Does Not Bypass Parent Drilling
     ...    cached node: with a broken (non-node) parent the re-resolution raises, whereas a reused
     ...    cached node would wrongly succeed.
     Set Root    ${OPS}
-    Get Attribute    .//control:List[@Name="Task List"]    Name      # resolves + caches the List node
+    Get Attribute Value    .//control:List[@Name="Task List"]    Name      # resolves + caches the List node
     Set Root    count(//control:Window)    scope=SUITE
     Set Root    .//control:List[@Name="Task List"]
     Run Keyword And Expect Error    *did not return an element*    Query    count(.//item:ListItem)    only_first=${True}

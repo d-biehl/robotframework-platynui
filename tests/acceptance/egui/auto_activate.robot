@@ -49,7 +49,7 @@ Move And Resize Window Change The Window Bounds
     ...    applies both asynchronously — a move is composited server-side, but a resize is a full
     ...    configure/ack/commit round-trip with the client — so poll @Bounds until the change lands
     ...    rather than reading it once (a fixed settle sleep would be both flaky and needlessly slow).
-    ${b0}=    BM.Get Attribute    ${ALPHA}    Bounds
+    ${b0}=    BM.Get Attribute Value    ${ALPHA}    Bounds
     BM.Move Window    ${ALPHA}    ${260}    ${180}
     Wait Until Keyword Succeeds    3s    0.1s    Window Position Changed    ${ALPHA}    ${b0}
     BM.Resize Window    ${ALPHA}    ${640}    ${360}
@@ -78,7 +78,7 @@ Activate False Leaves The Target Behind So The Click Misses It
     ${beta_before}=    Get Click Count    ${BETA}
     BM.Pointer Click    ${BETA}//*[@Id="btn-click-me"]    activate=${False}
     Sleep    0.3s
-    BM.Get Attribute    ${BETA}    IsActive    ==    ${False}
+    BM.Get Attribute Value    ${BETA}    IsActive    ==    ${False}
     ${beta_after}=    Get Click Count    ${BETA}
     Should Be Equal As Integers    ${beta_after}    ${beta_before}    msg=click should not have reached the un-raised window
 
@@ -92,7 +92,7 @@ A Captured Element Still Raises Its Window After The Snapshot Was Discarded
     Stack Windows
     ${before}=    Get Click Count    ${BETA}
     ${button}=    BM.Query    ${BETA}//*[@Id="btn-click-me"]    only_first=${True}
-    ${bounds}=    BM.Get Attribute    ${button}    Bounds
+    ${bounds}=    BM.Get Attribute Value    ${button}    Bounds
     # This Query discards the snapshot the button was found in.
     ${cover}=    BM.Query    ${ALPHA}    only_first=${True}
     BM.Activate Window    ${cover}
@@ -103,7 +103,7 @@ A Captured Element Still Raises Its Window After The Snapshot Was Discarded
     ...    assertion_message=the captured button's window was not raised
     BM.Wait Until Query    ${BETA}//*[@Id="status-clicks"]/@Name    ==    Clicks: ${{ $before + 1 }}
     ...    assertion_message=the click did not land on the captured button
-    BM.Get Attribute    ${button}    Bounds    ==    ${bounds}
+    BM.Get Attribute Value    ${button}    Bounds    ==    ${bounds}
     # Raising the window alone does not show the way up: UI Automation raises a window through any
     # element of it. The captured button itself has to reach its window.
     ${window}=    BM.Query    ancestor::*[self::Window or self::Frame]    root=${button}    only_first=${True}
@@ -189,13 +189,13 @@ Window Position Changed
     [Documentation]    Predicate for Wait Until Keyword Succeeds: pass once the window's top-left has
     ...    moved away from its original position — the asynchronously-applied effect of Move Window.
     [Arguments]    ${window}    ${origin}
-    ${b}=    BM.Get Attribute    ${window}    Bounds
+    ${b}=    BM.Get Attribute Value    ${window}    Bounds
     Should Be True    $b.x != $origin.x or $b.y != $origin.y    msg=Move Window did not change the position
 
 Window Size Is
     [Documentation]    Predicate for Wait Until Keyword Succeeds: pass once the window reports exactly the
     ...    target width and height — the asynchronously-applied effect of Resize Window.
     [Arguments]    ${window}    ${width}    ${height}
-    ${b}=    BM.Get Attribute    ${window}    Bounds
+    ${b}=    BM.Get Attribute Value    ${window}    Bounds
     Should Be Equal As Numbers    ${b.width}     ${width}     msg=Resize Window did not set the width
     Should Be Equal As Numbers    ${b.height}    ${height}    msg=Resize Window did not set the height

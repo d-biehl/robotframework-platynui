@@ -58,9 +58,9 @@ Query Settings Stay With Their Own Import
     Variable Should Exist    \${PLATYNUI_QUERY_SETTINGS_A}
     Variable Should Not Exist    \${PLATYNUI_QUERY_SETTINGS_B}
     Run Keyword And Expect Error    *within timeout of 0.6 seconds*
-    ...    A.Get Attribute    //control:Button[@Name="NoSuchButton"]    Name
+    ...    A.Get Attribute Value    //control:Button[@Name="NoSuchButton"]    Name
     Run Keyword And Expect Error    *within timeout of 0.2 seconds*
-    ...    B.Get Attribute    //control:Button[@Name="NoSuchButton"]    Name
+    ...    B.Get Attribute Value    //control:Button[@Name="NoSuchButton"]    Name
 
 A Selector Handed To Another Import Resolves There
     [Documentation]    The counterpart to the rejected element: a selector is pure data, so handing
@@ -77,7 +77,7 @@ A Selector Handed To Another Import Resolves There
 
 A Node From Another Import Is Rejected As A Target
     ${node}=    A.Query    ${OPS}    only_first=${True}
-    Run Keyword And Expect Error    *different library instance*    B.Get Attribute    ${node}    Name
+    Run Keyword And Expect Error    *different library instance*    B.Get Attribute Value    ${node}    Name
 
 A Node From Another Import Is Rejected As A Query Root
     ${node}=    A.Query    ${OPS}    only_first=${True}

@@ -26,7 +26,7 @@ Egui Window Is Exposed By Title
     ...    window — the suite's query root — is discoverable by name on the accessibility tree.
     ${win}=    BM.Query    .    only_first=${True}
     Should Not Be Equal    ${win}    ${None}    msg=window 'PlatynUI Test App' not found on the accessibility tree
-    BM.Get Attribute    .    Name    ==    PlatynUI Test App
+    BM.Get Attribute Value    .    Name    ==    PlatynUI Test App
     BM.Highlight    ${win}    duration=1.0
 
 Window Carries The Common Attributes
@@ -34,8 +34,8 @@ Window Carries The Common Attributes
     ...    node names the technology that surfaced it and the patterns it advertises. Both values are
     ...    platform-specific (``AT-SPI2`` here, ``UIAutomation`` on Windows), so this asserts presence
     ...    rather than a literal — the point is that no provider leaves them off.
-    BM.Get Attribute    .    Technology    validate    len(value) > 0
-    BM.Get Attribute    .    SupportedPatterns    validate    len(value) > 0
+    BM.Get Attribute Value    .    Technology    validate    len(value) > 0
+    BM.Get Attribute Value    .    SupportedPatterns    validate    len(value) > 0
 
 # Interaction coverage (click/radio/keyboard/focus, delta-verified) lives in
 # interaction.robot; query/attribute/set-root coverage in query.robot. This

@@ -23,4 +23,4 @@ The Inherited Root Resolves On This Suite's Own Runtime
 The Parent Suite Query Settings Reach This Suite Too
     [Documentation]    This import's own default is 0.2 s; the parent's 0.5 s at ``SUITES`` wins.
     Run Keyword And Expect Error    *within timeout of 0.5 seconds*
-    ...    TREE.Get Attribute    //control:Button[@Name="NoSuchButton"]    Name
+    ...    TREE.Get Attribute Value    //control:Button[@Name="NoSuchButton"]    Name

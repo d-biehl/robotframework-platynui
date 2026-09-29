@@ -16,7 +16,7 @@ Test Tags           real
 *** Test Cases ***
 Activate Brings The Window To The Foreground
     BM.Activate Window    .//Window[@Name="${SWING_TITLE}"]
-    BM.Get Attribute    .//Window[@Name="${SWING_TITLE}"]    IsActive    ==    ${True}
+    BM.Get Attribute Value    .//Window[@Name="${SWING_TITLE}"]    IsActive    ==    ${True}
 
 Move Repositions The Window To The Requested Origin
     [Documentation]    The JAB-reported bounds track the move once Swing's event-dispatch thread has
@@ -29,13 +29,13 @@ Window State Is Reported And Activation Brings A Maximized Frame Back Maximized
     ...    Window, @IsMinimized (and no longer @IsMaximized) after Minimize Window. Activate Window
     ...    brings the minimized frame back in the state it was minimized from — maximized.
     BM.Maximize Window    .//Window[@Name="${SWING_TITLE}"]
-    BM.Get Attribute    .//Window[@Name="${SWING_TITLE}"]    IsMaximized    ==    ${True}
+    BM.Get Attribute Value    .//Window[@Name="${SWING_TITLE}"]    IsMaximized    ==    ${True}
     BM.Minimize Window    .//Window[@Name="${SWING_TITLE}"]
-    BM.Get Attribute    .//Window[@Name="${SWING_TITLE}"]    IsMinimized    ==    ${True}
-    BM.Get Attribute    .//Window[@Name="${SWING_TITLE}"]    IsMaximized    ==    ${False}
+    BM.Get Attribute Value    .//Window[@Name="${SWING_TITLE}"]    IsMinimized    ==    ${True}
+    BM.Get Attribute Value    .//Window[@Name="${SWING_TITLE}"]    IsMaximized    ==    ${False}
     BM.Activate Window    .//Window[@Name="${SWING_TITLE}"]
-    BM.Get Attribute    .//Window[@Name="${SWING_TITLE}"]    IsMinimized    ==    ${False}
-    BM.Get Attribute    .//Window[@Name="${SWING_TITLE}"]    IsMaximized    ==    ${True}
+    BM.Get Attribute Value    .//Window[@Name="${SWING_TITLE}"]    IsMinimized    ==    ${False}
+    BM.Get Attribute Value    .//Window[@Name="${SWING_TITLE}"]    IsMaximized    ==    ${True}
     [Teardown]    BM.Restore Window    .//Window[@Name="${SWING_TITLE}"]
 
 Close Ends The Fixture Process And Removes The Window
@@ -54,6 +54,6 @@ Window Origin Should Be
     [Documentation]    Predicate for Wait Until Keyword Succeeds: the window's top-left has reached
     ...    the requested origin.
     [Arguments]    ${x}    ${y}
-    ${bounds}=    BM.Get Attribute    .//Window[@Name="${SWING_TITLE}"]    Bounds
+    ${bounds}=    BM.Get Attribute Value    .//Window[@Name="${SWING_TITLE}"]    Bounds
     Should Be Equal As Numbers    ${bounds.x}    ${x}
     Should Be Equal As Numbers    ${bounds.y}    ${y}

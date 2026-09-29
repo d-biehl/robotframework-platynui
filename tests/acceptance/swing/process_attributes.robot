@@ -35,15 +35,15 @@ ${HANDLE}                   ${None}
 The Agent-Served Node Reports The JVM Process Under App
     [Documentation]    The process is ``javaw``, not the main class, and its path is the launcher that
     ...    was started, not one derived from ``java.home``. Nothing of it stays under ``control``.
-    BM.Get Attribute    .    app:ProcessName    ==    javaw
-    ${path}=    BM.Get Attribute    .    app:ExecutablePath
+    BM.Get Attribute Value    .    app:ProcessName    ==    javaw
+    ${path}=    BM.Get Attribute Value    .    app:ExecutablePath
     Should Be Equal    ${{ os.path.normcase(os.path.realpath($path)) }}
     ...    ${{ os.path.normcase(os.path.realpath($JAVAW)) }}
-    ${start}=    BM.Get Attribute    .    app:StartTime
+    ${start}=    BM.Get Attribute Value    .    app:StartTime
     Should Match Regexp    ${start}    ${START_TIME_FORMAT}
-    ${user}=    BM.Get Attribute    .    app:UserName
+    ${user}=    BM.Get Attribute Value    .    app:UserName
     Should Be Equal    ${user}    %{USERDOMAIN}\\%{USERNAME}    ignore_case=${True}
-    BM.Get Attribute    .    app:Architecture    ==    x64
+    BM.Get Attribute Value    .    app:Architecture    ==    x64
     ${application}=    BM.Query    .[@ProcessName]    only_first=${True}
     Should Be Equal    ${application}    ${None}    msg=the agent-served node still reports ProcessName under control
 
@@ -57,21 +57,21 @@ A Self-Described User Name Does Not Replace The Account
     ${log}=    Get File    ${TEMPDIR}/swing-${title}.log
     Should Contain    ${log}    Picked up JAVA_TOOL_OPTIONS: -Duser.name=someone-else
     ${pid}=    Get Process Id    ${handle}
-    ${user}=    BM.Get Attribute    /app:Application[@ProcessId=${pid}][@Technology="JavaAgent"]    app:UserName
+    ${user}=    BM.Get Attribute Value    /app:Application[@ProcessId=${pid}][@Technology="JavaAgent"]    app:UserName
     Should Be Equal    ${user}    %{USERDOMAIN}\\%{USERNAME}    ignore_case=${True}
     [Teardown]    Run Keyword And Ignore Error    Terminate Process    ${handle}    kill=${True}
 
 The Access Bridge Node Reports The Process In The Platform's Form
     [Documentation]    The account with its domain, the verbatim command line with the title's quotes,
     ...    and a node named after its process.
-    ${user}=    BMJAB.Get Attribute    .    app:UserName
+    ${user}=    BMJAB.Get Attribute Value    .    app:UserName
     Should Be Equal    ${user}    %{USERDOMAIN}\\%{USERNAME}    ignore_case=${True}
-    ${command_line}=    BMJAB.Get Attribute    .    app:CommandLine
+    ${command_line}=    BMJAB.Get Attribute Value    .    app:CommandLine
     Should Contain    ${command_line}    "${TITLE}"
-    ${start}=    BMJAB.Get Attribute    .    app:StartTime
+    ${start}=    BMJAB.Get Attribute Value    .    app:StartTime
     Should Match Regexp    ${start}    ${START_TIME_FORMAT}
-    ${process_name}=    BMJAB.Get Attribute    .    app:ProcessName
-    BMJAB.Get Attribute    .    Name    ==    ${process_name}
+    ${process_name}=    BMJAB.Get Attribute Value    .    app:ProcessName
+    BMJAB.Get Attribute Value    .    Name    ==    ${process_name}
 
 Both Providers Report The Same Process Identically
     VAR    @{compared}

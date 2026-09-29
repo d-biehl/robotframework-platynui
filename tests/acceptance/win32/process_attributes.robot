@@ -21,7 +21,7 @@ ${HANDLE}           ${None}
 
 *** Test Cases ***
 A 32-Bit Process Reports Its Own Architecture
-    BM.Get Attribute    .    app:Architecture    ==    x86
+    BM.Get Attribute Value    .    app:Architecture    ==    x86
 
 
 *** Keywords ***
