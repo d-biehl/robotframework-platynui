@@ -616,7 +616,7 @@
 >   Namespace; (d) Context kann den Default-Namespace per
 >   Klassenattribut `default_attribute_namespace = "item"` o.Ä.
 >   umstellen. Symmetrisch zu Rust und zur XPath-Schreibweise
->   (`@AutomationId` ist im Default-NS `control`, `@native:HWND` ist
+>   (`@Id` ist im Default-NS `control`, `@native:HWND` ist
 >   explizit). Die Robot-Keywords heißen `Get Attribute` / `Get
 >   Attributes` (kein `Get Property` mehr); das `Properties`-Pattern
 >   entfällt.
@@ -1052,7 +1052,7 @@ Jede Registrierung gibt eine Teilmenge dieser Kriterien an:
 | `framework_id` | `"WPF"` | +1000 (oder reject) |
 | `class_name` | `"Microsoft.Maui.Controls.Button"` | +500 (oder reject) |
 | `tag_name` | (DOM-artig) | +400 (oder reject) |
-| `attributes[(ns, name)] == v` | `{("control", "AutomationId"): re.compile("submit-.*")}`, `{("native", "HWND"): 0xABCD}` | +200 pro Match (oder reject) |
+| `attributes[(ns, name)] == v` | `{("control", "Id"): re.compile("submit-.*")}`, `{("native", "HWND"): 0xABCD}` | +200 pro Match (oder reject) |
 
 Werte können `str`, `re.Pattern` oder beliebige `==`-vergleichbare Werte
 sein. Höchstes Gewicht > 0 gewinnt; bei keinem Match: Fallback
@@ -1862,11 +1862,11 @@ schwere Heben übernimmt.
 @locator(name="Rechner")
 class CalculatorWindow(Window):
     @property
-    @locator(AutomationId="num5Button")
+    @locator(id="num5Button")
     def n5(self) -> Button: ...
 
     @property
-    @locator(AutomationId="equalButton")
+    @locator(id="equalButton")
     def equal(self) -> Button: ...
 ```
 
@@ -1896,7 +1896,7 @@ auf Eigenschaften des UiNodes selbst basiert.
 >    `Locator.RESERVED_FIELDS`), wird als Attribut interpretiert. Der
 >    Kwarg-Name geht **wörtlich** in den XPath, ohne jede
 >    Case-Konvertierung — per Konvention ist er PascalCase:
->    `Locator(AutomationId="x")` → `[@AutomationId="x"]`,
+>    `Locator(Technology="JAB")` → `[@Technology="JAB"]`,
 >    `@locator(IsEnabled="true")` → `[@IsEnabled="true"]`. Für
 >    Attribute außerhalb des `control`-Default-Namespace gilt der
 >    Doppelunterstrich-Trenner: `Locator(native__HWND=0xABCD)` →
@@ -1907,7 +1907,7 @@ auf Eigenschaften des UiNodes selbst basiert.
 >    Schlüssel oder Attribute, deren Name kein Python-Identifier ist):
 >    Schlüssel werden wörtlich in den XPath übernommen. Bare String =
 >    Default-Namespace, Tupel `(namespace, name)` = explizit:
->    `attributes={"AutomationId": "x"}` → `[@AutomationId="x"]`,
+>    `attributes={"Technology": "JAB"}` → `[@Technology="JAB"]`,
 >    `attributes={("native", "HWND"): 0xABCD}` → `[@native:HWND="..."]`.
 >
 > Begründung der bewussten Asymmetrie zwischen (1) und (2)/(3):
@@ -2923,7 +2923,7 @@ class Locator:
     custom_attributes: list[str] = field(default_factory=list)  # raw Prädikate
 
     # Plus beliebige `**extra_attributes: str | re.Pattern[str]` am __init__:
-    # Locator(AutomationId="x")        → attributes["AutomationId"] = "x"
+    # Locator(Technology="JAB")        → attributes["Technology"] = "JAB"
     # Locator(native__HWND=0xABCD)     → attributes[("native","HWND")] = 0xABCD
     # Konflikte mit den typisierten Feldern oder dem attributes-Dict
     # (nach Namespace-Normalisierung) werfen TypeError.
@@ -2954,8 +2954,8 @@ LocatorScope: TypeAlias = Literal[
      unprefixed).
    - **Freie Kwargs** am Konstruktor werden bereits in `__init__`
      in das `attributes`-Dict gemergt: ein Kwarg ohne `__`-Trenner
-     landet als Bare-String-Key (`AutomationId="x"` →
-     `attributes["AutomationId"] = "x"`); ein Kwarg mit
+     landet als Bare-String-Key (`Technology="JAB"` →
+     `attributes["Technology"] = "JAB"`); ein Kwarg mit
      `<ns>__<name>`-Trenner landet als Tupel-Key (`native__HWND=...`
      → `attributes[("native", "HWND")] = ...`). Damit fließen sie
      durch denselben Pfad wie der Dict-Weg.
@@ -3009,7 +3009,7 @@ class Desktop(ContextBase, role="Desktop"):
 # Property-Variante (typisierter Child-Locator) — Stub bis Phase 3
 class CalculatorWindow(Window, role="Window", name="Rechner"):
     @property
-    @locator(AutomationId="num5Button")
+    @locator(id="num5Button")
     def n5(self) -> Button: ...
 
 # Default-Namespace umstellen (z.B. für Item-Container)
@@ -3021,7 +3021,7 @@ class FileListItem(Item):
 
 # Cross-Namespace via Tupel
 @locator(attributes={
-    "AutomationId": "submit",          # → @AutomationId=… (control)
+    "Id": "submit",                    # → @Id=… (control)
     ("native", "HWND"): 0x12AB,         # → @native:HWND=…
 })
 class SubmitButton(Button): ...

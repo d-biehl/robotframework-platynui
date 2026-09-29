@@ -72,7 +72,8 @@ Read from the real UIA tree of the running app (testing-strategy §7: verify
 against reality before encoding). Linux/AT-SPI facts follow in the next section.
 
 - All `Accessible.name` values surface as `@Name` exactly as set; names are the
-  locator contract (`@AutomationId` stays empty).
+  locator contract (the UIA `AutomationId` stays empty, so no element carries
+  an `@Id`).
 - **Deviation — window naming:** a `QQuickWindow`'s `@Name` is its **title**
   (`Accessible` cannot attach to a `Window`), so the main window is matched via
   launch configuration (title), not by a `main-window` accessible name. The
@@ -135,8 +136,9 @@ is its **title** (launch-configuration matching applies), and the child windows
   the last-action label makes the effect observable without reopening.
 - **`@Id` is available but deliberately unwired:** Qt Quick's `Accessible.id`
   attached property (Qt ≥ 6.9) surfaces as the common `@Id` and is resolvable
-  via `//*[@Id="…"]` (verified on AT-SPI); without it `@Id` stays empty — QML
-  object ids are NOT exposed by default, despite the docs' wording. The catalog
+  via `//*[@Id="…"]` (verified on AT-SPI); without it an element carries no
+  `@Id` at all (absent, not empty) — QML object ids are NOT exposed by default,
+  despite the docs' wording. The catalog
   keeps `@Name` as its locator contract because the blueprint also targets
   technologies without any id channel (Swing/JAB, SWT, JavaFX). Wiring the
   canonical idents onto `Accessible.id` plus an id-locating test is a candidate

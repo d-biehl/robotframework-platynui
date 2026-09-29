@@ -183,7 +183,7 @@ Everything PlatynUI sees is a tree of **nodes**. A node is a single UI element �
 
 A node answers three kinds of questions:
 
-- **Who am I?** Its namespace (see §5.2), its role ("Window", "Button", "ListItem", …), its name, an optional developer-set stable id (see §5.5), and a runtime id that identifies it uniquely for its lifetime (see §5.4).
+- **Who am I?** Its namespace (see §5.2), its role ("Window", "Button", "ListItem", …), its name, the identifier its toolkit reports when there is one (see §5.5), and a runtime id that identifies it uniquely for its lifetime (see §5.4).
 - **Who is around me?** Its parent and its children. Children are produced *lazily* — the tree is walked only on demand, never built up front. Opening a desktop with thousands of controls is therefore cheap until you actually descend into it. A node can also report cheaply whether it has any children at all (by default this just probes the child walk, but a provider can override it with a cheaper check), and it carries an optional hint for its position in document order.
 - **What can you tell me, and what can you do?** Its **attributes** (typed values such as bounds, name, state — see §5.7) and its **patterns** (capabilities such as "focusable" or "activatable" — see §6). A node lists the patterns it supports and can hand back the implementation of a named pattern when asked.
 
@@ -233,15 +233,17 @@ Every node needs an identity that stays stable for as long as the node lives, an
 
 Providers generate deterministic IDs stable for the element's lifetime. The `platynui` prefix is reserved for the desktop node.
 
-### 5.5 Developer Id (`control:Id`)
+### 5.5 Id (`control:Id`)
 
-Visible labels change — they get renamed, translated, or reworded — so they make brittle selectors. The **developer id** exists to give you something steadier: an optional, developer-set stable identifier that is independent of the visible label and of language. When you want a selector that survives, prefer `@control:Id='...'` wherever it is available.
+Visible labels change — they get renamed, translated, or reworded — so they make brittle selectors. The **Id** exists to give you something steadier: the identifier an element's toolkit reports for automation, independent of the visible label and of language. When you want a selector that survives, prefer `@control:Id='...'` wherever it is available.
 
-Each platform sources this id from its own native concept: on Windows it is the `AutomationId`, on Linux/AT-SPI2 the `accessible_id`, and on macOS/AX the `AXIdentifier`. The node only emits the attribute when the underlying value is actually set, so an empty developer id simply doesn't appear rather than showing up blank.
+Each provider takes the Id from one source: on Windows the UIA `AutomationId`; on Linux/AT-SPI2 the `AccessibleId` property, or the object attribute `accessible-id`, `accessible_id` or `id` when that is empty; through the Java agent, `Component.getName()` of components and windows, when it was set through `setName`; on macOS/AX the `AXIdentifier`. The Java Access Bridge reports none. Who set the value does not matter: an identifier the toolkit or framework generated — a Qt object path, a name Swing gives its own parts such as `Spinner.nextButton`, an AccessKit author id forwarded to UIA and AT-SPI — is the Id just like one the application set. A provider never puts another value in place of a missing identifier: not the name, the process ID or the runtime id.
+
+The Id is present only with a value. A node without one lists no `control:Id`, and its id accessor (`element.id` in Python) answers none rather than an empty string. The accessor and the attribute always carry the same value, and listing a node's attributes agrees with looking `Id` up by name. **Application nodes carry no Id** on any provider: an application is identified by its `@ProcessId`, so its one-line description ends with its quoted name, without a `#…` suffix. The rule is spec `id-attribute`; the contract testkit checks it with `verify_id`.
 
 ### 5.6 Accessible Description (`control:Description`)
 
-The **description** is the accessibility API's longer, human-readable explanation of an element — distinct from its short accessible name. It is a common attribute (see §6.3), and like the developer id it is **optional**: a node emits `control:Description` only when its platform value is non-empty, so absence is normal and expected rather than an error.
+The **description** is the accessibility API's longer, human-readable explanation of an element — distinct from its short accessible name. It is a common attribute (see §6.3), and like the Id it is **optional**: a node emits `control:Description` only when its platform value is non-empty, so absence is normal and expected rather than an error.
 
 The mapping is deliberately **strict** — `control:Description` maps 1:1 to the platform's genuine accessible-description property and nothing else:
 
@@ -325,7 +327,7 @@ Every `control:`/`item:` node carries a small common attribute set independent o
 |---|---|---|
 | **Role** | always | Normalized PascalCase role (XPath local-name), e.g. `Button`. |
 | **Name** | always | Accessible name; may be empty. |
-| **Id** | when non-empty | Developer-set stable identifier (§5.5). Absent when unset. |
+| **Id** | when non-empty | The identifier the toolkit reports, taken by source (§5.5). Absent when unset, and never on `app:` nodes. |
 | **Description** | when non-empty | Accessible description (§5.6), strict per-platform source. Absent when unset. |
 | **RuntimeId** | always | Provider-stable runtime identifier (§5.4). |
 | **Technology** | always | Backing UI technology — the provider's registered `TechnologyId`, e.g. `UIAutomation`, `AT-SPI2`, `JAB`. |
@@ -401,10 +403,10 @@ Each capability is defined once, in platform-neutral terms, but it has to be sat
 | Attribute | UIA | AT-SPI2 | macOS AX |
 |-----------|-----|---------|----------|
 | Name | CurrentName | Accessible.Name | AXTitle / AXDescription (role-dependent) |
-| Id | AutomationId | accessible_id | AXIdentifier |
+| Id | AutomationId | Accessible.AccessibleId, else the object attribute `accessible-id` / `accessible_id` / `id` | AXIdentifier |
 | Description | FullDescription (`UIA_FullDescriptionPropertyId`) | Accessible.Description | open (stub; `AXHelp` is help text, not a description) |
 
-`Description` maps strictly to the true accessible-description property and never falls back to HelpText-like sources (`HelpText`, `LegacyIAccessible.Description`, `Accessible.HelpText`), which remain under `native:`. `Id` and `Description` are emitted only when non-empty.
+The Java nodes on Windows source `Id` as follows: the Java Access Bridge reports none, and the Java agent reports `Component.getName()` for components and windows, when it was set through `setName` — table cells, rows and other accessibility-only children have none. `Description` maps strictly to the true accessible-description property and never falls back to HelpText-like sources (`HelpText`, `LegacyIAccessible.Description`, `Accessible.HelpText`), which remain under `native:`. `Id` and `Description` are emitted only when non-empty, and application nodes carry no `Id`.
 
 **TextContent**
 
@@ -500,7 +502,7 @@ The paired reader is `TextContent` (`Text`); `Clearable` follows the same princi
 
 **Application**
 
-Every provider on a platform reads the process attributes through the one reader of `platynui-process`, bound to the process identity the node recorded; the Java provider's JAB and agent nodes on Windows included. Formats and the presence rule: spec `application-process-attributes`.
+Every provider on a platform reads the process attributes through the one reader of `platynui-process`, bound to the process identity the node recorded; the Java provider's JAB and agent nodes on Windows included. Formats and the presence rule: spec `application-process-attributes`. `ProcessId` is an application node's identity: application nodes carry no `Id` on any provider (§5.5).
 
 | Attribute | Windows (UIA, JAB, Java agent) | Linux (AT-SPI2) | macOS AX |
 |-----------|-----|---------|----------|
@@ -555,7 +557,7 @@ All providers must:
 - Use correct namespaces (`control`, `item`, `app`, `native`).
 - Deliver all coordinates in the desktop coordinate system (DPI-aware).
 - Maintain stable `RuntimeId` values for element lifetimes (format: `prefix:value`).
-- Emit `Id` only when non-empty.
+- Emit `Id` only when non-empty, and never on application nodes. `id()` answers none rather than `""`, and always the same value as `control:Id`; the listing and the lookup by name agree (§5.5, checked by the testkit's `verify_id`).
 - Emit `Description` only when non-empty, sourced strictly from the platform's accessible-description property (no HelpText/tooltip fallback; see §5.6).
 - Set `parent` references correctly in children iterators, and keep the parent of every node a child iterator lists alive with a strong reference from child to parent, so that a node the runtime hands out keeps its chain of ancestors while it is held (§9.3). Never make a node hold its children, and keep the runtime's desktop only as a `Weak`: a top-level node reaches the desktop only while the runtime lives. The strong link belongs in the child iterators, not in the constructors, which also serve `get_nodes` with the desktop as parent. A provider that owns its whole tree, such as the mock provider, meets this already. The testkit checks `verify_children_keep_parent` and `verify_subtree_released` test both halves of the rule.
 - Keep `SupportedPatterns` consistent with available pattern instances — except for deliberate capability markers (`TextEditable`), which are advertised without an instance.
@@ -574,7 +576,7 @@ All providers must:
 - `control:Text` (TextContent) priority: `TextPattern.DocumentRange.GetText` → `ValuePattern.Value`; never the accessible name. Absent when the element supports neither pattern.
 - `control:Description` from `FullDescription` (`UIA_FullDescriptionPropertyId`) only — never `HelpText` or `LegacyIAccessible.Description`. Win10 1703+ property; absent when empty/unsupported. The hardcoded `attribute()` fast-path must agree with the `attributes()` iterator.
 - Window capability patterns (Activatable, Minimizable, Maximizable, Restorable, Closeable, Movable, Resizable) via `WindowPattern`/`TransformPattern`; `ResponsivePattern::accepts_user_input()` via `IsEnabled && IsInView` + `WaitForInputIdle`.
-- Application node: process attributes (`control:ProcessId` for a positive pid; `app:ProcessName`, `ExecutablePath`, `CommandLine`, `UserName`, `StartTime`, `Architecture`), each listed only when it was read for the node's recorded process; `control:Name` and `control:Id` are the process name.
+- Application node: process attributes (`control:ProcessId` for a positive pid; `app:ProcessName`, `ExecutablePath`, `CommandLine`, `UserName`, `StartTime`, `Architecture`), each listed only when it was read for the node's recorded process; `control:Name` is the process name, and the node carries no `control:Id`.
 - `SelectionItemPattern`/`SelectionPattern` sync verified.
 - COM initialized (`CoInitializeEx` MTA) before any UIA call.
 - `VirtualizedItemPattern::Realize()` attempted before child traversal.

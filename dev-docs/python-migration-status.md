@@ -1,5 +1,11 @@
 # Python-Migration — Status-Tracker
 
+> **English summary:** The status tracker for porting the Python layer from the legacy PlatynUI
+> project onto the Rust-based core: what each revision of
+> [`python-library-design.md`](python-library-design.md) changed in the code, and what is still
+> open. It is a living document, still in German, and is slated for English translation when it
+> migrates to OpenSpec.
+
 Lebendes Dokument, das den Fortschritt der Migration des Python-Teils
 aus dem alten PlatynUI-Projekt (`/home/daniel/develop/tmp/robotframework-PlatynUI`)
 in das neue Rust-basierte Projekt verfolgt.
@@ -613,7 +619,7 @@ zwei Verwendungsformen:
    ```python
    class CalculatorWindow:
        @property
-       @locator(AutomationId='num5Button')
+       @locator(id='num5Button')
        def n5(self) -> Button: ...
    ```
    Die Methode wird durch einen `LocatorMethodDescriptor` ersetzt, der

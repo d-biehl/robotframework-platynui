@@ -114,7 +114,7 @@ Other C0 control characters (U+0000–U+001F) have no standard keyboard equivale
 - Role mapping to `control`/`item` namespaces via AT-SPI role enum.
 - The applications the registry lists are the application level: `app` nodes with the role their root object reports (`app:Application` for every toolkit checked). Below that level the Application interface only shows up as native attributes, and a node with the role `application` is `control:Application`. Details: the `atspi-application-level` spec under `openspec/specs/`.
 
-**Standard Attributes**: `Role`, `Name`, `RuntimeId` (from D-Bus object path), `Technology` = "AT-SPI2", optional `Id` (from `accessible_id`).
+**Standard Attributes**: `Role`, `Name`, `RuntimeId` (from D-Bus object path), `Technology` = "AT-SPI2", optional `Id`: the toolkit's accessible-id (`Accessible.AccessibleId`, else the object attribute `accessible-id`, `accessible_id` or `id`), absent when it is not set and never on application nodes (spec `id-attribute`). An application root's own accessible-id stays readable as `native:Accessible.AccessibleId`.
 
 **Component-gated Attributes**: `Bounds`, `ActivationPoint`, `IsEnabled`, `IsVisible`, `IsInView`, `IsFocused` — only present when the AT-SPI Component interface is available.
 
@@ -131,7 +131,7 @@ The normal deployment runs everything in one PID namespace: the runtime, the app
 The provider needs process IDs for four things:
 
 - **Hiding its own user interface.** A host such as the Inspector registers its own accessible application on the same bus it inspects. The provider recognises it and leaves it out of the application list, and out of the event-driven popup candidates.
-- **Reporting an application's identity.** `@ProcessId` on `app:Application`, and the node identifier a consumer reads (`element.id` in Python), which follows it.
+- **Reporting an application's identity.** `@ProcessId` on `app:Application`, which is all that identifies an application: it carries no `Id` (spec `id-attribute`).
 - **Reading the local process table.** The `app:*` attributes (process name, executable path, command line, user name, start time) come from `/proc/<pid>`, read by `platynui-process` through the process recorded for the node.
 - **Correlating a native window with an application.** The point hit-test maps a window to its application, and the window manager maps an application node back to its windows and popups, through the process ID both sides report.
 
@@ -151,10 +151,10 @@ For each bus connection it holds, the provider asks the daemon once what process
 | | Local numbering | No identity |
 |---|---|---|
 | Own UI hidden from the tree and the popup candidates | yes, on a positive match | no. The host's own application may appear, and nothing else is hidden |
-| `@ProcessId` and `element.id` | the daemon's number for the application | the daemon's number for the application |
+| `@ProcessId` | the daemon's number for the application | the daemon's number for the application |
 | `app:*` process-table attributes | read through that number | absent |
 
-`@ProcessId` does not depend on the outcome. It reports the number the application's own environment knows it by, whether or not that number is valid in the runtime's namespace, and it is **absent** (never `0`) when the daemon cannot tell. Reporting a number is not a comparison. `element.id` is that number when present, otherwise the toolkit's accessible-id or nothing.
+`@ProcessId` does not depend on the outcome. It reports the number the application's own environment knows it by, whether or not that number is valid in the runtime's namespace, and it is **absent** (never `0`) when the daemon cannot tell. Reporting a number is not a comparison.
 
 A locally valid PID makes the `app:*` attributes possible, but it does not guarantee them. Each one is reported only when its value was actually read for that process, and only while the PID still stands for the process recorded for the node (spec `application-process-attributes`). An unreadable value is left out rather than answered with an empty string, a placeholder, or a value describing the automation host. For example, the start time is absent when `/proc/<pid>/stat` cannot be read, instead of being an empty string, and the process name, which is the executable's full file name, is absent when the executable cannot be read, instead of the kernel's truncated command name.
 

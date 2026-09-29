@@ -68,7 +68,9 @@ impl PyNode {
     fn owner_id(&self) -> u64 {
         self.owner
     }
-    /// Returns the optional, human-readable identifier if the platform exposes one.
+    /// Returns the identifier the element's toolkit reports for automation, the
+    /// same value as ``@Id``. ``None`` when the toolkit reports none, and always
+    /// ``None`` for an application, which its ``@ProcessId`` identifies.
     #[getter]
     fn id(&self) -> Option<String> {
         self.inner.id()

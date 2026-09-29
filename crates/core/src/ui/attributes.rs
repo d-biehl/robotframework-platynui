@@ -5,7 +5,8 @@ pub mod pattern {
     pub mod common {
         pub const ROLE: &str = "Role";
         pub const NAME: &str = "Name";
-        /// Developer-provided stable element identifier (optional)
+        /// The identifier the toolkit reports for automation; absent when it
+        /// reports none, and never on application nodes (spec `id-attribute`).
         pub const ID: &str = "Id";
         pub const RUNTIME_ID: &str = "RuntimeId";
         pub const TECHNOLOGY: &str = "Technology";
@@ -126,6 +127,7 @@ pub mod pattern {
     /// The process attributes of an application node: `ProcessId` in `control`, the rest in
     /// `app`, each optional; formats and presence in spec `application-process-attributes`.
     pub mod application {
+        /// An application node's identity; an application carries no `Id`.
         pub const PROCESS_ID: &str = "ProcessId";
         pub const PROCESS_NAME: &str = "ProcessName";
         pub const EXECUTABLE_PATH: &str = "ExecutablePath";

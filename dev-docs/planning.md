@@ -448,11 +448,12 @@ Deep analysis of the XPath crate revealed the following issues to address:
 - [x] Application node attribute parity: every provider reports the process attributes under one contract (spec `application-process-attributes`), read by the shared reader of `platynui-process`; the mock models them on "Mock Application"
 - [x] Rename `application::NAME` → `application::PROCESS_NAME` (`"Name"` → `"ProcessName"`) — see §8.5 for rationale. Implemented for Windows UIA and AT-SPI2; Application nodes now emit both `control:Name` (display name) and `app:ProcessName` (executable stem). Mock pending. (superseded by application-process-attributes)
 - [ ] Release/versioning strategy (SemVer per crate? Workspace version?)
-- [ ] UiNode `Id` tests: core contract tests, provider smoke tests (UIA, AT-SPI, macOS)
+- [x] UiNode `Id` tests (spec `id-attribute`): the testkit's `verify_id` on the mock, UIA and the Java live fixture; AT-SPI and UIA unit tests; the egui acceptance cases on every real lane. macOS follows with its `Id` mapping below
 - [x] `Id` mapping for Windows UIA (`AutomationId`)
 - [x] `Id` mapping for AT-SPI2 (`accessible_id`)
 - [ ] `Id` mapping for macOS AX (`AXIdentifier`)
-- [ ] CLI/Python example queries for `Id` documented
+- [x] Robot/Python queries for `Id`: the egui acceptance cases in `tests/acceptance/egui/query.robot`
+- [ ] CLI example queries for `Id` documented
 
 ## 8. Open Design Questions
 
@@ -461,7 +462,7 @@ Status legend: **NEW** = not yet discussed, **DISCUSSED** = considered but no de
 1. **Event debouncing** — needed for high-frequency structural changes? Strategy? — **DISCUSSED**, moot: event-driven invalidation is not pursued (§3.1)
 2. **UIA event scope** — `TreeScope_Subtree` from Desktop or specific context node? — **DISCUSSED**, moot: event-driven invalidation is not pursued (§3.1)
 3. **macOS Space switching** — system setting detection for `kAXRaiseAction` implicit switch? — **DEFERRED** (macOS platform not yet implemented)
-4. **Windows AUMID as Application Id** — prefer over process name? Via `SHGetPropertyStoreForWindow(hwnd)` → `PKEY_AppUserModel_ID`? — **NEW**
+4. **Windows AUMID as Application Id** — prefer over process name? Via `SHGetPropertyStoreForWindow(hwnd)` → `PKEY_AppUserModel_ID`? — **DECIDED**: application nodes carry no `Id` on any provider; an application is identified by its `@ProcessId` (spec `id-attribute`). An AUMID could at most become an `app:` attribute of its own.
 5. **Application `Name` → `ProcessName` rename** — **DECIDED**: Rename `application::NAME` (`"Name"`) to `application::PROCESS_NAME` (`"ProcessName"`) in core constants and all providers. Rationale: AT-SPI2 `Accessible.Name` on Application nodes returns the display name (e.g. "Firefox"), which collides with using the same `Name` attribute for the process name. After rename: `control:Name` = UI display name (from `Accessible.Name` / UIA `NameProperty`), `app:ProcessName` = the process name, in the format of spec `application-process-attributes`. On Windows, where no separate display name exists for Application nodes, `control:Name` is the process name. Affects: `crates/core/src/ui/attributes.rs`, `crates/provider-windows-uia/src/node.rs`, `crates/provider-atspi/src/node.rs` (when Application attrs are added), mock provider, architecture.md pattern catalog, Python bindings docs.
 6. **Python custom exception hierarchy** — extend beyond current set? — **NEW**
 7. **Provider event subscription in Python** — how to expose? — **DEFERRED** (event pipeline not yet exposed to Python)
@@ -796,16 +797,17 @@ Complete checklists from all work areas, including completed items for historica
 
 **Provider:**
 - [x] Windows/UIA: `AutomationId` → `control:Id`
-- [x] Windows/ApplicationNode: `id()` returns process name
+- [x] Windows/ApplicationNode: no `Id`, like every application node (`id()` returned the process name before spec `id-attribute`)
 - [x] AT-SPI2: map `accessible_id` if available
 - [ ] macOS/AX: map `AXIdentifier` if available
-- [ ] Application nodes: platform-appropriate stable identifier
-- [ ] Windows option: evaluate AUMID as application Id
+- [x] Application nodes: decided — no `Id` on any provider; `@ProcessId` is the identity (spec `id-attribute`)
+- [x] Windows option: AUMID as application Id — decided against (§8, question 4)
 
 **Tests:**
-- [ ] Core contract tests for `Id`
-- [ ] Provider smoke tests
-- [ ] CLI/Python example queries documented
+- [x] Core contract tests for `Id`: the testkit's `verify_id`, run on the mock, on UIA nodes and on the Java live fixture's trees and application nodes
+- [x] Provider tests: AT-SPI unit tests of the `Id` decision; UIA unit tests of the application node and of a test-window button with a control ID; the Java live fixture's `Spinner.nextButton`
+- [x] Robot/Python queries for `Id`: the egui acceptance cases in `tests/acceptance/egui/query.robot`, on every real lane
+- [ ] CLI example queries for `Id` documented
 
 ### 10.27 Distribution & Packaging
 

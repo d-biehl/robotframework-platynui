@@ -16,8 +16,12 @@ pub trait UiNode: Send + Sync {
     fn name(&self) -> String;
     /// Platform specific runtime identifier.
     fn runtime_id(&self) -> &RuntimeId;
-    /// Optional developer-provided stable identifier (control:Id). Empty or missing means "not set".
-    /// Default: None.
+    /// The identifier the element's toolkit reports for automation, taken by
+    /// source whoever set it: UIA `AutomationId`, AT-SPI's accessible-id, and so
+    /// on (spec `id-attribute`). `None` when there is none, never `Some("")`, and
+    /// always `None` on an application node, which its `ProcessId` identifies.
+    /// Always equal to the `control:Id` attribute, which is listed exactly when
+    /// this is set. Default: None.
     fn id(&self) -> Option<String> {
         None
     }

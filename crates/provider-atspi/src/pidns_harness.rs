@@ -142,7 +142,6 @@ fn run_probe(dir: &Path, label: &str, address: &str) {
             (format!("{peer}.number"), format!("{:?}", classified.number)),
             (format!("{peer}.is_own"), classified.is_own.to_string()),
             (format!("{peer}.local_number"), format!("{:?}", classified.local_number)),
-            (format!("{peer}.id"), format!("{:?}", crate::node::application_id(classified.number, || None))),
             (format!("{peer}.command_line"), command_line),
         ]);
     }
@@ -301,13 +300,11 @@ fn forced_collision(daemon: &Daemon, root: &HarnessDir, exe: &Path) {
     panic!("the forced collision never took effect in {COLLISION_ATTEMPTS} attempts; the topology was not set up");
 }
 
-/// A peer the daemon cannot see: no number, never `0`, not ours, and no node
-/// identifier derived from a process ID.
+/// A peer the daemon cannot see: no number, never `0`, and not ours.
 fn assert_unresolved(probe: &HashMap<String, String>, peer: &str) {
     assert_eq!(probe[&format!("{peer}.number")], "None", "{peer}: the daemon cannot see it");
     assert_eq!(probe[&format!("{peer}.is_own")], "false", "{peer}: an unresolved identity never matches");
     assert_eq!(probe[&format!("{peer}.local_number")], "None", "{peer}");
-    assert_eq!(probe[&format!("{peer}.id")], "None", "{peer}: no identifier from a process ID, and never \"0\"");
 }
 
 fn report(topology: &str, daemon: &Daemon, probe: &HashMap<String, String>, peers: &[&str]) {

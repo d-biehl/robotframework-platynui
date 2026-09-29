@@ -223,9 +223,10 @@ pub(crate) const FRAME_ICONIFIED: i64 = 1;
 impl Element {
     /// The node's display name.
     ///
-    /// For anything but a top-level window, `Component.getName()` first: it is the
-    /// developer's own identifier, stable across relayouts, and the one thing no
-    /// out-of-process bridge can see. The accessible name is the fallback, which
+    /// For anything but a top-level window, `Component.getName()` first, when it
+    /// was set through `setName`, by the application or by Swing itself: it is
+    /// stable across relayouts, and the one thing no out-of-process bridge can
+    /// see. The accessible name is the fallback, which
     /// is also what keeps JAB-era locators matching — those were written against
     /// it because it was all there was.
     ///
@@ -250,15 +251,17 @@ impl Element {
             .to_owned()
     }
 
-    /// The developer-provided stable id (`control:Id`), when there is one.
+    /// The toolkit's identifier (`control:Id`), when there is one (spec
+    /// `id-attribute`).
     ///
-    /// **Only real components have one.** `name` carries different things for
-    /// different kinds: for a component it is `Component.getName()`, which the
-    /// application set deliberately; for a cell it is the *model value*, and for
-    /// an accessibility-only child the accessible name. Publishing those as
-    /// `control:Id` would promise stability that content does not have — a
-    /// locator `//*[@Id="r2c1"]` would match a table cell until somebody edits
-    /// the data.
+    /// **Only components and windows have one.** `name` carries different things
+    /// for different kinds: for a component or a window it is
+    /// `Component.getName()` as the agent reports it, only when it was set through
+    /// `setName`, by the application or by Swing itself (`Spinner.nextButton`);
+    /// for a cell it is the *model value*, and for an accessibility-only child the
+    /// accessible name. Publishing those as `control:Id` would promise stability
+    /// that content does not have — a locator `//*[@Id="r2c1"]` would match a
+    /// table cell until somebody edits the data.
     pub fn stable_id(&self) -> Option<String> {
         if !matches!(self.kind, Kind::Component | Kind::Window) {
             return None;
@@ -526,7 +529,7 @@ mod tests {
     }
 
     /// The name precedence is the whole reason to read the instance tree: the
-    /// developer's own identifier wins over the accessible name.
+    /// name set through `setName` wins over the accessible name.
     #[test]
     fn component_get_name_wins_over_the_accessible_name() {
         let button = parse(

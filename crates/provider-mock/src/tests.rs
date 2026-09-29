@@ -8,7 +8,7 @@ use platynui_core::ui::attribute_names::{
 };
 use platynui_core::ui::contract::testkit::{
     AttributeExpectation, NodeExpectation, PatternExpectation, nodes_in_document_order, require_node,
-    verify_common_attributes, verify_doc_order_keys, verify_node,
+    verify_common_attributes, verify_doc_order_keys, verify_id, verify_node,
 };
 use platynui_core::ui::{
     ActivatableAction, ActivatablePattern, CloseableAction, CloseablePattern, FocusableAction, FocusablePattern,
@@ -186,7 +186,8 @@ fn contract_expectations_for_button_hold() {
     let window =
         windows.find(|node| node.runtime_id().as_str() == factory::WINDOW_RUNTIME_ID).expect("main window present");
 
-    let button = find_by_runtime_id(window, factory::BUTTON_RUNTIME_ID).expect("button reachable in mock tree");
+    let button =
+        find_by_runtime_id(Arc::clone(&window), factory::BUTTON_RUNTIME_ID).expect("button reachable in mock tree");
 
     let expectations = NodeExpectation::default()
         .with_pattern(PatternExpectation::new(PatternName::from(pattern_names::ELEMENT), &ELEMENT_EXPECTATIONS))
@@ -208,6 +209,12 @@ fn contract_expectations_for_button_hold() {
     // that is known to conform — this is what pins the shared expectation.
     let issues = verify_common_attributes(button.as_ref());
     assert!(issues.is_empty(), "common attribute issues: {issues:?}");
+
+    // The `Id` through every read, the application node included.
+    for node in [&app, &window, &button] {
+        let issues = verify_id(node.as_ref());
+        assert!(issues.is_empty(), "{}: Id issues: {issues:?}", node.runtime_id().as_str());
+    }
 }
 
 #[rstest]

@@ -99,7 +99,8 @@ final class SwingElement {
         AccessibleContext context = accessibleContextOf(component);
         payload.put("role", roleOf(context, component, isWindow));
         // `Component.getName()` is the spine's exclusive contribution — but only
-        // when the developer actually set it. See {@link #explicitNameOf}.
+        // when it was set through `setName`, by the application or by Swing
+        // itself. See {@link #explicitNameOf}.
         putIfPresent(payload, "name", explicitNameOf(component));
         if (context != null) {
             putIfPresent(payload, "accessibleName", context.getAccessibleName());
@@ -387,7 +388,8 @@ final class SwingElement {
     // ------------------------------------------------------------ accessibility
 
     /**
-     * {@code Component.getName()}, but only when it is the developer's own name.
+     * {@code Component.getName()}, but only when it was set through {@code setName}, by the
+     * application or by Swing itself ({@code Spinner.nextButton}, {@code null.contentPane}).
      *
      * <p>This distinction is load-bearing, and getting it wrong is silently destructive.
      * {@code getName()} does not return {@code null} for an unnamed component — AWT
@@ -401,7 +403,9 @@ final class SwingElement {
      * {@code java.desktop/java.awt} to itself, so the field is readable; if it somehow is not, the
      * fallback drops the name for {@link Window} subclasses only — those are the ones where
      * auto-generation is certain, while a {@code JComponent}'s name is {@code null} unless set,
-     * because {@code JComponent} does not override {@code constructComponentName()}.
+     * because {@code JComponent} does not override {@code constructComponentName()}. The reflective
+     * read is the guarantee; the fallback is best effort, since a heavyweight AWT component such
+     * as {@code java.awt.Button} would keep its generated name ({@code button0}) there.
      */
     private static String explicitNameOf(Component component) {
         String name = component.getName();
@@ -415,7 +419,10 @@ final class SwingElement {
         return component instanceof Window ? null : name;
     }
 
-    /** @return whether the name was set by the application, or {@code null} if unknown */
+    /**
+     * @return whether the name was set through {@code setName}, by the application or by Swing
+     *     itself, or {@code null} if unknown
+     */
     private static Boolean nameWasExplicitlySet(Component component) {
         try {
             Field field = Component.class.getDeclaredField("nameExplicitlySet");

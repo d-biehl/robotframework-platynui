@@ -65,3 +65,50 @@ Widget Without A Description Has No control:Description
     ...    the Reset button sets no AccessKit description, so the attribute is absent (not empty).
     Run Keyword And Expect Error    *attribute not found*Description*
     ...    BM.Get Attribute    .//*[@Id="btn-reset"]    Description
+
+Application Has No Id
+    [Documentation]    An application is identified by its ``@ProcessId`` and carries no ``Id`` (spec
+    ...    *id-attribute*): the accessor answers ``None``, the named lookup finds nothing, no ``Id`` is
+    ...    enumerated, and its one-line description ends without a ``#`` suffix.
+    ${pid}=    Get Process Id    ${TEST_APP_HANDLE}
+    ${app}=    BM.Query    /app:Application[@ProcessId=${pid}]    only_first=${True}
+    Should Not Be Equal    ${app}    ${None}    msg=no application with the launched process ID ${pid}
+    Should Be Equal    ${app.id}    ${None}
+    Run Keyword And Expect Error    *attribute not found*Id*
+    ...    BM.Get Attribute    ${app}    Id
+    ${listed}=    BM.Query    count(/app:Application[@ProcessId=${pid}]/@*[local-name()="Id"])    only_first=${True}
+    Should Be Equal As Integers    ${listed}    0    msg=an Id is enumerated on the application
+    Should Not Contain    ${app.describe()}    \#
+
+No Application Is Selected By Id
+    [Documentation]    No application on the desktop carries an ``Id``, so ``/app:*[@Id]`` selects
+    ...    nothing (spec *id-attribute*).
+    ${application}=    BM.Query    /app:*[@Id]    only_first=${True}
+    Should Be Equal    ${application}    ${None}    msg=an application is selected by Id
+
+Element Without An Author Id Has No Id
+    [Documentation]    An element whose toolkit reports no identifier carries no ``Id`` at all, not an
+    ...    empty one (spec *id-attribute*). The ``Buttons`` heading is such an element: egui sets no
+    ...    author id of its own, and the fixture gives the heading none. ``[@Id]`` does not match it,
+    ...    the named lookup finds nothing, the accessor answers ``None`` and no ``Id`` is enumerated.
+    ${heading}=    BM.Query    .//*[@Name="Buttons"]    only_first=${True}
+    Should Not Be Equal    ${heading}    ${None}    msg=the Buttons heading was not found
+    ${with_id}=    BM.Query    .//*[@Name="Buttons"][@Id]    only_first=${True}
+    Should Be Equal    ${with_id}    ${None}    msg=[@Id] matches the heading
+    Run Keyword And Expect Error    *attribute not found*Id*
+    ...    BM.Get Attribute    ${heading}    Id
+    Should Be Equal    ${heading.id}    ${None}
+    ${listed}=    BM.Query    count(.//*[@Name="Buttons"]/@*[local-name()="Id"])    only_first=${True}
+    Should Be Equal As Integers    ${listed}    0    msg=an Id is enumerated on the heading
+
+Author Id Is The Same Through Every Read
+    [Documentation]    The Click Me button carries the AccessKit author id ``btn-click-me``. It is
+    ...    located by its name, so that each read stands on its own: the enumerated attributes
+    ...    (``@*``), the named lookup and the accessor all answer the author id (spec *id-attribute*).
+    ${button}=    BM.Query    .//*[@Name="Click Me"]    only_first=${True}
+    Should Not Be Equal    ${button}    ${None}    msg=the Click Me button was not found
+    ${listed}=    BM.Query    .//*[@Name="Click Me"]/@*[local-name()="Id"]    only_first=${True}
+    Should Not Be Equal    ${listed}    ${None}    msg=no Id is enumerated on the button
+    Should Be Equal    ${listed.value}    btn-click-me
+    BM.Get Attribute    ${button}    Id    ==    btn-click-me
+    Should Be Equal    ${button.id}    btn-click-me

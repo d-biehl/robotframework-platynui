@@ -32,7 +32,7 @@ use platynui_core::platform::platform_factories;
 use platynui_core::provider::{UiTreeProvider, UiTreeProviderFactory};
 use platynui_core::ui::contract::testkit::{
     AttributeExpectation, NodeExpectation, PatternExpectation, verify_children_keep_parent, verify_doc_order_keys,
-    verify_node, verify_subtree_released,
+    verify_id, verify_node, verify_subtree_released,
 };
 use platynui_core::ui::{
     Namespace, PatternName, RuntimeId, UiAttribute, UiNode, UiNodeExt, UiValue, attribute_names, pattern_names,
@@ -335,6 +335,8 @@ fn live_fixture_contract_and_interaction() {
         }
         let technology = attribute_value(node, attribute_names::common::TECHNOLOGY);
         assert_eq!(technology, Some(UiValue::from("JAB")), "Technology attribute on {}", node.runtime_id());
+        let issues = verify_id(node.as_ref());
+        assert!(issues.is_empty(), "Id contract violated on {}: {issues:?}", node.runtime_id());
     }
 
     // Contract testkit expectations for the interesting fixture nodes.
@@ -901,6 +903,19 @@ fn live_agent_serves_table_cells_the_bridge_cannot() {
         let cell = find_by_name(&all, "r2c0");
         assert_eq!(cell.id(), None, "a table cell's model value must not be published as control:Id");
 
+        // A name Swing sets itself is the `Id` like any other (spec
+        // `id-attribute`: *An identifier Swing sets itself counts as the Id*).
+        // Swing adds a spinner's increment button, its decrement button and its
+        // editor in that order, so the increment button is the first child.
+        let spinner = find_by_name(&all, "stage2-spinner");
+        let increment = spinner.children().next().expect("the spinner's increment button");
+        assert_eq!(
+            attribute_value(&increment, attribute_names::common::ID),
+            Some(UiValue::from("Spinner.nextButton")),
+            "the name Swing gave the increment button, on {}",
+            increment.runtime_id()
+        );
+
         // A table's children are its **rows**, and each row holds its cells.
         // The flat, row-major cell list the bridge reports is not a model, it is
         // what `AccessibleContext.getAccessibleChild(i)` happens to offer; the
@@ -1055,6 +1070,8 @@ fn live_agent_serves_table_cells_the_bridge_cannot() {
             }
             let issues = platynui_core::ui::contract::testkit::verify_common_attributes(node.as_ref());
             assert!(issues.is_empty(), "common-attribute contract violated on {}: {issues:?}", node.runtime_id());
+            let issues = verify_id(node.as_ref());
+            assert!(issues.is_empty(), "Id contract violated on {}: {issues:?}", node.runtime_id());
             for pattern in node.supported_patterns() {
                 if CAPABILITY_MARKERS.contains(&pattern.as_str()) {
                     assert!(
@@ -1374,6 +1391,28 @@ fn live_the_agent_and_the_bridge_report_one_process_identically() {
         }
     }
     assert!(compared > 0, "no process attribute is present on both nodes: agent {agent:?}, bridge {bridge:?}");
+
+    agent_provider.shutdown();
+    bridge_provider.shutdown();
+}
+
+/// Spec (`id-attribute`): *Java application nodes have no Id*. One JVM, whose
+/// application node is served once by the agent and once by the Access
+/// Bridge; each is found by its `@ProcessId`.
+#[test]
+#[ignore = "needs a desktop, a Java runtime, the built Swing fixture and the built agent JAR"]
+fn live_java_application_nodes_have_no_id() {
+    let app = FixtureApp::launch_with_agent("application id");
+    let agent_provider = build_provider(&RuntimeConfig::default());
+    let bridge_provider = build_provider(&jab_only());
+    let parent = desktop_stub();
+
+    for (provider, technology) in [(&agent_provider, "JavaAgent"), (&bridge_provider, "JAB")] {
+        let application = fixture_application(provider, &parent, &app, technology);
+        assert_eq!(application.id(), None, "{technology}: an application node has no Id");
+        let issues = verify_id(application.as_ref());
+        assert!(issues.is_empty(), "{technology}: Id contract violated on the application node: {issues:?}");
+    }
 
     agent_provider.shutdown();
     bridge_provider.shutdown();

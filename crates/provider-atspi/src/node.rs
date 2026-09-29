@@ -305,11 +305,6 @@ impl AtspiNode {
         }
     }
 
-    /// The process ID the daemon reported for this node's application.
-    fn resolve_process_id(&self) -> Option<u32> {
-        self.resolve_peer().number
-    }
-
     /// What this node reports about its process (see [`process_attributes_at`]).
     fn process_attributes(&self) -> ProcessAttributes {
         process_attributes_at(self.level, || self.resolve_peer())
@@ -344,7 +339,7 @@ impl UiNode for AtspiNode {
     }
 
     fn id(&self) -> Option<String> {
-        node_id(self.level, || self.resolve_process_id(), || resolve_id(self.conn.as_ref(), &self.timeouts, &self.obj))
+        id_at(self.level, || resolve_id(self.conn.as_ref(), &self.timeouts, &self.obj))
     }
 
     fn description(&self) -> Option<String> {
@@ -436,18 +431,23 @@ impl UiNode for AtspiNode {
         Box::new(AttrsIter::new(self, rid_str))
     }
 
-    /// A named lookup reads only what it names. The `app:*` block decides
-    /// presence by reading (see [`app_attribute`]), so going through the iterator
-    /// would read all five values for every name listed after them — or not
-    /// present at all — only to throw them away.
+    /// A named lookup reads only what it names. The `app:*` block and the `Id`
+    /// decide presence by reading (see [`app_attribute`] and [`id_at`]), so
+    /// going through the iterator would read them for every name listed after
+    /// them — or not present at all — only to throw them away. Both are
+    /// answered here, and the iterator skips them for every other name.
     fn attribute(&self, namespace: Namespace, name: &str) -> Option<Arc<dyn UiAttribute>> {
         if let Some(kind) = AppAttr::named(namespace, name) {
             // The process table is read only under a locally valid number.
             let number = self.process_attributes().process_table?;
             return app_attribute(kind, &recorded_identity(&self.process_identity, Some(number))?);
         }
+        if namespace == Namespace::Control && name == common::ID {
+            return self.id().map(|id| Arc::new(IdAttr { namespace, id }) as Arc<dyn UiAttribute>);
+        }
         let mut attrs = AttrsIter::new(self, self.runtime_id().as_str().to_string());
         attrs.process.process_table = None;
+        attrs.id_level = None;
         attrs.find(|attribute| attribute.namespace() == namespace && attribute.name() == name)
     }
 
@@ -1075,6 +1075,9 @@ struct AttrsIter {
     /// Shared lazy-resolution context for standard attributes.
     /// D-Bus calls are deferred until `.value()` and cached via `OnceLock`.
     ctx: Arc<LazyNodeData>,
+    /// The node's level, which decides its `Id` (see [`id_at`]). `None` skips
+    /// the `Id` without reading it, as a named lookup of another attribute does.
+    id_level: Option<Level>,
     /// Process-derived attributes (only set for application-level nodes).
     process: ProcessAttributes,
     /// The node's recorded process, shared with it.
@@ -1125,6 +1128,7 @@ impl AttrsIter {
             supports_text,
             role,
             ctx,
+            id_level: Some(node.level),
             process,
             process_identity: Arc::clone(&node.process_identity),
             process_values: None,
@@ -1281,11 +1285,11 @@ impl Iterator for AttrsIter {
                     kind: StdAttrKind::Name,
                     ctx: self.ctx.clone(),
                 })),
-                2 => Some(Arc::new(LazyStdAttr {
-                    namespace: self.namespace,
-                    kind: StdAttrKind::Id,
-                    ctx: self.ctx.clone(),
-                })),
+                // Listed only with a value (spec `id-attribute`). The read is
+                // cached on the ctx, so it happens once per listing.
+                2 => self.id_level.and_then(|level| id_at(level, || self.ctx.resolve_id())).map(|id| {
+                    Arc::new(IdAttr { namespace: self.namespace, id: id.to_string() }) as Arc<dyn UiAttribute>
+                }),
                 3 => {
                     // Gated on a non-empty accessible description (D2). The
                     // resolve is cached on the ctx, so the later `.value()`
@@ -1561,9 +1565,9 @@ impl LazyNodeData {
         crate::popups::match_popup_rect(&popups, size)
     }
 
-    /// Unix PID of the application owning this node's bus name (same lookup
-    /// as [`AtspiNode::resolve_process_id`]; uncached — `resolve_extents`
-    /// memoizes the whole result).
+    /// Unix PID of the application owning this node's bus name (the number
+    /// of [`AtspiNode::resolve_peer`]; uncached — `resolve_extents` memoizes
+    /// the whole result).
     fn resolve_process_id(&self) -> Option<u32> {
         let bus_name = self.obj.name_as_str()?;
         crate::identity::peer_of(self.conn.connection(), bus_name).number
@@ -1693,7 +1697,6 @@ impl ExtentSources for LazyNodeData {
 #[derive(Clone, Copy)]
 enum StdAttrKind {
     Name,
-    Id,
     Description,
     Bounds,
     ActivationPoint,
@@ -1731,7 +1734,6 @@ impl UiAttribute for LazyStdAttr {
     fn name(&self) -> &str {
         match self.kind {
             StdAttrKind::Name => common::NAME,
-            StdAttrKind::Id => common::ID,
             StdAttrKind::Description => common::DESCRIPTION,
             StdAttrKind::Bounds => element::BOUNDS,
             StdAttrKind::ActivationPoint => activation_target::ACTIVATION_POINT,
@@ -1752,7 +1754,6 @@ impl UiAttribute for LazyStdAttr {
     fn value(&self) -> UiValue {
         match self.kind {
             StdAttrKind::Name => UiValue::from(self.ctx.resolve_name().to_string()),
-            StdAttrKind::Id => UiValue::from(self.ctx.resolve_id().unwrap_or_default().to_string()),
             StdAttrKind::Description => UiValue::from(self.ctx.resolve_description().unwrap_or_default().to_string()),
             StdAttrKind::Bounds => {
                 let rect = self.ctx.resolve_extents().unwrap_or_else(|| Rect::new(0.0, 0.0, 0.0, 0.0));
@@ -1847,6 +1848,26 @@ impl UiAttribute for RoleAttr {
 
     fn value(&self) -> UiValue {
         UiValue::from(self.role.clone())
+    }
+}
+
+/// `control:Id`, built only from a value [`id_at`] answered.
+struct IdAttr {
+    namespace: Namespace,
+    id: String,
+}
+
+impl UiAttribute for IdAttr {
+    fn namespace(&self) -> Namespace {
+        self.namespace
+    }
+
+    fn name(&self) -> &str {
+        common::ID
+    }
+
+    fn value(&self) -> UiValue {
+        UiValue::from(self.id.clone())
     }
 }
 
@@ -1956,28 +1977,14 @@ fn process_attributes_at(level: Level, peer: impl FnOnce() -> PeerIdentity) -> P
     }
 }
 
-/// The node identifier of a node at `level`: [`application_id`] at the
-/// application level, the toolkit's accessible-id below it.
-fn node_id(
-    level: Level,
-    process_id: impl FnOnce() -> Option<u32>,
-    accessible_id: impl FnOnce() -> Option<String>,
-) -> Option<String> {
+/// The `Id` of a node at `level` (spec `id-attribute`), for the accessor and the
+/// attribute alike: none at the application level, whose identity is its
+/// `@ProcessId`, without asking for the accessible-id; below it, the toolkit's
+/// identifier, which `accessible_id` answers only when there is one.
+fn id_at<T>(level: Level, accessible_id: impl FnOnce() -> Option<T>) -> Option<T> {
     match level {
-        Level::Application => application_id(process_id(), accessible_id),
+        Level::Application => None,
         Level::BelowApplication => accessible_id(),
-    }
-}
-
-/// The node identifier of an application: its process ID in decimal when it has
-/// one, otherwise the toolkit's accessible-id — asked for only then. Never `"0"`.
-pub(crate) fn application_id(
-    process_id: Option<u32>,
-    accessible_id: impl FnOnce() -> Option<String>,
-) -> Option<String> {
-    match process_id.filter(|pid| *pid > 0) {
-        Some(pid) => Some(pid.to_string()),
-        None => accessible_id(),
     }
 }
 
@@ -2505,29 +2512,6 @@ mod tests {
         assert_eq!(reported.process_table, Some(APP));
     }
 
-    // Task 2.7: the node identifier of an application.
-    #[test]
-    fn an_application_id_is_its_process_id_when_there_is_one() {
-        assert_eq!(application_id(Some(APP), || panic!("must not ask for the accessible-id")), Some(APP.to_string()));
-    }
-
-    #[test]
-    fn without_a_process_id_an_application_id_is_the_accessible_id_or_nothing() {
-        assert_eq!(application_id(None, || Some("accessible".to_string())), Some("accessible".to_string()));
-        assert_eq!(application_id(None, || None), None);
-    }
-
-    #[test]
-    fn an_application_id_is_never_zero() {
-        assert_eq!(application_id(Some(0), || None), None);
-        for for_us in [LOCAL, BLIND] {
-            for for_app in CANNOT_TELL {
-                let process_id = ProcessAttributes::from(peer_under(for_us, for_app)).process_id;
-                assert_ne!(application_id(process_id, || None), Some("0".to_string()), "{for_us:?} / {for_app:?}");
-            }
-        }
-    }
-
     // Spec: *Process attributes and Id follow the level, not the interface*. A
     // node below the application level may report the Application interface
     // (Avalonia's windows do) and shares its application's bus peer; neither
@@ -2540,19 +2524,34 @@ mod tests {
     }
 
     #[test]
-    fn below_the_application_level_the_id_is_the_accessible_id() {
-        let id = node_id(Level::BelowApplication, || Some(APP), || Some("accessible".to_string()));
-        assert_eq!(id, Some("accessible".to_string()));
-    }
-
-    #[test]
     fn at_the_application_level_the_process_is_reported() {
         let peer = peer_under(LOCAL, Answer::Definitive(Some(APP)));
         assert_eq!(process_attributes_at(Level::Application, || peer), ProcessAttributes::from(peer));
-        assert_eq!(
-            node_id(Level::Application, || Some(APP), || panic!("must not ask for the accessible-id")),
-            Some(APP.to_string())
-        );
+    }
+
+    // Spec (`id-attribute`): the `Id` of the accessor and of the attribute, one
+    // decision over the level and the accessible-id read.
+    #[test]
+    fn the_id_follows_the_level() {
+        // The level, the accessible-id read, and the `Id` the decision answers.
+        type Row = (Level, fn() -> Option<String>, Option<&'static str>);
+        let rows: [Row; 3] = [
+            // *Application nodes carry no Id*. The application level does not
+            // read the accessible-id — a Qt root would answer `QApplication` —
+            // and takes no process ID, so an application without one has none
+            // either.
+            (Level::Application, || panic!("must not ask for the accessible-id (`QApplication`)"), None),
+            // *Process attributes and Id follow the level, not the interface*:
+            // below the application level the toolkit's identifier answers.
+            (Level::BelowApplication, || Some("btn-ok".to_string()), Some("btn-ok")),
+            // *An identifier that does not answer in time is absent*, and *An
+            // empty accessible-id is no Id*: a read that answers nothing leaves
+            // no `Id`, rather than an empty one.
+            (Level::BelowApplication, || None, None),
+        ];
+        for (level, accessible_id, expected) in rows {
+            assert_eq!(id_at(level, accessible_id).as_deref(), expected, "{level:?}");
+        }
     }
 
     #[test]

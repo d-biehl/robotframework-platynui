@@ -290,7 +290,12 @@ class UiNode:
     @property
     def owner_id(self) -> int: ...
     @property
-    def id(self) -> str | None: ...
+    def id(self) -> str | None:
+        """The identifier the element's toolkit reports for automation, the same value as ``@Id``.
+
+        ``None`` when the toolkit reports none, and always ``None`` for an application, which its
+        ``@ProcessId`` identifies.
+        """
     @property
     def description(self) -> str | None: ...
     @property

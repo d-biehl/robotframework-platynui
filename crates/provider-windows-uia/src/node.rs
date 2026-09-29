@@ -1396,10 +1396,10 @@ fn process_attribute(name: &str) -> Option<ProcessAttribute> {
 /// An application node's attributes, listed with one process open at most.
 ///
 /// The process attributes are read once, through the node's recorded identity,
-/// when the listing first needs them: for `Id`, whose presence depends on the
-/// name when the node has not cached it yet, or for the first `app` attribute.
-/// The same read seeds the node's name, so the two cannot disagree. Only the
-/// process attributes that were read are listed.
+/// when the listing reaches the first `app` attribute. The same read seeds the
+/// node's name, so the two cannot disagree. Only the process attributes that
+/// were read are listed. An application node lists no `Id` (spec
+/// `id-attribute`): its `ProcessId` identifies it.
 struct AppAttrsIter {
     pid: i32,
     process: Option<ProcessIdentity>,
@@ -1431,15 +1431,6 @@ impl AppAttrsIter {
             read.iter().map(|(attribute, value)| (attribute, value.to_owned())).collect::<Vec<_>>().into_iter()
         })
     }
-
-    /// The node's name; read together with the process attributes when it is
-    /// not cached yet.
-    fn name(&mut self) -> &str {
-        if self.name.get().is_none() {
-            self.read_process();
-        }
-        self.name.get_or_init(String::new)
-    }
 }
 impl Iterator for AppAttrsIter {
     type Item = Arc<dyn UiAttribute>;
@@ -1449,12 +1440,9 @@ impl Iterator for AppAttrsIter {
                 0 => Some(Arc::new(AppRoleAttr) as Arc<dyn UiAttribute>),
                 1 => Some(Arc::new(AppNameAttr { owner: self.owner.clone() }) as Arc<dyn UiAttribute>),
                 2 => Some(Arc::new(AppRuntimeIdAttr { rid: self.rid.clone() }) as Arc<dyn UiAttribute>),
-                // The developer Id is the name, when there is one.
-                3 => (!self.name().is_empty())
-                    .then(|| Arc::new(IdAttr { owner: self.owner.clone() }) as Arc<dyn UiAttribute>),
                 // A process ID of 0 identifies nothing.
-                4 => (self.pid > 0).then(|| Arc::new(AppProcessIdAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
-                5 => {
+                3 => (self.pid > 0).then(|| Arc::new(AppProcessIdAttr { pid: self.pid }) as Arc<dyn UiAttribute>),
+                4 => {
                     // Stays at this index until the process attributes run out.
                     if let Some((attribute, value)) = self.read_process().next() {
                         return Some(Arc::new(AppProcessAttr {
@@ -1466,8 +1454,8 @@ impl Iterator for AppAttrsIter {
                 }
                 // Common attributes, in `Control` like the element nodes: an
                 // application node is addressable by the same filters.
-                6 => Some(Arc::new(TechnologyAttr) as Arc<dyn UiAttribute>),
-                7 => Some(Arc::new(SupportedPatternsAttr { owner: self.owner.clone() }) as Arc<dyn UiAttribute>),
+                5 => Some(Arc::new(TechnologyAttr) as Arc<dyn UiAttribute>),
+                6 => Some(Arc::new(SupportedPatternsAttr { owner: self.owner.clone() }) as Arc<dyn UiAttribute>),
                 _ => return None,
             };
             self.idx = self.idx.saturating_add(1);
@@ -1821,10 +1809,6 @@ impl UiNode for ApplicationNode {
     fn runtime_id(&self) -> &RuntimeId {
         self.rid_cell.get_or_init(|| RuntimeId::from(format!("uia://app/{}", self.pid)))
     }
-    fn id(&self) -> Option<String> {
-        let n = self.name();
-        if n.is_empty() { None } else { Some(n) }
-    }
     fn parent(&self) -> Option<Weak<dyn UiNode>> {
         match self.parent.lock() {
             Ok(g) => g.clone(),
@@ -1852,8 +1836,8 @@ impl UiNode for ApplicationNode {
         ))
     }
     /// A lookup by name reads only what it names: an `app` name reads that one
-    /// process attribute, `Name` and `Id` answer from the cached name, and every
-    /// other name is answered without a process read. It agrees with the listing.
+    /// process attribute, `Name` answers from the cached name, and every other
+    /// name is answered without a process read. It agrees with the listing.
     fn attribute(&self, namespace: Namespace, name: &str) -> Option<Arc<dyn UiAttribute>> {
         match namespace {
             Namespace::App => {
@@ -1868,9 +1852,6 @@ impl UiNode for ApplicationNode {
                     common::NAME => Some(Arc::new(AppNameAttr { owner: owner() })),
                     common::RUNTIME_ID => {
                         Some(Arc::new(AppRuntimeIdAttr { rid: self.runtime_id().as_str().to_owned() }))
-                    }
-                    common::ID => {
-                        self.id().is_some().then(|| Arc::new(IdAttr { owner: owner() }) as Arc<dyn UiAttribute>)
                     }
                     application::PROCESS_ID => {
                         (self.pid > 0).then(|| Arc::new(AppProcessIdAttr { pid: self.pid }) as Arc<dyn UiAttribute>)
@@ -2076,7 +2057,8 @@ mod attribute_surface_tests {
     /// specified for `control:`/`item:` nodes, and whether it should cover
     /// `app:` nodes is an open question in this change's design. What is pinned
     /// here is that the two new attributes arrived without displacing the
-    /// existing ones.
+    /// existing ones, and that the node carries no `Id` (spec `id-attribute`):
+    /// an application is identified by its `ProcessId`.
     #[test]
     fn application_node_carries_the_common_attributes() {
         let app = ApplicationNode::orphan(std::process::id().cast_signed());
@@ -2093,6 +2075,16 @@ mod attribute_surface_tests {
         assert!(value(common::ROLE).is_some(), "Role must survive alongside the new attributes");
         assert!(value(common::NAME).is_some(), "Name must survive alongside the new attributes");
         assert!(value(common::RUNTIME_ID).is_some(), "RuntimeId must survive alongside the new attributes");
+
+        assert_eq!(app.id(), None, "an application node has no Id");
+        assert_eq!(value(common::ID), None, "an application node lists no Id");
+        assert!(app.attribute(Namespace::Control, common::ID).is_none(), "an application node has no Id to look up");
+        let description = platynui_core::ui::describe(app.as_ref());
+        assert!(!description.contains(" #"), "an application is described without an id: {description}");
+        assert_eq!(value(application::PROCESS_ID), Some(UiValue::from(i64::from(std::process::id()))));
+
+        let issues = platynui_core::ui::contract::testkit::verify_id(app.as_ref());
+        assert!(issues.is_empty(), "Id issues: {issues:?}");
     }
 
     /// Application nodes are listed in the order their windows were first
@@ -2115,10 +2107,17 @@ mod attribute_surface_tests {
 
         let issues = platynui_core::ui::contract::testkit::verify_common_attributes(node.as_ref());
         assert!(issues.is_empty(), "common attribute issues: {issues:?}");
+
+        let issues = platynui_core::ui::contract::testkit::verify_id(node.as_ref());
+        assert!(issues.is_empty(), "Id issues: {issues:?}");
     }
 
     /// Set for the child process that shows the test window.
     const TEST_WINDOW_ENV: &str = "PLATYNUI_UIA_TEST_WINDOW";
+
+    /// The control ID of the test window's first button. UI Automation reports
+    /// a Win32 control's ID as its `AutomationId`; the other buttons get none.
+    const FIRST_BUTTON_ID: u16 = 1001;
 
     /// Not a test of its own: the child process of [`TestWindow::start`]. It
     /// shows a window with three buttons of its own, prints the window's handle
@@ -2128,7 +2127,7 @@ mod attribute_surface_tests {
     #[ignore = "the child process of TestWindow::start, which starts it"]
     fn test_window_child() {
         use windows::Win32::UI::WindowsAndMessaging::{
-            BS_PUSHBUTTON, CreateWindowExW, DispatchMessageW, MSG, PM_REMOVE, PeekMessageW, SW_SHOWNOACTIVATE,
+            BS_PUSHBUTTON, CreateWindowExW, DispatchMessageW, HMENU, MSG, PM_REMOVE, PeekMessageW, SW_SHOWNOACTIVATE,
             ShowWindow, TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WS_CHILD, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
         };
         use windows::core::w;
@@ -2159,6 +2158,8 @@ mod attribute_surface_tests {
         .expect("test window");
         for (index, label) in [w!("First"), w!("Second"), w!("Third")].into_iter().enumerate() {
             let x = 10 + 120 * i32::try_from(index).expect("three buttons");
+            // A child window's menu handle is its control ID.
+            let control_id = (index == 0).then(|| HMENU(usize::from(FIRST_BUTTON_ID) as *mut core::ffi::c_void));
             // SAFETY: creating a standard push button inside the window above.
             unsafe {
                 CreateWindowExW(
@@ -2171,7 +2172,7 @@ mod attribute_surface_tests {
                     100,
                     30,
                     Some(window),
-                    None,
+                    control_id,
                     None,
                     None,
                 )
@@ -2413,7 +2414,7 @@ mod attribute_surface_tests {
         assert_eq!(control(application::PROCESS_ID), Some(UiValue::from(0x3FFF_FFFC_i64)));
         assert_eq!(control(common::TECHNOLOGY), Some(UiValue::from("UIAutomation")));
         assert!(control(common::SUPPORTED_PATTERNS).is_some());
-        assert_eq!(control(common::ID), None, "no name, so no developer id");
+        assert_eq!(control(common::ID), None, "an application node has no Id");
         assert_eq!(
             app.attribute(Namespace::Control, application::PROCESS_ID).map(|attribute| attribute.value()),
             Some(UiValue::from(0x3FFF_FFFC_i64))
@@ -2461,17 +2462,13 @@ mod attribute_surface_tests {
         }
     }
 
-    /// Design D9: the node is named after its process, and its developer id is
-    /// the same name.
+    /// Design D9: the node is named after its process.
     #[test]
     fn an_application_node_is_named_after_its_process_name() {
         let app = ApplicationNode::orphan(std::process::id().cast_signed());
         let process_name = app.attribute(Namespace::App, application::PROCESS_NAME).expect("app:ProcessName").value();
-        assert_eq!(
-            app.attribute(Namespace::Control, common::NAME).map(|name| name.value()),
-            Some(process_name.clone())
-        );
-        assert_eq!(app.attribute(Namespace::Control, common::ID).map(|id| id.value()), Some(process_name));
+        assert_eq!(app.attribute(Namespace::Control, common::NAME).map(|name| name.value()), Some(process_name));
+        assert!(app.attribute(Namespace::Control, common::ID).is_none(), "an application node has no Id");
     }
 
     /// Spec: *A platform that reports process ID 0 yields no process ID*. The
@@ -2515,5 +2512,37 @@ mod attribute_surface_tests {
         let application: Arc<dyn UiNode> = ApplicationNode::orphan(window.pid());
         let issues = verify_children_keep_parent(application, 8);
         assert!(issues.is_empty(), "the application's windows must keep its node alive: {issues:?}");
+    }
+
+    /// Spec (`id-attribute`): *Enumeration and lookup agree*. The test window's
+    /// first button carries its control ID as `Id` through the listing, the
+    /// named lookup and the accessor; the testkit's `Id` check holds on the
+    /// window and on each of its buttons.
+    #[test]
+    fn a_control_id_is_the_same_id_through_every_read() {
+        use platynui_core::ui::contract::testkit::verify_id;
+
+        let window = TestWindow::start();
+        let window_node = window.node();
+        let buttons: Vec<Arc<dyn UiNode>> = window_node.children().collect();
+        let first = buttons.iter().find(|button| button.name() == "First").expect("the first button");
+
+        let expected = FIRST_BUTTON_ID.to_string();
+        let listed = first
+            .attributes()
+            .find(|attribute| attribute.namespace() == Namespace::Control && attribute.name() == common::ID)
+            .map(|attribute| attribute.value());
+        assert_eq!(listed, Some(UiValue::from(expected.clone())), "listed");
+        assert_eq!(
+            first.attribute(Namespace::Control, common::ID).map(|attribute| attribute.value()),
+            Some(UiValue::from(expected.clone())),
+            "looked up"
+        );
+        assert_eq!(first.id(), Some(expected), "accessor");
+
+        for node in std::iter::once(&window_node).chain(&buttons) {
+            let issues = verify_id(node.as_ref());
+            assert!(issues.is_empty(), "{}: Id issues: {issues:?}", platynui_core::ui::describe(node.as_ref()));
+        }
     }
 }

@@ -127,6 +127,23 @@ pub enum ContractIssue {
         preceding: String,
         preceding_key: u64,
     },
+    /// The id accessor, the listed `control:Id` and its named lookup do not
+    /// carry the same value — see [`verify_id`].
+    IdMismatch {
+        node: String,
+        accessor: Option<String>,
+        listed: Option<UiValue>,
+        looked_up: Option<UiValue>,
+    },
+    /// A node carries an empty `Id`, where it must carry none.
+    EmptyId {
+        node: String,
+    },
+    /// A node in the `app` namespace carries an `Id`; an application is
+    /// identified by its `@ProcessId`.
+    IdOnApplication {
+        node: String,
+    },
 }
 
 /// The attributes every `control:`/`item:` node carries regardless of the
@@ -135,7 +152,7 @@ pub enum ContractIssue {
 /// `Id` and `Description` are conditional by contract — present only when the
 /// platform reports a value — so they are declared optional here; a provider
 /// that omits them for an element without an automation id or description is
-/// conforming.
+/// conforming. [`verify_id`] checks the `Id` further.
 pub const COMMON_ATTRIBUTES: &[AttributeExpectation] = &[
     AttributeExpectation::required(Namespace::Control, common::ROLE),
     AttributeExpectation::required(Namespace::Control, common::NAME),
@@ -188,6 +205,40 @@ pub fn verify_common_attributes(node: &dyn UiNode) -> Vec<ContractIssue> {
         }
     }
 
+    issues
+}
+
+/// Verifies a node's `Id` (spec `id-attribute`) and returns all detected
+/// deviations: `control:Id` is listed exactly when [`UiNode::id`] is set, with
+/// the same non-empty value, and looking it up by name finds the same. A node
+/// in the `app` namespace carries none at all. Applies to every namespace,
+/// unlike [`verify_common_attributes`].
+pub fn verify_id(node: &dyn UiNode) -> Vec<ContractIssue> {
+    let runtime_id = node.runtime_id().as_str();
+    let accessor = node.id();
+    let listed = node
+        .attributes()
+        .find(|attribute| attribute.namespace() == Namespace::Control && attribute.name() == common::ID)
+        .map(|attribute| attribute.value());
+    let looked_up = node.attribute(Namespace::Control, common::ID).map(|attribute| attribute.value());
+
+    let mut issues = Vec::new();
+    let expected = accessor.clone().map(UiValue::from);
+    if listed != expected || looked_up != expected {
+        issues.push(ContractIssue::IdMismatch {
+            node: runtime_id.to_owned(),
+            accessor: accessor.clone(),
+            listed: listed.clone(),
+            looked_up: looked_up.clone(),
+        });
+    }
+    let empty = |value: &UiValue| value.is_null() || matches!(value, UiValue::String(text) if text.is_empty());
+    if accessor.as_deref() == Some("") || listed.as_ref().is_some_and(empty) || looked_up.as_ref().is_some_and(empty) {
+        issues.push(ContractIssue::EmptyId { node: runtime_id.to_owned() });
+    }
+    if node.namespace() == Namespace::App && (accessor.is_some() || listed.is_some() || looked_up.is_some()) {
+        issues.push(ContractIssue::IdOnApplication { node: runtime_id.to_owned() });
+    }
     issues
 }
 
@@ -1339,5 +1390,147 @@ mod order_key_tests {
         let issues = verify_doc_order_keys(&listing);
 
         assert!(matches!(issues.as_slice(), [ContractIssue::OrderKeyOutOfDocumentOrder { node, .. }] if node == "b"));
+    }
+}
+
+#[cfg(test)]
+mod id_tests {
+    use super::*;
+    use crate::ui::RuntimeId;
+    use rstest::rstest;
+    use std::sync::Weak;
+
+    struct IdAttribute(UiValue);
+
+    impl UiAttribute for IdAttribute {
+        fn namespace(&self) -> Namespace {
+            Namespace::Control
+        }
+        fn name(&self) -> &str {
+            common::ID
+        }
+        fn value(&self) -> UiValue {
+            self.0.clone()
+        }
+    }
+
+    /// A node whose id accessor, listed `control:Id` and named lookup of it are
+    /// set independently, as a provider that answers them on separate paths
+    /// could set them.
+    struct IdNode {
+        namespace: Namespace,
+        runtime_id: RuntimeId,
+        accessor: Option<&'static str>,
+        listed: Option<&'static str>,
+        looked_up: Option<&'static str>,
+    }
+
+    fn node(
+        namespace: Namespace,
+        accessor: Option<&'static str>,
+        listed: Option<&'static str>,
+        looked_up: Option<&'static str>,
+    ) -> IdNode {
+        IdNode { namespace, runtime_id: RuntimeId::from("node"), accessor, listed, looked_up }
+    }
+
+    fn attribute(value: Option<&'static str>) -> Option<Arc<dyn UiAttribute>> {
+        value.map(|value| Arc::new(IdAttribute(UiValue::from(value))) as Arc<dyn UiAttribute>)
+    }
+
+    impl UiNode for IdNode {
+        fn namespace(&self) -> Namespace {
+            self.namespace
+        }
+        fn role(&self) -> &'static str {
+            "Button"
+        }
+        fn name(&self) -> String {
+            String::new()
+        }
+        fn runtime_id(&self) -> &RuntimeId {
+            &self.runtime_id
+        }
+        fn id(&self) -> Option<String> {
+            self.accessor.map(str::to_owned)
+        }
+        fn parent(&self) -> Option<Weak<dyn UiNode>> {
+            None
+        }
+        fn children(&self) -> Box<dyn Iterator<Item = Arc<dyn UiNode>> + Send + 'static> {
+            Box::new(std::iter::empty())
+        }
+        fn attributes(&self) -> Box<dyn Iterator<Item = Arc<dyn UiAttribute>> + Send + 'static> {
+            Box::new(attribute(self.listed).into_iter())
+        }
+        fn attribute(&self, namespace: Namespace, name: &str) -> Option<Arc<dyn UiAttribute>> {
+            (namespace == Namespace::Control && name == common::ID).then(|| attribute(self.looked_up)).flatten()
+        }
+        fn supported_patterns(&self) -> Vec<PatternName> {
+            Vec::new()
+        }
+        fn invalidate(&self) {}
+    }
+
+    fn mismatch(accessor: Option<&str>, listed: Option<&str>, looked_up: Option<&str>) -> ContractIssue {
+        ContractIssue::IdMismatch {
+            node: "node".into(),
+            accessor: accessor.map(str::to_owned),
+            listed: listed.map(UiValue::from),
+            looked_up: looked_up.map(UiValue::from),
+        }
+    }
+
+    #[rstest]
+    #[case::with_an_id(node(Namespace::Control, Some("btn-ok"), Some("btn-ok"), Some("btn-ok")))]
+    #[case::without_an_id(node(Namespace::Control, None, None, None))]
+    #[case::an_item(node(Namespace::Item, Some("row-1"), Some("row-1"), Some("row-1")))]
+    #[case::an_application_without_an_id(node(Namespace::App, None, None, None))]
+    fn agreeing_reads_pass(#[case] node: IdNode) {
+        let issues = verify_id(&node);
+        assert!(issues.is_empty(), "expected no issues, got {issues:?}");
+    }
+
+    #[rstest]
+    #[case::the_accessor_alone(node(Namespace::Control, Some("btn-ok"), None, None))]
+    #[case::not_listed(node(Namespace::Control, Some("btn-ok"), None, Some("btn-ok")))]
+    // The listing and the lookup answer on separate paths, as UIA's application
+    // node once did.
+    #[case::not_looked_up(node(Namespace::Control, Some("btn-ok"), Some("btn-ok"), None))]
+    #[case::another_value(node(Namespace::Control, Some("btn-ok"), Some("btn-cancel"), Some("btn-cancel")))]
+    fn disagreeing_reads_are_reported(#[case] node: IdNode) {
+        let issues = verify_id(&node);
+        assert_eq!(issues, vec![mismatch(node.accessor, node.listed, node.looked_up)]);
+    }
+
+    /// AT-SPI listed `@Id=""` for an element without an accessible-id.
+    #[rstest]
+    fn an_empty_id_is_reported() {
+        let listed_empty = node(Namespace::Control, None, Some(""), Some(""));
+        assert_eq!(
+            verify_id(&listed_empty),
+            vec![mismatch(None, Some(""), Some("")), ContractIssue::EmptyId { node: "node".into() }]
+        );
+
+        let empty_everywhere = node(Namespace::Control, Some(""), Some(""), Some(""));
+        assert_eq!(verify_id(&empty_everywhere), vec![ContractIssue::EmptyId { node: "node".into() }]);
+    }
+
+    /// UIA's application node carried its process name as `Id`.
+    #[rstest]
+    fn an_application_with_an_id_is_reported() {
+        let application = node(Namespace::App, Some("ledger"), Some("ledger"), Some("ledger"));
+        assert_eq!(verify_id(&application), vec![ContractIssue::IdOnApplication { node: "node".into() }]);
+
+        // AT-SPI's application node: its process ID from the accessor, the root's
+        // accessible-id from the attribute.
+        let application = node(Namespace::App, Some("3768"), Some("QApplication"), Some("QApplication"));
+        assert_eq!(
+            verify_id(&application),
+            vec![
+                mismatch(Some("3768"), Some("QApplication"), Some("QApplication")),
+                ContractIssue::IdOnApplication { node: "node".into() },
+            ]
+        );
     }
 }

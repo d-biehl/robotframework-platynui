@@ -74,7 +74,8 @@ Both paths matter: `attributes()` enumerates and `attribute()` matches by name i
 **Application Nodes**:
 - Synthetic `app:Application` nodes group top-level elements by `CurrentProcessId`.
 - RuntimeId: `uia://app/<pid>`
-- Attributes: `control:ProcessId` (for a positive pid), `control:Name` and `control:Id` (the process name), and the `app:` process attributes `ProcessName`, `ExecutablePath`, `CommandLine`, `UserName`, `StartTime`, `Architecture`. The process attributes are read by `platynui-process` through the process identity the node recorded, and listed only when they were read; formats and sources in spec `application-process-attributes`.
+- Attributes: `control:ProcessId` (for a positive pid), `control:Name` (the process name), and the `app:` process attributes `ProcessName`, `ExecutablePath`, `CommandLine`, `UserName`, `StartTime`, `Architecture`. The process attributes are read by `platynui-process` through the process identity the node recorded, and listed only when they were read; formats and sources in spec `application-process-attributes`.
+- No `Id`: `id()` is none and no `control:Id` is listed or found by name, because an application is identified by its `ProcessId` (spec `id-attribute`).
 
 **Root Streaming**: First `control:` desktop children (own process filtered), then one `app:Application` per seen PID in stable order.
 
@@ -90,7 +91,7 @@ There is exactly **one** registered Java provider: `crates/provider-java` (`plat
 
 ### The in-JVM agent backend (Swing/AWT, highest fidelity)
 
-An agent inside the target JVM reads the toolkit's own model, which closes gaps the bridge cannot: `Component.getName()` (the classic automation id), `TableModel` bulk reads, real object identity, and correct per-cell bounds. `crates/provider-java/src/agent` is the client and mapping layer (technology `JavaAgent`); the agent itself is `java/agent` and its transport `crates/java-agent`. Full design: OpenSpec change `provider-java-swing`.
+An agent inside the target JVM reads the toolkit's own model, which closes gaps the bridge cannot: `Component.getName()` (the classic automation id, surfaced as `Id` on components and windows when it was set through `setName`, by the application or by Swing itself), `TableModel` bulk reads, real object identity, and correct per-cell bounds. `crates/provider-java/src/agent` is the client and mapping layer (technology `JavaAgent`); the agent itself is `java/agent` and its transport `crates/java-agent`. Full design: OpenSpec change `provider-java-swing`.
 
 - **Discovery costs a stat, not a scan**: the per-user handshake directory, no process enumeration and no accessibility API — which is why the backend is platform-neutral in substance even while the crate around it is still Windows-gated.
 - **Automatic attachment** (`providers.java.agent.auto_attach`, default on): a Java window whose JVM carries no agent gets one injected. Java applications are launched by scripts and installers, so the launch line is typically not PlatynUI's to change; the deliberate consent is installing the agent package. **The injection takes effect in the pass that triggered it**: the router waits (bounded) for the new agent to publish its handshake file and then sweeps the backends again, so a caller never sees the weaker backend for a window that is about to be taken over — without this the Inspector needed two refreshes, one to trigger the attach and one to see it. The extra sweep is paid once per process, and up to `MAX_ATTACH_ATTEMPTS` attaches are tried per JVM: one failure must not cost an application the agent for the whole session, and a JVM that structurally refuses must not be attacked once per pass.

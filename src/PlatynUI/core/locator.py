@@ -14,7 +14,7 @@ must not be set through more than one of them:
    keys sit in ``default_attribute_namespace``; tuple keys
    ``(namespace, name)`` are explicit.
 3. Free-form keyword arguments are interpreted as attributes:
-   ``Locator(AutomationId="x")`` renders ``[@AutomationId="x"]``. Use
+   ``Locator(Technology="JAB")`` renders ``[@Technology="JAB"]``. Use
    the double-underscore separator for a non-default namespace:
    ``Locator(native__HWND=0xABCD)``.
 """
@@ -489,11 +489,11 @@ class LocatorMethodDescriptor:
     Both decorator shapes work and resolve identically::
 
         class CalculatorWindow(Window):
-            @locator(AutomationId="num5Button")
+            @locator(id="num5Button")
             def n5(self) -> Button: ...           # bare: via __get__
 
             @property
-            @locator(AutomationId="num6Button")
+            @locator(id="num6Button")
             def n6(self) -> Button: ...           # property: via __call__
 
     The wrapped function is never executed; only its return annotation
@@ -598,7 +598,7 @@ def locator(
 
         class CalculatorWindow(Window):
             @property
-            @locator(AutomationId="num5Button")
+            @locator(id="num5Button")
             def n5(self) -> Button: ...
 
     Keyword arguments mirror `__init__`.
