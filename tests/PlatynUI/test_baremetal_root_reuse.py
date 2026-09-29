@@ -6,9 +6,9 @@
 
 """Unit tests for reusing the element a scoped root resolved to.
 
-A root is looked up once per keyword *in addition* to the keyword's own target, which is the
-one repetition a suite never asked for — so a root binding keeps its element while that element
-is live. Target selectors keep being re-evaluated; that is the observation a keyword makes.
+A root is looked up on every attempt of a keyword's wait *in addition* to the keyword's own
+target, which is the one repetition a suite never asked for — so a root binding keeps its element
+while that element is live. Target selectors keep being re-evaluated; that is the observation a keyword makes.
 
 These are unit tests on purpose: the reuse is gated on ``UiNode.is_valid()``, and the mock
 provider does not override it (the trait default is ``True``), so no mock-backed Robot suite can

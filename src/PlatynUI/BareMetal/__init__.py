@@ -438,6 +438,14 @@ class UiNodeDescriptor:
 
     @staticmethod
     def convert(value: str | UiNode, library: 'BareMetal') -> 'UiNodeDescriptor':
+        """An element, given as a selector or as an element that `Query` returned.
+
+        A selector is an XPath 2.0 expression (see `Finding elements`). It is evaluated again on
+        every use, so it finds what matches at that moment, inside the current root when it is
+        relative (see `Scoping queries to a container`). An element from `Query` stays that one
+        element: it has to come from the same library import, and a keyword fails when it no
+        longer exists.
+        """
         if isinstance(value, UiNode):
             return UiNodeDescriptor(value, None)
         return library.descriptor_from_query(value)
@@ -1030,8 +1038,11 @@ class BareMetal(OurDynamicCore):
     ``TEST`` or ``SUITE`` root does not come back. `Set Root` returns the root that was set at the
     scope you name, so keep that return value if you want to restore it.
 
-    The root stores the *selector*, not a fixed element, so it re-resolves against the live tree and
-    keeps working even after its window closes and reopens. (It lives in
+    The root stores the *selector*, not a fixed element. It keeps using the element the selector
+    found while that element exists, and looks the selector up again once it is gone, so the root
+    keeps working after its window closes and reopens — in the middle of a wait too, since a waiting
+    keyword checks the root on every attempt. A root that cannot be found fails the keyword with its
+    own error, even with ``ignore_exceptions``. (It lives in
     ``${PLATYNUI_ROOT_DESCRIPTOR}``, but set it through `Set Root` — the raw variable holds an
     internal value.)
 
@@ -1125,15 +1136,16 @@ class BareMetal(OurDynamicCore):
     `Query` is the deliberate exception. It is a snapshot of the tree at the instant you call it and
     returns straight away with whatever matches right then — possibly nothing. That makes it the tool
     for *asking about* the UI rather than *acting on* it: counting how many rows a table has, or
-    confirming a dialog is *gone* — a waiting keyword would block for the full timeout before it could
-    ever tell you that something is absent.
+    checking whether a dialog is open *right now* — `Wait Until Exists` would block for the full
+    timeout before it could tell you that it is not. To wait until something has gone, use
+    `Wait Until Gone`.
 
     Three settings govern the wait, together the *query settings*:
 
     | = Setting = | = Meaning = |
     | ``timeout`` | how long to keep retrying before giving up, in seconds (default ``30``) |
     | ``retry_interval`` | the pause between attempts, in seconds (default ``0.1``) |
-    | ``ignore_exceptions`` | keep retrying instead of failing when an attempt raises (default ``False``) |
+    | ``ignore_exceptions`` | keep retrying when an attempt raises; a timeout quotes its error (default ``False``) |
 
     ``timeout`` is the headroom for the slowest thing you wait on. Thirty seconds suits most UIs; raise
     it when an application is slow to start or an action takes a while to settle (a save that talks to
@@ -1144,13 +1156,19 @@ class BareMetal(OurDynamicCore):
     responsive without hammering the platform's accessibility layer on every poll; you rarely need to
     change it — raise it only if polling itself turns out to be expensive on a particular provider.
 
-    ``ignore_exceptions`` concerns the attempts that do not merely *miss* but *raise*. While an
-    application rebuilds part of its interface, a provider can momentarily throw — a node disappears in
-    the middle of a traversal, or the accessibility bridge returns a transient error. With this off
-    (the default) the first such error fails the keyword at once; with it on, the loop swallows the
-    error and keeps retrying until the timeout, so a target whose container is being torn down and
-    rebuilt still resolves once things settle. Turn it on deliberately and narrowly: it also masks a
-    genuinely wrong selector that would otherwise fail fast, turning a clear error into a long wait.
+    ``ignore_exceptions`` concerns the attempts that do not merely *miss* but *raise*. An expression
+    can raise for a moment while the application is still getting to the state you wait for:
+    ``//Text[xs:integer(@Name) > 3]`` raises as long as a label does not show a number yet. With this
+    off (the default) the first such error fails the keyword at once; with it on, the loop swallows
+    the error and keeps retrying until the timeout, so the keyword succeeds once the value has
+    settled. Turn it on deliberately and narrowly: it also masks a genuinely wrong selector that
+    would otherwise fail fast, turning a clear error into a long wait.
+    If the last attempt before the timeout raised, the failure quotes that error.
+
+    A few errors end the wait even with ``ignore_exceptions``, because waiting cannot fix them: a
+    selector that yields a value where an element is needed, an element from `Query` — or a root
+    pinned to one — that no longer exists, a `Set Root` root that is not found within its own
+    ``timeout``, and a ``validate`` expression that raises.
 
     == Tuning the wait ==
 
@@ -1179,9 +1197,10 @@ class BareMetal(OurDynamicCore):
     including the re-resolution of a `Set Root` root — whereas ``query_overrides`` tunes only that one
     keyword's own target; if you need to wait longer for the root as well, set it at the scope level.
 
-    One subtlety worth keeping in mind: ``timeout`` bounds *each* element resolution, not the keyword
-    as a whole. A keyword that resolves both a root and a target performs two lookups, each allowed its
-    own ``timeout`` — so in the worst case a single keyword can wait longer than the number you set.
+    One subtlety worth keeping in mind: ``timeout`` bounds the keyword's own wait, while the root keeps
+    its own. Every attempt looks the root up first, and when the root has to be searched for again,
+    that search may take up to the root's ``timeout`` — so in the worst case a single keyword can
+    wait longer than the number you set.
 
     == Waiting explicitly ==
 
@@ -1198,15 +1217,15 @@ class BareMetal(OurDynamicCore):
       Query` instead.
     - `Wait Until Query` waits until an XPath result satisfies a condition. It takes the same assertion
       operators as `Get Attribute Value`; with no operator it waits until the result is truthy. Unlike
-      `Get Attribute Value` it works on the raw query result, so an attribute step yields the attribute
-      value and ``count(...)`` a number.
+      `Get Attribute Value` it works on the raw query result: an attribute step is checked by its
+      value, and ``count(...)`` by its number.
     - `Wait Until Attribute Value` waits until one attribute of one element has the value you expect,
       and returns that value. It takes the element, the attribute and the operators as
       `Get Attribute Value` does; with no operator it waits until the value is truthy.
 
     | `Wait Until Exists`    Window[@Name="Save As"]    # wait for the dialog, then return it
     | `Wait Until Gone`      Window[@Name="Please wait"]    # wait until the splash is gone
-    | `Wait Until Query`     count(//item:ListItem)    >    0    # wait until the list has filled
+    | `Wait Until Query`     count(//item:ListItem)    >    ${0}    # wait until the list has filled
     | `Wait Until Attribute Value`    Window[@Name="Import"]//Button[@Id="next"]    IsEnabled    # wait until enabled
 
     = Input timing and motion =
@@ -1636,10 +1655,10 @@ class BareMetal(OurDynamicCore):
         Args:
             descriptor: The new root — a selector string, an element (e.g. one returned by a
                 query), or a root previously returned by this keyword (restored unchanged). Pass
-                ``${None}`` to reset to the desktop. A selector re-resolves against the live tree,
-                so it survives the window closing and reopening; an element pins that one element
-                and must come from this same library import — as must a restored root that pins
-                one, which is rejected here rather than on the next lookup.
+                ``${None}`` to reset to the desktop. A selector is looked up again once the element
+                it found is gone, so it survives the window closing and reopening; an element pins
+                that one element and must come from this same library import — as must a restored
+                root that pins one, which is rejected here rather than on the next lookup.
             scope: Lifetime of the root — the same names Robot Framework's `VAR` syntax uses:
                 ``LOCAL`` (default, current test/keyword only), ``TEST`` (or ``TASK``: the whole
                 test, including called keywords), ``SUITE`` (every test in the suite, not the
@@ -1649,8 +1668,8 @@ class BareMetal(OurDynamicCore):
                 runtime and is rejected.
 
         Returns:
-            UiNodeDescriptor | None: The root set at the same ``scope`` before this call (``None`` if
-            none). Pass it back at that scope to restore it.
+            The root set at the same ``scope`` before this call (``None`` if none). Pass it back at
+            that scope to restore it.
 
         Examples:
             | `Set Root`        /app:Application[@Name="Editor"]    scope=SUITE    # whole suite runs in the Editor
@@ -1719,8 +1738,8 @@ class BareMetal(OurDynamicCore):
 
         These settings govern how the action and read keywords *wait* for their target (see
         `Waiting for elements`): ``timeout`` (how long to keep retrying), ``retry_interval`` (the
-        pause between attempts) and ``ignore_exceptions`` (swallow evaluation errors instead of
-        failing). Name only the fields you want to change — they are applied over the settings already
+        pause between attempts) and ``ignore_exceptions`` (keep retrying when an attempt raises).
+        Name only the fields you want to change — they are applied over the settings already
         in effect at that scope, so the rest are inherited. The result lives as long as its variable
         ``scope``, exactly like `Set Root`: every scope but ``GLOBAL`` clears itself when it ends, so
         there is no teardown to remember.
@@ -1793,8 +1812,9 @@ class BareMetal(OurDynamicCore):
         `What a query gives you`; how to write the expression is explained in `Finding elements`.
 
         Unlike the action keywords, `Query` does not wait: it reports the tree as it is at that
-        moment and returns immediately, even when nothing matches. Pass ``root`` to scope it to a
-        container (see `Scoping queries to a container`).
+        moment and returns immediately, even when nothing matches. Without ``root``, a relative
+        expression is evaluated inside the `Set Root` root and an absolute one (``count(//Button)``)
+        without it. Pass ``root`` to scope it to a container (see `Scoping queries to a container`).
 
         | @{buttons}=    `Query`    //Button
         | ${ok}=         `Query`    //Button[@Name="OK"]    only_first=${True}
@@ -1827,7 +1847,8 @@ class BareMetal(OurDynamicCore):
         The keyword is element-only: a selector that resolves to a value or an attribute
         (``count(...)``, ``.../@Name``) fails rather than waiting. A captured element passed
         instead of a selector is simply validated as still present. Per-call waiting is tuned
-        with ``query_overrides`` (see `Tuning the wait`).
+        with ``query_overrides`` (see `Tuning the wait`). When ``timeout`` elapses, it fails with
+        ``ElementNotFoundError``.
 
         Args:
             descriptor: The element to wait for — a selector or an element from `Query`.
@@ -1850,20 +1871,23 @@ class BareMetal(OurDynamicCore):
 
         The counterpart to `Wait Until Exists`: it polls until the target disappears and then
         returns, or raises ``ElementStillPresentError`` once ``timeout`` elapses with the target
-        still there. Pass a *selector* to wait until it matches nothing — the live tree is
-        re-evaluated on every attempt — or a *captured element* from `Query` to wait until it
-        becomes invalid.
+        still there — or could not be confirmed gone, when its last attempt raised an error that
+        ``ignore_exceptions`` swallowed. Pass a *selector* to wait until it matches nothing — the
+        live tree is re-evaluated on every attempt — or a *captured element* from `Query` to wait
+        until it becomes invalid.
 
         The difference matters when something equivalent takes the target's place: a selector then
         matches the replacement and keeps waiting, while a captured element reports itself gone
         because the element *it* named is no longer there. Pick the one that expresses what you
         mean.
 
-        Whether a captured element ever reports itself gone depends on the accessibility
-        provider's liveness check. For a *value* condition — a count dropping to zero, say — use
-        `Wait Until Query`; a value-producing selector (``count(...)``) is rejected here rather
-        than silently waiting out the timeout. A `Set Root` root that itself vanishes surfaces as
-        the root's own lookup error. Per-call waiting is tuned with ``query_overrides``.
+        Whether a captured element ever reports itself gone depends on the application and the
+        platform noticing that it went away. For a *value* condition — a count dropping to zero,
+        say — use `Wait Until Query`; a value-producing selector (``count(...)``) is rejected here
+        rather than silently waiting out the timeout. A `Set Root` root that cannot be found fails the
+        keyword with the root's own error, so to wait until the root's own container closes, pass
+        that container as an absolute selector or as an element from `Query`. Per-call waiting is
+        tuned with ``query_overrides``.
 
         Args:
             descriptor: The target whose disappearance to wait for — a selector or an element
@@ -1949,13 +1973,23 @@ class BareMetal(OurDynamicCore):
         value (``==``, ``!=``, ``contains``, ``starts``, ``ends``, ``matches``, ``>``, ``<`` …;
         see [https://github.com/MarketSquare/AssertionEngine|AssertionEngine]). With no operator
         it waits until the result is *truthy* — a non-zero number, a non-empty string, a true
-        boolean, a present element. Unlike `Get Attribute Value`, it works on the raw XPath result, so
-        ``.../@X`` yields an attribute value, ``count(...)`` a number and ``//X`` an element; a
-        missing attribute is an empty result here, not an error.
+        boolean, a present element. Unlike `Get Attribute Value`, it works on the raw XPath result:
+        the condition checks the value of an attribute step (``.../@X``), the number of
+        ``count(...)`` and the element of ``//X``, and a missing attribute is an empty result here,
+        not an error.
 
         The ``then`` operator is not supported (it transforms rather than asserts and cannot
-        express a wait) — use ``validate`` for a boolean expression. Per-call waiting is tuned
-        with ``query_overrides``.
+        express a wait) — use ``validate`` for a boolean expression. A ``validate`` expression that
+        raises ends the wait at once, so write it to cope with every result it may get, ``None``
+        included while nothing matches: ``value is not None and 0 < value < 10``. Per-call waiting
+        is tuned with ``query_overrides``.
+
+        A relative expression is evaluated inside the `Set Root` root, also when its path is a
+        function's argument (``count(.//Button)``); an absolute one (``count(//Button)``) does not
+        need the root. When ``timeout`` elapses, it fails with ``ResultTypeError`` without an
+        operator, and with ``AssertionError`` or ``TypeError`` with one. The message says what the
+        last evaluation gave, such as ``was 0 and did not become truthy``, or which error the last
+        attempt raised.
 
         Args:
             expression: The XPath 2.0 expression to evaluate.
@@ -1963,7 +1997,9 @@ class BareMetal(OurDynamicCore):
                 for a truthy result.
             assertion_expected: The expected value the operator compares against.
             assertion_message: Optional custom failure message.
-            root: Optional context node to evaluate against; defaults to the current root.
+            root: Optional element to evaluate against, from this same library import; the keyword
+                fails at once when it no longer exists. Without it, a relative expression is
+                evaluated against the current root.
             query_overrides: Per-call query settings, e.g. ``{'timeout': 10}``.
 
         Returns:
@@ -1971,7 +2007,7 @@ class BareMetal(OurDynamicCore):
             an element), or the value returned by the assertion with one.
 
         Examples:
-            | ${count}=    `Wait Until Query`    count(//control:ListItem)    >    0
+            | ${count}=    `Wait Until Query`    count(//control:ListItem)    >    ${0}
             | `Wait Until Query`    Window[@Name="Editor"]//Button[@Name="Save"]/@IsEnabled    ==    ${True}
             | `Wait Until Query`    string-join(//control:ListItem/@Name, ", ")    contains    Welcome
             | ${n}=    `Wait Until Query`    count(//control:Window[@Name="Dialog"])    # wait until truthy
@@ -2064,7 +2100,10 @@ class BareMetal(OurDynamicCore):
         ``validate`` …; see [https://github.com/MarketSquare/AssertionEngine|AssertionEngine]). With no
         operator the keyword waits until the value is truthy — a true boolean, a non-zero number, a
         non-empty string. The ``then`` operator is not supported, since it transforms the value instead
-        of checking it; use ``validate`` for a condition written as an expression.
+        of checking it; use ``validate`` for a condition written as an expression. A ``validate``
+        expression that raises ends the wait at once, so write it to cope with every value the
+        attribute may have, as ``value.isdigit() and int(value) > 3`` does for a text that is not
+        always a number.
 
         A selector is looked up again on every attempt, so the keyword also waits for the element to
         appear and for an attribute the element does not report yet. An element from `Query` stays
@@ -2793,8 +2832,9 @@ class BareMetal(OurDynamicCore):
         technology-specific value its ``native:`` prefix (see `Process attributes`). The value
         comes back typed: ``@IsEnabled`` as a boolean, ``@Bounds`` as a ``Rect``. Add an assertion
         operator and an expected value to check it, and the keyword fails if the check does not
-        hold. The check runs once, on the value read at that moment; to wait until the value holds,
-        use `Wait Until Attribute Value`. For several values at once, or a computed one, use `Query`
+        hold. The keyword waits for the element like the action keywords (see `Waiting for
+        elements`), but reads and checks the value once, at that moment; to wait until the value
+        holds, use `Wait Until Attribute Value`. For several values at once, or a computed one, use `Query`
         instead.
 
         Args:
