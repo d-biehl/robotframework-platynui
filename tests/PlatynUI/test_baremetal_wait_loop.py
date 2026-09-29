@@ -193,6 +193,17 @@ def test_a_root_that_goes_away_ends_wait_until_exists(library: BareMetal, monkey
         )
 
 
+def test_a_root_that_goes_away_ends_wait_until_gone(library: BareMetal, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The target was still there when the root went away: neither gone nor still present."""
+    with_runtime(library, root_that_goes_away(make_node('OK')))
+    with_root(monkeypatch, UiNodeDescriptor(None, ROOT, is_root_binding=True))
+
+    with pytest.raises(RootNotFoundError, match=r'was not evaluated\.$'):
+        library.wait_until_gone(
+            library.descriptor_from_query(TARGET), query_overrides={'timeout': 1, 'ignore_exceptions': True}
+        )
+
+
 def test_a_pinned_root_that_stops_being_valid_ends_the_wait(
     library: BareMetal, monkeypatch: pytest.MonkeyPatch
 ) -> None:

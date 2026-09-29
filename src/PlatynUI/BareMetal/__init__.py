@@ -488,6 +488,18 @@ def _pinned_element_gone(node: UiNode) -> PinnedElementGoneError:
     )
 
 
+def _gone_wait_error(target: str, state: str, timeout: float, last_error: Exception | None) -> ElementStillPresentError:
+    """The error `Wait Until Gone` raises at its deadline, for ``target`` as its message names it.
+
+    ``state`` says what the last attempt saw when it completed: the target still present, or still
+    valid. When the last attempt raised, the target could not be confirmed gone, and its error follows.
+    """
+    within = f'within timeout of {timeout} seconds.'
+    if last_error is not None:
+        return ElementStillPresentError(_with_last_error(f'{target} could not be confirmed gone {within}', last_error))
+    return ElementStillPresentError(f'{target} {state} {within}')
+
+
 # The namespace prefixes an attribute name can carry: the runtime's four namespaces.
 _ATTRIBUTE_PREFIXES = tuple(ns.as_str() for ns in (Namespace.Control, Namespace.Item, Namespace.App, Namespace.Native))
 
@@ -1851,59 +1863,52 @@ class BareMetal(OurDynamicCore):
         """
         settings = replace(self.query_settings, **query_overrides) if query_overrides else self.query_settings
         query = descriptor.query
-        if query is None and isinstance(descriptor.node, UiNode):
+        if query is None:
+            captured = descriptor.node
+            if not isinstance(captured, UiNode):
+                raise NoQueryError('This element reference has no selector to look the element up with.')
             # A capture belongs to the runtime that produced it; one from another import can
             # neither be polled here nor be honestly called gone.
-            self.require_own_node(descriptor.node)
-        start = time.monotonic()
-        while True:
-            gone = False
-            try:
-                if query is not None:
-                    # A selector is re-evaluated every attempt — it never carries a resolved
-                    # element between calls, so there is nothing stale to distrust.
-                    self.runtime.clear_cache()
-                    root = self.root if descriptor.needs_root(self) else None
-                    result = self.runtime.evaluate_single(query, root)
-                    if result is not None and not isinstance(result, UiNode):
-                        raise ResultTypeError(
-                            f'Wait Until Gone expects an element selector or a captured element; query '
-                            f'{query!r} returned a value. Use Wait Until Query for value conditions.'
-                        )
-                    gone = result is None
-                else:
-                    # Captured element: poll its liveness directly.
-                    node = descriptor.node
-                    if node is None:
-                        gone = True
-                    else:
-                        self.runtime.clear_cache()
-                        node.invalidate()
-                        gone = not node.is_valid()
-            except ResultTypeError:
-                raise  # usage error — surface immediately, regardless of ignore_exceptions
-            except (SystemExit, KeyboardInterrupt):
-                raise
-            except Exception:
-                if not settings.ignore_exceptions:
-                    raise
-                gone = False  # swallowed error => cannot confirm gone => keep waiting
+            self.require_own_node(captured)
 
-            if gone:
-                return
+            def still_valid(context: UiNode | None, seen: _Attempt) -> _NotYet | None:
+                # A captured element is gone once the element it names is no longer valid.
+                captured.invalidate()
+                return _NOT_YET if captured.is_valid() else None
 
-            if (time.monotonic() - start) > settings.timeout:
-                if query is not None:
-                    raise ElementStillPresentError(
-                        f'Element matching query {query!r} was still present within timeout of '
-                        f'{settings.timeout} seconds.'
-                    )
-                raise ElementStillPresentError(
-                    f'Captured element {descriptor.node!r} was still valid within timeout of '
-                    f'{settings.timeout} seconds.'
+            _poll(
+                self,
+                settings,
+                lambda: None,
+                still_valid,
+                lambda seen, last_error: _gone_wait_error(
+                    f'Captured element {_element_text(captured)}', 'was still valid', settings.timeout, last_error
+                ),
+                discard_first=True,
+            )
+            return
+
+        def still_present(context: UiNode | None, seen: _Attempt) -> _NotYet | None:
+            # A selector is re-evaluated every attempt — it never carries a resolved element
+            # between calls, so there is nothing stale to distrust.
+            result = self.runtime.evaluate_single(query, context)
+            if result is not None and not isinstance(result, UiNode):
+                raise ResultTypeError(
+                    f'Wait Until Gone expects an element selector or a captured element; query '
+                    f'{query!r} returned a value. Use Wait Until Query for value conditions.'
                 )
+            return _NOT_YET if result is not None else None
 
-            time.sleep(settings.retry_interval)
+        _poll(
+            self,
+            settings,
+            lambda: descriptor.context_node(self),
+            still_present,
+            lambda seen, last_error: _gone_wait_error(
+                f'Element matching query {query!r}', 'was still present', settings.timeout, last_error
+            ),
+            discard_first=True,
+        )
 
     @keyword
     def wait_until_query(

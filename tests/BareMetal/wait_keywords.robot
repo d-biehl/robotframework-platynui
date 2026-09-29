@@ -15,6 +15,10 @@ ${MISSING}        //control:Button[@Name="NoSuchButton"]
 ${OPS_NAME}       //control:Window[@Name="Operations Console"]/@Name
 ${OPS_MAX}        //control:Window[@Name="Operations Console"]/@IsMaximized
 ${MISSING_CNT}    count(//control:Button[@Name="NoSuchButton"])
+${MISSING_ROOT}   //control:Window[@Name="NoSuchWindow"]
+# Relative, so resolving it needs the root — an absolute selector ignores the root and never
+# triggers its resolution at all.
+${MISSING_INSIDE_ROOT}    .//control:Button[@Name="NoSuchButton"]
 
 
 *** Test Cases ***
@@ -69,7 +73,9 @@ Wait Until Gone Times Out While The Selector Persists
 
 Wait Until Gone Times Out For A Still Valid Captured Node
     ${el}=    Query    ${OPS}    only_first=${True}
-    Run Keyword And Expect Error    *still valid*within timeout of 0.2 seconds*    Wait Until Gone    ${el}
+    Run Keyword And Expect Error
+    ...    *Captured element Window "Operations Console" was still valid within timeout of 0.2 seconds.
+    ...    Wait Until Gone    ${el}
 
 Wait Until Gone Ignores A Stale Cached Descriptor Node
     Get Attribute Value    ${OPS}    Name
@@ -84,8 +90,20 @@ Wait Until Gone Honors Per Call Timeout
     ...    Wait Until Gone    ${OPS}    query_overrides={'timeout': 0.6}
 
 Wait Until Gone With Ignore Exceptions Never Reports Gone
-    Run Keyword And Expect Error    *still present*within timeout of 0.2 seconds*
+    [Documentation]    The malformed selector raises on every attempt, so no attempt saw the element
+    ...    either way: the failure says it could not be confirmed gone, and quotes the last error.
+    Run Keyword And Expect Error
+    ...    ElementStillPresentError: *could not be confirmed gone within timeout of 0.2 seconds. The last error was: EvaluationError: *
     ...    Wait Until Gone    //control:Window[broken    query_overrides={'ignore_exceptions': True}
+
+Wait Until Gone Fails On A Missing Root Even With Ignore Exceptions
+    [Documentation]    The root is looked up outside the errors ignore_exceptions swallows, with its
+    ...    own 0.2 s timeout: a root that cannot be found ends the wait with its own error, not
+    ...    with a claim about the target.
+    Set Root    ${MISSING_ROOT}    scope=TEST
+    Run Keyword And Expect Error
+    ...    RootNotFoundError: *NoSuchWindow*within timeout of 0.2 seconds; *NoSuchButton*was not evaluated.
+    ...    Wait Until Gone    ${MISSING_INSIDE_ROOT}    query_overrides={'timeout': 1, 'ignore_exceptions': True}
 
 # --- Wait Until Query ----------------------------------------------------------
 
