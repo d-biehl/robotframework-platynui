@@ -41,10 +41,8 @@ Useful command groups include `query`, `snapshot`, `watch`, `focus`, `window`, `
 
 ## More information
 
-- [../../dev-docs/](../../dev-docs/) - developer notes for CLI behavior, input handling, and platform details.
-- [../../README.md](../../README.md) - project overview.
-
-The files in `dev-docs/` are developer documentation for now and will be consolidated into user-facing docs (under `docs/`) later.
+- [PlatynUI README](https://github.com/imbus/robotframework-PlatynUI#readme) - project overview.
+- [Contributing guide](https://github.com/imbus/robotframework-PlatynUI/blob/main/CONTRIBUTING.md) - building from source and contributing.
 
 ## License
 

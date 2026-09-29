@@ -29,6 +29,12 @@ platynui-inspector
 
 The left side shows the desktop UI tree. Selecting an element shows its attributes on the right and, when bounds are available, highlights it on screen for a moment.
 
+### Theme and settings
+
+By default the inspector follows the system's light or dark theme. `--theme system|light|dark`, or the environment variable `PLATYNUI_INSPECTOR_THEME`, sets one for a single run.
+
+Settings changed in the inspector — the picker key combination, the toolbar style, the theme — are saved to `platynui/inspector.ron` in the user's configuration directory (`%APPDATA%` on Windows, `$XDG_CONFIG_HOME` or `~/.config` on Linux). `PLATYNUI_INSPECTOR_SETTINGS_PATH` points the inspector at another settings file.
+
 ### Search result limit
 
 The inspector limits XPath search collection to the first 5000 results by default so broad queries stay usable in an interactive UI. Override the limit with a command-line option:
@@ -87,10 +93,8 @@ On Windows, the inspector uses Vulkan or DX12 by default, with Vulkan preferred 
 
 ## More information
 
-- [../../dev-docs/](../../dev-docs/) - developer notes for Inspector behavior and platform details.
-- [../../README.md](../../README.md) - project overview.
-
-The files in `dev-docs/` are developer documentation for now and will be consolidated into user-facing docs (under `docs/`) later.
+- [PlatynUI README](https://github.com/imbus/robotframework-PlatynUI#readme) - project overview.
+- [Contributing guide](https://github.com/imbus/robotframework-PlatynUI/blob/main/CONTRIBUTING.md) - building from source and contributing.
 
 ## License
 

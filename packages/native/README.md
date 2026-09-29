@@ -2,7 +2,7 @@
 
 `platynui-native` exposes the PlatynUI runtime to Python. It is mainly used by the Robot Framework libraries in this repository, but it is also useful for smoke tests, experiments, and custom Python wrappers.
 
-Most users should start with the root [README](../../README.md), the CLI, or `PlatynUI.BareMetal`. Use this package directly when you need Python access to runtime queries, nodes, pointer/keyboard actions, screenshots, or mock providers.
+Most users should start with the root [README](https://github.com/imbus/robotframework-PlatynUI#readme), the CLI, or `PlatynUI.BareMetal`. Use this package directly when you need Python access to runtime queries, nodes, pointer/keyboard actions, screenshots, or mock providers.
 
 ## Local development
 
@@ -37,10 +37,8 @@ uv run pytest -q packages/native/tests
 
 ## More information
 
-- [../../dev-docs/](../../dev-docs/) - developer notes for Python bindings, Robot Framework library design, and platform behavior.
-- [../../README.md](../../README.md) - project overview.
-
-The files in `dev-docs/` are developer documentation for now and will be consolidated into user-facing docs (under `docs/`) later.
+- [PlatynUI README](https://github.com/imbus/robotframework-PlatynUI#readme) - project overview.
+- [Contributing guide](https://github.com/imbus/robotframework-PlatynUI/blob/main/CONTRIBUTING.md) - building from source and contributing.
 
 ## License
 

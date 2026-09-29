@@ -787,6 +787,31 @@ Up to this point the architecture has been deliberately platform-neutral: nodes,
 
 - **Windows** (UIA, Win32 devices, WindowManager): [`dev-docs/platform-windows.md`](platform-windows.md)
 - **Linux** (X11 devices, AT-SPI2, EWMH WindowManager): [`dev-docs/platform-linux.md`](platform-linux.md)
+- **Linux Wayland** (input, screenshots, and window management per compositor): [`dev-docs/platform-linux-wayland.md`](platform-linux-wayland.md)
+- **Java UI toolkits** (detection and coverage per toolkit and platform, the in-JVM agent): [`dev-docs/java-toolkits.md`](java-toolkits.md)
+
+### Platform support matrix
+
+Which backend implements each capability on each platform. The README carries a plain-language version of this table for users; when support changes, update both.
+
+| Component | Windows | Linux X11 | Linux Wayland | PlatynUI compositor | macOS | Mock |
+|-----------|---------|-----------|---------------|---------------------|-------|------|
+| UI tree provider | ✅ UIA | ✅ AT-SPI2 | ✅ AT-SPI2, window-relative coordinates | ✅ AT-SPI2 + compositor window geometry | ❌ AX stub | ✅ |
+| Java provider backends | ⚠️ Swing/AWT: in-JVM agent (opt-in, Web Start included) + JAB (Java Access Bridge) fallback | ❌ planned in-JVM agent | ❌ planned in-JVM agent | ❌ planned in-JVM agent | — (JDK implements AX natively) | — |
+| Pointer | ✅ SendInput | ✅ XTest | ⚠️ portal (Mutter/KWin) / virtual-input (wlroots) / EIS | ✅ EIS | ❌ stub | ✅ |
+| Keyboard | ✅ SendInput | ✅ XTest | ⚠️ portal (Mutter/KWin) / virtual-input (wlroots) / EIS | ✅ EIS | ❌ stub | ✅ |
+| Desktop info | ✅ Win32 | ✅ XRandR/root geometry | ⚠️ `wl_output` + Mutter/KWin D-Bus enrichment | ✅ `wl_output` | ❌ stub | ✅ |
+| Screenshot | ✅ GDI | ✅ XGetImage | ❌ planned (portal / screencopy) | ✅ compositor capture | ❌ stub | ✅ |
+| Highlight | ✅ layered window | ✅ override-redirect windows | ❌ | ✅ compositor overlay | ❌ stub | ✅ |
+| Window management | ✅ Win32 | ⚠️ partial EWMH | ❌ | ✅ | ❌ stub | ✅ |
+| Inspector | ✅ | ✅ | ⚠️ tree and queries only | ✅ | ❌ | ✅ with mock feature |
+| Inspector live mouse picker | ✅ UIA | ✅ AT-SPI | ❌ no live cursor position | ✅ | ❌ AX stub | — |
+
+- **Linux** chooses between X11 and Wayland at runtime (*Linux Session Mediator*, §3). X11 is the most complete Linux path. On generic Wayland compositors, capabilities that need the compositor's cooperation — global coordinates, screenshots, highlighting, window management, live picking — are not available yet; portal- and protocol-based backends are planned ([`platform-linux-wayland.md`](platform-linux-wayland.md)).
+- **PlatynUI compositor** is [`apps/wayland-compositor`](../apps/wayland-compositor/README.md), the project's own Wayland test compositor. It exposes input injection (EIS), window geometry and management, screenshots, highlighting, and modifier state over a control socket, optionally hosts X11 applications through XWayland, and backs the Linux acceptance lanes (windowed or headless). Its usage, configuration, and control protocol are documented in [`apps/wayland-compositor/docs/`](../apps/wayland-compositor/docs/).
+- **Java on Linux:** `java-atk-wrapper` is deliberately not part of the strategy — it is fragile and requires changing the target application's launch. Swing/AWT and JavaFX are planned through the in-JVM agent that serves Swing/AWT on Windows; SWT is covered by the native providers on every platform ([`java-toolkits.md`](java-toolkits.md)).
+- **PID namespaces:** PlatynUI can also run beside the application in a PID namespace of its own, as a container sidecar does ([`platform-linux.md`](platform-linux.md), *Process Identity and PID Namespaces*).
+- **Mock** is the in-memory platform and provider for tests ([`testing-strategy.md`](testing-strategy.md) §4); it stays out of user-facing docs.
 
 ## 11. Companion Documentation
 

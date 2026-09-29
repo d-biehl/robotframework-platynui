@@ -4,7 +4,7 @@ Internal architecture, design, and planning documentation for PlatynUI contribut
 User-facing documentation lives in [`../docs/`](../docs/).
 
 **Architecture & conventions**
-- [architecture.md](architecture.md) — overall system design
+- [architecture.md](architecture.md) — overall system design, including the platform support matrix (§10)
 - [error-handling.md](error-handling.md) — error type conventions
 - [logging.md](logging.md) — logging concept: levels, log-or-return, once per episode, Python loggers, the level knob
 

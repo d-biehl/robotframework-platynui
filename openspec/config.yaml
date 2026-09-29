@@ -28,8 +28,9 @@ context: |
   - AGENTS.md — orientation: the two stacked Rust/Python workspaces, the
     Rust<->Python boundary in packages/native, task routing, the canonical `just`
     commands, commit rules, and the English-everywhere / German-planning-docs rule.
-  - README.md — the platform & provider support table; check it before promising
-    behavior on a backend (Windows UIA, Linux X11/AT-SPI2, Wayland, macOS AX, mock).
+  - dev-docs/architecture.md §10 — the platform support matrix; check it before
+    promising behavior on a backend (Windows UIA, Linux X11/AT-SPI2, Wayland, macOS AX,
+    mock).
   - dev-docs/ — per-area design docs (architecture, error-handling, testing-strategy,
     python-bindings, *-input, cli, inspector, platform-*).
   - CONTRIBUTING.md — contributor workflow and `just` recipes.
