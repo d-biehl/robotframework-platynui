@@ -16,9 +16,11 @@ Tests come first in each group. The mock provider cannot show application-node v
 
 ## 2. Process identity
 
-- [ ] 2.1 Implement the capture and the three-way check (design decision 2). Verify that 1.1 passes with `just test-crate platynui-process` on Windows, and with the same recipe on a Linux host.
+- [x] 2.1 Implement the capture and the three-way check (design decision 2). Verify that 1.1 passes with `just test-crate platynui-process` on Windows, and with the same recipe on a Linux host.
 
   Progress (2026-09-28): implemented, and revised after review: a process that exited with code 259 is told apart by waiting on its handle, a zombie leader whose threads run on has not ended, and other Unix systems answer "cannot tell" for a pid that is taken. On Windows `just test-crate platynui-process` passes 9 of 9 (the waiting child is skipped, as intended). clippy with `-D warnings` is clean for the host, `x86_64-unknown-linux-gnu` and `aarch64-apple-darwin`. The run on a Linux host is still open; it is part of 9.3.
+
+  Outcome (2026-09-29), Linux host: `just test-crate platynui-process` passes 29 of 29, the identity tests of 1.1 among them. That was the maintainer's run on a clean worktree of `009595b`, which holds this change (`8f6fc02`, `94f5f97`). See 9.3.
 
 ## 3. Failing tests first — application nodes
 
@@ -87,8 +89,25 @@ Follow the `robot-test-style` skill. Each test launches its own instance, so tha
   - The first two lane runs stopped in the live step: `live_a_killed_jvm_leaves_no_valid_application_node_on_the_bridge` waited out its 20 s discovery deadline. The cause lies outside this change. `.config/nextest.toml` serialized only the `provider-java` live binary, and the `java-agent` live tests, added to the same lane step on 2026-07-26, ran in parallel with it. With the bridge enabled machine-wide, their JVMs load it as well, and a JAB test that overlaps their start-ups never sees its own fixture. The existing `live_fixture_contract_and_interaction` fails the same way under that overlap (3 of 3). The new test merely sorts first in the serialized group.
   - Fix, with the maintainer's consent: `platynui-java-agent::live_fixture` joins the `java-live` group. Two runs of the live step then passed 32 of 32; the step takes 65 s instead of about 50 s.
   - Third lane run: green. The live step passed 32 of 32, and Robot Framework passed 125 of 125, the six tests of 7.1 and 7.2 included. `output.xml` holds no WARN or ERROR message.
-- [ ] 9.3 On a Linux host, run `just test-crate platynui-process`, `just headless=true test-acceptance-x11` (7.1 against AT-SPI) and `just cross-target-checks`. Verify that everything is green. Record the outcome in this task.
+- [x] 9.3 On a Linux host, run `just test-crate platynui-process`, `just headless=true test-acceptance-x11` (7.1 against AT-SPI) and `just cross-target-checks`. Verify that everything is green. Record the outcome in this task.
+
+  Outcome (2026-09-29), from the maintainer's Linux gate for `application-process-attributes` (its task 7.2, whose step 8 names this task, recorded in `4f0e771`, now under `archive/2026-09-29-application-process-attributes/`). It ran on a clean worktree of `009595b`, which holds all of this change:
+  - `just test-crate platynui-process` passes 29 of 29.
+  - `just headless=true test-acceptance-x11` passes 93 of 93, and the lane logged no WARN or ERROR. The `real-x11` profile selects `tests/acceptance/egui/app_root_after_exit.robot`, which is tagged `acceptance real` and has no platform tag, so 7.1 ran against AT-SPI.
+  - `just cross-target-checks` is clean.
 
 ## 10. Commit (only when the user asks)
 
-- [ ] 10.1 Commit in reviewable steps, each lint-clean on its own: the process crate; the application nodes (one commit per provider or one for all three); `PlatynUI.core`; the acceptance tests and documentation. Subjects ≤ 72 characters. The commit for the application nodes names the behavior change in its body: a query under an application root whose process has ended fails with `RootNotFoundError`.
+- [x] 10.1 Commit in reviewable steps, each lint-clean on its own: the process crate; the application nodes (one commit per provider or one for all three); `PlatynUI.core`; the acceptance tests and documentation. Subjects ≤ 72 characters. The commit for the application nodes names the behavior change in its body: a query under an application root whose process has ended fails with `RootNotFoundError`.
+
+  Outcome (2026-09-29): the change was committed on 2026-09-28, at the maintainer's request:
+  - `8f6fc02` holds the process crate.
+  - `50669a9` puts the java-agent live tests into the JAB group (9.2).
+  - `94f5f97` holds the application nodes of all three providers; its body names the `RootNotFoundError` behavior change.
+  - `0c2d805` holds `PlatynUI.core`.
+  - `23ea907` holds the acceptance tests and `aebf956` the docs.
+  - `1f09f50` records the run notes.
+
+  All subjects stay within 72 characters. Each step was checked on its own in a temporary worktree:
+  - `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets -- -D warnings` are clean at `8f6fc02` and at `94f5f97`, the two that change Rust.
+  - `ruff check` and `mypy` are clean at `0c2d805`, `23ea907` and `aebf956`, the three that change Python.

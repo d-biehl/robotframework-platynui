@@ -15,7 +15,7 @@ What the code does today, found by a read-only analysis on 2026-09-28 and confir
 - **Healthy JVMs get the blame.** A call's deadline starts when it is queued. A call that timed out only because it waited behind another JVM's stuck call is counted against its own JVM, so healthy JVMs get marked degraded.
 - **Nothing useful is reported.** The aborted pass and the stuck process are recorded at debug only. The one warning, "JVM marked degraded", names only an opaque vmID and can name a healthy JVM.
 
-**How it surfaced.** The Windows lane of `snapshot-validity` failed on it: a JAB test that overlapped the start-up of other bridge-enabled JVMs never saw its own fixture, and the existing `live_fixture_contract_and_interaction` failed the same way (3 of 3, `openspec/changes/snapshot-validity/tasks.md` 9.2). The runs are consistent with the defect, but they do not prove it on their own: the overlapping test binary also wedges a bridge-enabled JVM for 40 s, which no in-process design can serve through. The spike of this change tells the two apart.
+**How it surfaced.** The Windows lane of `snapshot-validity` failed on it: a JAB test that overlapped the start-up of other bridge-enabled JVMs never saw its own fixture, and the existing `live_fixture_contract_and_interaction` failed the same way (3 of 3, `openspec/changes/archive/2026-09-29-snapshot-validity/tasks.md` 9.2). The runs are consistent with the defect, but they do not prove it on their own: the overlapping test binary also wedges a bridge-enabled JVM for 40 s, which no in-process design can serve through. The spike of this change tells the two apart.
 
 The lane was made stable by serializing the live tests (`.config/nextest.toml`). That hides the defect in tests; users still meet it.
 

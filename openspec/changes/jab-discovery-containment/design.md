@@ -65,7 +65,7 @@ Line numbers are those of commit `1cf0020`, where `snapshot-validity` has landed
 
 **Evidence of the symptom (verified).**
 
-- **The lane runs.** `openspec/changes/snapshot-validity/tasks.md` 9.2 records that a JAB test overlapping the start-up of the java-agent live tests' JVMs never saw its own fixture (3 of 3 for `live_fixture_contract_and_interaction`), together with the `.config/nextest.toml` comment written for them.
+- **The lane runs.** `openspec/changes/archive/2026-09-29-snapshot-validity/tasks.md` 9.2 records that a JAB test overlapping the start-up of the java-agent live tests' JVMs never saw its own fixture (3 of 3 for `live_fixture_contract_and_interaction`), together with the `.config/nextest.toml` comment written for them.
 - **No record of the cause.** The live tests install no tracing subscriber (`crates/provider-java/tests/live_fixture.rs:58-60`), so no record of those runs shows why.
 - *Inferred:* the cause is a bridge call stuck on a starting or wedged JVM, a window call or a rendezvous dispatch, combined with the `break`.
 - **A second possible cause.** The overlapping binary also wedges a bridge-enabled JVM for 40 s (`crates/java-agent/tests/live_fixture.rs:715-719`), longer than the JAB test's 20 s discovery deadline. This change does not address that (non-goal). The spike (decision 1) tells the two apart.
