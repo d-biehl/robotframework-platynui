@@ -78,7 +78,7 @@ Alternatives considered:
 An application node's identity is `@ProcessId` (spec `sidecar-deployment`). Applications have no automation identifier on any toolkit:
 
 - UI Automation, JAB and the Java agent build the application node themselves.
-- On AT-SPI the root object's accessible-id, where a toolkit sets one, names a class (`QApplication`), not the application.
+- On AT-SPI the root object's accessible-id, where a toolkit sets one, is no automation identifier of the application. Qt reports its application name there, or the class name `QApplication` when the application sets none.
 
 So the application level answers none, even when the root reports an accessible-id, which stays visible as `native:Accessible.AccessibleId`.
 

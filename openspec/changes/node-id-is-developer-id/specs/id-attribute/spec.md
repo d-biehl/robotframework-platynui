@@ -91,7 +91,7 @@ A node at the application level — the `app` namespace, on every provider — S
 
 #### Scenario: An application root's own identifier is not its Id
 
-- **GIVEN** an AT-SPI application whose root object reports the accessible-id `QApplication`, as Qt applications do
+- **GIVEN** an AT-SPI application whose root object reports the accessible-id `QApplication`, as a Qt application does when it sets no application name
 - **WHEN** its application node is read
 - **THEN** it SHALL carry no `control:Id`, its id accessor SHALL return none, and `native:Accessible.AccessibleId` SHALL be `QApplication`
 - **NOTE** The `Id` half holds by construction: at the application level the decision does not read the accessible-id; a unit test pins it. The native half needs a real Qt application and is checked by hand (shared suites use no `native:` attributes).

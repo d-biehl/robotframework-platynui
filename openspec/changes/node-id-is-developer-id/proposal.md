@@ -55,7 +55,7 @@ UIA controls, JAB, the Java agent and the mock already follow the rule. An appli
   - A locator `[@Id=""]` stops matching.
   - `Get Attribute … Id` fails with "attribute not found" instead of returning `""`.
   - Snapshots, `platynui-cli query` and the Inspector's attribute pane lose the empty `Id` lines.
-- **On AT-SPI, an application whose root object reports an accessible-id no longer carries it as `@Id`.** Qt's root reports `QApplication`, so `app:Application[@Id="QApplication"]` stops matching. The value stays readable as `native:Accessible.AccessibleId`.
+- **On AT-SPI, an application whose root object reports an accessible-id no longer carries it as `@Id`.** Qt's root reports its application name, or `QApplication` when the application sets none, so `app:Application[@Id="QApplication"]` stops matching. The value stays readable as `native:Accessible.AccessibleId`.
 
 ## Capabilities
 

@@ -63,7 +63,7 @@ The behavior changes on AT-SPI (Linux) and UI Automation (Windows). Provider uni
   Written (2026-09-29): the check in both tree loops, and `live_java_application_nodes_have_no_id` for the two application nodes. Swing adds a spinner's increment button, its decrement button and its editor in that order (`BasicSpinnerUI.installUI`), and the agent lists `getComponents()` in order, so the test takes the spinner's first child. clippy is clean.
 
   Outcome (2026-09-29), Windows, in the lane of 5.3: the ignored-only step passes 37 of 37, with `live_fixture_contract_and_interaction` (JAB tree), `live_agent_serves_table_cells_the_bridge_cannot` (agent tree, `Spinner.nextButton`) and `live_java_application_nodes_have_no_id`.
-- [ ] 2.5 In `tests/acceptance/egui/query.robot`, following the `robot-test-style` skill, add four cases. None uses `native:` attributes. `@*` enumerates through `attributes()`; `@Id`, `Get Attribute` and `[@Id]` use the named lookup.
+- [x] 2.5 In `tests/acceptance/egui/query.robot`, following the `robot-test-style` skill, add four cases. None uses `native:` attributes. `@*` enumerates through `attributes()`; `@Id`, `Get Attribute` and `[@Id]` use the named lookup.
   - *Application Has No Id*: pin the application with `/app:Application[@ProcessId=${pid}]`, where the process ID comes from `${TEST_APP_HANDLE}`.
     - `${app.id}` is `${None}`.
     - `Get Attribute … Id` fails with "attribute not found", as in `Widget Without A Description Has No control:Description`.
@@ -81,6 +81,12 @@ The behavior changes on AT-SPI (Linux) and UI Automation (Windows). Provider uni
 
   Red state on Windows (2026-09-29): run against the native module from that morning's lane (09:09, built before this change), `*.Egui.Query` passes 10 of 12. *Application Has No Id* fails with `platynui-test-app-egui != None`, the process name as `${app.id}`, and *No Application Is Selected By Id* with `UiNode(runtime_id='uia://app/6720') != None`. The other two new cases pass, as expected on UIA. With the change, all four pass in the lane of 5.3. The task stays open for the X11 run.
 
+  Red state on X11 (2026-09-29), Linux host: a worktree of `56f5ac2`, the commit before this change, with only this `query.robot` added. `just headless=true test-acceptance-x11 --suite '*.Egui.Query'` passes 9 of 12, and the first three new cases fail as predicted:
+  - *Application Has No Id* fails with `133314 != None`, the process ID as `${app.id}`.
+  - *No Application Is Selected By Id* fails with `UiNode(runtime_id='atspi://:1.5/org/a11y/atspi/accessible/root') != None`, the application selected through its `@Id=""`.
+  - *Element Without An Author Id Has No Id* fails with `[@Id] matches the heading`, through its `@Id=""`. The `Buttons` heading therefore has no identifier on AT-SPI either; on UIA it had none already.
+  - *Author Id Is The Same Through Every Read* passes.
+
 ## 3. Implementation
 
 - [x] 3.1 In `crates/provider-atspi`, implement design D3 and D4:
@@ -95,7 +101,9 @@ The behavior changes on AT-SPI (Linux) and UI Automation (Windows). Provider uni
   Verify: 2.1 passes, and `just test-crate platynui-provider-atspi` and `just check` are green.
 
   Outcome (2026-09-29), Windows: the decision is `id_at(level, accessible_id)`. Slot 2 lists a new `IdAttr` that carries the decided value, and `StdAttrKind::Id` is gone. The named lookup of `control:Id` answers from `id()`. For every other name it sets `AttrsIter::id_level` (`Option<Level>`) to none, next to the existing `app:*` skip. `just test-crate platynui-provider-atspi` passes 106 of 106 (3 ignored), clippy is clean for Windows and for `x86_64-unknown-linux-gnu`, and `just check` as in 5.1.
-- [ ] 3.2 Run the pidns harness where the machine provides the daemons: `just test-atspi-pidns dbus-daemon` and `just test-atspi-pidns dbus-broker`. Verify: both pass, or the run notes say which daemon is missing on this machine.
+- [x] 3.2 Run the pidns harness where the machine provides the daemons: `just test-atspi-pidns dbus-daemon` and `just test-atspi-pidns dbus-broker`. Verify: both pass, or the run notes say which daemon is missing on this machine.
+
+  Outcome (2026-09-29), Linux host, on `bc703cd`: `just test-atspi-pidns dbus-daemon` and `just test-atspi-pidns dbus-broker` each pass 2 of 2. Both daemons are installed here.
 - [x] 3.3 In `crates/provider-windows-uia/src/node.rs`, apply design D5 to the application node as `application-process-attributes` left it:
   - Remove `ApplicationNode::id()` (`:1824-1827`).
   - Remove the `Id` slot of `AppAttrsIter` (`:1452-1454`) without ending the listing early. `next()` already skips an absent attribute (`:1446-1477`), but an index without an arm reaches `_ => return None`. So renumber the later arms, or `ProcessId`, the `app` attributes, `Technology` and `SupportedPatterns` stop being listed.
@@ -122,7 +130,9 @@ The behavior changes on AT-SPI (Linux) and UI Automation (Windows). Provider uni
   Comment only: no agent version bump, no JAR rebuild. Verify: `just check`.
 
   Outcome (2026-09-29): done. The Javadoc of `explicitNameOf` now names the fallback best effort, with `java.awt.Button` keeping `button0` as the example. `stable_id` says "components and windows", as its code does. `just check` as in 5.1.
-- [ ] 3.6 Run `just build-native`, so the lanes use the new providers. Verify: `just headless=true test-acceptance-x11 --suite '*.Egui.Query'` passes all four cases from 2.5.
+- [x] 3.6 Run `just build-native`, so the lanes use the new providers. Verify: `just headless=true test-acceptance-x11 --suite '*.Egui.Query'` passes all four cases from 2.5.
+
+  Outcome (2026-09-29), Linux host, on `bc703cd`: the recipe rebuilt the native module, and `*.Egui.Query` passes 12 of 12 on X11, all four new cases included.
 
 ## 4. Documentation
 
@@ -173,11 +183,16 @@ The behavior changes on AT-SPI (Linux) and UI Automation (Windows). Provider uni
 - [x] 5.1 Run `just check` and `just test`. Both are green.
 
   Outcome (2026-09-29), Windows: `just test` passes 2455 of 2455 (42 skipped). `just check` is green: fmt and clippy ran in the recipe, ruff and mypy with `uv run --no-sync`. In the recipe, `ruff` stopped before it ran. Its `uv run` wanted to rebuild the editable native package, whose `runtime.rs` changed, and could not replace `_native.pyd`, because the RobotCode language server of the open editor had it loaded (os error 32). After 5.3, with the server stopped and the module rebuilt, `just check` passes as a plain recipe. `ruff format --check` reports two files that this change does not touch; the recipe does not run it.
-- [ ] 5.2 Run the Linux lanes one after the other, and inspect each right after its run with `uv run --no-sync robotcode results summary --failed`, because the next lane overwrites `results/output.xml`:
+- [x] 5.2 Run the Linux lanes one after the other, and inspect each right after its run with `uv run --no-sync robotcode results summary --failed`, because the next lane overwrites `results/output.xml`:
   - `just headless=true test-acceptance-x11`;
   - `just headless=true test-acceptance-compositor`.
 
   Both lanes are green, including the four cases from 2.5.
+
+  Outcome (2026-09-29), Linux host, on `bc703cd`, both headless:
+  - Before the lanes, `just check` is clean and `just test` passes 2467 of 2467.
+  - The X11 lane passes 98 of 98, and the compositor lane 99 of 99: the 94 and 95 of `atspi-application-level`'s last run plus the four cases from 2.5.
+  - Neither lane logged a WARN or ERROR. Their FAIL messages all come from expected failures inside passing tests, now including the two `attribute not found: control:Id` of the new cases.
 - [x] 5.3 On real Windows (the libvirt VM, not Wine):
   - `just test-crate platynui-provider-windows-uia`;
   - the Java live fixture from 2.4;
@@ -190,12 +205,18 @@ The behavior changes on AT-SPI (Linux) and UI Automation (Windows). Provider uni
   - `just test-acceptance-windows` rebuilds the native module and passes. Its ignored-only step, the Java live fixture of 2.4 among it, passes 37 of 37. Robot passes 143 of 143, the four cases of 2.5 included, with no WARN or ERROR message.
   - The 143 are this morning's 138, plus the four new cases and *Hit Test Reaches The Window Through One Application Node*, which came in with the pull.
   - Evidence: `playground/lane-2026-09-29-0951`.
-- [ ] 5.4 Check by hand in `scripts/startxsession.sh --backend headless -- <script>` with the egui and Qt test apps running. Use `target/debug/platynui-cli` from `just build`:
+- [x] 5.4 Check by hand in `scripts/startxsession.sh --backend headless -- <script>` with the egui and Qt test apps running. Use `target/debug/platynui-cli` from `just build`:
   - `platynui-cli query '/app:*'` lists no `@Id` line;
   - `platynui-cli query 'count(//*[@*[local-name()="Id"] = ""])'` is `0`;
-  - `native:Accessible.AccessibleId` of the Qt application root still reads the root's own accessible-id; Qt reports `QApplication`.
+  - `native:Accessible.AccessibleId` of the Qt application root still reads the root's own accessible-id. Qt reports its application name there, or `QApplication` when the application sets none.
 
   Record the output in the run notes.
+
+  Outcome (2026-09-29), Linux host, on `bc703cd`, with `target/debug/platynui-cli` from `just build`, the egui test app and the Qt test app running:
+  - `platynui-cli query '/app:*'` lists both applications without an `@Id` line. Their only attributes named `Id` are `native:Application.Id` (`0` and `2`).
+  - `platynui-cli query 'count(//*[@*[local-name()="Id"] = ""])'` is `0` over the whole desktop.
+  - The Qt test app's root reports `native:Accessible.AccessibleId = "com.platynui.test.qt.manual"`: the fixture sets its application name to its app id (`QApplication.setApplicationName`), and Qt reports that name. `count(/app:*[@ProcessId=<qt pid>][@Id])` is `0`.
+  - A bare PySide6 application without `setApplicationName` reports `native:Accessible.AccessibleId = "QApplication"` and carries no `@Id` either (`count(...[@Id])` is `0`). So the spec's scenario holds for both, and the wording of the proposal, design D2 and this task now names both cases.
 
 ## 6. Before archiving
 
