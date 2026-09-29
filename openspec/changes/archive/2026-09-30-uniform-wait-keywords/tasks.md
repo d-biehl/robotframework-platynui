@@ -142,7 +142,7 @@ Follow the `robot-test-style` skill. The suites keep their 0.2 s import timeout 
 
 ## 8. Commit (only when the user asks)
 
-- [ ] 8.1 Commit in reviewable steps. Each step carries the tests it turns green, and builds, passes lint (`just check` covers the whole project) and passes its tests on its own:
+- [x] 8.1 Commit in reviewable steps. Each step carries the tests it turns green, and builds, passes lint (`just check` covers the whole project) and passes its tests on its own:
   - the helper and the element lookup, with 1.3, the `Wait Until Exists` tests of 1.2, and their unit tests;
   - `Wait Until Gone`, with its tests;
   - the classifier (Rust), with the tests of 3.2;
@@ -153,4 +153,4 @@ Follow the `robot-test-style` skill. The suites keep their 0.2 s import timeout 
   - the documentation;
   - the OpenSpec bookkeeping of section 5.
 
-  Use Conventional Commits, subjects ≤ 72 characters, no `!`. The bodies of the behavior commits list the behavior changes of the proposal that they bring. Do not push.
+  Use Conventional Commits, subjects ≤ 72 characters, no `!`. The bodies of the behavior commits list the behavior changes of the proposal that they bring. Do not push. Result: eight signed commits, each tested on its own stage: `07c1588d` (the classifier), `38983f39` (the helper and the element lookup), `22dac45e` (`Wait Until Gone` and 2.1), `1bd8fe5e` (`Wait Until Query`), `ad317739` (`Query`), `2a602129` (`Wait Until Attribute Value`), `da922336` (the documentation) and `ef6ad880` (this bookkeeping); the acceptance test went into the `Wait Until Gone` commit, which turns it green, and the classifier came first, since the later commits build on it. Not pushed.
