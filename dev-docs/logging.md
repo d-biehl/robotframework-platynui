@@ -125,10 +125,10 @@ lifecycle transitions at debug instead: Robot Framework shows Python INFO record
 log level, so a Python info record would change every user's default log.
 
 **debug** is the level for diagnosing a problem after the fact: what a single operation did or
-decided, with its inputs and its outcome — an XPath evaluation and how many items it found, a
-keyboard sequence's mode and length, a pointer click and where it landed. Fallbacks that are normal
-in some sessions, calls slower than their threshold, failures that are returned together with the
-context the error value does not carry, and the keyword action lines all belong here.
+decided, with its inputs and its outcome — a keyword action line that names the element a keyword
+acted on and the point it used, a keyboard sequence's mode and length, a pointer click and where it
+landed. Fallbacks that are normal in some sessions, calls slower than their threshold, and failures
+that are returned together with the context the error value does not carry all belong here.
 
 **trace** is for records that come per item: per element of an enumeration, per tick of an event
 loop, per key or character, per protocol message. When in doubt between debug and trace, ask
@@ -431,7 +431,8 @@ reason is brought in line with them.
 
 ## 12. Producer rules for native code
 
-Three rules keep native records reachable and cheap.
+Four rules keep native records reachable and cheap, and keep records that serve only PlatynUI's own
+development out of release builds.
 
 **Log under a target that starts with `platynui`.** The level knob (§17) turns a single level into
 `warn,platynui=<level>`, and a filter directive matches every target that *starts with* its name.
@@ -452,6 +453,61 @@ costs the provider calls every time. Python's lazy `%` arguments delay only the 
 the evaluation of the arguments: `_LOGGER.debug('… %s', node.describe())` queries the application
 even when debug is off. Guard such a record with `_LOGGER.isEnabledFor(logging.DEBUG)`, as the
 keyword action lines do (§15).
+
+**XPath evaluation's own records exist in debug builds only.** Evaluating an XPath expression acts
+on nothing in the UI: it reads the tree and returns a result, and the keyword that asked for it
+succeeds or fails with that result. The records that the evaluation writes about itself describe the
+engine at work, not anything the test did, and they come in numbers: a trace record for every
+element an evaluation wraps, while a `Wait Until …` keyword evaluates its query up to ten times a
+second by default. Mixed into the debug or trace output a user switched on to report a problem, they
+bury the records that matter. They serve the development of PlatynUI, which happens in debug builds,
+so a release build — the one in the published packages — contains none of them. In a debug build
+they are ordinary records: their target is their module path, and the level knob (§17) shows them
+like any other, with no target name, filter rule or `RUST_LOG` exception of their own.
+
+The rule covers everything that the XPath engine (`platynui-xpath`) and the runtime's adapter that
+presents the UI tree to the engine (`platynui_runtime::xpath`) record about an evaluation, records
+added later included. It does not cover what other layers record while an evaluation reads the tree:
+the desktop's enumeration reports a provider that fails to list its top-level elements (§4, §5), and
+the providers record their own calls. Those records exist in every build.
+
+Such a record is compiled only when `debug_assertions` is on, which Cargo turns on in its dev profile
+and off in its release profile:
+
+```rust
+#[cfg(debug_assertions)]
+tracing::debug!(xpath, cached = options.cache().is_some(), "evaluating XPath expression");
+```
+
+Whatever exists only for the record is gated with it: a variable computed for one of its fields goes
+into one `#[cfg(debug_assertions)]` block together with the record, and an import that only the
+record used gives way to the macro's full path. Otherwise a release build is left with an unused
+variable or import, and only a release build shows that: `cargo clippy --release` warns about it,
+`just clippy` does not, because it builds in debug mode. Two other ways to drop records by build do
+not work here:
+
+- `if cfg!(debug_assertions) { … }` still compiles the record into a release build and leaves its
+  removal to the optimizer.
+- tracing's compile-time level features (`max_level_*`, `release_max_level_*`) are features of the
+  `tracing` crate, and Cargo unifies a crate's features across a build. Enabling one for the XPath
+  crates would cap every crate that links `tracing` in the same build — the providers, the
+  platforms, the rest of the runtime and third-party crates — and a release wheel would lose every
+  debug record, against the level knob's promise that a level means the same everywhere (§17).
+
+`cargo build`, `cargo run` and `cargo test`, and the recipes `just build-native`,
+`build-native-mock`, `build-cli` and `build-inspector`, make debug builds, which carry the records.
+The wheels (`just build-*-wheel`), `cargo … --release` and every `just release=true …` build do not.
+
+The XPath function `fn:trace()` is the exception. Its record is not a diagnostic of the evaluation
+but output that the user asked for in their own expression, so it is written in every build, at
+debug, with the trace's label and value.
+
+XPath evaluation logs no warning and no error, in any build. Every failure of an evaluation — an
+expression that does not compile, an error raised while it runs, a call of `fn:error()` — is
+returned to the caller as an error value, and the caller decides what it means (§4): the keyword
+fails with it, or keeps waiting when its query settings tell it to ignore such errors. The
+evaluation acts on nothing, so nothing it does can leave the system in a wrong state that only a
+warning or an error could report.
 
 ## 13. Describing elements
 
@@ -753,6 +809,7 @@ The requirements of the `diagnostic-logging` spec, and the sections that explain
 - *The level setting means the same everywhere* — §17.
 - *Configuration mistakes are reported* — §9.
 - *A capability that is not there says so once* — §8.
+- *XPath evaluation's own diagnostics exist in debug builds only* — §12.
 
 The `native-logging` spec (*Only native warnings and errors are produced by default*) is §17 together
 with [`python-bindings.md`](python-bindings.md); the reporting rules of the `runtime-session-config`

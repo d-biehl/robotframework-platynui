@@ -2,7 +2,7 @@
 
 ## Purpose
 
-What PlatynUI's diagnostics promise to the people who read them: Robot Framework users in their log and console, users of the command-line tools on stderr, and Python users through `logging`. Each level has one meaning. Warnings and errors state their consequence and do not repeat per operation. Failures are reported once. Runtime decisions say what was decided. Keyword actions can be traced. Elements are described one way. Keywords do not repeat the text they type. The level setting means the same everywhere. The listed configuration mistakes do not go unnoticed.
+What PlatynUI's diagnostics promise to the people who read them: Robot Framework users in their log and console, users of the command-line tools on stderr, and Python users through `logging`. Each level has one meaning. Warnings and errors state their consequence and do not repeat per operation. Failures are reported once. Runtime decisions say what was decided. Keyword actions can be traced. Elements are described one way. Keywords do not repeat the text they type. The level setting means the same everywhere. The listed configuration mistakes do not go unnoticed. XPath evaluation's own records stay out of release builds.
 
 ## Requirements
 

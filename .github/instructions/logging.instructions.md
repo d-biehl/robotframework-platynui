@@ -83,13 +83,13 @@ their case. Use the field names of `dev-docs/logging.md` §11 (`error`, `provide
 
 ```rust
 // Good — structured and filterable
-tracing::debug!(xpath, cached = options.cache().is_some(), "xpath evaluate");
+tracing::debug!(mode = ?mode, segments = sequence.segments().len(), "keyboard execute");
 tracing::info!(backend = "x11", forced = false, providers = ?ids, desktop = %bounds, monitors = 2, "runtime initialized");
 // The lookup failure is returned to the caller: debug, not warn.
 tracing::debug!(pid, "no X11 window found for the process");
 
 // Avoid — values interpolated into the message
-tracing::debug!("xpath evaluate: {} (cached={})", xpath, cached);
+tracing::debug!("keyboard execute: {:?} ({} segments)", mode, sequence.segments().len());
 ```
 
 ### Field Formatting
@@ -126,6 +126,7 @@ tracing::debug!(display = %disp, "connected");
 - A native component logs under a target that starts with `platynui` (its module path does that by default); an overridden `target:` outside that prefix is not reached by the level knob.
 - Diagnostics are events that carry their context in their own fields, not spans: spans are not carried to Python or Robot Framework.
 - Expensive message parts (an element description, a formatted tree) are built only when their level is enabled — inside the macro's fields, or behind `isEnabledFor` in Python.
+- XPath evaluation's own records (the engine `platynui-xpath`, the runtime's adapter `platynui_runtime::xpath`) exist in debug builds only: gate each with `#[cfg(debug_assertions)]`, together with its helper variables and imports, never with tracing's level features, which Cargo unifies across the whole build; `fn:trace()` is the exception and is recorded in every build; XPath failures are returned, never logged.
 
 ## 6. Entry points
 
