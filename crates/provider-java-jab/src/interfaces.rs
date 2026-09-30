@@ -249,17 +249,20 @@ fn integer(value: i32) -> UiValue {
     UiValue::from(i64::from(value))
 }
 
-/// JAB value strings are numbers for the stock Swing models; parse them so
-/// selectors can compare numerically, keep the raw string otherwise (same
-/// policy as the `control:` StatefulValue attributes).
-fn numeric_or_string(text: &str) -> UiValue {
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        UiValue::Null
-    } else if let Ok(number) = trimmed.parse::<f64>() {
-        UiValue::from(number)
-    } else {
-        UiValue::from(trimmed.to_string())
+/// An accessible value (current, minimum or maximum) from the string the bridge
+/// reported for it, for `native:Value.*` and the `control:` StatefulValue
+/// attributes alike. `text` is `None` when the bridge call failed.
+///
+/// `AccessibleValue` defines the value as a `java.lang.Number`, and the bridge
+/// transports its `toString()`, so the unmodified string is parsed as a number,
+/// letting selectors compare numerically. A string that does not parse stays
+/// the string it was (spec `attribute-values`). The bridge sends nothing for a
+/// null value, and a JDK number never prints as `""`, so the empty string, like
+/// a failed call, is no value.
+pub(crate) fn numeric_or_string(text: Option<&str>) -> UiValue {
+    match text {
+        None | Some("") => UiValue::Null,
+        Some(text) => text.parse::<f64>().map_or_else(|_| UiValue::from(text), UiValue::from),
     }
 }
 
@@ -294,15 +297,15 @@ fn read_table_has_summary(client: &JabClient, ctx: &JabObject) -> UiValue {
 }
 
 fn read_value_current(client: &JabClient, ctx: &JabObject) -> UiValue {
-    client.current_value(ctx).ok().flatten().map_or(UiValue::Null, |text| numeric_or_string(&text))
+    numeric_or_string(client.current_value(ctx).ok().flatten().as_deref())
 }
 
 fn read_value_minimum(client: &JabClient, ctx: &JabObject) -> UiValue {
-    client.minimum_value(ctx).ok().flatten().map_or(UiValue::Null, |text| numeric_or_string(&text))
+    numeric_or_string(client.minimum_value(ctx).ok().flatten().as_deref())
 }
 
 fn read_value_maximum(client: &JabClient, ctx: &JabObject) -> UiValue {
-    client.maximum_value(ctx).ok().flatten().map_or(UiValue::Null, |text| numeric_or_string(&text))
+    numeric_or_string(client.maximum_value(ctx).ok().flatten().as_deref())
 }
 
 fn read_text_char_count(client: &JabClient, ctx: &JabObject) -> UiValue {
@@ -489,5 +492,24 @@ mod tests {
         assert_eq!(format_key_binding(127, ffi::KEYSTROKE_CONTROLCODE), "Delete");
         assert_eq!(format_key_binding(3, ffi::KEYSTROKE_CONTROLCODE), "#3");
         assert_eq!(format_key_binding(0, 0), "#0", "NUL must not print as a control character");
+    }
+
+    /// Spec `attribute-values`: *A JAB value string is parsed without
+    /// trimming*. The bridge sends `Number.toString()`, so a number's forms
+    /// parse, and anything else stays the string it was.
+    #[test]
+    fn a_value_string_is_parsed_without_trimming() {
+        assert_eq!(numeric_or_string(Some("50")), UiValue::from(50.0));
+        assert_eq!(numeric_or_string(Some("1E+3")), UiValue::from(1000.0));
+        assert!(matches!(numeric_or_string(Some("NaN")), UiValue::Number(number) if number.is_nan()));
+        assert_eq!(numeric_or_string(Some("n/a ")), UiValue::from("n/a "));
+    }
+
+    /// *A JAB element without a value reports none*: the bridge sends nothing
+    /// for a null value, and a call that failed reports nothing either.
+    #[test]
+    fn no_value_string_is_no_value() {
+        assert_eq!(numeric_or_string(Some("")), UiValue::Null);
+        assert_eq!(numeric_or_string(None), UiValue::Null);
     }
 }

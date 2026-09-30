@@ -1126,19 +1126,7 @@ impl UiAttribute for ValueAttr {
             ValueKind::Minimum => self.lazy.client.minimum_value(&self.lazy.ctx),
             ValueKind::Maximum => self.lazy.client.maximum_value(&self.lazy.ctx),
         };
-        match raw {
-            Ok(Some(text)) => {
-                let trimmed = text.trim();
-                if trimmed.is_empty() {
-                    UiValue::Null
-                } else if let Ok(number) = trimmed.parse::<f64>() {
-                    UiValue::from(number)
-                } else {
-                    UiValue::from(trimmed.to_string())
-                }
-            }
-            _ => UiValue::Null,
-        }
+        interfaces::numeric_or_string(raw.ok().flatten().as_deref())
     }
 }
 
