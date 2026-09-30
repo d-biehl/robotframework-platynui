@@ -9,13 +9,31 @@ Rules for every task:
 
 ## 1. Before the change
 
-- [ ] 1.1 Record the baseline on Windows, with the maintainer's go-ahead:
+- [x] 1.1 Record the baseline on Windows, with the maintainer's go-ahead:
   1. `just install-provider-java`.
   2. `just test-acceptance-windows --profile real-windows run --suite AgentTable --suite NativeAttributes`. Suite names go without spaces: `just` passes its arguments on unquoted, and Robot Framework matches names without spaces.
   3. From `results/output.xml` (`uv run --no-sync robotcode results`), note the keyword times of the tests that address cells by position (`agent_table.robot:37-132`, `native_attributes.robot:49-68`).
   4. The time of `Query    count(.//*)    only_first=${True}` with the root set to the fixture's `/app:Application[@ProcessId=${pid}]`.
 
   Record the numbers here.
+
+  Recorded on 2026-09-30 in the Windows VM, on `main` at `75a9bd3b`. 18 of 18 tests passed; the Robot run took 30.6 s of the recipe's 254 s. Step 4 ran as two throwaway suites in `tests/acceptance/swing/`, deleted afterwards. Each launches the fixture through the suite setup of `testapp_agent.resource` or `testapp.resource` and runs the query five times. The suites, the run's `output.xml` and the script that extracts these times are kept in `results/xpath-document-order-baseline/`, which git ignores.
+
+  Times per keyword call. The first call of a test is the slowest, so it is listed on its own:
+
+  | Selector | Backend | Calls | First | Others |
+  |---|---|---|---|---|
+  | `count(.//*[@Name="main-table"]/*)` (wait) | agent | 1 | 372 ms | — |
+  | `.//*[@Name="main-table"]/*[n]`, rows 1–4 | agent | 4 | 28 ms | 30–35 ms |
+  | `…/*[3]/*[n]`, cells of row 3 | agent | 12 | 14 ms | 10–17 ms |
+  | `…/*[91]`, `…/*[91]/*[1]` | agent | 7 | 9 ms | 21–28 ms |
+  | `…/*[3]/*[1]`, `…/*[2]/*[3]` | agent | 6 | 26 ms | 21–28 ms |
+  | `.//*[@Name="main-table"]`, table attributes | JAB | 6 | 299 ms | 73–89 ms |
+  | `…/*[9]` | JAB | 5 | 99 ms | 71–87 ms |
+  | `…/*[14]` | JAB | 3 | 94 ms | 70–71 ms |
+  | `…/*[544]` | JAB | 3 | 1,006 ms | 134–136 ms |
+  | `count(.//*)` from the application node, 744 elements | agent | 5 | 432 ms | 202–284 ms |
+  | `count(.//*)` from the application node, 652 elements | JAB | 5 | 2,359 ms | 1,933–2,005 ms |
 
 ## 2. Tests first — Robot Framework on the mock
 
@@ -160,7 +178,7 @@ Follow the `robot-test-style` skill.
   - everything is green, including 5.1, 5.2 and the Swing suites that address cells by position;
   - there is no WARN or ERROR from PlatynUI.
 
-  Measure again the numbers of 1.1. If the positional cell tests became noticeably slower, rewrite them to the idiom `(.//*[@Name="main-table"])[1]/*[n]`, rerun the Swing suites, and record the before and after times here with the decision.
+  Measure again the numbers of 1.1, with the suites and the script kept in `results/xpath-document-order-baseline/`. If the positional cell tests became noticeably slower, rewrite them to the idiom `(.//*[@Name="main-table"])[1]/*[n]`, rerun the Swing suites, and record the before and after times here with the decision.
 - [ ] 12.3 CI runs the X11 and compositor lanes on push. Verify there that both lanes are green and their logs have no WARN or ERROR from PlatynUI, and record the run here.
 
 ## 13. Commit (only when the maintainer asks)
