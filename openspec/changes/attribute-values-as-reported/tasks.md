@@ -4,7 +4,7 @@
 
 Each test in this group fails until group 2 lands.
 
-- [ ] 1.1 Add unit tests in `crates/provider-atspi/src/node.rs` on the value decisions, written as pure functions over what the bus returned:
+- [x] 1.1 Add unit tests in `crates/provider-atspi/src/node.rs` on the value decisions, written as pure functions over what the bus returned:
   - `Name`:
     - `  Save  as  ` stays unchanged;
     - three spaces stay three spaces;
@@ -26,9 +26,9 @@ Each test in this group fails until group 2 lands.
   - change `attributes_object_skips_empty_keys` to "keeps every key".
 
   Verify: `just test-crate platynui-provider-atspi` fails exactly on the new and changed expectations.
-- [ ] 1.2 Add a unit test in `crates/provider-atspi/src/lib.rs`, or next to the seed, showing that an application's name ` gedit ` is seeded unchanged. Verify: it fails before 2.1.
-- [ ] 1.3 Add a unit test in `crates/provider-windows-uia/src/map.rs` on the variant conversion: an empty BSTR gives `UiValue::String("")`, and a padded one stays padded. Verify: `just test-crate platynui-provider-windows-uia` fails on the empty case.
-- [ ] 1.4 Add a unit test in `crates/provider-java-jab/src/interfaces.rs` on the value parsing:
+- [x] 1.2 Add a unit test in `crates/provider-atspi/src/lib.rs`, or next to the seed, showing that an application's name ` gedit ` is seeded unchanged. Verify: it fails before 2.1.
+- [x] 1.3 Add a unit test in `crates/provider-windows-uia/src/map.rs` on the variant conversion: an empty BSTR gives `UiValue::String("")`, and a padded one stays padded. Verify: `just test-crate platynui-provider-windows-uia` fails on the empty case.
+- [x] 1.4 Add a unit test in `crates/provider-java-jab/src/interfaces.rs` on the value parsing:
   - `50` gives the number 50;
   - `1E+3` gives 1000;
   - `NaN` gives a number;
@@ -36,8 +36,8 @@ Each test in this group fails until group 2 lands.
   - `""` and a failed call give no value.
 
   The `control:Value` reader shares the function. Verify: `just test-crate platynui-provider-java-jab` fails on `n/a `.
-- [ ] 1.5 Add unit tests for `crates/core/src/ui/describe.rs` (an id of two spaces appears after ` #`) and for the Windows monitor-name decision (a device string of one space is a name), with the decision factored out of `monitor_friendly_name`. Verify: `just test-crate platynui-core` and `just test-crate platynui-platform-windows` fail on them.
-- [ ] 1.6 Add JUnit tests (`java/agent/src/test/java/platynui/agent/`, headless) on the payload of `SwingElement.describe`:
+- [x] 1.5 Add unit tests for `crates/core/src/ui/describe.rs` (an id of two spaces appears after ` #`) and for the Windows monitor-name decision (a device string of one space is a name), with the decision factored out of `monitor_friendly_name`. Verify: `just test-crate platynui-core` and `just test-crate platynui-platform-windows` fail on them.
+- [x] 1.6 Add JUnit tests (`java/agent/src/test/java/platynui/agent/`, headless) on the payload of `SwingElement.describe`:
   - a component whose accessible name, name (`setName("")`) and tool tip are explicitly `""` carries them as `""`;
   - a component with none of them set carries no such keys.
 
@@ -45,22 +45,22 @@ Each test in this group fails until group 2 lands.
 
 ## 2. Implementation
 
-- [ ] 2.1 AT-SPI (design decision 1):
+- [x] 2.1 AT-SPI (design decision 1):
   - make `resolve_name`, `resolve_id`, `resolve_description` and `pick_attr_value` take bus values unmodified, with only `""` meaning none where an attribute is absent when empty;
   - make `fetch_str` return every successful read as a string;
   - take the action names, the application-name seed (`src/lib.rs:317-320`) and both object-attribute maps as reported;
   - remove `normalize_value`.
 
   Verify: `just test-crate platynui-provider-atspi` passes.
-- [ ] 2.2 UIA: make `variant_to_ui_value` return `UiValue::String("")` for an empty BSTR, and confirm `get_description` still filters `""`. Verify: `just test-crate platynui-provider-windows-uia` passes.
-- [ ] 2.3 JAB: one shared value-string function parses the unmodified string. It keeps a non-numeric string, and treats `""` or a failed call as no value. `numeric_or_string` and the `control:Value` reader use it, and its comment matches the behavior. Verify: `just test-crate platynui-provider-java-jab` passes.
-- [ ] 2.4 Core and platform:
+- [x] 2.2 UIA: make `variant_to_ui_value` return `UiValue::String("")` for an empty BSTR, and confirm `get_description` still filters `""`. Verify: `just test-crate platynui-provider-windows-uia` passes.
+- [x] 2.3 JAB: one shared value-string function parses the unmodified string. It keeps a non-numeric string, and treats `""` or a failed call as no value. `numeric_or_string` and the `control:Value` reader use it, and its comment matches the behavior. Verify: `just test-crate platynui-provider-java-jab` passes.
+- [x] 2.4 Core and platform:
   - `describe` leaves out only an empty or absent id;
   - the monitor name is kept unless the device string is empty.
 
   Verify: the tests of 1.5 pass.
-- [ ] 2.5 Java agent: make `putIfPresent` drop only `null`, and make `explicitNameOf` return an explicitly set empty name as `""`. Verify: `just test-java-agent` passes.
-- [ ] 2.6 Rebuild and deliver in this order:
+- [x] 2.5 Java agent: make `putIfPresent` drop only `null`, and make `explicitNameOf` return an explicitly set empty name as `""`. Verify: `just test-java-agent` passes.
+- [x] 2.6 Rebuild and deliver in this order:
   1. `just build-java-agent`
   2. `just install-provider-java`
   3. `just build-native`
@@ -69,19 +69,19 @@ Each test in this group fails until group 2 lands.
 
 ## 3. Docs
 
-- [ ] 3.1 Update `dev-docs/architecture.md`:
+- [x] 3.1 Update `dev-docs/architecture.md`:
   - §5.7: add the rule. No provider rewrites a string, the empty string is a value except for `Id` and `Description`, and native attributes are passed one to one.
   - §5.5 and §5.6: `Id` and `Description` are taken unmodified.
   - §6.3: the presence of the common attributes, with a pointer to §5.7.
   - §7.3: a checklist item "Pass attribute values through as reported (§5.7)".
 
   Verify: the four sections agree with `attribute-values`.
-- [ ] 3.2 Update the doc comments at the changed call sites: AT-SPI's resolvers and `fetch_str`, UIA's variant conversion, JAB's value parsing, and the agent's `putIfPresent`. Verify: no comment still promises trimming or blank-to-none.
+- [x] 3.2 Update the doc comments at the changed call sites: AT-SPI's resolvers and `fetch_str`, UIA's variant conversion, JAB's value parsing, and the agent's `putIfPresent`. Verify: no comment still promises trimming or blank-to-none.
 
 ## 4. Verification
 
-- [ ] 4.1 Run `just pre-commit`, then `just build-native`, because pre-commit leaves a mock build. Verify: all gates pass.
-- [ ] 4.2 Run the Windows acceptance lane:
+- [x] 4.1 Run `just pre-commit`, then `just build-native`, because pre-commit leaves a mock build. Verify: all gates pass.
+- [x] 4.2 Run the Windows acceptance lane:
   1. `just install-provider-java`
   2. `just test-acceptance-windows`, with `PYTHONIOENCODING=utf-8` set for the Robot run
 
@@ -90,4 +90,4 @@ Each test in this group fails until group 2 lands.
   - `tests/acceptance/egui/query.robot` passes its `Name`, `Id` and `Description` checks;
   - the Qt, QML and egui suites pass;
   - the runs show no WARN or ERROR.
-- [ ] 4.4 Run `openspec validate attribute-values-as-reported --strict` and `openspec validate name-is-accessible-name --strict`. Verify: both pass, since the second change builds on this one's text.
+- [x] 4.4 Run `openspec validate attribute-values-as-reported --strict` and `openspec validate name-is-accessible-name --strict`. Verify: both pass, since the second change builds on this one's text.
