@@ -46,26 +46,26 @@ A Data Cell Reports Its Coordinates
     ...    never during enumeration): the designated data cell — positionally the table's 9th child
     ...    (1*6 + 2 + 1), holding "r1c2" — sits at row 1 / column 2, spans one cell in each
     ...    direction, and is outside the preselected row.
-    BM.Get Attribute Value    .//*[@Name="main-table"]/*[9]    native:TableCell.Row    ==    ${1}
-    BM.Get Attribute Value    .//*[@Name="main-table"]/*[9]    native:TableCell.Column    ==    ${2}
-    BM.Get Attribute Value    .//*[@Name="main-table"]/*[9]    native:TableCell.RowExtent    ==    ${1}
-    BM.Get Attribute Value    .//*[@Name="main-table"]/*[9]    native:TableCell.ColumnExtent    ==    ${1}
-    BM.Get Attribute Value    .//*[@Name="main-table"]/*[9]    native:TableCell.IsSelected    ==    ${False}
+    BM.Get Attribute Value    (.//*[@Name="main-table"])[1]/*[9]    native:TableCell.Row    ==    ${1}
+    BM.Get Attribute Value    (.//*[@Name="main-table"])[1]/*[9]    native:TableCell.Column    ==    ${2}
+    BM.Get Attribute Value    (.//*[@Name="main-table"])[1]/*[9]    native:TableCell.RowExtent    ==    ${1}
+    BM.Get Attribute Value    (.//*[@Name="main-table"])[1]/*[9]    native:TableCell.ColumnExtent    ==    ${1}
+    BM.Get Attribute Value    (.//*[@Name="main-table"])[1]/*[9]    native:TableCell.IsSelected    ==    ${False}
 
 A Cell In The Preselected Row Reports Its Selection
     [Documentation]    The table's 14th child (2*6 + 1 + 1) is cell (2, 1) — inside the preselected
     ...    row 2.
-    BM.Get Attribute Value    .//*[@Name="main-table"]/*[14]    native:TableCell.Row    ==    ${2}
-    BM.Get Attribute Value    .//*[@Name="main-table"]/*[14]    native:TableCell.Column    ==    ${1}
-    BM.Get Attribute Value    .//*[@Name="main-table"]/*[14]    native:TableCell.IsSelected    ==    ${True}
+    BM.Get Attribute Value    (.//*[@Name="main-table"])[1]/*[14]    native:TableCell.Row    ==    ${2}
+    BM.Get Attribute Value    (.//*[@Name="main-table"])[1]/*[14]    native:TableCell.Column    ==    ${1}
+    BM.Get Attribute Value    (.//*[@Name="main-table"])[1]/*[14]    native:TableCell.IsSelected    ==    ${True}
 
 A Cell Far Down The Model Is Still Addressable
     [Documentation]    The point of a table that does not fit its viewport: the accessible view
     ...    reports every cell of the model, not only the realized ones, so a cell 90 rows below the
     ...    fold answers its coordinates without anyone scrolling to it. Child (90*6 + 3 + 1).
-    BM.Get Attribute Value    .//*[@Name="main-table"]/*[544]    native:TableCell.Row    ==    ${90}
-    BM.Get Attribute Value    .//*[@Name="main-table"]/*[544]    native:TableCell.Column    ==    ${3}
-    BM.Get Attribute Value    .//*[@Name="main-table"]/*[544]    native:TableCell.IsSelected    ==    ${False}
+    BM.Get Attribute Value    (.//*[@Name="main-table"])[1]/*[544]    native:TableCell.Row    ==    ${90}
+    BM.Get Attribute Value    (.//*[@Name="main-table"])[1]/*[544]    native:TableCell.Column    ==    ${3}
+    BM.Get Attribute Value    (.//*[@Name="main-table"])[1]/*[544]    native:TableCell.IsSelected    ==    ${False}
 
 The Slider Reports Its Value Range And Tracks Changes Live
     [Documentation]    ``native:Value.*`` on an ``AccessibleValue`` element (fixture default: 50 in
