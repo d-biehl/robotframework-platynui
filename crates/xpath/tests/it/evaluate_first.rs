@@ -95,8 +95,8 @@ fn test_evaluate_first_position_predicate() {
         .build();
     let ctx = DynamicContextBuilder::<SimpleNode>::default().with_context_item(XdmItem::Node(doc)).build();
 
-    // Note: Due to current limitation, [1] doesn't early-exit
-    // But evaluate_first() still provides fast-path by stopping at first result
+    // `//item[1]` is the first item of every parent; evaluate_first() stops at the first of
+    // them in document order.
     let compiled = compile("//item[1]").unwrap();
     let result = evaluate_first(&compiled, &ctx).unwrap();
 

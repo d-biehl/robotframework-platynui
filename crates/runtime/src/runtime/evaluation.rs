@@ -247,6 +247,21 @@ mod tests {
     }
 
     #[rstest]
+    fn tree_items_come_out_in_document_order(rt_runtime_mock: Runtime) {
+        let names: Vec<String> = rt_runtime_mock
+            .evaluate(None, "(//control:Window[@Name='Operations Console'])[1]//item:TreeItem")
+            .expect("evaluate tree items")
+            .into_iter()
+            .filter_map(|item| match item {
+                EvaluationItem::Node(node) => Some(node.name()),
+                _ => None,
+            })
+            .collect();
+        // An item's children come right after it, before its next sibling.
+        assert_eq!(names, ["Dashboard", "Overview", "Metrics", "Reports", "Täglich", "Monatlich", "Jährlich"]);
+    }
+
+    #[rstest]
     fn union_windows_or_buttons_returns_both(rt_runtime_mock: Runtime) {
         // The mock tree contains 1 Window and 2 Buttons
         let res = rt_runtime_mock.evaluate(None, "//control:Window | //control:Button").expect("evaluate union");

@@ -68,7 +68,9 @@ def desktop_adapter(native_runtime: _pn.Runtime) -> UiNodeAdapter:
 
 @pytest.fixture
 def main_window_adapter(native_runtime: _pn.Runtime) -> UiNodeAdapter:
-    node = native_runtime.evaluate_single("//control:Window[@Name='Operations Console']")
+    # The copy the mock lists directly under the Desktop root; the copy under
+    # its application comes first in document order.
+    node = native_runtime.evaluate_single("/control:Window[@Name='Operations Console']")
     assert isinstance(node, _pn.UiNode), 'mock tree must expose Operations Console window'
     return UiNodeAdapter.from_node(node)
 
@@ -131,9 +133,9 @@ def test_parent_returns_adapter(main_window_adapter: UiNodeAdapter) -> None:
     parent = main_window_adapter.parent
     assert parent is not None
     assert isinstance(parent, UiNodeAdapter)
-    # The Operations Console window has expose_flat="true" in the mock
-    # tree (see crates/provider-mock/assets/mock_tree.xml), so the
-    # provider lifts it directly under the Desktop root.
+    # The fixture takes the copy of the Operations Console window that the
+    # provider lifts directly under the Desktop root, because the window has
+    # expose_flat="true" in the mock tree (crates/provider-mock/assets/mock_tree.xml).
     assert parent.role == 'Desktop'
 
 

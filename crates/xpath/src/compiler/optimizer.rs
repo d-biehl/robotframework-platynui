@@ -5,50 +5,32 @@
 use crate::xdm::XdmAtomicValue;
 
 #[cfg(test)]
-use super::ir::NodeTestIR;
-use super::ir::{AxisIR, InstrSeq, OpCode};
+use super::ir::{AxisIR, NodeTestIR};
+use super::ir::{InstrSeq, OpCode, PredicateIR, PredicateKind};
 
-/// Optimizes a compiled instruction sequence by applying predicate pushdown
-/// and other transformations.
+/// Optimizes a compiled instruction sequence: folds constant arithmetic and moves predicates
+/// into the axis step before them.
 ///
-/// # Predicate Pushdown
+/// # Predicate pushdown
 ///
-/// Transforms sequences like:
+/// `(E)[p1][p2]…` applies its predicates to the whole sequence `E` produces. When `E` ends in an
+/// axis step, the leading run of non-positional predicates moves into that step:
+///
 /// ```text
-/// AxisStep(axis, test, [])
-/// ApplyPredicates([pred1, pred2])
+/// AxisStep(descendant, T, [])             AxisStep(descendant, T, [@a])
+/// ApplyPredicates([@a, 1])          →     ApplyPredicates([1])
 /// ```
 ///
-/// Into:
-/// ```text
-/// AxisStep(axis, test, [pred1, pred2])
-/// ```
+/// A non-positional predicate filters each item on its own, so it selects the same items inside
+/// the step as over the whole sequence, and inside the step it lets the step stream and merge its
+/// context nodes. A predicate that may count positions stays where it was written: inside a step
+/// it would count per context node, so `(//X)[1]`, the first X overall, would become the first X of
+/// every parent. The predicates after it stay as well, because they filter what it selected. An
+/// `EnsureDistinct` between the step and the predicates is no obstacle: a filter selects the same
+/// items before and after duplicates are removed.
 ///
-/// This allows predicates to be evaluated during axis traversal rather than
-/// after collecting all results, enabling:
-/// - Early termination (e.g., `//item[1]` stops after first match)
-/// - Memory savings (no intermediate result collection)
-/// - Better streaming performance
-///
-/// # Safety
-///
-/// The optimizer preserves `XPath` semantics. Predicates are only pushed down when:
-/// - They don't depend on the full sequence (e.g., `last()` is safe with caveats)
-/// - Document order is maintained
-/// - Position context is correctly preserved
-///
-/// # Example
-///
-/// ```ignore
-/// // Before optimization:
-/// let instrs = compile("(//item)[@id='foo']");
-/// // IR: AxisStep(Descendant, ..., [])
-/// //     ApplyPredicates([@id='foo'])
-///
-/// // After optimization:
-/// let optimized = optimize(instrs);
-/// // IR: AxisStep(Descendant, ..., [@id='foo'])
-/// ```
+/// `//T[p]` needs no pushdown: the compiler already lowers it into one `descendant::T[p]` step
+/// when `p` is non-positional, and pushdown then extends that step, as in `(//T)[@a]`.
 #[must_use]
 pub fn optimize(mut seq: InstrSeq) -> InstrSeq {
     fold_constants(&mut seq.0);
@@ -56,18 +38,15 @@ pub fn optimize(mut seq: InstrSeq) -> InstrSeq {
     seq
 }
 
-/// Pushes down `ApplyPredicates` instructions into preceding `AxisStep` instructions.
-///
-/// This function walks through the instruction sequence and identifies patterns where
-/// predicates can be safely moved into the axis step itself, allowing for more efficient
-/// evaluation.
+/// Moves the leading non-positional predicates of an `ApplyPredicates` into the `AxisStep`
+/// before it, at this level and in every nested sequence.
 fn push_down_predicates(instrs: &mut Vec<OpCode>) {
     // First, recursively optimize all nested sequences
     for instr in instrs.iter_mut() {
         match instr {
             OpCode::AxisStep(_, _, preds) | OpCode::ApplyPredicates(preds) => {
                 for pred in preds {
-                    push_down_predicates(&mut pred.0);
+                    push_down_predicates(&mut pred.code.0);
                 }
             }
             OpCode::PathExprStep(inner) => {
@@ -80,81 +59,28 @@ fn push_down_predicates(instrs: &mut Vec<OpCode>) {
         }
     }
 
-    // Then, perform predicate pushdown at this level
+    // Then move predicates at this level: an AxisStep, maybe an EnsureDistinct, ApplyPredicates.
     let mut i = 0;
-
-    while i + 1 < instrs.len() {
-        // Look for pattern: AxisStep followed by ApplyPredicates
-        let should_merge = if i + 1 < instrs.len() {
-            matches!((&instrs[i], &instrs[i + 1]), (OpCode::AxisStep(_, _, _), OpCode::ApplyPredicates(_)))
-        } else {
-            false
-        };
-
-        if should_merge {
-            // Extract predicates from ApplyPredicates
-            let new_preds = if let OpCode::ApplyPredicates(preds) = &instrs[i + 1] {
-                preds.clone()
-            } else {
-                unreachable!("guard confirmed ApplyPredicates at i+1")
-            };
-
-            // Check if we can safely push down
-            let (axis, test, existing_preds) = if let OpCode::AxisStep(a, t, p) = &instrs[i] {
-                (a.clone(), t.clone(), p.clone())
-            } else {
-                unreachable!("guard confirmed AxisStep at i")
-            };
-
-            if can_push_down_to_axis(&axis, &new_preds) {
-                // Merge predicates
-                let mut combined = existing_preds;
-                combined.extend(new_preds);
-
-                // Replace AxisStep with merged version
-                instrs[i] = OpCode::AxisStep(axis, test, combined);
-
-                // Remove ApplyPredicates
-                instrs.remove(i + 1);
-
-                // Check this position again for more predicates
-                continue;
+    while i < instrs.len() {
+        let apply = if matches!(instrs.get(i + 1), Some(OpCode::EnsureDistinct)) { i + 2 } else { i + 1 };
+        let movable = match (instrs.get(i), instrs.get(apply)) {
+            (Some(OpCode::AxisStep(..)), Some(OpCode::ApplyPredicates(preds))) => {
+                preds.iter().take_while(|p| p.kind == PredicateKind::NonPositional).count()
             }
+            _ => 0,
+        };
+        if movable == 0 {
+            i += 1;
+            continue;
         }
-
-        i += 1;
+        let OpCode::ApplyPredicates(preds) = &mut instrs[apply] else { unreachable!("matched above") };
+        let moved: Vec<PredicateIR> = preds.drain(..movable).collect();
+        if preds.is_empty() {
+            instrs.remove(apply);
+        }
+        let OpCode::AxisStep(_, _, step_preds) = &mut instrs[i] else { unreachable!("matched above") };
+        step_preds.extend(moved);
     }
-}
-
-/// Determines if predicates can be safely pushed down into an axis step.
-///
-/// # Safety Conditions
-///
-/// Predicates can be pushed down if:
-/// 1. The axis is a forward axis (maintains position context)
-/// 2. The predicates don't use context-sensitive functions that require
-///    the full sequence (e.g., `last()` when used in certain ways)
-///
-/// # Current Implementation
-///
-/// This is a conservative implementation that allows pushdown for all axes.
-/// The evaluator handles position context correctly even with pushed-down predicates.
-///
-/// Future enhancements could:
-/// - Analyze predicate content to detect unsafe patterns
-/// - Split predicates into "safe to push" and "must apply after"
-/// - Optimize reverse axes with special handling
-fn can_push_down_to_axis(_axis: &AxisIR, _predicates: &[InstrSeq]) -> bool {
-    // Conservative: allow pushdown for all axes
-    // The evaluator maintains correct position() semantics for predicates
-    // even when they're attached to the axis step.
-    //
-    // TODO: Future optimization - analyze predicates for:
-    // - Usage of last() or position() in complex expressions
-    // - Reverse axes that might need special handling
-    // - Predicates that reference variables from outer scope
-
-    true
 }
 
 /// Folds constant expressions at compile time.
@@ -190,7 +116,7 @@ fn fold_constants(instrs: &mut Vec<OpCode>) {
         match instr {
             OpCode::AxisStep(_, _, preds) | OpCode::ApplyPredicates(preds) => {
                 for pred in preds {
-                    fold_constants(&mut pred.0);
+                    fold_constants(&mut pred.code.0);
                 }
             }
             OpCode::PathExprStep(inner) => {
@@ -310,11 +236,23 @@ mod tests {
     use super::*;
     use crate::xdm::XdmAtomicValue;
 
+    fn predicate(value: XdmAtomicValue, kind: PredicateKind) -> PredicateIR {
+        PredicateIR { code: InstrSeq(vec![OpCode::PushAtomic(value)]), kind }
+    }
+
+    fn boolean() -> PredicateIR {
+        predicate(XdmAtomicValue::Boolean(true), PredicateKind::NonPositional)
+    }
+
+    fn number(n: i64) -> PredicateIR {
+        predicate(XdmAtomicValue::Integer(n), PredicateKind::PossiblyPositional)
+    }
+
     #[test]
     fn test_simple_predicate_pushdown() {
         let mut instrs = vec![
             OpCode::AxisStep(AxisIR::Descendant, NodeTestIR::AnyKind, vec![]),
-            OpCode::ApplyPredicates(vec![InstrSeq(vec![OpCode::PushAtomic(XdmAtomicValue::Boolean(true))])]),
+            OpCode::ApplyPredicates(vec![boolean()]),
         ];
 
         push_down_predicates(&mut instrs);
@@ -328,35 +266,39 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_predicates_pushdown() {
+    fn test_positional_literals_do_not_merge() {
         let mut instrs = vec![
-            OpCode::AxisStep(
-                AxisIR::Child,
-                NodeTestIR::AnyKind,
-                vec![InstrSeq(vec![OpCode::PushAtomic(XdmAtomicValue::Boolean(true))])],
-            ),
-            OpCode::ApplyPredicates(vec![
-                InstrSeq(vec![OpCode::PushAtomic(XdmAtomicValue::Integer(1))]),
-                InstrSeq(vec![OpCode::PushAtomic(XdmAtomicValue::Integer(2))]),
-            ]),
+            OpCode::AxisStep(AxisIR::Child, NodeTestIR::AnyKind, vec![boolean()]),
+            OpCode::ApplyPredicates(vec![number(1), number(2)]),
         ];
 
         push_down_predicates(&mut instrs);
 
-        assert_eq!(instrs.len(), 1);
-        if let OpCode::AxisStep(_, _, preds) = &instrs[0] {
-            assert_eq!(preds.len(), 3); // 1 existing + 2 pushed down
-        } else {
-            panic!("Expected AxisStep");
-        }
+        // `(child::node()[true()])[1][2]` counts over the whole sequence, not per context node.
+        assert_eq!(instrs.len(), 2);
+        assert!(matches!(&instrs[0], OpCode::AxisStep(_, _, preds) if preds.len() == 1));
+        assert!(matches!(&instrs[1], OpCode::ApplyPredicates(preds) if preds.len() == 2));
+    }
+
+    #[test]
+    fn test_only_the_leading_non_positional_predicates_move() {
+        let mut instrs = vec![
+            OpCode::AxisStep(AxisIR::Descendant, NodeTestIR::AnyKind, vec![]),
+            OpCode::ApplyPredicates(vec![boolean(), number(1), boolean()]),
+        ];
+
+        push_down_predicates(&mut instrs);
+
+        assert_eq!(instrs.len(), 2);
+        assert!(matches!(&instrs[0], OpCode::AxisStep(_, _, preds) if preds.len() == 1));
+        assert!(matches!(&instrs[1], OpCode::ApplyPredicates(preds)
+            if preds.iter().map(|p| p.kind).collect::<Vec<_>>()
+                == [PredicateKind::PossiblyPositional, PredicateKind::NonPositional]));
     }
 
     #[test]
     fn test_no_pushdown_without_axis_step() {
-        let mut instrs = vec![
-            OpCode::LoadContextItem,
-            OpCode::ApplyPredicates(vec![InstrSeq(vec![OpCode::PushAtomic(XdmAtomicValue::Boolean(true))])]),
-        ];
+        let mut instrs = vec![OpCode::LoadContextItem, OpCode::ApplyPredicates(vec![boolean()])];
 
         let original_len = instrs.len();
         push_down_predicates(&mut instrs);
@@ -370,11 +312,14 @@ mod tests {
         let mut instrs = vec![OpCode::AxisStep(
             AxisIR::Descendant,
             NodeTestIR::AnyKind,
-            vec![InstrSeq(vec![
-                // Nested axis step with predicate to push
-                OpCode::AxisStep(AxisIR::Child, NodeTestIR::AnyKind, vec![]),
-                OpCode::ApplyPredicates(vec![InstrSeq(vec![OpCode::PushAtomic(XdmAtomicValue::Boolean(true))])]),
-            ])],
+            vec![PredicateIR {
+                code: InstrSeq(vec![
+                    // Nested axis step with predicate to push
+                    OpCode::AxisStep(AxisIR::Child, NodeTestIR::AnyKind, vec![]),
+                    OpCode::ApplyPredicates(vec![boolean()]),
+                ]),
+                kind: PredicateKind::NonPositional,
+            }],
         )];
 
         push_down_predicates(&mut instrs);
@@ -383,12 +328,12 @@ mod tests {
         if let OpCode::AxisStep(_, _, outer_preds) = &instrs[0] {
             assert_eq!(outer_preds.len(), 1, "Should have one outer predicate");
             // The inner sequence should have the child step with merged predicates
-            if let OpCode::AxisStep(_, _, inner_preds) = &outer_preds[0].0[0] {
+            if let OpCode::AxisStep(_, _, inner_preds) = &outer_preds[0].code.0[0] {
                 assert_eq!(inner_preds.len(), 1, "Inner predicate should be merged");
                 // After optimization, ApplyPredicates should be removed, so only 1 instruction
-                assert_eq!(outer_preds[0].0.len(), 1, "ApplyPredicates should be removed");
+                assert_eq!(outer_preds[0].code.0.len(), 1, "ApplyPredicates should be removed");
             } else {
-                panic!("Expected nested AxisStep, got {:?}", outer_preds[0].0[0]);
+                panic!("Expected nested AxisStep, got {:?}", outer_preds[0].code.0[0]);
             }
         } else {
             panic!("Expected outer AxisStep");

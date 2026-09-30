@@ -54,7 +54,8 @@ fn test_predicate_pushdown_positional() {
     let root_elem = root.children().next().unwrap();
     let ctx = DynamicContextBuilder::new().with_context_item(XdmItem::Node(root_elem)).build();
 
-    // Positional predicate - should still work correctly after optimization
+    // A positional predicate on a parenthesized expression counts over the whole sequence, so
+    // the optimizer keeps it out of the step.
     let nodes = evaluate_expr::<N>("(//item)[1]", &ctx).unwrap();
 
     assert_eq!(nodes.len(), 1, "Should find exactly one item");

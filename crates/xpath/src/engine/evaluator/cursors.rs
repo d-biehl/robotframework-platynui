@@ -1,16 +1,16 @@
 //! Cursor types for streaming `XPath` evaluation.
 
+use super::order::{self, DocOrder, NodeSet};
 use super::{Frame, Vm, VmHandle};
 
-use core::cmp::Ordering;
 use smallvec::SmallVec;
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
 use string_cache::DefaultAtom;
 
 use crate::compiler::ir::{AxisIR, ComparisonOp, InstrSeq, NameOrWildcard, NodeTestIR, OpCode, QuantifierKind};
 use crate::engine::runtime::{Error, ErrorCode};
 use crate::model::{NodeKind, QName, XdmNode};
-use crate::xdm::{ExpandedName, SequenceCursor, XdmAtomicValue, XdmItem, XdmItemResult, XdmSequenceStream};
+use crate::xdm::{Before, ExpandedName, SequenceCursor, XdmAtomicValue, XdmItem, XdmItemResult, XdmSequenceStream};
 
 pub(super) struct AxisStepCursor<N> {
     vm: VmHandle<N>,
@@ -19,19 +19,44 @@ pub(super) struct AxisStepCursor<N> {
     input_cursor: Box<dyn SequenceCursor<N>>,
     // Stream of results for the current input node (axis evaluation)
     current_output: Option<Box<dyn SequenceCursor<N>>>,
+    // The step's predicates when one of them may count positions: they then run once per context
+    // node, over that node's axis stream. Empty otherwise; the VM filters the whole stream.
+    per_context: Vec<InstrSeq>,
+    // A context node a bounded advance pulled and left, because it does not precede the bound.
+    pending_context: Option<N>,
+    // Compares context nodes with a bound; made on the first bounded advance that needs it.
+    order: Option<DocOrder<N>>,
 }
 
 impl<N: 'static + XdmNode + Clone> AxisStepCursor<N> {
-    pub(super) fn new(vm: VmHandle<N>, input: &XdmSequenceStream<N>, axis: AxisIR, test: NodeTestIR) -> Self {
-        // For descendant/descendant-or-self, minimize overlapping contexts to avoid duplicates
+    pub(super) fn new(
+        vm: VmHandle<N>,
+        input: &XdmSequenceStream<N>,
+        axis: AxisIR,
+        test: NodeTestIR,
+        per_context: Vec<InstrSeq>,
+    ) -> Self {
         let base_cursor = input.cursor();
+        // Minimizing drops a context node whose results another context already covers, which only
+        // holds when no predicate counts positions: with one, every context counts on its own.
         let input_cursor: Box<dyn SequenceCursor<N>> = match axis {
+            _ if !per_context.is_empty() => base_cursor,
             AxisIR::Descendant | AxisIR::DescendantOrSelf => Box::new(ContextMinCursor::new(base_cursor)),
             AxisIR::Following => Box::new(ContextMinFollowingCursor::new(base_cursor)),
             AxisIR::FollowingSibling => Box::new(ContextMinFollowingSiblingCursor::new(base_cursor)),
+            AxisIR::Preceding => Box::new(LastContextCursor::new(base_cursor)),
             _ => base_cursor,
         };
-        Self { vm, axis, test, input_cursor, current_output: None }
+        Self { vm, axis, test, input_cursor, current_output: None, per_context, pending_context: None, order: None }
+    }
+
+    /// The axis of one context node, with the step's per-context predicates on it.
+    fn output_for(&self, node: N) -> Box<dyn SequenceCursor<N>> {
+        let axis_cursor: Box<dyn SequenceCursor<N>> =
+            Box::new(NodeAxisCursor::new(self.vm.clone(), node, self.axis.clone(), self.test.clone()));
+        self.per_context.iter().fold(axis_cursor, |input, predicate| {
+            Box::new(PredicateCursor::new(self.vm.clone(), predicate.clone(), input))
+        })
     }
 }
 
@@ -44,6 +69,10 @@ struct NodeAxisCursor<N> {
     node: N,
     // Internal state machine
     state: AxisState<N>,
+    // A candidate a bounded advance looked at and left, because it does not precede the bound.
+    pending: Option<N>,
+    // Compares candidates with a bound; made on the first bounded advance.
+    order: Option<DocOrder<N>>,
 }
 
 enum AxisState<N> {
@@ -118,7 +147,15 @@ enum AxisState<N> {
 
 impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
     fn new(vm: VmHandle<N>, node: N, axis: AxisIR, test: NodeTestIR) -> Self {
-        Self { vm, axis, test, node, state: AxisState::Init }
+        Self { vm, axis, test, node, state: AxisState::Init, pending: None, order: None }
+    }
+
+    /// The next candidate: the one a bounded advance left, or the axis's next.
+    fn take_candidate(&mut self) -> Result<Option<N>, Error> {
+        match self.pending.take() {
+            Some(candidate) => Ok(Some(candidate)),
+            None => self.next_candidate(),
+        }
     }
 
     #[inline]
@@ -502,7 +539,38 @@ impl<N: XdmNode + Clone + 'static> ContextMinCursor<N> {
     }
 }
 
+impl<N: XdmNode + Clone + 'static> ContextMinCursor<N> {
+    /// Whether `node` is covered by the last kept context; otherwise it becomes the kept one.
+    fn covered(&mut self, node: &N) -> bool {
+        if let Some(last) = &self.last_kept
+            && Self::is_descendant_of(node, last)
+        {
+            return true;
+        }
+        self.last_kept = Some(node.clone());
+        false
+    }
+}
+
 impl<N: XdmNode + Clone + 'static> SequenceCursor<N> for ContextMinCursor<N> {
+    fn next_item_before(&mut self, bound: &N) -> Before<N> {
+        loop {
+            match self.inner.next_item_before(bound) {
+                Before::Taken(Ok(XdmItem::Node(node))) => {
+                    if !self.covered(&node) {
+                        return Before::Taken(Ok(XdmItem::Node(node)));
+                    }
+                }
+                Before::Pulled(Ok(XdmItem::Node(node))) => {
+                    if !self.covered(&node) {
+                        return Before::Pulled(Ok(XdmItem::Node(node)));
+                    }
+                }
+                other => return other,
+            }
+        }
+    }
+
     fn next_item(&mut self) -> Option<XdmItemResult<N>> {
         loop {
             let item = self.inner.next_item()?;
@@ -526,81 +594,69 @@ impl<N: XdmNode + Clone + 'static> SequenceCursor<N> for ContextMinCursor<N> {
     }
 }
 
-// Minimize contexts for following:: by keeping only the earliest context per root.
+/// Minimizes the context nodes of `following::` to one: the context whose subtree ends first, as
+/// its following nodes include those of every other context. Over input in document order, a later
+/// context inside the kept one ends no later and replaces it; the first context outside it ends
+/// later, as does every context after that one, so the scan stops there.
 struct ContextMinFollowingCursor<N> {
-    inner: Box<dyn SequenceCursor<N>>,
-    anchors: SmallVec<[(N, N); 4]>, // (root, earliest_anchor)
+    inner: Option<Box<dyn SequenceCursor<N>>>,
 }
 
 impl<N> ContextMinFollowingCursor<N> {
     fn new(inner: Box<dyn SequenceCursor<N>>) -> Self {
-        Self { inner, anchors: SmallVec::new() }
-    }
-}
-
-impl<N: XdmNode + Clone + 'static> ContextMinFollowingCursor<N> {
-    fn root_of(n: &N) -> N {
-        let mut cur = n.clone();
-        while let Some(p) = cur.parent() {
-            cur = p;
-        }
-        cur
+        Self { inner: Some(inner) }
     }
 }
 
 impl<N: XdmNode + Clone + 'static> SequenceCursor<N> for ContextMinFollowingCursor<N> {
     fn next_item(&mut self) -> Option<XdmItemResult<N>> {
-        loop {
-            let item = self.inner.next_item()?;
+        let mut inner = self.inner.take()?;
+        let mut kept: Option<N> = None;
+        while let Some(item) = inner.next_item() {
             match item {
-                Ok(XdmItem::Node(n)) => {
-                    let root = Self::root_of(&n);
-                    if let Some((_, earliest)) = self.anchors.iter().find(|(r, _)| *r == root) {
-                        // if candidate is after earliest (or equal), its following:: is subset → drop
-                        if n == *earliest {
-                            continue;
-                        }
-                        // We lack total order here without compare; conservatively drop only if n is after earliest.
-                        // Determine by checking if earliest is ancestor of n or comes before n.
-                        // Use document order comparator via Eq-based path: walk up to compare ancestry
-                        // Fallback: treat as after if earliest is not after n.
-                        // Simpler and safe: if n is a descendant of earliest, then n is after earliest.
-                        let mut cur = Some(n.clone());
-                        let mut is_desc = false;
-                        let mut guard = 0usize;
-                        while let Some(p) = cur {
-                            if p == *earliest {
-                                is_desc = true;
-                                break;
-                            }
-                            let next = p.parent();
-                            if next.as_ref().is_some_and(|q| q == &p) {
-                                break;
-                            }
-                            cur = next;
-                            guard = guard.saturating_add(1);
-                            if guard > 1_000_000 {
-                                break;
-                            }
-                        }
-                        if is_desc {
-                            continue;
-                        }
-                        // Otherwise keep it (could be before due to unsorted input)
-                    } else {
-                        self.anchors.push((root, n.clone()));
-                        return Some(Ok(XdmItem::Node(n)));
-                    }
-                    // For existing root: only keep if not after earliest
-                    return Some(Ok(XdmItem::Node(n)));
-                }
-                other => return Some(other),
+                Ok(XdmItem::Node(node)) => match &kept {
+                    Some(earlier) if !ContextMinCursor::is_descendant_of(&node, earlier) => break,
+                    _ => kept = Some(node),
+                },
+                Ok(_) => {}
+                Err(err) => return Some(Err(err)),
             }
         }
+        kept.map(|node| Ok(XdmItem::Node(node)))
     }
 
     fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
-        Box::new(Self { inner: self.inner.boxed_clone(), anchors: self.anchors.clone() })
+        Box::new(Self { inner: self.inner.as_ref().map(|inner| inner.boxed_clone()) })
+    }
+}
+
+/// Keeps only the last context node, for `preceding::` without positional predicates: over input
+/// in document order, the preceding nodes of the last one include those of every other.
+struct LastContextCursor<N> {
+    inner: Option<Box<dyn SequenceCursor<N>>>,
+}
+
+impl<N> LastContextCursor<N> {
+    fn new(inner: Box<dyn SequenceCursor<N>>) -> Self {
+        Self { inner: Some(inner) }
+    }
+}
+
+impl<N: XdmNode + Clone + 'static> SequenceCursor<N> for LastContextCursor<N> {
+    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
+        let mut inner = self.inner.take()?;
+        let mut last = None;
+        while let Some(item) = inner.next_item() {
+            match item {
+                Ok(item) => last = Some(item),
+                Err(err) => return Some(Err(err)),
+            }
+        }
+        last.map(Ok)
+    }
+
+    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
+        Box::new(Self { inner: self.inner.as_ref().map(|inner| inner.boxed_clone()) })
     }
 }
 
@@ -658,7 +714,7 @@ impl<N: XdmNode + Clone + 'static> SequenceCursor<N> for ContextMinFollowingSibl
 impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for NodeAxisCursor<N> {
     fn next_item(&mut self) -> Option<XdmItemResult<N>> {
         loop {
-            let cand = match self.next_candidate() {
+            let cand = match self.take_candidate() {
                 Ok(opt) => opt,
                 Err(err) => return Some(Err(err)),
             }?;
@@ -666,6 +722,42 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for NodeAxisCursor<N> {
                 Ok(true) => return Some(Ok(XdmItem::Node(cand))),
                 Ok(false) => {}
                 Err(err) => return Some(Err(err)),
+            }
+        }
+    }
+
+    /// A forward axis walks in document order, so it stops at the first candidate that does not
+    /// precede the bound: every list it read belongs to a node before it. A reverse axis runs the
+    /// other way and pulls.
+    fn next_item_before(&mut self, bound: &N) -> Before<N> {
+        if matches!(
+            self.axis,
+            AxisIR::Parent
+                | AxisIR::Ancestor
+                | AxisIR::AncestorOrSelf
+                | AxisIR::Preceding
+                | AxisIR::PrecedingSibling
+                | AxisIR::Namespace
+        ) {
+            return match self.next_item() {
+                Some(item) => Before::Pulled(item),
+                None => Before::End,
+            };
+        }
+        loop {
+            let cand = match self.take_candidate() {
+                Ok(Some(cand)) => cand,
+                Ok(None) => return Before::End,
+                Err(err) => return Before::Taken(Err(err)),
+            };
+            if !self.order.get_or_insert_with(DocOrder::default).precedes(&cand, bound) {
+                self.pending = Some(cand);
+                return Before::NotBefore;
+            }
+            match self.matches_test(&cand) {
+                Ok(true) => return Before::Taken(Ok(XdmItem::Node(cand))),
+                Ok(false) => {}
+                Err(err) => return Before::Taken(Err(err)),
             }
         }
     }
@@ -681,6 +773,8 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for NodeAxisCursor<N> {
             test: self.test.clone(),
             node: self.node.clone(),
             state: AxisState::Init, // fresh cursor
+            pending: None,
+            order: None,
         })
     }
 }
@@ -851,14 +945,49 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for AxisStepCursor<N> {
                 self.current_output = None;
             }
             // Pull next context item
-            let candidate = match self.input_cursor.next_item()? {
-                Ok(item) => item,
-                Err(err) => return Some(Err(err)),
+            let candidate = match self.pending_context.take() {
+                Some(node) => XdmItem::Node(node),
+                None => match self.input_cursor.next_item()? {
+                    Ok(item) => item,
+                    Err(err) => return Some(Err(err)),
+                },
             };
             let XdmItem::Node(node) = candidate else { continue };
-            // Build streaming axis cursor for this node (no extra clone)
-            let cursor = NodeAxisCursor::new(self.vm.clone(), node, self.axis.clone(), self.test.clone());
-            self.current_output = Some(Box::new(cursor));
+            self.current_output = Some(self.output_for(node));
+        }
+    }
+
+    /// Every item of a context node's axis here comes after the node itself or is the node, and
+    /// the context nodes come in document order, so a context node that does not precede the bound
+    /// ends the search.
+    fn next_item_before(&mut self, bound: &N) -> Before<N> {
+        loop {
+            if let Some(current) = self.current_output.as_mut() {
+                match current.next_item_before(bound) {
+                    Before::End => self.current_output = None,
+                    found => return found,
+                }
+                continue;
+            }
+            let next = match self.pending_context.take() {
+                Some(node) => Before::Pulled(Ok(XdmItem::Node(node))),
+                None => self.input_cursor.next_item_before(bound),
+            };
+            let node = match next {
+                Before::Taken(Ok(XdmItem::Node(node))) => node,
+                Before::Pulled(Ok(XdmItem::Node(node))) => {
+                    if !self.order.get_or_insert_with(DocOrder::default).precedes(&node, bound) {
+                        self.pending_context = Some(node);
+                        return Before::NotBefore;
+                    }
+                    node
+                }
+                Before::Taken(Ok(_)) | Before::Pulled(Ok(_)) => continue,
+                Before::Taken(Err(err)) | Before::Pulled(Err(err)) => return Before::Taken(Err(err)),
+                Before::NotBefore => return Before::NotBefore,
+                Before::End => return Before::End,
+            };
+            self.current_output = Some(self.output_for(node));
         }
     }
 
@@ -873,6 +1002,186 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for AxisStepCursor<N> {
             test: self.test.clone(),
             input_cursor: self.input_cursor.boxed_clone(),
             current_output: self.current_output.as_ref().map(|c| c.boxed_clone()),
+            per_context: self.per_context.clone(),
+            pending_context: self.pending_context.clone(),
+            order: None,
+        })
+    }
+}
+
+/// A child step over context nodes in document order, some of which may lie inside others: it
+/// emits the selected children of all of them in document order, as it goes.
+///
+/// It keeps a stack of the context nodes it entered, each inside the one below it, with the next
+/// selected child of each, its head. The top head comes first among everything entered, and it is
+/// emitted once no context node still to come can precede it: such a node would lie in the subtree
+/// of one of the head's preceding siblings, and a bounded advance of the input finds it without
+/// reading past the head. The step's predicates run per context node. Over a single context node,
+/// or context nodes none of which contains another, the stack holds one frame at a time and the
+/// merge is a plain concatenation.
+pub(super) struct ChildMergeCursor<N> {
+    vm: VmHandle<N>,
+    test: NodeTestIR,
+    predicates: Vec<InstrSeq>,
+    input: Box<dyn SequenceCursor<N>>,
+    // A context node pulled from the input but not entered yet.
+    pending: Option<N>,
+    input_done: bool,
+    stack: Vec<MergeFrame<N>>,
+    order: DocOrder<N>,
+}
+
+struct MergeFrame<N> {
+    children: Box<dyn SequenceCursor<N>>,
+    head: Option<N>,
+}
+
+impl<N: 'static + XdmNode + Clone> ChildMergeCursor<N> {
+    pub(super) fn new(
+        vm: VmHandle<N>,
+        input: &XdmSequenceStream<N>,
+        test: NodeTestIR,
+        predicates: Vec<InstrSeq>,
+    ) -> Self {
+        Self {
+            vm,
+            test,
+            predicates,
+            input: input.cursor(),
+            pending: None,
+            input_done: false,
+            stack: Vec::new(),
+            order: DocOrder::default(),
+        }
+    }
+
+    fn enter(&mut self, context: N) {
+        let axis: Box<dyn SequenceCursor<N>> =
+            Box::new(NodeAxisCursor::new(self.vm.clone(), context, AxisIR::Child, self.test.clone()));
+        let children = self
+            .predicates
+            .iter()
+            .fold(axis, |input, predicate| Box::new(PredicateCursor::new(self.vm.clone(), predicate.clone(), input)));
+        self.stack.push(MergeFrame { children, head: None });
+    }
+
+    /// The next context node, when it precedes `limit` (any, without a limit).
+    fn next_context(&mut self, limit: Option<&N>) -> Result<Option<N>, Error> {
+        loop {
+            let found = if let Some(node) = self.pending.take() {
+                Before::Pulled(Ok(XdmItem::Node(node)))
+            } else if self.input_done {
+                return Ok(None);
+            } else if let Some(limit) = limit {
+                self.input.next_item_before(limit)
+            } else {
+                match self.input.next_item() {
+                    Some(item) => Before::Pulled(item),
+                    None => Before::End,
+                }
+            };
+            match found {
+                Before::Taken(Ok(XdmItem::Node(node))) => return Ok(Some(node)),
+                Before::Pulled(Ok(XdmItem::Node(node))) => {
+                    if let Some(limit) = limit
+                        && !self.order.precedes(&node, limit)
+                    {
+                        self.pending = Some(node);
+                        return Ok(None);
+                    }
+                    return Ok(Some(node));
+                }
+                // Only nodes have children.
+                Before::Taken(Ok(_)) | Before::Pulled(Ok(_)) => {}
+                Before::Taken(Err(err)) | Before::Pulled(Err(err)) => return Err(err),
+                Before::NotBefore => return Ok(None),
+                Before::End => {
+                    self.input_done = true;
+                    return Ok(None);
+                }
+            }
+        }
+    }
+
+    /// The next item, or with a bound the next item if it precedes the bound.
+    fn advance(&mut self, bound: Option<&N>) -> Before<N> {
+        loop {
+            let Some(frame) = self.stack.last_mut() else {
+                match self.next_context(bound) {
+                    Ok(Some(context)) => {
+                        self.enter(context);
+                        continue;
+                    }
+                    Ok(None) if self.input_done && self.pending.is_none() => return Before::End,
+                    Ok(None) => return Before::NotBefore,
+                    Err(err) => return Before::Taken(Err(err)),
+                }
+            };
+            if frame.head.is_none() {
+                match frame.children.next_item() {
+                    Some(Ok(XdmItem::Node(child))) => frame.head = Some(child),
+                    Some(Ok(_)) => continue,
+                    Some(Err(err)) => return Before::Taken(Err(err)),
+                    None => {
+                        self.stack.pop();
+                        continue;
+                    }
+                }
+            }
+            let Some(head) = frame.head.clone() else { continue };
+            // A context node still to come that precedes the head (or the bound, if that comes
+            // first) goes first: its children lie before the head.
+            let limit = match bound {
+                Some(bound) if self.order.precedes(bound, &head) => bound.clone(),
+                _ => head.clone(),
+            };
+            match self.next_context(Some(&limit)) {
+                Ok(Some(context)) => {
+                    self.enter(context);
+                    continue;
+                }
+                Ok(None) => {}
+                Err(err) => return Before::Taken(Err(err)),
+            }
+            if let Some(bound) = bound
+                && !self.order.precedes(&head, bound)
+            {
+                return Before::NotBefore;
+            }
+            if let Some(frame) = self.stack.last_mut() {
+                frame.head = None;
+            }
+            return Before::Taken(Ok(XdmItem::Node(head)));
+        }
+    }
+}
+
+impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for ChildMergeCursor<N> {
+    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
+        match self.advance(None) {
+            Before::Taken(item) | Before::Pulled(item) => Some(item),
+            Before::NotBefore | Before::End => None,
+        }
+    }
+
+    fn next_item_before(&mut self, bound: &N) -> Before<N> {
+        self.advance(Some(bound))
+    }
+
+    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
+        Box::new(Self {
+            vm: self.vm.clone(),
+            test: self.test.clone(),
+            predicates: self.predicates.clone(),
+            input: self.input.boxed_clone(),
+            pending: self.pending.clone(),
+            input_done: self.input_done,
+            stack: self
+                .stack
+                .iter()
+                .map(|frame| MergeFrame { children: frame.children.boxed_clone(), head: frame.head.clone() })
+                .collect(),
+            order: DocOrder::default(),
         })
     }
 }
@@ -894,6 +1203,16 @@ impl<N: 'static + XdmNode + Clone> PredicateCursor<N> {
         let needs_last = instr_seq_uses_last(&predicate);
         let fast_kind = classify_predicate_fast(&predicate);
         Self { vm, predicate, input, seed, position: 0, last_cache: None, needs_last, fast_kind }
+    }
+
+    /// Whether no later item can match: `[1]`, `[k]` or `[position() <= k]` once `k` items were
+    /// counted. The cursor ends then, before it reads another item from its input.
+    fn exhausted(&self) -> bool {
+        match self.fast_kind {
+            PredicateFastKind::First => self.position >= 1,
+            PredicateFastKind::Exact(k) | PredicateFastKind::PositionLe(k) => self.position >= k,
+            PredicateFastKind::None | PredicateFastKind::PositionGe(_) => false,
+        }
     }
 
     fn ensure_last(&mut self) -> Result<usize, Error> {
@@ -947,21 +1266,11 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for PredicateCursor<N> {
             0
         };
 
-        while let Some(candidate) = self.input.next_item() {
-            match candidate {
+        while !self.exhausted() {
+            match self.input.next_item()? {
                 Ok(item) => {
                     let pos = self.position + 1;
                     self.position = pos;
-
-                    // Early termination: if the positional predicate can never
-                    // match again, stop iterating immediately.
-                    match self.fast_kind {
-                        PredicateFastKind::First if pos > 1 => return None,
-                        PredicateFastKind::Exact(k) if pos > k => return None,
-                        PredicateFastKind::PositionLe(k) if pos > k => return None,
-                        _ => {}
-                    }
-
                     match self.evaluate_predicate(&item, pos, last) {
                         Ok(true) => return Some(Ok(item)),
                         Ok(false) => {}
@@ -972,6 +1281,35 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for PredicateCursor<N> {
             }
         }
         None
+    }
+
+    /// Counts only the items it takes, so a candidate left pending keeps its position for later. A
+    /// predicate that reads `last()` has to count its whole input first, and pulls.
+    fn next_item_before(&mut self, bound: &N) -> Before<N> {
+        if self.needs_last {
+            return match self.next_item() {
+                Some(item) => Before::Pulled(item),
+                None => Before::End,
+            };
+        }
+        while !self.exhausted() {
+            let (item, taken) = match self.input.next_item_before(bound) {
+                Before::Taken(Ok(item)) => (item, true),
+                Before::Pulled(Ok(item)) => (item, false),
+                Before::Taken(Err(err)) | Before::Pulled(Err(err)) => return Before::Taken(Err(err)),
+                Before::NotBefore => return Before::NotBefore,
+                Before::End => return Before::End,
+            };
+            let pos = self.position + 1;
+            self.position = pos;
+            match self.evaluate_predicate(&item, pos, 0) {
+                Ok(true) if taken => return Before::Taken(Ok(item)),
+                Ok(true) => return Before::Pulled(Ok(item)),
+                Ok(false) => {}
+                Err(err) => return Before::Taken(Err(err)),
+            }
+        }
+        Before::End
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -1081,7 +1419,7 @@ pub(super) fn instr_seq_uses_last(code: &InstrSeq) -> bool {
             }
             ApplyPredicates(preds) | AxisStep(_, _, preds) => {
                 for p in preds {
-                    if instr_seq_uses_last(p) {
+                    if instr_seq_uses_last(&p.code) {
                         return true;
                     }
                 }
@@ -1508,14 +1846,13 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for QuantLoopCursor<N> {
 pub(super) struct DistinctCursor<N> {
     vm: VmHandle<N>,
     input: Option<Box<dyn SequenceCursor<N>>>,
-    // streaming state
-    seen_keys: HashSet<u64>,
-    seen_fallback: SmallVec<[N; 16]>,
+    // The nodes passed on so far, by identity.
+    seen: NodeSet<N>,
 }
 
 impl<N: 'static + XdmNode + Clone> DistinctCursor<N> {
     pub(super) fn new(vm: VmHandle<N>, input: Box<dyn SequenceCursor<N>>) -> Self {
-        Self { vm, input: Some(input), seen_keys: HashSet::new(), seen_fallback: SmallVec::new() }
+        Self { vm, input: Some(input), seen: NodeSet::default() }
     }
 }
 
@@ -1527,12 +1864,7 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for DistinctCursor<N> {
             let item = cursor.next_item()?;
             match item {
                 Ok(XdmItem::Node(n)) => {
-                    if let Some(k) = n.doc_order_key() {
-                        if self.seen_keys.insert(k) {
-                            return Some(Ok(XdmItem::Node(n)));
-                        }
-                    } else if !self.seen_fallback.iter().any(|m| m == &n) {
-                        self.seen_fallback.push(n.clone());
+                    if self.seen.insert(&n) {
                         return Some(Ok(XdmItem::Node(n)));
                     }
                 }
@@ -1542,133 +1874,21 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for DistinctCursor<N> {
         }
     }
 
-    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
-        Box::new(Self {
-            vm: self.vm.clone(),
-            input: self.input.as_ref().map(|c| c.boxed_clone()),
-            seen_keys: self.seen_keys.clone(),
-            seen_fallback: self.seen_fallback.clone(),
-        })
-    }
-}
-
-// EnsureOrderCursor: streams if input is already in document order; otherwise falls back
-// to buffering and sorting the remaining items. Implements a one-item lookahead to avoid
-// emitting an out-of-order item before detecting disorder.
-pub(super) struct EnsureOrderCursor<N> {
-    vm: VmHandle<N>,
-    input: Box<dyn SequenceCursor<N>>,
-    pending: Option<XdmItem<N>>, // last unconfirmed item
-    last_key: Option<u64>,
-    last_node: Option<N>,
-    // fallback buffer once disorder is detected
-    buffer: VecDeque<XdmItem<N>>,
-    in_fallback: bool,
-}
-
-impl<N: 'static + XdmNode + Clone> EnsureOrderCursor<N> {
-    pub(super) fn new(vm: VmHandle<N>, input: Box<dyn SequenceCursor<N>>) -> Self {
-        Self { vm, input, pending: None, last_key: None, last_node: None, buffer: VecDeque::new(), in_fallback: false }
-    }
-
-    fn cmp_doc_order(&self, a: &N, b: &N) -> Result<Ordering, Error> {
-        // Going through `with_vm` keeps its cancellation check.
-        self.vm.with_vm(|_| Vm::node_compare(a, b))
-    }
-
-    fn switch_to_fallback(&mut self, first: XdmItem<N>, second: XdmItem<N>) -> Result<(), Error> {
-        // Collect remaining, then order nodes only via doc_order_only
-        let mut seq: Vec<XdmItem<N>> = vec![first, second];
-        while let Some(item) = self.input.next_item() {
-            seq.push(item?);
-        }
-        // Going through `with_vm` keeps its cancellation check.
-        let ordered = self.vm.with_vm(|_| Ok(Vm::doc_order_only(seq)))?;
-        self.buffer = VecDeque::from(ordered);
-        self.in_fallback = true;
-        Ok(())
-    }
-}
-
-impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for EnsureOrderCursor<N> {
-    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
-        use crate::xdm::XdmItem;
-        if self.in_fallback {
-            return self.buffer.pop_front().map(Ok);
-        }
-
+    fn next_item_before(&mut self, bound: &N) -> Before<N> {
+        let Some(cursor) = self.input.as_mut() else { return Before::End };
         loop {
-            let next = match self.input.next_item() {
-                Some(Ok(it)) => it,
-                Some(Err(e)) => return Some(Err(e)),
-                None => {
-                    // No more input; flush pending
-                    if let Some(item) = self.pending.take() {
-                        return Some(Ok(item));
-                    }
-                    return None;
-                }
-            };
-
-            match (&self.pending, &next) {
-                (None, _) => {
-                    // prime the window, but do not emit yet
-                    self.pending = Some(next.clone());
-                    if let XdmItem::Node(n) = &next {
-                        self.last_key = n.doc_order_key();
-                        self.last_node = Some(n.clone());
+            match cursor.next_item_before(bound) {
+                Before::Taken(Ok(XdmItem::Node(node))) => {
+                    if self.seen.insert(&node) {
+                        return Before::Taken(Ok(XdmItem::Node(node)));
                     }
                 }
-                (Some(XdmItem::Node(_prev_n)), XdmItem::Node(cur_n)) => {
-                    // Check monotonicity
-                    let ok = if let (Some(pk), Some(ck)) = (self.last_key, cur_n.doc_order_key()) {
-                        ck >= pk
-                    } else if let Some(pn) = &self.last_node {
-                        match self.cmp_doc_order(pn, cur_n) {
-                            Ok(ord) => ord != Ordering::Greater,
-                            Err(e) => return Some(Err(e)),
-                        }
-                    } else {
-                        true
-                    };
-
-                    if ok {
-                        // emit previous, shift window
-                        let to_emit =
-                            self.pending.replace(next.clone()).expect("pending must be Some in monotonic node branch");
-                        self.last_key = cur_n.doc_order_key();
-                        self.last_node = Some(cur_n.clone());
-                        return Some(Ok(to_emit));
+                Before::Pulled(Ok(XdmItem::Node(node))) => {
+                    if self.seen.insert(&node) {
+                        return Before::Pulled(Ok(XdmItem::Node(node)));
                     }
-                    // Try local adjacent-swap repair (single inversion): emit `cur` first if it
-                    // still maintains global monotonicity relative to the last emitted item.
-                    let can_swap = match self.last_node.as_ref() {
-                        Some(ln) => match self.cmp_doc_order(ln, cur_n) {
-                            Ok(ord) => ord != Ordering::Greater,
-                            Err(e) => return Some(Err(e)),
-                        },
-                        None => true,
-                    };
-                    if can_swap {
-                        // Emit current (`next`) immediately; keep `pending` (prev) for next round.
-                        self.last_key = cur_n.doc_order_key();
-                        self.last_node = Some(cur_n.clone());
-                        return Some(Ok(next));
-                    }
-                    // disorder beyond simple adjacent inversion → fallback
-                    let first = self.pending.take().expect("pending must be Some before fallback switch");
-                    if let Err(e) = self.switch_to_fallback(first, next) {
-                        return Some(Err(e));
-                    }
-                    return self.buffer.pop_front().map(Ok);
                 }
-                (Some(_prev), _) => {
-                    // Non-node items: emit previous, shift window
-                    let to_emit = self.pending.replace(next).expect("pending must be Some in non-node emit branch");
-                    self.last_key = None;
-                    self.last_node = None;
-                    return Some(Ok(to_emit));
-                }
+                other => return other,
             }
         }
     }
@@ -1676,12 +1896,105 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for EnsureOrderCursor<N> {
     fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
         Box::new(Self {
             vm: self.vm.clone(),
-            input: self.input.boxed_clone(),
-            pending: self.pending.clone(),
-            last_key: self.last_key,
-            last_node: self.last_node.clone(),
-            buffer: self.buffer.clone(),
-            in_fallback: self.in_fallback,
+            input: self.input.as_ref().map(|c| c.boxed_clone()),
+            seen: self.seen.clone(),
+        })
+    }
+}
+
+/// Sorts its input into document order and removes duplicate nodes, for a stream whose order the
+/// compiler cannot prove. It reads all of its input before its first item and checks for
+/// cancellation while it does. Atomic values keep their order, ahead of the nodes.
+pub(super) struct NormalizeCursor<N> {
+    vm: VmHandle<N>,
+    input: Option<Box<dyn SequenceCursor<N>>>,
+    output: VecDeque<XdmItem<N>>,
+}
+
+impl<N: 'static + XdmNode + Clone> NormalizeCursor<N> {
+    pub(super) fn new(vm: VmHandle<N>, input: Box<dyn SequenceCursor<N>>) -> Self {
+        Self { vm, input: Some(input), output: VecDeque::new() }
+    }
+
+    fn drain(&mut self, mut input: Box<dyn SequenceCursor<N>>) -> Result<(), Error> {
+        let mut atomics = Vec::new();
+        let mut nodes = Vec::new();
+        loop {
+            self.vm.check_cancel()?;
+            match input.next_item() {
+                Some(Ok(XdmItem::Node(node))) => nodes.push(node),
+                Some(Ok(atomic)) => atomics.push(atomic),
+                Some(Err(err)) => return Err(err),
+                None => break,
+            }
+        }
+        let mut nodes = order::distinct_nodes(nodes);
+        order::sort_nodes(&mut nodes);
+        self.output = atomics.into_iter().chain(nodes.into_iter().map(XdmItem::Node)).collect();
+        Ok(())
+    }
+}
+
+impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for NormalizeCursor<N> {
+    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
+        if let Some(input) = self.input.take()
+            && let Err(err) = self.drain(input)
+        {
+            return Some(Err(err));
+        }
+        self.output.pop_front().map(Ok)
+    }
+
+    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
+        Box::new(Self {
+            vm: self.vm.clone(),
+            input: self.input.as_ref().map(|cursor| cursor.boxed_clone()),
+            output: self.output.clone(),
+        })
+    }
+}
+
+/// Reverses its input: the output of a reverse axis from one context node, nearest first, becomes
+/// document order. It reads all of its input before its first item and checks for cancellation
+/// while it does.
+pub(super) struct ReverseCursor<N> {
+    vm: VmHandle<N>,
+    input: Option<Box<dyn SequenceCursor<N>>>,
+    output: Vec<XdmItem<N>>,
+}
+
+impl<N: 'static + XdmNode + Clone> ReverseCursor<N> {
+    pub(super) fn new(vm: VmHandle<N>, input: Box<dyn SequenceCursor<N>>) -> Self {
+        Self { vm, input: Some(input), output: Vec::new() }
+    }
+
+    fn drain(&mut self, mut input: Box<dyn SequenceCursor<N>>) -> Result<(), Error> {
+        loop {
+            self.vm.check_cancel()?;
+            match input.next_item() {
+                Some(item) => self.output.push(item?),
+                None => return Ok(()),
+            }
+        }
+    }
+}
+
+impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for ReverseCursor<N> {
+    fn next_item(&mut self) -> Option<XdmItemResult<N>> {
+        if let Some(input) = self.input.take()
+            && let Err(err) = self.drain(input)
+        {
+            return Some(Err(err));
+        }
+        // Items were pushed in input order, so popping yields them reversed.
+        self.output.pop().map(Ok)
+    }
+
+    fn boxed_clone(&self) -> Box<dyn SequenceCursor<N>> {
+        Box::new(Self {
+            vm: self.vm.clone(),
+            input: self.input.as_ref().map(|cursor| cursor.boxed_clone()),
+            output: self.output.clone(),
         })
     }
 }

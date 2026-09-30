@@ -163,6 +163,14 @@ pub trait XdmNode: Clone + Eq + core::fmt::Debug {
         None
     }
 
+    /// Optional hint for identity: a hash of what [`PartialEq`] compares, so two equal nodes
+    /// return the same value. The engine buckets nodes by it to remove duplicates and to look nodes
+    /// up in a list of children in constant time; nodes in one bucket are still compared with `==`,
+    /// so collisions only cost time. Without it, those lookups scan linearly.
+    fn identity_hint(&self) -> Option<u64> {
+        None
+    }
+
     /// Default document order comparison uses ancestry and sibling order.
     /// Returns an error for multi-root comparisons unless overridden by adapter.
     ///

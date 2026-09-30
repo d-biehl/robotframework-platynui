@@ -41,8 +41,9 @@ fn build_large_axis_document() -> N {
 fn manual_predicate_heavy_metrics() -> (i64, i64) {
     let mut total_len: i64 = 0;
     let mut selected_count: i64 = 0;
-    let mut position: usize = 0;
     for section_idx in 0..AXIS_SECTIONS {
+        // A positional predicate in a step counts per context node: the items of each section.
+        let mut position: usize = 0;
         for item_idx in 0..AXIS_ITEMS_PER_SECTION {
             let has_following_b = ((item_idx + 1)..AXIS_ITEMS_PER_SECTION).any(|j| j % 2 == 1);
             if !has_following_b {
@@ -159,6 +160,7 @@ fn predicate_heavy_sum_matches_manual() {
     let document = build_large_axis_document();
     let dyn_ctx = DynamicContextBuilder::default().with_context_item(I::Node(document)).build();
     let (expected_sum, expected_count) = manual_predicate_heavy_metrics();
+    assert_eq!(expected_count, 48, "4 of the 31 positions of each of the 12 sections are multiples of 7");
 
     let count_global =
         evaluate_expr::<N>("count(//item[following-sibling::item[@type='b']][position() mod 7 = 0])", &dyn_ctx)

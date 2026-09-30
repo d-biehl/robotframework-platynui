@@ -672,6 +672,11 @@ impl XdmNode for SimpleNode {
         out.into_iter()
     }
 
+    fn identity_hint(&self) -> Option<u64> {
+        // Equality is pointer identity, so the pointer is the identity.
+        Some(Arc::as_ptr(&self.0) as usize as u64)
+    }
+
     fn doc_order_key(&self) -> Option<u64> {
         let doc_id = *self.0.doc_id.read().ok()?;
         let ord = self.doc_order()?;

@@ -1,4 +1,4 @@
-use crate::compiler::ir::{CompiledXPath, InstrSeq, OpCode};
+use crate::compiler::ir::{AxisIR, CompiledXPath, InstrSeq, OpCode, PredicateIR, PredicateKind};
 use crate::engine::ebv::{ebv_of_atomic, ebv_of_stream};
 use crate::engine::runtime::{
     CallCtx, DynamicContext, Error, ErrorCode, FunctionImplementations, ItemTypeSpec, Occurrence, ParamTypeSpec,
@@ -18,13 +18,14 @@ mod comparison;
 mod cursors;
 mod node_ops;
 pub(crate) mod numeric;
+mod order;
 mod set_ops;
 mod type_check;
 mod xml_helpers;
 
 use cursors::{
-    AtomizeCursor, AxisStepCursor, DistinctCursor, EnsureOrderCursor, ForLoopCursor, PathStepCursor, PredicateCursor,
-    QuantLoopCursor, TreatCursor,
+    AtomizeCursor, AxisStepCursor, ChildMergeCursor, DistinctCursor, ForLoopCursor, NormalizeCursor, PathStepCursor,
+    PredicateCursor, QuantLoopCursor, ReverseCursor, TreatCursor,
 };
 use numeric::{NumKind, classify, unify_numeric};
 
@@ -220,7 +221,7 @@ pub fn evaluate_stream_expr<N: 'static + XdmNode + Clone>(
 /// Evaluates a compiled `XPath` expression and returns only the **first item** in the result sequence.
 ///
 /// This is a **fast-path** optimization for queries where only the first result is needed,
-/// such as existence checks (`exists()`) or first-item queries (`//item[1]`).
+/// such as existence checks (`exists()`) or the first match overall (`(//item)[1]`).
 ///
 /// # Performance
 ///
@@ -235,13 +236,15 @@ pub fn evaluate_stream_expr<N: 'static + XdmNode + Clone>(
 /// # Streaming Behavior
 ///
 /// Internally, this function uses [`evaluate_stream`] and immediately consumes only the
-/// first item from the iterator. The evaluation **stops** as soon as the first item is found,
-/// avoiding unnecessary tree traversal.
+/// first item from the iterator. The evaluation **stops** as soon as the first item is known: a
+/// path reads only the parts of the tree that come before its first match. A path whose order has
+/// to be restored by sorting, such as `//item/..`, reads its whole input first.
 ///
 /// # Use Cases
 ///
 /// - **Existence checks**: `exists(//item[@id='foo'])`
-/// - **First match queries**: `//item[1]` or `(//div)[1]`
+/// - **First match overall**: `(//item)[1]`, or `//item`, whose first item is the same. `//item[1]`
+///   is the first `item` of every parent.
 /// - **Boolean predicates**: `if (//error) then ... else ...`
 /// - **Optional values**: Get first result or default value
 ///
@@ -345,7 +348,6 @@ struct Vm<N> {
     current_context_item: Option<XdmItem<N>>,
     axis_buffer: SmallVec<[N; 32]>, // Shared scratch space for axis traversal results
     cancel_flag: Option<Arc<AtomicBool>>,
-    set_fallback: SmallVec<[N; 16]>, // Scratch buffer reused by set operations
 }
 
 struct VmSnapshot<N> {
@@ -372,6 +374,14 @@ struct VmHandle<N> {
 impl<N: 'static + XdmNode + Clone> VmHandle<N> {
     fn new(snapshot: VmSnapshot<N>, cancel_flag: Option<Arc<AtomicBool>>) -> Self {
         Self { inner: Rc::new(VmHandleInner { snapshot, cache: RefCell::new(None), cancel_flag }) }
+    }
+
+    /// Fails with the cancellation error once the evaluation's cancellation flag is set.
+    fn check_cancel(&self) -> Result<(), Error> {
+        if self.inner.cancel_flag.as_ref().is_some_and(|flag| flag.load(AtomicOrdering::Relaxed)) {
+            return Err(Error::from_code(ErrorCode::FOER0000, "evaluation cancelled"));
+        }
+        Ok(())
     }
 
     fn with_vm<F, R>(&self, f: F) -> Result<R, Error>
@@ -444,7 +454,6 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
             current_context_item,
             axis_buffer: SmallVec::new(),
             cancel_flag,
-            set_fallback: SmallVec::new(),
         }
     }
 
@@ -484,7 +493,6 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
             current_context_item: snapshot.current_context_item.clone(),
             axis_buffer: SmallVec::new(),
             cancel_flag: snapshot.dyn_ctx.cancel_flag.clone(),
-            set_fallback: SmallVec::new(),
         }
     }
 
@@ -499,7 +507,6 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         self.stack.clear();
         self.axis_buffer.clear();
         self.cancel_flag.clone_from(&snapshot.dyn_ctx.cancel_flag);
-        self.set_fallback.clear();
     }
 
     fn push_seq(&mut self, seq: XdmSequence<N>) {
@@ -572,13 +579,17 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
         }
     }
 
-    fn apply_predicates_stream(&self, stream: XdmSequenceStream<N>, predicates: &[InstrSeq]) -> XdmSequenceStream<N> {
+    fn apply_predicates_stream(
+        &self,
+        stream: XdmSequenceStream<N>,
+        predicates: &[PredicateIR],
+    ) -> XdmSequenceStream<N> {
         if predicates.is_empty() {
             return stream;
         }
         let handle = self.handle();
         predicates.iter().fold(stream, |current, pred| {
-            let cursor = PredicateCursor::new(handle.clone(), pred.clone(), current.cursor());
+            let cursor = PredicateCursor::new(handle.clone(), pred.code.clone(), current.cursor());
             XdmSequenceStream::new(cursor)
         })
     }
@@ -672,12 +683,28 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                 }
 
                 // Steps / filters
+                OpCode::AxisStep(AxisIR::Child, test, pred_ir) => {
+                    // Context nodes may lie inside one another; the merge emits their children in
+                    // document order and applies the predicates per context node.
+                    let input_stream = self.pop_stream();
+                    let predicates = pred_ir.iter().map(|p| p.code.clone()).collect();
+                    let cursor = ChildMergeCursor::new(self.handle(), &input_stream, test.clone(), predicates);
+                    self.push_stream(XdmSequenceStream::new(cursor));
+                    ip += 1;
+                }
                 OpCode::AxisStep(axis, test, pred_ir) => {
                     let input_stream = self.pop_stream();
-                    let axis_cursor = AxisStepCursor::new(self.handle(), &input_stream, axis.clone(), test.clone());
+                    // A predicate that may count positions counts per context node, so the whole
+                    // chain then runs inside the step; otherwise it filters the step's stream.
+                    let per_context = pred_ir.iter().any(|p| p.kind == PredicateKind::PossiblyPositional);
+                    let predicates =
+                        if per_context { pred_ir.iter().map(|p| p.code.clone()).collect() } else { Vec::new() };
+                    let axis_cursor =
+                        AxisStepCursor::new(self.handle(), &input_stream, axis.clone(), test.clone(), predicates);
                     let axis_stream = XdmSequenceStream::new(axis_cursor);
-                    let filtered_stream = self.apply_predicates_stream(axis_stream, pred_ir);
-                    self.push_stream(filtered_stream);
+                    let stream =
+                        if per_context { axis_stream } else { self.apply_predicates_stream(axis_stream, pred_ir) };
+                    self.push_stream(stream);
                     ip += 1;
                 }
                 OpCode::PathExprStep(step_ir) => {
@@ -698,9 +725,15 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     self.push_stream(XdmSequenceStream::new(cursor));
                     ip += 1;
                 }
-                OpCode::EnsureOrder => {
+                OpCode::Reverse => {
                     let stream = self.pop_stream();
-                    let cursor = EnsureOrderCursor::new(self.handle(), stream.cursor());
+                    let cursor = ReverseCursor::new(self.handle(), stream.cursor());
+                    self.push_stream(XdmSequenceStream::new(cursor));
+                    ip += 1;
+                }
+                OpCode::Normalize => {
+                    let stream = self.pop_stream();
+                    let cursor = NormalizeCursor::new(self.handle(), stream.cursor());
                     self.push_stream(XdmSequenceStream::new(cursor));
                     ip += 1;
                 }
@@ -1448,7 +1481,7 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     // Consume both operands as streams and compute union on nodes.
                     let rhs = self.pop_stream();
                     let lhs = self.pop_stream();
-                    let out = Self::set_union_stream(lhs, rhs)?;
+                    let out = Self::set_union_stream(&lhs, &rhs)?;
                     self.push_seq(out);
                     ip += 1;
                 }
@@ -1457,8 +1490,8 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
                     let rhs = self.pop_stream();
                     let lhs = self.pop_stream();
                     let out = match &ops[ip] {
-                        OpCode::Intersect => self.set_intersect_stream(&lhs, &rhs)?,
-                        OpCode::Except => self.set_except_stream(&lhs, &rhs)?,
+                        OpCode::Intersect => Self::set_intersect_stream(&lhs, &rhs)?,
+                        OpCode::Except => Self::set_except_stream(&lhs, &rhs)?,
                         _ => unreachable!("expected Intersect or Except opcode"),
                     };
                     self.push_seq(out);

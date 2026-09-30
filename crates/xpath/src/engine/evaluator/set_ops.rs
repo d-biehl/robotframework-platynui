@@ -1,189 +1,57 @@
-//! Set operations and document-order utilities for `XPath` evaluation.
-
-use core::cmp::Ordering;
-
-use smallvec::SmallVec;
-use std::collections::HashSet;
+//! Set operations for `XPath` evaluation: union, intersect and except over node sequences, in
+//! document order and without duplicates.
 
 use crate::engine::runtime::{Error, ErrorCode};
 use crate::model::XdmNode;
 use crate::xdm::{XdmItem, XdmSequence, XdmSequenceStream};
 
 use super::Vm;
+use super::order::{self, NodeSet};
 
 impl<N: 'static + XdmNode + Clone> Vm<N> {
-    pub(crate) fn doc_order_only(seq: XdmSequence<N>) -> XdmSequence<N> {
-        use crate::xdm::XdmItem;
-        let mut keyed: SmallVec<[(u64, N); 16]> = SmallVec::new();
-        let mut fallback: SmallVec<[N; 16]> = SmallVec::new();
-        let mut others: Vec<XdmItem<N>> = Vec::new();
-
-        for item in seq {
-            match item {
-                XdmItem::Node(n) => {
-                    if let Some(k) = n.doc_order_key() {
-                        keyed.push((k, n));
-                    } else {
-                        fallback.push(n);
-                    }
-                }
-                other @ XdmItem::Atomic(_) => others.push(other),
-            }
-        }
-
-        if fallback.is_empty() {
-            keyed.sort_by_key(|(k, _)| *k);
-            let mut out = others;
-            out.extend(keyed.into_iter().map(|(_, n)| XdmItem::Node(n)));
-            return out;
-        }
-        if keyed.is_empty() {
-            fallback.sort_by(|a, b| Self::node_compare(a, b).unwrap_or(Ordering::Equal));
-            let mut out = others;
-            out.extend(fallback.into_iter().map(XdmItem::Node));
-            return out;
-        }
-
-        keyed.sort_by_key(|(k, _)| *k);
-        fallback.extend(keyed.into_iter().map(|(_, n)| n));
-        fallback.sort_by(|a, b| Self::node_compare(a, b).unwrap_or(Ordering::Equal));
-        let mut out = others;
-        out.extend(fallback.into_iter().map(XdmItem::Node));
-        out
+    /// Union: the nodes of both operands, each once, in document order.
+    pub(crate) fn set_union_stream(
+        a: &XdmSequenceStream<N>,
+        b: &XdmSequenceStream<N>,
+    ) -> Result<XdmSequence<N>, Error> {
+        let mut nodes = Self::collect_nodes_from_stream(a)?;
+        nodes.extend(Self::collect_nodes_from_stream(b)?);
+        Ok(Self::sorted_distinct_nodes_vec(nodes).into_iter().map(XdmItem::Node).collect())
     }
 
-    /// Stream variant of union: consumes streams, collects nodes, then sorts/dedups.
-    pub(crate) fn set_union_stream(a: XdmSequenceStream<N>, b: XdmSequenceStream<N>) -> Result<XdmSequence<N>, Error> {
-        // Pre-size using a conservative guess (streams may not expose exact len)
-        let mut nodes: Vec<N> = Vec::new();
-
-        // Helper to drain a stream into node vec or error on atomic
-        let mut drain = |s: XdmSequenceStream<N>| -> Result<(), Error> {
-            let mut c = s.cursor();
-            while let Some(item) = c.next_item() {
-                match item? {
-                    XdmItem::Node(n) => nodes.push(n),
-                    XdmItem::Atomic(_) => {
-                        return Err(Error::from_code(ErrorCode::XPTY0004, "union operator requires node sequences"));
-                    }
-                }
-            }
-            Ok(())
-        };
-
-        drain(a)?;
-        drain(b)?;
-
-        // Sort and dedup as in non-stream variant
-        nodes.sort_by(|x, y| Self::node_compare(x, y).unwrap_or(Ordering::Equal));
-        nodes.dedup();
-        Ok(nodes.into_iter().map(XdmItem::Node).collect())
-    }
-
-    /// Stream variant of intersect: consumes streams, sorts/dedups, then computes intersection.
+    /// Intersect: the nodes of the left operand that the right one has too, in document order.
     pub(crate) fn set_intersect_stream(
-        &mut self,
         a: &XdmSequenceStream<N>,
         b: &XdmSequenceStream<N>,
     ) -> Result<XdmSequence<N>, Error> {
-        let a_nodes = Self::collect_nodes_from_stream(a)?;
-        let lhs = Self::sorted_distinct_nodes_vec(a_nodes);
-        let b_nodes = Self::collect_nodes_from_stream(b)?;
-        let rhs = Self::sorted_distinct_nodes_vec(b_nodes);
-
-        let mut rhs_keys: HashSet<u64> = HashSet::with_capacity(rhs.len());
-        let mut rhs_fallback = core::mem::take(&mut self.set_fallback);
-        rhs_fallback.clear();
-        for node in rhs {
-            if let Some(k) = node.doc_order_key() {
-                rhs_keys.insert(k);
-            } else {
-                rhs_fallback.push(node);
-            }
-        }
-        let mut out: Vec<N> = Vec::with_capacity(lhs.len().min(rhs_keys.len() + rhs_fallback.len()));
-        for node in lhs {
-            if let Some(k) = node.doc_order_key() {
-                if rhs_keys.contains(&k) {
-                    out.push(node);
-                }
-            } else if rhs_fallback.iter().any(|n| n == &node) {
-                out.push(node);
-            }
-        }
-        let result = out.into_iter().map(XdmItem::Node).collect();
-        rhs_fallback.clear();
-        self.set_fallback = rhs_fallback;
-        Ok(result)
+        let lhs = Self::sorted_distinct_nodes_vec(Self::collect_nodes_from_stream(a)?);
+        let rhs = Self::node_set(&Self::collect_nodes_from_stream(b)?);
+        Ok(lhs.into_iter().filter(|node| rhs.contains(node)).map(XdmItem::Node).collect())
     }
 
-    /// Stream variant of except: consumes streams, sorts/dedups, then computes difference.
+    /// Except: the nodes of the left operand that the right one lacks, in document order.
     pub(crate) fn set_except_stream(
-        &mut self,
         a: &XdmSequenceStream<N>,
         b: &XdmSequenceStream<N>,
     ) -> Result<XdmSequence<N>, Error> {
-        let a_nodes = Self::collect_nodes_from_stream(a)?;
-        let lhs = Self::sorted_distinct_nodes_vec(a_nodes);
-        let b_nodes = Self::collect_nodes_from_stream(b)?;
-        let rhs = Self::sorted_distinct_nodes_vec(b_nodes);
+        let lhs = Self::sorted_distinct_nodes_vec(Self::collect_nodes_from_stream(a)?);
+        let rhs = Self::node_set(&Self::collect_nodes_from_stream(b)?);
+        Ok(lhs.into_iter().filter(|node| !rhs.contains(node)).map(XdmItem::Node).collect())
+    }
 
-        let mut rhs_keys: HashSet<u64> = HashSet::with_capacity(rhs.len());
-        let mut rhs_fallback = core::mem::take(&mut self.set_fallback);
-        rhs_fallback.clear();
-        for node in rhs {
-            if let Some(k) = node.doc_order_key() {
-                rhs_keys.insert(k);
-            } else {
-                rhs_fallback.push(node);
-            }
+    fn node_set(nodes: &[N]) -> NodeSet<N> {
+        let mut set = NodeSet::default();
+        for node in nodes {
+            set.insert(node);
         }
-        let mut out: Vec<N> = Vec::with_capacity(lhs.len());
-        for node in lhs {
-            if let Some(k) = node.doc_order_key() {
-                if !rhs_keys.contains(&k) {
-                    out.push(node);
-                }
-            } else if !rhs_fallback.iter().any(|n| n == &node) {
-                out.push(node);
-            }
-        }
-        let result = out.into_iter().map(XdmItem::Node).collect();
-        rhs_fallback.clear();
-        self.set_fallback = rhs_fallback;
-        Ok(result)
+        set
     }
 
     /// Sort and deduplicate a homogeneous node vector using document order.
     pub(crate) fn sorted_distinct_nodes_vec(nodes: Vec<N>) -> Vec<N> {
-        // Split keyed and fallback for efficiency
-        let mut keyed: SmallVec<[(u64, N); 16]> = SmallVec::new();
-        let mut fallback: SmallVec<[N; 16]> = SmallVec::new();
-        for n in nodes {
-            if let Some(k) = n.doc_order_key() {
-                keyed.push((k, n));
-            } else {
-                fallback.push(n);
-            }
-        }
-        if fallback.is_empty() {
-            keyed.sort_by_key(|(k, _)| *k);
-            keyed.dedup_by(|a, b| a.0 == b.0);
-            return keyed.into_iter().map(|(_, n)| n).collect();
-        }
-        if keyed.is_empty() {
-            fallback.sort_by(|a, b| Self::node_compare(a, b).unwrap_or(Ordering::Equal));
-            fallback.dedup();
-            return fallback.into_vec();
-        }
-        keyed.sort_by_key(|(k, _)| *k);
-        keyed.dedup_by(|a, b| a.0 == b.0);
-        let mut merged: Vec<N> = Vec::with_capacity(fallback.len() + keyed.len());
-        merged.extend(fallback);
-        merged.extend(keyed.into_iter().map(|(_, n)| n));
-        merged.sort_by(|a, b| Self::node_compare(a, b).unwrap_or(Ordering::Equal));
-        merged.dedup();
-        merged
+        let mut nodes = order::distinct_nodes(nodes);
+        order::sort_nodes(&mut nodes);
+        nodes
     }
 
     /// Collect nodes from a stream, erroring on atomic items as set ops are nodes-only.
@@ -199,12 +67,5 @@ impl<N: 'static + XdmNode + Clone> Vm<N> {
             }
         }
         Ok(nodes)
-    }
-
-    pub(crate) fn node_compare(a: &N, b: &N) -> Result<Ordering, Error> {
-        match (a.doc_order_key(), b.doc_order_key()) {
-            (Some(ak), Some(bk)) => Ok(ak.cmp(&bk)),
-            _ => a.compare_document_order(b),
-        }
     }
 }

@@ -369,10 +369,10 @@ impl<'a> Compiler<'a> {
                 Ok(())
             }
             E::ContextItem => self.load_context_item("the context item expression"),
-            E::Path(p) => self.lower_path_expr(p, None),
+            E::Path(p) => self.lower_path_expr(p).map(|_| ()),
             E::PathFrom { base, steps } => {
-                self.lower_expr(base)?;
-                self.lower_path_steps(steps)
+                let single = self.lower_node_stream(base)?;
+                self.lower_path_steps(steps, single).map(|_| ())
             }
             E::Quantified { kind, bindings, satisfies } => {
                 // Support multiple bindings, nested left-to-right
@@ -454,13 +454,18 @@ impl<'a> Compiler<'a> {
         self.emit(ir::OpCode::PushAtomic(v));
     }
 
-    fn lower_predicates(&mut self, preds: &[ast::Expr]) -> CResult<Vec<ir::InstrSeq>> {
+    fn lower_predicates(&mut self, preds: &[ast::Expr]) -> CResult<Vec<ir::PredicateIR>> {
         let mut v = Vec::with_capacity(preds.len());
         for p in preds {
             let start_len = self.code.len();
             self.lower_expr(p)?;
-            let sub_code = self.code.split_off(start_len);
-            v.push(ir::InstrSeq(sub_code));
+            let code = ir::InstrSeq(self.code.split_off(start_len));
+            let kind = if p.is_non_positional_predicate() {
+                ir::PredicateKind::NonPositional
+            } else {
+                ir::PredicateKind::PossiblyPositional
+            };
+            v.push(ir::PredicateIR { code, kind });
         }
         Ok(v)
     }
@@ -516,72 +521,226 @@ impl<'a> Compiler<'a> {
         Ok(())
     }
 
-    fn lower_path_expr(&mut self, p: &ast::PathExpr, base: Option<&ast::Expr>) -> CResult<()> {
+    /// Lowers a path. Its result is in document order without duplicates, and the return value
+    /// tells whether it is at most one node.
+    fn lower_path_expr(&mut self, p: &ast::PathExpr) -> CResult<bool> {
         match p.start {
             ast::PathStart::Root => {
                 self.load_context_item("root path expression")?;
                 self.emit(ir::OpCode::Pop);
                 self.emit(ir::OpCode::ToRoot);
+                self.lower_path_steps(&p.steps, true)
             }
             ast::PathStart::RootDescendant => {
                 self.load_context_item("root descendant path expression")?;
                 self.emit(ir::OpCode::Pop);
                 self.emit(ir::OpCode::ToRoot);
-                self.emit(ir::OpCode::AxisStep(ir::AxisIR::DescendantOrSelf, ir::NodeTestIR::AnyKind, vec![]));
+                // `//` is `/descendant-or-self::node()/`; lowered as that step, the steps after it
+                // are rewritten as they are after the step the parser writes for `//`.
+                let mut steps = Vec::with_capacity(p.steps.len() + 1);
+                steps.push(ast::Step::Axis {
+                    axis: ast::Axis::DescendantOrSelf,
+                    test: ast::NodeTest::Kind(ast::KindTest::AnyKind),
+                    predicates: Vec::new(),
+                });
+                steps.extend(p.steps.iter().cloned());
+                self.lower_path_steps(&steps, true)
             }
             ast::PathStart::Relative => {
-                if let Some(b) = base {
-                    self.lower_expr(b)?;
-                } else {
-                    self.load_context_item("relative path")?;
-                }
+                self.load_context_item("relative path")?;
+                self.lower_path_steps(&p.steps, true)
             }
         }
-        self.lower_path_steps(&p.steps)
     }
 
-    fn lower_path_steps(&mut self, steps: &[ast::Step]) -> CResult<()> {
-        for s in steps {
+    /// Lowers the base of a path, `E` in `E/…`, as a stream in document order without duplicates,
+    /// and returns whether it is at most one node. Only a base whose order is not proven, such as
+    /// a variable, a sequence or a function call, is normalized; a predicate on it still counts in
+    /// the base's own order, before the normalization.
+    fn lower_node_stream(&mut self, e: &ast::Expr) -> CResult<bool> {
+        match e {
+            ast::Expr::ContextItem => {
+                self.lower_expr(e)?;
+                Ok(true)
+            }
+            ast::Expr::Path(p) => self.lower_path_expr(p),
+            ast::Expr::PathFrom { base, steps } => {
+                let single = self.lower_node_stream(base)?;
+                self.lower_path_steps(steps, single)
+            }
+            ast::Expr::Parenthesized(inner) => self.lower_node_stream(inner),
+            ast::Expr::SetOp { .. } => {
+                self.lower_expr(e)?;
+                Ok(false)
+            }
+            ast::Expr::Filter { input, predicates } if Self::is_ordered_node_stream(input) => {
+                let single = self.lower_node_stream(input)?;
+                let predicates_ir = self.lower_predicates(predicates)?;
+                self.emit(ir::OpCode::ApplyPredicates(predicates_ir));
+                Ok(single || predicates.iter().any(|p| matches!(p, ast::Expr::Literal(ast::Literal::Integer(1)))))
+            }
+            _ => {
+                self.lower_expr(e)?;
+                self.emit(ir::OpCode::Normalize);
+                Ok(false)
+            }
+        }
+    }
+
+    /// Whether `e` is lowered as a node stream in document order without duplicates.
+    fn is_ordered_node_stream(e: &ast::Expr) -> bool {
+        match e {
+            ast::Expr::ContextItem | ast::Expr::Path(_) | ast::Expr::PathFrom { .. } | ast::Expr::SetOp { .. } => true,
+            ast::Expr::Parenthesized(inner) | ast::Expr::Filter { input: inner, .. } => {
+                Self::is_ordered_node_stream(inner)
+            }
+            _ => false,
+        }
+    }
+
+    /// Lowers the steps of a path over an input in document order without duplicates, which is at
+    /// most one node when `single` is set. After every step the stream is in document order
+    /// without duplicates again: a step either keeps that order by construction, or is followed
+    /// by a normalization. Returns whether the result is at most one node.
+    fn lower_path_steps(&mut self, steps: &[ast::Step], mut single: bool) -> CResult<bool> {
+        let mut rest = steps;
+        while let Some((s, after)) = rest.split_first() {
+            if let Some(lowered) = self.lower_descendant_search(rest)? {
+                rest = &rest[lowered..];
+                single = false;
+                continue;
+            }
+            rest = after;
             match s {
                 ast::Step::Axis { axis, test, predicates } => {
                     let axis_ir = Self::map_axis(axis);
                     let test_ir = self.map_node_test_checked(test, &axis_ir)?;
                     let preds = self.lower_predicates(predicates)?;
-                    self.emit(ir::OpCode::AxisStep(axis_ir.clone(), test_ir.clone(), preds));
-                    // Emit doc-order/distinct only where required by axis semantics.
-                    // For child/attribute/self the concatenation over a doc-ordered, distinct
-                    // input remains doc-ordered and duplicate-free.
-                    match axis_ir {
-                        // Forward axes that do not introduce duplicates and preserve order;
-                        // attribute/namespace need no normalization either
-                        ir::AxisIR::Child | ir::AxisIR::SelfAxis | ir::AxisIR::Attribute | ir::AxisIR::Namespace => {}
-                        // Forward axes that may introduce duplicates but keep order
-                        ir::AxisIR::Descendant
-                        | ir::AxisIR::DescendantOrSelf
-                        | ir::AxisIR::Following
-                        | ir::AxisIR::FollowingSibling => self.emit(ir::OpCode::EnsureDistinct),
-                        // Reverse axes need both: order and distinct
-                        ir::AxisIR::Parent
-                        | ir::AxisIR::Ancestor
-                        | ir::AxisIR::AncestorOrSelf
-                        | ir::AxisIR::Preceding
-                        | ir::AxisIR::PrecedingSibling => {
-                            self.emit(ir::OpCode::EnsureDistinct);
-                            self.emit(ir::OpCode::EnsureOrder);
-                        }
-                    }
+                    let positional = preds.iter().any(|p| p.kind == ir::PredicateKind::PossiblyPositional);
+                    self.emit(ir::OpCode::AxisStep(axis_ir.clone(), test_ir, preds));
+                    single = self.restore_document_order(&axis_ir, positional, single);
                 }
                 ast::Step::FilterExpr(expr) => {
                     let mut sub = self.fork();
                     sub.lower_expr(expr)?;
                     self.emit(ir::OpCode::PathExprStep(ir::InstrSeq(sub.code)));
-                    // General expression → normalize fully for next axis
-                    self.emit(ir::OpCode::EnsureDistinct);
-                    self.emit(ir::OpCode::EnsureOrder);
+                    self.emit(ir::OpCode::Normalize);
+                    single = false;
                 }
             }
         }
-        Ok(())
+        Ok(single)
+    }
+
+    /// Emits what brings the output of an axis step back into document order without duplicates,
+    /// and returns whether that output is at most one node. `positional` tells whether a predicate
+    /// of the step may count positions, which makes it count per context node.
+    ///
+    /// - `self`, `attribute` and `child` keep the order of their input; a child step merges the
+    ///   children of nested context nodes in document order as it runs.
+    /// - `descendant`, `descendant-or-self` and `following` keep the order when their context nodes
+    ///   may be merged first, which needs non-positional predicates, or when there is only one;
+    ///   a streaming distinct pass stays after them, for models that give two positions one
+    ///   identity.
+    /// - From one context node, a reverse axis runs nearest first, so reversing its output is
+    ///   enough; `preceding` gets there from any number of them, because the last context node's
+    ///   preceding nodes include every other's.
+    /// - Everything else is normalized.
+    fn restore_document_order(&mut self, axis: &ir::AxisIR, positional: bool, single: bool) -> bool {
+        use ir::AxisIR::{
+            Ancestor, AncestorOrSelf, Attribute, Child, Descendant, DescendantOrSelf, Following, FollowingSibling,
+            Namespace, Parent, Preceding, PrecedingSibling, SelfAxis,
+        };
+        let op = match axis {
+            SelfAxis => return single,
+            Attribute | Child => return false,
+            Descendant | DescendantOrSelf | Following if !positional || single => ir::OpCode::EnsureDistinct,
+            FollowingSibling if single => ir::OpCode::EnsureDistinct,
+            Parent if single => return true,
+            Ancestor | AncestorOrSelf | PrecedingSibling if single => ir::OpCode::Reverse,
+            Preceding if !positional || single => ir::OpCode::Reverse,
+            Namespace if single => return false,
+            Descendant | DescendantOrSelf | Following | FollowingSibling | Parent | Ancestor | AncestorOrSelf
+            | Preceding | PrecedingSibling | Namespace => ir::OpCode::Normalize,
+        };
+        self.emit(op);
+        false
+    }
+
+    /// Lowers a `descendant-or-self::node()` step without predicates and the step after it as one
+    /// `descendant` step, where the two are equivalent: `//T[p]` and `.//T[p]` become
+    /// `descendant::T[p]`, and `//(A|B)[p]` becomes `descendant::*[self::A or self::B][p]`, when no
+    /// predicate may count positions. A positional predicate counts per parent after `//` and along
+    /// the whole descendant axis after `descendant::`, so `//T[1]` keeps both steps. Returns how
+    /// many steps it lowered, or `None` for any other shape.
+    fn lower_descendant_search(&mut self, steps: &[ast::Step]) -> CResult<Option<usize>> {
+        let [
+            ast::Step::Axis {
+                axis: ast::Axis::DescendantOrSelf,
+                test: ast::NodeTest::Kind(ast::KindTest::AnyKind),
+                predicates: step_predicates,
+            },
+            next,
+            ..,
+        ] = steps
+        else {
+            return Ok(None);
+        };
+        if !step_predicates.is_empty() {
+            return Ok(None);
+        }
+        match next {
+            ast::Step::Axis { axis: ast::Axis::Child, test, predicates }
+                if predicates.iter().all(ast::Expr::is_non_positional_predicate) =>
+            {
+                let axis = ir::AxisIR::Descendant;
+                let test = self.map_node_test_checked(test, &axis)?;
+                let predicates = self.lower_predicates(predicates)?;
+                self.emit(ir::OpCode::AxisStep(axis, test, predicates));
+                self.emit(ir::OpCode::EnsureDistinct);
+                Ok(Some(2))
+            }
+            ast::Step::FilterExpr(expr) => {
+                let (union, predicates) = match expr.as_ref() {
+                    ast::Expr::Filter { input, predicates } => (input.as_ref(), predicates.as_slice()),
+                    other => (other, &[][..]),
+                };
+                let mut tests = Vec::new();
+                if !collect_child_names(union, &mut tests)
+                    || tests.len() < 2
+                    || !predicates.iter().all(ast::Expr::is_non_positional_predicate)
+                {
+                    return Ok(None);
+                }
+                // `self::A or self::B …` keeps what the union selected, as the first predicate.
+                let names = tests
+                    .into_iter()
+                    .map(|test| {
+                        ast::Expr::Path(ast::PathExpr {
+                            start: ast::PathStart::Relative,
+                            steps: vec![ast::Step::Axis {
+                                axis: ast::Axis::SelfAxis,
+                                test: test.clone(),
+                                predicates: Vec::new(),
+                            }],
+                        })
+                    })
+                    .reduce(|left, right| ast::Expr::Binary {
+                        left: Box::new(left),
+                        op: ast::BinaryOp::Or,
+                        right: Box::new(right),
+                    })
+                    .ok_or_else(|| Error::from_code(ErrorCode::XPST0003, "a union has operands"))?;
+                let mut all = Vec::with_capacity(predicates.len() + 1);
+                all.push(names);
+                all.extend(predicates.iter().cloned());
+                let predicates = self.lower_predicates(&all)?;
+                self.emit(ir::OpCode::AxisStep(ir::AxisIR::Descendant, ir::NodeTestIR::WildcardAny, predicates));
+                self.emit(ir::OpCode::EnsureDistinct);
+                Ok(Some(2))
+            }
+            ast::Step::Axis { .. } => Ok(None),
+        }
     }
 
     // no special optimistic streaming hints; evaluator handles streaming per axis
@@ -819,6 +978,27 @@ impl<'a> Compiler<'a> {
         if let Some(ir::OpCode::JumpIfFalse(d) | ir::OpCode::JumpIfTrue(d) | ir::OpCode::Jump(d)) = code.get_mut(pos) {
             *d = delta;
         }
+    }
+}
+
+/// Collects the name tests of a union of single child steps without predicates, such as
+/// `(A|B|C)`. Returns `false` for any other operand.
+fn collect_child_names<'a>(expr: &'a ast::Expr, tests: &mut Vec<&'a ast::NodeTest>) -> bool {
+    match expr {
+        ast::Expr::SetOp { left, op: ast::SetOp::Union, right } => {
+            collect_child_names(left, tests) && collect_child_names(right, tests)
+        }
+        ast::Expr::Parenthesized(inner) => collect_child_names(inner, tests),
+        ast::Expr::Path(ast::PathExpr { start: ast::PathStart::Relative, steps }) => match steps.as_slice() {
+            [ast::Step::Axis { axis: ast::Axis::Child, test: test @ ast::NodeTest::Name(_), predicates }]
+                if predicates.is_empty() =>
+            {
+                tests.push(test);
+                true
+            }
+            _ => false,
+        },
+        _ => false,
     }
 }
 

@@ -93,13 +93,16 @@ pub enum OpCode {
     Swap, // swap top two stack items
 
     // Steps / filters
-    AxisStep(AxisIR, NodeTestIR, Vec<InstrSeq>),
+    // An axis step over the TOS node stream. Its predicates run per context node when one may count
+    // positions; a child step merges the children of nested context nodes in document order.
+    AxisStep(AxisIR, NodeTestIR, Vec<PredicateIR>),
     PathExprStep(InstrSeq),
-    // Apply n predicates to TOS sequence; each predicate is a separate InstrSeq.
-    ApplyPredicates(Vec<InstrSeq>),
-    // Normalize a node sequence: split into explicit passes
-    // Ensure nodes are in document order (may materialize)
-    EnsureOrder,
+    // Apply n predicates to the whole TOS sequence, in order.
+    ApplyPredicates(Vec<PredicateIR>),
+    // Sort the TOS sequence into document order and remove duplicate nodes (materializes)
+    Normalize,
+    // Reverse the TOS sequence (materializes): a reverse axis from one context node, in document order
+    Reverse,
     // Remove duplicate nodes while preserving order (should be streaming on doc-ordered input)
     EnsureDistinct,
 
@@ -163,6 +166,38 @@ pub enum OpCode {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct InstrSeq(pub Vec<OpCode>);
+
+/// Whether a predicate may count positions, decided when it is lowered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PredicateKind {
+    /// Provably a boolean or nodes, reading neither `position()` nor `last()` in its own focus. It
+    /// selects the same items per context node as over a whole sequence, so it may move into a
+    /// step and lets the step merge its context nodes.
+    NonPositional,
+    /// Anything else. It counts per context node inside a step and over the whole sequence on a
+    /// parenthesized expression, so it stays where it was written.
+    PossiblyPositional,
+}
+
+/// One predicate of a step or of a filter: its code and whether it may count positions.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PredicateIR {
+    pub code: InstrSeq,
+    pub kind: PredicateKind,
+}
+
+impl fmt::Display for PredicateKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PredicateKind::NonPositional => write!(f, "non-positional"),
+            PredicateKind::PossiblyPositional => write!(f, "possibly positional"),
+        }
+    }
+}
+
+fn predicate_kinds(predicates: &[PredicateIR]) -> String {
+    predicates.iter().map(|p| p.kind.to_string()).collect::<Vec<_>>().join(", ")
+}
 
 #[derive(Debug, Clone)]
 pub struct CompiledXPath {
@@ -415,19 +450,14 @@ impl fmt::Display for OpCode {
             OpCode::AxisStep(axis, test, preds) => {
                 write!(f, "{axis}::{test}")?;
                 if !preds.is_empty() {
-                    write!(f, " [predicates: {}]", preds.len())?;
+                    write!(f, " [predicates: {}]", predicate_kinds(preds))?;
                 }
                 Ok(())
             }
             OpCode::PathExprStep(_) => write!(f, "path-expr-step"),
-            OpCode::ApplyPredicates(seq) => {
-                if seq.is_empty() {
-                    write!(f, "apply-predicates([])")
-                } else {
-                    write!(f, "apply-predicates(n={})", seq.len())
-                }
-            }
-            OpCode::EnsureOrder => write!(f, "ensure-order"),
+            OpCode::ApplyPredicates(preds) => write!(f, "apply-predicates([{}])", predicate_kinds(preds)),
+            OpCode::Normalize => write!(f, "normalize"),
+            OpCode::Reverse => write!(f, "reverse"),
             OpCode::EnsureDistinct => write!(f, "ensure-distinct"),
 
             // Arithmetic / logic
@@ -492,18 +522,11 @@ impl InstrSeq {
         for (i, op) in self.0.iter().enumerate() {
             // For AxisStep and ApplyPredicates we print additional structure after the line
             match op {
-                OpCode::AxisStep(_axis, _test, preds) if !preds.is_empty() => {
+                OpCode::AxisStep(_, _, preds) | OpCode::ApplyPredicates(preds) if !preds.is_empty() => {
                     writeln!(f, "{pad}{i:02}: {op}")?;
                     for (pi, p) in preds.iter().enumerate() {
-                        writeln!(f, "{pad}    [pred {pi}]")?;
-                        p.fmt_with_indent(f, indent + 8)?;
-                    }
-                }
-                OpCode::ApplyPredicates(preds) if !preds.is_empty() => {
-                    writeln!(f, "{pad}{i:02}: {op}")?;
-                    for (pi, p) in preds.iter().enumerate() {
-                        writeln!(f, "{pad}    [pred {pi}]")?;
-                        p.fmt_with_indent(f, indent + 8)?;
+                        writeln!(f, "{pad}    [pred {pi}: {}]", p.kind)?;
+                        p.code.fmt_with_indent(f, indent + 8)?;
                     }
                 }
                 OpCode::ForLoop { var, body } => {

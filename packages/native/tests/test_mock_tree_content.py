@@ -21,6 +21,36 @@ def test_mock_windows_and_buttons(rt_mock_platform: Runtime) -> None:
     assert ok_btn.attribute('MyProperty', 'control') == 'My Value'
 
 
+TREE_ITEMS = '(//control:Window[@Name="Operations Console"])[1]//item:TreeItem'
+
+
+def test_mock_tree_items_in_document_order(rt_mock_platform: Runtime) -> None:
+    # An item's children come right after it, before its next sibling.
+    items = [n for n in rt_mock_platform.evaluate(TREE_ITEMS) if isinstance(n, UiNode)]
+    assert [n.name for n in items] == [
+        'Dashboard',
+        'Overview',
+        'Metrics',
+        'Reports',
+        'Täglich',
+        'Monatlich',
+        'Jährlich',
+    ]
+
+
+def test_mock_positional_step_counts_per_parent(rt_mock_platform: Runtime) -> None:
+    # `[2]` in a step is the second item of every parent: the tree's, Dashboard's and Reports'.
+    items = [n for n in rt_mock_platform.evaluate(f'{TREE_ITEMS}[2]') if isinstance(n, UiNode)]
+    assert [n.name for n in items] == ['Metrics', 'Reports', 'Monatlich']
+
+
+def test_mock_evaluate_single_is_the_first_in_document_order(rt_mock_platform: Runtime) -> None:
+    # The mock names its tree items in `item:Name`.
+    first = rt_mock_platform.evaluate_single(f'{TREE_ITEMS}[@item:Name!="Dashboard"]')
+    assert isinstance(first, UiNode)
+    assert first.name == 'Overview'
+
+
 def test_mock_description_attribute(rt_mock_platform: Runtime) -> None:
     # The OK button carries an accessible description in the mock tree.
     by_desc = rt_mock_platform.evaluate_single("//control:Button[@Description='Confirms the operation']")

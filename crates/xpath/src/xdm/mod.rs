@@ -120,8 +120,32 @@ use std::sync::Arc;
 
 pub type XdmItemResult<N> = Result<XdmItem<N>, Error>;
 
+/// What [`SequenceCursor::next_item_before`] finds.
+pub enum Before<N> {
+    /// The next item precedes the bound in document order; it has been taken.
+    Taken(XdmItemResult<N>),
+    /// The next item does not precede the bound; it stays pending.
+    NotBefore,
+    /// The cursor cannot compare with the bound, so it took its next item anyway; the caller has
+    /// to place it.
+    Pulled(XdmItemResult<N>),
+    /// There is no next item.
+    End,
+}
+
 pub trait SequenceCursor<N> {
     fn next_item(&mut self) -> Option<XdmItemResult<N>>;
+
+    /// The next item if it is a node that precedes `bound` in document order, without reading
+    /// further than that. An ordered child step asks its input this way whether a later context
+    /// node could still produce a result before the one it holds. A cursor that cannot compare
+    /// pulls its next item, which is correct but may read further.
+    fn next_item_before(&mut self, _bound: &N) -> Before<N> {
+        match self.next_item() {
+            Some(item) => Before::Pulled(item),
+            None => Before::End,
+        }
+    }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         (0, None)

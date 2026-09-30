@@ -113,53 +113,135 @@ impl Expr {
     /// its root up at all.
     #[must_use]
     pub fn is_context_dependent(&self) -> bool {
-        match self {
+        self.reads_in_own_focus(&|expr| match expr {
             Expr::ContextItem => true,
             // A relative path starts with an axis step: the parser turns one that starts with an
             // expression into `PathFrom`. The steps after the first evaluate with their own focus.
             Expr::Path(path) => matches!(path.start, PathStart::Relative),
-            Expr::PathFrom { base, .. } | Expr::Filter { input: base, .. } => base.is_context_dependent(),
-            Expr::FunctionCall { name, args } => {
-                reads_context_by_default(name, args.len()) || args.iter().any(Expr::is_context_dependent)
+            Expr::FunctionCall { name, args } => reads_context_by_default(name, args.len()),
+            _ => false,
+        })
+    }
+
+    /// Returns whether this expression, used as a predicate, is non-positional: it is provably a
+    /// boolean or a sequence of nodes, so its value never counts as a position, and it reads neither
+    /// `position()` nor `last()` in its own focus.
+    ///
+    /// Such a predicate selects the same items whether it counts per context node or over a whole
+    /// sequence, so the compiler may move it into a step, merge context nodes and rewrite
+    /// `//T[p]` into one descendant step. Every other predicate is possibly positional: a number, a
+    /// variable, arithmetic, any other function call, or a path that ends in a filter-expression
+    /// step. That answer is conservative and always correct.
+    ///
+    /// `position()` and `last()` count where [`Expr::is_context_dependent`] looks: in operands,
+    /// conditions, bindings, function arguments and the bodies of `for`, `some` and `every`, but
+    /// not inside a nested predicate or a later step of a path, which have their own focus.
+    #[must_use]
+    pub fn is_non_positional_predicate(&self) -> bool {
+        self.is_boolean_or_nodes()
+            && !self.reads_in_own_focus(&|expr| {
+                matches!(expr, Expr::FunctionCall { name, args }
+                    if args.is_empty() && is_standard_function(name) && matches!(name.local.as_str(), "position" | "last"))
+            })
+    }
+
+    /// Whether the expression is provably a boolean or a sequence of nodes.
+    fn is_boolean_or_nodes(&self) -> bool {
+        match self {
+            Expr::GeneralComparison { .. }
+            | Expr::ValueComparison { .. }
+            | Expr::NodeComparison { .. }
+            | Expr::Binary { op: BinaryOp::And | BinaryOp::Or, .. }
+            | Expr::Quantified { .. }
+            | Expr::InstanceOf { .. }
+            | Expr::CastableAs { .. }
+            | Expr::SetOp { .. }
+            | Expr::Literal(Literal::String(_) | Literal::Boolean(_)) => true,
+            Expr::FunctionCall { name, .. } => {
+                is_standard_function(name)
+                    && matches!(
+                        name.local.as_str(),
+                        "not"
+                            | "contains"
+                            | "starts-with"
+                            | "ends-with"
+                            | "matches"
+                            | "exists"
+                            | "empty"
+                            | "boolean"
+                            | "true"
+                            | "false"
+                    )
             }
+            Expr::Path(path) => path.steps.last().is_none_or(|step| matches!(step, Step::Axis { .. })),
+            Expr::PathFrom { steps, .. } => matches!(steps.last(), Some(Step::Axis { .. })),
+            Expr::Parenthesized(inner) => inner.is_boolean_or_nodes(),
+            Expr::IfThenElse { then_expr, else_expr, .. } => {
+                then_expr.is_boolean_or_nodes() && else_expr.is_boolean_or_nodes()
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether `reads` holds for this expression or for a part of it that evaluates in the same
+    /// focus: an operand, a condition, a binding, a function argument, or the body of `for`,
+    /// `some` and `every`. It does not look where the focus changes: into a predicate or a step of
+    /// a path, which evaluate with their own focus. A path's base shares the focus.
+    fn reads_in_own_focus(&self, reads: &dyn Fn(&Expr) -> bool) -> bool {
+        if reads(self) {
+            return true;
+        }
+        match self {
+            Expr::PathFrom { base, .. } | Expr::Filter { input: base, .. } => base.reads_in_own_focus(reads),
+            Expr::FunctionCall { args, .. } => args.iter().any(|arg| arg.reads_in_own_focus(reads)),
             Expr::Parenthesized(inner)
             | Expr::Unary { expr: inner, .. }
             | Expr::InstanceOf { expr: inner, .. }
             | Expr::TreatAs { expr: inner, .. }
             | Expr::CastableAs { expr: inner, .. }
-            | Expr::CastAs { expr: inner, .. } => inner.is_context_dependent(),
+            | Expr::CastAs { expr: inner, .. } => inner.reads_in_own_focus(reads),
             Expr::Binary { left, right, .. }
             | Expr::GeneralComparison { left, right, .. }
             | Expr::ValueComparison { left, right, .. }
             | Expr::NodeComparison { left, right, .. }
             | Expr::SetOp { left, right, .. }
-            | Expr::Range { start: left, end: right } => left.is_context_dependent() || right.is_context_dependent(),
+            | Expr::Range { start: left, end: right } => {
+                left.reads_in_own_focus(reads) || right.reads_in_own_focus(reads)
+            }
             Expr::IfThenElse { cond, then_expr, else_expr } => {
-                cond.is_context_dependent() || then_expr.is_context_dependent() || else_expr.is_context_dependent()
+                cond.reads_in_own_focus(reads)
+                    || then_expr.reads_in_own_focus(reads)
+                    || else_expr.reads_in_own_focus(reads)
             }
             Expr::ForExpr { bindings, return_expr } => {
-                bindings.iter().any(|binding| binding.in_expr.is_context_dependent())
-                    || return_expr.is_context_dependent()
+                bindings.iter().any(|binding| binding.in_expr.reads_in_own_focus(reads))
+                    || return_expr.reads_in_own_focus(reads)
             }
             Expr::LetExpr { bindings, return_expr } => {
-                bindings.iter().any(|binding| binding.value.is_context_dependent())
-                    || return_expr.is_context_dependent()
+                bindings.iter().any(|binding| binding.value.reads_in_own_focus(reads))
+                    || return_expr.reads_in_own_focus(reads)
             }
             Expr::Quantified { bindings, satisfies, .. } => {
-                bindings.iter().any(|binding| binding.in_expr.is_context_dependent())
-                    || satisfies.is_context_dependent()
+                bindings.iter().any(|binding| binding.in_expr.reads_in_own_focus(reads))
+                    || satisfies.reads_in_own_focus(reads)
             }
-            Expr::Sequence(items) => items.iter().any(Expr::is_context_dependent),
-            Expr::Literal(_) | Expr::VarRef(_) => false,
+            Expr::Sequence(items) => items.iter().any(|item| item.reads_in_own_focus(reads)),
+            Expr::Path(_) | Expr::ContextItem | Expr::Literal(_) | Expr::VarRef(_) => false,
         }
     }
+}
+
+/// Whether `name` names a function of the standard function namespace, written without a prefix
+/// or with `fn:`.
+fn is_standard_function(name: &QName) -> bool {
+    matches!(name.prefix.as_deref(), None | Some("fn"))
 }
 
 /// Whether the standard function `name`, called with `arity` arguments, reads the context: the
 /// forms whose left-out argument defaults to the context item, and `position()` and `last()`,
 /// which read the context position and size.
 fn reads_context_by_default(name: &QName, arity: usize) -> bool {
-    if !matches!(name.prefix.as_deref(), None | Some("fn")) {
+    if !is_standard_function(name) {
         return false;
     }
     let local = name.local.as_str();

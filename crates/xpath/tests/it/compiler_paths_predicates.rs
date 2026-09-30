@@ -7,10 +7,12 @@ fn ir(src: &str) -> InstrSeq {
 
 #[rstest]
 fn path_steps_and_predicates() {
+    // `.//a[@id]` with a non-positional predicate is one descendant step, kept distinct.
     let is = ir(".//a[@id]");
-    assert!(is.0.iter().any(|op| matches!(op, OpCode::AxisStep(AxisIR::DescendantOrSelf, NodeTestIR::AnyKind, _))));
-    assert!(is.0.iter().any(|op| matches!(op, OpCode::AxisStep(_, NodeTestIR::Name(_), preds) if !preds.is_empty())));
-    assert!(is.0.iter().any(|op| matches!(op, OpCode::EnsureDistinct | OpCode::EnsureOrder)));
+    assert!(!is.0.iter().any(|op| matches!(op, OpCode::AxisStep(AxisIR::DescendantOrSelf, _, _))));
+    assert!(is.0.iter().any(|op| matches!(op, OpCode::AxisStep(AxisIR::Descendant, NodeTestIR::Name(_), preds)
+        if preds.len() == 1 && preds[0].kind == PredicateKind::NonPositional)));
+    assert!(is.0.iter().any(|op| matches!(op, OpCode::EnsureDistinct)));
 }
 
 #[rstest]
@@ -26,7 +28,8 @@ fn filter_apply_predicates() {
     for op in &is.0 {
         if let OpCode::ApplyPredicates(preds) = op {
             assert_eq!(preds.len(), 1);
-            let p = &preds[0].0;
+            assert_eq!(preds[0].kind, PredicateKind::NonPositional, "a comparison is boolean");
+            let p = &preds[0].code.0;
             // Predicate body should no longer be auto-wrapped with ToEBV; last op is comparison
             assert!(matches!(p.last(), Some(OpCode::CompareGeneral(_) | OpCode::CompareValue(_))));
             found = true;
@@ -38,14 +41,14 @@ fn filter_apply_predicates() {
 #[rstest]
 fn filter_multiple_predicates() {
     let is = ir("(1,2,3)[. gt 1][. lt 3]");
-    let mut count = 0usize;
+    let mut kinds = Vec::new();
     for op in &is.0 {
         if let OpCode::ApplyPredicates(preds) = op {
-            count = preds.len();
+            kinds = preds.iter().map(|p| p.kind).collect();
             break;
         }
     }
-    assert_eq!(count, 2);
+    assert_eq!(kinds, [PredicateKind::NonPositional, PredicateKind::NonPositional]);
 }
 
 #[rstest]
@@ -62,9 +65,11 @@ fn path_from() {
 
 #[rstest]
 fn root_descendant() {
+    // `//a` is one descendant step from the root.
     let is = ir("//a");
     assert!(is.0.iter().any(|op| matches!(op, OpCode::ToRoot)));
-    assert!(is.0.iter().any(|op| matches!(op, OpCode::AxisStep(AxisIR::DescendantOrSelf, NodeTestIR::AnyKind, _))));
+    assert!(is.0.iter().any(|op| matches!(op, OpCode::AxisStep(AxisIR::Descendant, NodeTestIR::Name(_), _))));
+    assert!(!is.0.iter().any(|op| matches!(op, OpCode::AxisStep(AxisIR::DescendantOrSelf, _, _))));
 }
 
 #[rstest]
@@ -178,6 +183,7 @@ fn path_ir_sequence_complex() {
     match ops.get(idx) {
         Some(OpCode::AxisStep(AxisIR::Descendant, NodeTestIR::Name(name), preds)) if name.original.local == "a" => {
             assert_eq!(preds.len(), 1);
+            assert_eq!(preds[0].kind, PredicateKind::NonPositional);
         }
         other => panic!("unexpected first step: {other:?}"),
     }
@@ -190,7 +196,7 @@ fn path_ir_sequence_complex() {
         other => panic!("unexpected second step: {other:?}"),
     }
     // Attribute axis does not need normalization (each attribute belongs to exactly one element)
-    assert!(!matches!(ops.get(idx + 3), Some(OpCode::EnsureOrder | OpCode::EnsureDistinct)));
+    assert_eq!(ops.len(), idx + 3, "nothing follows the attribute step: {ops:?}");
 }
 
 #[rstest]
@@ -202,22 +208,25 @@ fn path_ir_multiple_steps_with_predicates() {
             axis_steps.push((ax.clone(), test.clone(), preds.clone()));
         }
     }
-    assert_eq!(axis_steps.len(), 3);
-    assert!(matches!(axis_steps[0], (AxisIR::DescendantOrSelf, NodeTestIR::AnyKind, _)));
-    match &axis_steps[1] {
-        (ax, NodeTestIR::Name(name), preds) => {
-            assert!(matches!(ax, AxisIR::Child | AxisIR::Descendant));
+    // `.//section[@role='main']` becomes one descendant step; the positional predicate of the
+    // second step keeps it a step of its own.
+    assert_eq!(axis_steps.len(), 2);
+    match &axis_steps[0] {
+        (AxisIR::Descendant, NodeTestIR::Name(name), preds) => {
             assert_eq!(name.original.local, "section");
-            assert_eq!(preds.len(), 1);
+            assert_eq!(preds.iter().map(|p| p.kind).collect::<Vec<_>>(), [PredicateKind::NonPositional]);
         }
-        _ => panic!("unexpected step 2"),
+        _ => panic!("unexpected step 1"),
     }
-    match &axis_steps[2] {
+    match &axis_steps[1] {
         (AxisIR::Descendant, NodeTestIR::Name(name), preds) => {
             assert_eq!(name.original.local, "a");
-            assert_eq!(preds.len(), 2);
+            assert_eq!(
+                preds.iter().map(|p| p.kind).collect::<Vec<_>>(),
+                [PredicateKind::NonPositional, PredicateKind::PossiblyPositional]
+            );
         }
-        _ => panic!("unexpected step 3"),
+        _ => panic!("unexpected step 2"),
     }
 }
 
@@ -263,7 +272,9 @@ fn filter_step_preserves_doc_order_for_descendant_insertion() {
     let mut saw_filter = false;
     for op in &is.0 {
         match op {
-            OpCode::AxisStep(AxisIR::DescendantOrSelf, NodeTestIR::AnyKind, _) => saw_descendant = true,
+            OpCode::AxisStep(AxisIR::Descendant, NodeTestIR::Name(name), _) if name.original.local == "section" => {
+                saw_descendant = true;
+            }
             OpCode::PathExprStep(_) => saw_filter = true,
             _ => {}
         }
