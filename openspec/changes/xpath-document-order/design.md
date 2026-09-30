@@ -127,7 +127,7 @@ For `(E)[p1][p2]…`, the optimizer moves only the leading run of non-positional
 
 Today the whole list moves or none of it (`optimizer.rs:96-121`).
 
-After pushdown, a `descendant-or-self::node()` step without predicates, followed by `child::T[p…]` with only non-positional predicates, becomes `descendant::T[p…]`. The two are equivalent exactly under that condition. `descendant::A[q]/child::T[p]` is not rewritten: from a context that itself matches `A[q]` the result would change (verified: `[T1, T2]` instead of `[T2]` on `A0:[T1, A1:[T2]]`). The optional pushdown of a positional predicate into a step whose input is statically one node, as in `(child::X)[1]`, is left out: it saves little.
+A `descendant-or-self::node()` step without predicates, followed by `child::T[p…]` with only non-positional predicates, becomes `descendant::T[p…]`. The two are equivalent exactly under that condition. `descendant::A[q]/child::T[p]` is not rewritten: from a context that itself matches `A[q]` the result would change (verified: `[T1, T2]` instead of `[T2]` on `A0:[T1, A1:[T2]]`). The optional pushdown of a positional predicate into a step whose input is statically one node, as in `(child::X)[1]`, is left out: it saves little.
 
 The union idiom `.//(A|B)[p…]` gets the same rewrite. The robot-test-style skill recommends it for windows (`.//(Frame|Window)[@Name=…]`). Three conditions must hold:
 
@@ -137,7 +137,7 @@ The union idiom `.//(A|B)[p…]` gets the same rewrite. The robot-test-style ski
 
 Then the step becomes `descendant::*[self::A or self::B][p…]`. The two are equivalent exactly under those conditions: `//(P|B)[1]` is the first P or B of every parent (`[P1, B1, B4]`), while `descendant::*[self::P or self::B][1]` is the first overall (`[P1]`).
 
-The optimizer sees such a step only as an opaque `PathExprStep` (`compiler/mod.rs:574-581`). So the compiler rewrites it while it lowers the path, where the union is still visible on the AST. It covers both forms of `//`: the explicit step of `.//` and `A//`, and the `//` at the start of a path. The rewrite comes before the optimizer, so pushdown applies to its result: `(//(A|B))[@a]` becomes one descendant step as well.
+The compiler does both rewrites while it lowers the path, where the steps are still visible on the AST; the optimizer would see the union only as an opaque `PathExprStep` (`compiler/mod.rs:574-581`). Both forms of `//` are covered: the explicit step of `.//` and `A//`, and the `//` at the start of a path, which the parser writes as the same step. The rewrites come before the optimizer, so pushdown applies to their result, past the `EnsureDistinct` after the new step: `(//T)[@a]` and `(//(A|B))[@a]` each become one descendant step as well.
 
 *Alternatives:*
 
@@ -145,47 +145,51 @@ The optimizer sees such a step only as an opaque `PathExprStep` (`compiler/mod.r
 - The triage's rewrite to `descendant::T[p][parent::A[q]]` is wrong, as shown above.
 - Rewriting the union in the optimizer would mean recognizing it inside the instructions of a `PathExprStep`. On the AST it is one pattern.
 
-### 4. Track what the compiler knows about a node stream, and normalize only where order is not proven
+### 4. Keep every step's output in document order, and normalize only where a step cannot
 
-Through a path, the compiler tracks four properties of the node stream:
-
-- **single:** at most one node;
-- **ordered:** in document order;
-- **distinct:** each node once by position. Identity is the business of `EnsureDistinct` (decision 8);
-- **peer:** no node is an ancestor of another.
+Through a path, every step leaves the node stream in document order, each node once by position: either the step keeps that order by construction, or an op right after it restores it. Identity is the business of `EnsureDistinct` and the normalization op (decision 8). So the one property the compiler tracks is **single**: at most one node. Whether context nodes lie inside one another needs no tracking, because every child step runs as the ordered child merge (decision 5), which is a plain concatenation when none contains another.
 
 The rules:
 
-| Step | Input | Result |
+| Step | Input | After the step |
 |---|---|---|
 | start at the root or the context item | — | single |
 | `self` | any | unchanged |
-| `attribute` | ordered | ordered, distinct, peer |
-| `child` | single, or ordered and peer | ordered, distinct, peer |
-| `child` | ordered, not peer | ordered child merge (decision 5); ordered, distinct |
-| `descendant*` without positional predicates | ordered | minimized, then `EnsureDistinct`; ordered, distinct |
-| `following` without positional predicates | ordered | minimized (decision 7), then `EnsureDistinct`; ordered, distinct |
-| `following-sibling` | single | ordered, distinct |
-| `parent`, `ancestor*`, `preceding-sibling` | single | reversed buffer; ordered, distinct |
-| `preceding` without positional predicates | ordered | last context only, reversed; ordered, distinct |
+| `attribute` | any | nothing: attributes lie right after their owner, before its children |
+| `child` | any | nothing: the ordered child merge (decision 5) emits in order |
+| `descendant*`, `following` without positional predicates | any | minimized (decision 7 for `following`), then `EnsureDistinct` |
+| `descendant*`, `following` with positional predicates | single | `EnsureDistinct` |
+| `following-sibling` | single | `EnsureDistinct` |
+| `parent` | single | nothing; single |
+| `ancestor*`, `preceding-sibling` | single | reversed: the axis runs nearest first |
+| `preceding` without positional predicates | any | last context only, reversed |
+| `preceding` with positional predicates | single | reversed |
+| `namespace` | single | nothing |
 | every other case of these axes, including positional predicates on `descendant*`, `following` or `preceding` from more than one context | — | normalize |
 | filter-expression step that decision 3 does not rewrite; `(E)/…` whose base is a variable, a sequence or a function call | — | normalize |
-| `(E)[p]` | — | E's properties; a literal `[1]` makes it single |
-| `union`, `intersect`, `except` | — | ordered, distinct |
+| `(E)[p]` | — | E's order; single if E is, or if a predicate is the literal `1` |
+| `union`, `intersect`, `except` | — | in order, each node once |
 
-"Normalize" emits one normalization op (decision 6) in place of today's `EnsureDistinct` + `EnsureOrder` pair, and it deduplicates by identity itself. The streaming `EnsureDistinct` stays where it is today, after `descendant*` and `following`, where minimization leaves no two items at one position, but a model may still give two positions one identity. Child steps stay without it, as today. This table replaces `compiler/mod.rs:543-585` and covers the `PathFrom` base (`:373-376`).
+"Normalize" emits one normalization op (decision 6) in place of today's `EnsureDistinct` + `EnsureOrder` pair, and it deduplicates by identity itself. The streaming `EnsureDistinct` stays after `descendant*` and `following`, as today, and follows `following-sibling` from one context: no two items share a position there, but a model may still give two positions one identity. Child steps stay without it, as today. A predicate on a base whose order is not proven, as in `($nodes)[2]/x`, counts in the base's own order, and the normalization follows it. This table replaces `compiler/mod.rs:543-585` and covers the `PathFrom` base (`:373-376`).
 
-*Alternatives:* always sorting would make `evaluate_single` read the whole tree for every query. Keeping today's table is wrong for child and following-sibling steps over nested input.
+*Alternatives:*
+
+- Always sorting would make `evaluate_single` read the whole tree for every query.
+- Keeping today's table is wrong for child and following-sibling steps over nested input.
+- Tracking whether the context nodes lie inside one another, to run child steps over the others as a plain concatenation, would need a rule for every axis. The merge concatenates such input already, at the cost of a few order comparisons per selected child.
 
 ### 5. An ordered child merge with a bounded advance keeps the first match cheap
 
-A child step over ordered, non-peer input is the shape `//T[n]`, `//A/T[p]` and `.//*[@Name='t']/*[3]/*[k]` take after decision 3. It runs as a merge that emits in document order. It keeps a stack of contexts, each an ancestor of the next. For each context it keeps the context's selected children, with the per-context predicates of decision 2 applied lazily. It emits the head `h` of the top context once no pending context can precede `h`.
+Every child step runs as a merge that emits in document order. Its context nodes may lie inside one another, as in the shapes `//T[n]`, `//A/T[p]` and `.//*[@Name='t']/*[3]/*[k]` take after decision 3. It keeps a stack of contexts, each an ancestor of the next. For each context it keeps the context's selected children, with the per-context predicates of decision 2 applied lazily. It emits the head `h` of the top context once no pending context can precede `h`. Over one context node, or context nodes none of which contains another, the stack holds one context at a time, and the merge is a plain concatenation.
 
 A context precedes `h` only if it lies in the subtree of one of `h`'s preceding siblings. To find out without reading past `h`, ordered cursors get a **bounded advance**: *the next item if it precedes a given node, otherwise nothing, leaving the item pending.*
 
 - The descendant walkers answer it by walking until they reach the given node. Every list they read then belongs to a node before it.
-- The child merge answers it for its own consumers by locating its candidate against the given node through ancestry and the cached lists. That makes chains of child steps bounded too.
+- The child merge answers it for its own consumers: it advances its own input only up to the earlier of its head and the given node, and emits its head only if that precedes the given node. That makes chains of child steps bounded too.
+- The predicate cursor passes it on to its input and counts only the items it takes. A predicate that reads `last()` has to count its whole input anyway, and pulls. `[1]`, `[k]` and `[position() <= k]` end once they have counted `k` items, before they read another one, bounded or not; that is what lets `(.//X[@Name='t'])[1]/*[n]` read only the container's list (decision 10).
 - A cursor without the method answers with a plain pull. That is correct, but may read further.
+
+Without keys, the comparisons look only at the slots below the two nodes' deepest shared ancestor (decision 6), so they read no list above it: comparing `B0_0` with `B0_1` reads the list of their parent `P0`, not the document's.
 
 With this, each shape in the first-match requirement reads only what the oracle allows. The runtime fake's `//Button` reads `root`, `root/0` and `root/0/0`.
 
@@ -207,6 +211,7 @@ The normalization op buffers its input, removes duplicates by identity (decision
   - An attribute sorts directly after its owner, among its owner's attributes by (namespace URI, local name). That order is stable and implementation-dependent, as XDM allows. The keyed order of `SimpleNode`, which follows its list, may differ, so keyed-versus-keyless test rows avoid comparing several attributes of one owner.
   - An attribute reaches its owner through a weak link to the element wrapper that listed it. `AttributeData` gains that link, and `parent()` uses it while it lives, falling back to today's rebuild. Being weak, it keeps the snapshot's wrappers free of strong cycles, so the drop-count tests of `xdm_release.rs` still hold.
 - **A node missing from its parent's list** gets a slot after the known siblings, in arrival order. The order stays deterministic and the sort cannot panic.
+- **Comparing two nodes**, as the child merge and the bounded advance do, gives the answer their paths would give, from the slots below their deepest shared ancestor alone. It reads a list of children only as far as the later of the two nodes, where a sort reads each list it needs to the end, once: the Access Bridge serves a table's list one cell at a time, and placing its ninth cell against its first must not read all 600.
 - **Nodes of different roots** keep the order in which their roots first appeared, without an error. XPath calls that order implementation-dependent. Today the sorts map the root error to `Equal`, so no expression that works now will start failing.
 - **Atomic values** pass through unchanged. This keeps the atomic-order test (`crates/xpath/tests/it/evaluator_path_filter_expr.rs:40-53`) and the non-conformant `(1, 2, 3)/xs:integer(.)` extension (`:72`) working.
 - **Cancellation:** the cursor checks the cancellation flag while it drains its input, as streaming cursors do. The Inspector's cancellable search depends on it (`apps/inspector/src/viewmodel/async_tasks.rs:337`).
@@ -279,7 +284,7 @@ The change updates:
 - **[User suites that wrote `//X[n]` meaning "n-th overall" change silently]** They may now match several elements, and keywords take the first. → A release note, the BareMetal doc line, and the new BareMetal suite that shows both forms.
 - **[The mock resolves the other copy of a window]**
   - `//control:Window[@Name=…]` on the mock now finds the copy under `Mock Application` first, because the mock lists applications first (`crates/provider-mock/src/provider.rs:34-40`).
-  - Reading found no mock suite or Python test that depends on the flat copy's parent chain. `tests/BareMetal/set_root_scope.robot:119-127` keeps its counts.
+  - No mock suite depends on the flat copy's parent chain, and `tests/BareMetal/set_root_scope.robot:119-127` keeps its counts. One Python fixture did: `main_window_adapter` in `tests/PlatynUI/test_ui_node_adapter.py` expects the Desktop as the window's parent, and now selects the flat copy directly with `/control:Window[…]`.
   - → The full `just test-python` and `just test-baremetal` runs are part of verification.
 - **[The sort must stay total]** → It never calls the old comparators. Unit tests cover a keyless node missing from its parent's list, and nodes of two roots.
 - **[Wide lists get a second quadratic path]** → Each parent's list is indexed once per sort through the identity hint. Nodes are not looked up one by one.

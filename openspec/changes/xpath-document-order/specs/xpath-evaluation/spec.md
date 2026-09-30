@@ -195,7 +195,7 @@ A predicate on a parenthesized expression, `(E)[p]`, SHALL count `position()` an
 
 ### Requirement: The first result does not require reading the rest of the tree
 
-The first item of a streamed evaluation (the first item of the engine's stream, and what the runtime's `evaluate_single` returns) SHALL be the first item of the full result in document order. For the shapes `//T[p]`, `.//T[p]`, `A//T[p]`, `//A/T[p]`, `(//T[p])[1]`, `//T[n]`, `.//T[p][n]`, `.//(A|B)[p]` whose predicates do not count positions, and chains of child steps after them, finding the first item SHALL read only the lists of children of the item's ancestors, of the item itself, and of nodes that precede it in document order.
+The first item of a streamed evaluation (the first item of the engine's stream, and what the runtime's `evaluate_single` returns) SHALL be the first item of the full result in document order. For the shapes `//T[p]`, `.//T[p]`, `A//T[p]`, `//A/T[p]`, `(//T[p])[1]`, `//T[n]`, `.//T[p][n]`, `.//(A|B)[p]` whose predicates do not count positions, and chains of child steps after them, finding the first item SHALL read only the lists of children of the item's ancestors, of the item itself, and of nodes that precede it in document order. A positional predicate `[1]`, `[k]` or `[position() <= k]` SHALL stop before it reads an item that it can no longer match.
 
 #### Scenario: The first match of a descendant search
 
@@ -217,6 +217,13 @@ The first item of a streamed evaluation (the first item of the engine's stream, 
 - **WHEN** the first item of the runtime's evaluation stream for `//Button` is taken, which is what `evaluate_single` returns
 - **THEN** it SHALL be `root/0/0/0`, and only the lists of `root`, `root/0` and `root/0/0` SHALL have been read
 - **NOTE:** Before this change it is `root/0/1`.
+
+#### Scenario: A child by position of a container taken with (…)[1] reads only that container
+
+- **GIVEN** the keyless tree of one `W` with 50 `P` children of 20 `B` children each, which records whose children were read
+- **WHEN** `(//P[@id='P0'])[1]/*[20]` is evaluated in full
+- **THEN** the result SHALL be `B0_19`, and only the lists of the document, `W` and `P0` SHALL have been read
+- **NOTE:** The idiom BareMetal recommends for a container known to be unique. Before the fix it read all 1,052 lists.
 
 #### Scenario: A shape that has to sort still returns the first node in document order
 
