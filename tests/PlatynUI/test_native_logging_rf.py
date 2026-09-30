@@ -20,7 +20,7 @@ from robot.result import Keyword, Message, Result, TestCase as RobotTestCase
 
 FIXTURE = Path(__file__).parent / 'robot' / 'native_logging.robot'
 TIME = re.compile(r'\d{2}:\d{2}:\d{2}\.\d{3}')
-# A native record's text starts with its module, such as ``[runtime.xpath] ``.
+# A native record's text starts with its module, such as ``[xpath.engine.functions.diagnostics] ``.
 NATIVE_MESSAGE = re.compile(r'^\[[\w.]+\] ')
 
 

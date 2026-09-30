@@ -117,7 +117,6 @@ pub type XdmSmallSeq<N> = SmallVec<[XdmItem<N>; 8]>;
 use crate::engine::runtime::Error;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use tracing::trace;
 
 pub type XdmItemResult<N> = Result<XdmItem<N>, Error>;
 
@@ -221,8 +220,12 @@ impl<N: 'static> XdmSequenceStream<N> {
     where
         N: Clone,
     {
-        let hint = self.cursor.size_hint();
-        trace!(lower = hint.0, upper = hint.1.map(|v| v as i64), "xdm_sequence_stream_materialize");
+        // XPath evaluation's own records exist in debug builds only (dev-docs/logging.md §12).
+        #[cfg(debug_assertions)]
+        {
+            let hint = self.cursor.size_hint();
+            tracing::trace!(lower = hint.0, upper = hint.1.map(|v| v as i64), "materializing sequence");
+        }
         self.iter().collect()
     }
 }

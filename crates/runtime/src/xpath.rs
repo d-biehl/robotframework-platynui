@@ -207,7 +207,9 @@ pub fn evaluate(
     xpath: &str,
     options: EvaluateOptions,
 ) -> Result<Vec<EvaluationItem>, EvaluateError> {
-    tracing::debug!(xpath, cached = options.cache().is_some(), "xpath evaluate");
+    // XPath evaluation's own records exist in debug builds only (dev-docs/logging.md §12).
+    #[cfg(debug_assertions)]
+    tracing::debug!(xpath, cached = options.cache().is_some(), "collecting XPath results");
     let iter = evaluate_iter(node, xpath, options)?;
     iter.collect()
 }
@@ -281,7 +283,9 @@ pub fn evaluate_iter(
     xpath: &str,
     options: EvaluateOptions,
 ) -> Result<impl Iterator<Item = Result<EvaluationItem, EvaluateError>>, EvaluateError> {
-    tracing::debug!(xpath, cached = options.cache().is_some(), "xpath evaluate_iter");
+    // XPath evaluation's own records exist in debug builds only (dev-docs/logging.md §12).
+    #[cfg(debug_assertions)]
+    tracing::debug!(xpath, cached = options.cache().is_some(), "evaluating XPath expression");
     let context = resolve_context(node.as_ref(), &options)?;
 
     if options.invalidate_before_eval() {
@@ -449,18 +453,14 @@ impl RuntimeXdmNode {
 
     fn element(node: Arc<dyn UiNode>) -> Self {
         let runtime_id = node.runtime_id().clone();
-        tracing::trace!(
-            runtime_id = %runtime_id,
-            "RuntimeXdmNode::element: resolving namespace/role",
-        );
+        // XPath evaluation's own records exist in debug builds only (dev-docs/logging.md §12).
+        #[cfg(debug_assertions)]
+        tracing::trace!(runtime_id = %runtime_id, "wrapping element");
         let namespace = node.namespace();
         let role = node.role().to_string();
         let order_key = node.doc_order_key();
-        tracing::trace!(
-            runtime_id = %runtime_id,
-            role = %role,
-            "RuntimeXdmNode::element: resolved",
-        );
+        #[cfg(debug_assertions)]
+        tracing::trace!(runtime_id = %runtime_id, role = %role, "element wrapped");
         RuntimeXdmNode::Element(Arc::new(ElementData::new(node, runtime_id, namespace, role, order_key)))
     }
 
@@ -1503,9 +1503,11 @@ impl UiNode for DummyNode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{logged, records};
     use platynui_core::provider::ProviderError;
     use platynui_core::types::Rect;
     use platynui_core::ui::{PatternName, RuntimeId, UiAttribute, UiNode, attribute_names, supported_patterns_value};
+    use platynui_xpath::engine::runtime::ErrorCode;
     use rstest::rstest;
     use std::sync::{Arc, Mutex, Weak};
 
@@ -1737,6 +1739,53 @@ mod tests {
             EvaluationItem::Value(value) => assert_eq!(value, &UiValue::Integer(1)),
             other => panic!("unexpected evaluation result: {other:?}"),
         }
+    }
+
+    #[rstest]
+    fn xpath_records_exist_in_debug_builds_only() {
+        let tree = sample_tree();
+        let (result, log) = logged(|| evaluate(None, "trace(count(//Window), 'windows')", EvaluateOptions::new(tree)));
+        result.expect("the expression evaluates");
+
+        let (trace, own): (Vec<&str>, Vec<&str>) = log.lines().partition(|line| line.contains("fn:trace"));
+        assert!(
+            matches!(trace.as_slice(), [line] if line.trim_start().starts_with("DEBUG")
+                && line.contains("label=windows")
+                && line.contains("value=1")),
+            "exactly one debug record of fn:trace() with its label and value: {log}"
+        );
+        assert_eq!(
+            own.is_empty(),
+            !cfg!(debug_assertions),
+            "the evaluation's own records exist in debug builds only; found: {own:#?}"
+        );
+        if cfg!(debug_assertions) {
+            for level in ["DEBUG", "TRACE"] {
+                assert!(
+                    own.iter().any(|line| line.trim_start().starts_with(level)),
+                    "no {level} record of the evaluation: {log}"
+                );
+            }
+            for line in &own {
+                let target = line.split_whitespace().nth(1).unwrap_or_default();
+                assert!(target.starts_with("platynui"), "a record outside PlatynUI's modules: {line}");
+            }
+        }
+    }
+
+    #[rstest]
+    #[case::does_not_compile("//Window[", ErrorCode::XPST0003)]
+    #[case::fails_while_running("xs:integer(//Window/@Name)", ErrorCode::FORG0001)]
+    #[case::calls_error("error()", ErrorCode::FOER0000)]
+    fn a_failing_expression_is_returned_not_logged(#[case] xpath: &str, #[case] code: ErrorCode) {
+        let tree = sample_tree();
+        let (result, log) = logged(|| evaluate(None, xpath, EvaluateOptions::new(tree)));
+        match result {
+            Err(EvaluateError::XPath(err)) => assert_eq!(err.code_enum(), code, "for {xpath}: {err}"),
+            other => panic!("expected an XPath error for {xpath}, got {other:?}"),
+        }
+        assert!(records(&log, "WARN").is_empty(), "a returned failure is not logged as a warning: {log}");
+        assert!(records(&log, "ERROR").is_empty(), "a returned failure is not logged as an error: {log}");
     }
 
     #[rstest]
