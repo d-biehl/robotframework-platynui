@@ -6,7 +6,7 @@ See proposal.md for the motivation and the spec delta for the required behavior.
 
 **The records (verified).** These are all the tracing calls in the two places that `grep` finds:
 
-| Location | Level | Message | How often |
+| Location | Level | Message (before Decision 7) | How often |
 |---|---|---|---|
 | `crates/runtime/src/xpath.rs:210` | debug | `xpath evaluate` | once per `evaluate()` |
 | `crates/runtime/src/xpath.rs:283` | debug | `xpath evaluate_iter` | once per `evaluate_iter()`, which `evaluate()` also calls |
@@ -62,7 +62,7 @@ A release check that fails after this change therefore points at this change.
   - `tests/PlatynUI/test_native_logging_rf.py:70-74`, `:93-121`, with its fixture `tests/PlatynUI/robot/native_logging.robot:15-27`.
 
   Each picks its record by `fn:trace` in the message.
-- The handler test (`test_native_logging.py:159-179`) calls back into the runtime on the first native record it receives. In a debug build that record is `xpath evaluate`; in a release build it is the `fn:trace()` record. Its assertions count only the `fn:trace` records, so they hold in both builds (inferred).
+- The handler test (`test_native_logging.py:159-179`) calls back into the runtime on the first native record it receives. In a debug build that record is the adapter's first debug record (`collecting XPath results`, `xpath evaluate` before Decision 7); in a release build it is the `fn:trace()` record. Its assertions count only the `fn:trace` records, so they hold in both builds (inferred).
 
 **Capturing records in a unit test (verified).**
 
@@ -77,15 +77,15 @@ A release check that fails after this change therefore points at this change.
 **Goals:**
 
 - A release build *contains* none of the five records. It is not enough that it does not emit them.
-- A debug build keeps them exactly as they are today.
+- A debug build keeps them, at their levels and with their fields. Only their messages change, to the style of `dev-docs/logging.md` §11 (Decision 7).
 - The rule is written down where contributors and reviewers look: the concept, the checklist and the spec.
 - Tests prove the behavior in both builds, including the release build, which CI does not test.
 
 **Non-Goals:**
 
-- Rewording, merging or re-leveling the records, or adding new ones. A superseded review entry proposed an item count and a duration per evaluation. The records keep their messages, the identifier-style ones included, because XPath evaluation is not reviewed for logging (maintainer decision of 2026-09-28).
+- Merging or re-leveling the records, changing their fields, or adding new ones. A superseded review entry proposed an item count and a duration per evaluation. Only the messages change (Decision 7).
 - Any change to the level knob, to the filter builder or to the Python bridge.
-- A standing release-mode check in CI or in a `just` recipe (see Open Questions).
+- A standing release-mode check in CI or in a `just` recipe. The maintainer decided against it for now (see Open Questions).
 - Changing the level or the form of `fn:trace()`'s record.
 
 ## Decisions
@@ -158,7 +158,7 @@ The working notes of the triage of 2026-09-28, which are not part of the reposit
 
 §19 maps the new requirement to §12. The checklist states the rule in one line in §5, because agents and reviewers apply the checklist and may not follow its link to the concept. That was the reason for keeping the rules in the checklist in the first place (archived `logging-concept` `design.md:147`).
 
-*Alternative:* the rule only in `dev-docs/logging.md` and the checklist. The only spec change would then be the replaced example, and the tests would trace to §12 instead of to scenarios. This remains the maintainer's call (see Open Questions). It would drop the ADDED requirement, its line in §19 and its sentence in the spec's Purpose paragraph, and nothing else.
+*Alternative:* the rule only in `dev-docs/logging.md` and the checklist. The only spec change would then be the replaced example, and the tests would trace to §12 instead of to scenarios. The maintainer kept the requirement on 2026-09-30 (see Open Questions). The alternative would have dropped the ADDED requirement, its line in §19 and its sentence in the spec's Purpose paragraph, and nothing else.
 
 ### 5. The replaced examples
 
@@ -191,9 +191,26 @@ No `just` recipe runs tests or clippy for these crates in release mode, so the t
 
 **No acceptance test.** Nothing here depends on a provider or a platform, and the lanes run debug builds.
 
+### 7. The messages follow §11
+
+`dev-docs/logging.md` §11 asks that a record changed for any reason be brought in line with its message style. The maintainer chose on 2026-09-30 to apply that to the gated records. Their levels, targets and fields stay; only the messages change:
+
+| Record | Before | After |
+|---|---|---|
+| `evaluate()` | `xpath evaluate` | `collecting XPath results` |
+| `evaluate_iter()` | `xpath evaluate_iter` | `evaluating XPath expression` |
+| `RuntimeXdmNode::element`, before the provider calls | `RuntimeXdmNode::element: resolving namespace/role` | `wrapping element` |
+| `RuntimeXdmNode::element`, after them | `RuntimeXdmNode::element: resolved` | `element wrapped` |
+| `XdmSequenceStream::materialize` | `xdm_sequence_stream_materialize` | `materializing sequence` |
+
+- The new messages are lower-case English fragments without a type, function or module prefix. The target (`platynui_runtime::xpath`, `platynui_xpath::xdm`) already names the module, and XPath keeps its case as a proper name.
+- `evaluate()` calls `evaluate_iter()`, so a collecting call still writes both debug records. Merging them stays a non-goal.
+- The fields (`xpath`, `cached`, `runtime_id`, `role`, `lower`, `upper`) do not carry a fact of §11's field table under another name, so they stay.
+- No test reads the messages (Context), and the example in §12 uses the new message of `evaluate_iter()`.
+
 ## Risks / Trade-offs
 
-- **[A release-only warning slips in later]** A later edit might add a gated record with a helper variable, or remove the last ungated use of an import. That warns only in a release build, and no gate compiles a release build with `-D warnings`. → §12 and the checklist say to gate the whole block. A standing release check is an Open Question.
+- **[A release-only warning slips in later]** A later edit might add a gated record with a helper variable, or remove the last ungated use of an import. That warns only in a release build, and no gate compiles a release build with `-D warnings`. → §12 and the checklist say to gate the whole block. The maintainer decided against a standing release check for now.
 - **[The release half of the test runs only by hand]** CI runs `just test` in debug mode. → The debug half runs on every push and keeps the capture honest. The release half is part of this change's verification.
 - **[A developer does not find the records in their own build]** This happens when the installed extension is a release build: after `just release=true …`, or when `uv sync` rebuilt it from source. That `uv sync` makes a release build is assumed, not checked: maturin's PEP 517 backend passes no profile (`.venv/lib/python3.12/site-packages/maturin/__init__.py:90-137`), and `maturin pep517 build-wheel` is assumed to default to release. → §12 says which builds carry the records, and `just build-native` gives a debug build.
 - **[Bug reports from users carry no XPath internals]** A user's report at `native_log_level=debug` no longer shows the evaluation's records. → Robot Framework records each keyword's arguments, the query included, and the keyword action lines and failures carry the rest. A maintainer who needs the engine's view reproduces with a debug build.
@@ -218,6 +235,8 @@ No `just` recipe runs tests or clippy for these crates in release mode, so the t
 
 ## Open Questions
 
-- **Confirm the ADDED requirement (Decision 4).** The triage notes expected only the replaced example. If the maintainer prefers the rule in the docs alone, the delta keeps only the MODIFIED requirement, and neither §19 nor the spec's Purpose paragraph gets a new line. The tests stay, traced to §12.
-- **A standing release check?** Should a release-mode clippy and test run of these two crates become a `just` recipe or a CI step? This change runs them once, by hand.
-- **The records' wording.** The records keep their identifier-style messages. `dev-docs/logging.md` §11 asks that a record "changed for any reason" be brought in line with the style. This design reads the gate as no change to a record's content, in line with "XPath evaluation is not reviewed for logging". If the maintainer wants §11 applied while the records are being touched anyway, that is a small addition to tasks 2.1 and 2.2.
+None. The maintainer answered the three questions of this design on 2026-09-30:
+
+- **The ADDED requirement (Decision 4) stays.** The rule is a requirement of `diagnostic-logging`, with its line in §19 and its sentence in the spec's Purpose paragraph, and the tests trace to its scenarios.
+- **No standing release check for now.** The release-mode clippy and test runs of the two crates stay a one-time part of this change's verification, not a `just` recipe or a CI step.
+- **The messages follow §11 (Decision 7).** The gate touches the records anyway, so their messages are brought in line with the style, as §11 asks of every changed record.

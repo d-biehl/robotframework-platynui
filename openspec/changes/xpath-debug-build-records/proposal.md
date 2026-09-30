@@ -26,7 +26,8 @@ Until that is done, the spec's list of level meanings, `dev-docs/logging.md` and
   - the engine's trace record of a materialized sequence, together with the size hint that is computed only for it (`crates/xpath/src/xdm/mod.rs:217-225`).
 
   The gate is `#[cfg(debug_assertions)]` at each record. tracing's compile-time level features cannot be used: Cargo unifies features across the workspace, so they would silence every crate of a release build.
-- **Debug builds keep the records as they are.** They follow the level setting like every other PlatynUI record: no target name of their own, no filter rule, no `RUST_LOG` exception. `crates/log-filter` does not change.
+- **Debug builds keep the records, at their levels and with their fields.** They follow the level setting like every other PlatynUI record: no target name of their own, no filter rule, no `RUST_LOG` exception. `crates/log-filter` does not change.
+- **The five messages follow `dev-docs/logging.md` §11.** §11 asks that a record changed for any reason be brought in line with its message style, and the maintainer chose on 2026-09-30 to apply it here. The identifier-style messages become lower-case English fragments without a type or function prefix: `collecting XPath results`, `evaluating XPath expression`, `wrapping element`, `element wrapped` and `materializing sequence`.
 - **`fn:trace()` is unchanged, in every build.** Its record is output that the user asked for in their own expression (`crates/xpath/src/engine/functions/diagnostics.rs:23`).
 - **XPath evaluation logs no warning or error.** Its failures are returned as `EvaluateError`, and the calling keyword raises them, or keeps waiting when its query settings ignore exceptions. `fn:error()` returns an error too. That is already true. This change writes it down as a rule and pins it with a test.
 - **The rule is written down in three places:**
@@ -41,7 +42,7 @@ Until that is done, the spec's list of level meanings, `dev-docs/logging.md` and
 
 Not part of this change:
 
-- Rewording, merging or removing the records. The review entries that proposed it are superseded.
+- Merging, removing or re-leveling the records, or changing their fields. The review entries that proposed it are superseded.
 - The Inspector, the command-line tool and the Python layers. None of them logs anything about XPath evaluation.
 
 ## Capabilities
@@ -59,8 +60,8 @@ None.
 ## Impact
 
 - **Rust crates:**
-  - `platynui-runtime` (`src/xpath.rs`): four gated records and two unit tests.
-  - `platynui-xpath` (`src/xdm/mod.rs`): one gated block, and the import `use tracing::trace;` (`:120`), which only that record uses.
+  - `platynui-runtime` (`src/xpath.rs`): four gated and reworded records, and two unit tests.
+  - `platynui-xpath` (`src/xdm/mod.rs`): one gated block with a reworded record, and the import `use tracing::trace;` (`:120`), which only that record uses.
   - No `Cargo.toml` changes, no new dependency or feature. Both crates keep using `tracing` in every build, so the workspace lint `unused_crate_dependencies` stays quiet.
 - **Python / Robot Framework:** no code or API change. `packages/native` links the runtime, so its release builds lose the records too. The user documentation of `native_log_level` (`src/PlatynUI/BareMetal/__init__.py:1215-1246`) names no XPath record and stays as it is.
 - **Command-line tool and Inspector:** their release wheels lose the records as well. A debug build (`cargo run`, `just build-cli`, `just build-inspector`) keeps them.
@@ -72,7 +73,7 @@ None.
 - **Specs:** `diagnostic-logging`, with one modified and one added requirement. Its Purpose paragraph names each requirement in one sentence. That paragraph is outside the delta and gets its new sentence by hand.
 - **Native rebuild:** yes, because the runtime is linked into the extension. The only difference is what a release build logs.
 - **Platforms and providers:** all of them, the mock included, because the gate sits in platform-independent crates. No acceptance lane is needed: the lanes run debug builds, whose records do not change.
-- **Compatibility:** not **BREAKING**. No API changes. Only the debug and trace output of release builds gets shorter.
+- **Compatibility:** not **BREAKING**. No API changes. The debug and trace output of release builds gets shorter, and in debug builds the five records read differently. No test or tool reads their messages.
 - **Coordination:**
   - The open change `xpath-document-order` edits `crates/runtime/src/xpath.rs` near these records: the identity hint of `RuntimeXdmNode` (`:517-530`), the attribute's owner link and the cycle note (`:414-425`). The edits do not conflict in meaning; whichever change lands second rebases.
   - The open change `x11-atspi-healthy-run-warnings` also adds requirements to `diagnostic-logging` and lines to the requirement map in §19 of `dev-docs/logging.md`. Neither change modifies a requirement that the other touches, so the overlap is textual.
