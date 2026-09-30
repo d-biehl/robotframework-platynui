@@ -227,11 +227,14 @@ Every node needs an identity that stays stable for as long as the node lives, an
 |----------|--------|---------|
 | UIA | `uia://desktop/<hex>` or `uia://app/<pid>/<hex>` | `uia://desktop/2A0B3C` |
 | JAB (Swing/AWT) | `jab://<vmID>/0x<hwnd>[/<enum-index-path>]`, app view `jab://app/<pid>/…` | `jab://12345/0x2A0B3C/0/3/1` |
+| Java agent | `agent/<pid>/<id>`, app view `agent/app/<pid>/<id>` | `agent/4711/42` |
 | AT-SPI2 | AT-SPI D-Bus object path | `atspi:///org/a11y/...` |
 | Mock | `mock:<id>` | `mock:window-1` |
 | Desktop | `platynui:Desktop` (reserved) | `platynui:Desktop` |
 
 Providers generate deterministic IDs stable for the element's lifetime. The `platynui` prefix is reserved for the desktop node.
+
+**One id per view.** An id names an element at one place in the tree. A provider that shows an element in two views — in the desktop's list of top-level windows, and below its application's `app:Application` node — gives it one id per view, so the two copies are two nodes. That is what the `app` part of the UIA, JAB and Java agent schemes is for. The XPath engine removes duplicate nodes by identity (§9.2); if both copies shared one id, how many windows `//Window` returns would depend on how the query is written, because a search that reaches a window through both views keeps only one of them.
 
 ### 5.5 Id (`control:Id`)
 
@@ -720,7 +723,7 @@ Currently irrelevant since PlatynUI uses X11/XWayland. Long-term, Wayland suppor
 PlatynUI lets you address elements with **XPath** — the same path language you may know from XML — so you can write `//Window/Button[@Name='OK']` instead of hand-walking the node tree. The engine that makes this work lives in `crates/xpath` (package `platynui-xpath`) and implements XPath 2.0. It is organized as four cooperating layers, each handing its result to the next:
 
 1. **Parser** — reads the XPath text and turns it into a strongly-typed syntax tree. It uses a PEG grammar (via the `pest` crate), so the grammar itself is the specification of what is and isn't valid XPath here.
-2. **Compiler** — rewrites that syntax tree into an optimized intermediate form. This is where the engine does its thinking ahead of time: it pre-computes literal values, merges adjacent filter predicates, and specializes the individual axis steps so that evaluation later does less work.
+2. **Compiler** — rewrites that syntax tree into an optimized intermediate form. This is where the engine does its thinking ahead of time: it pre-computes literal values, tells predicates that count positions from those that do not, turns common `//` searches into a single descendant step, folds filter predicates into the step before them where that keeps their meaning, and specializes the individual axis steps so that evaluation later does less work (§9.2).
 3. **Engine** — walks the optimized form against the tree, carrying two kinds of context as it goes. The *dynamic* context is what changes during evaluation (the current node, the position in a sequence); the *static* context is fixed up front (such as the namespace prefixes described in §9.4).
 4. **Model** — the abstraction the engine evaluates *against*. Rather than requiring the whole tree to exist in memory, the model is a trait that any backend can implement to expose its own tree lazily.
 
@@ -728,23 +731,32 @@ That model trait is the key seam. It describes a node in the **XDM** (XQuery and
 
 *The exact trait definition lives in `crates/xpath/`. The code is the source of truth for signatures; this section explains what the layers are for.*
 
-### 9.2 Streaming & Normalization
+### 9.2 Document Order & Streaming
 
-The engine evaluates in **streaming** mode: instead of computing a whole result set and then handing it back, it yields partial results as soon as they are known and applies predicates early, so a query can start producing matches before it has finished walking the tree.
+XPath 2.0 requires a path expression to return its nodes in **document order** — the order in which you meet them reading the tree from the top, each element before its children and its children before its next sibling — and **each node once**. The engine meets that requirement while it **streams**: it hands out each result as soon as it is known instead of computing the whole result first, so a query can deliver its first match long before it has walked the tree.
 
-XPath 2.0 requires that a path expression's results come back in **document order** and **without duplicates**. The engine doesn't bake that guarantee into every step; it makes it explicit as two separate operations in the intermediate form, and inserts them only where an axis can actually violate the guarantee:
+**Order by construction.** Most steps produce document order simply by the way they walk, so nothing has to be sorted afterwards:
 
-- **`EnsureDistinct`** — removes duplicate nodes while preserving the order they arrived in. It is implemented as a cursor, so it stays fully streaming (no need to buffer everything first).
-- **`EnsureOrder`** — enforces document order. It is written to do the least work that correctness allows: input that is already monotone passes straight through, simple local inversions are repaired in place, and only genuine disorder falls back to buffering and sorting.
+- `self`, `attribute` and `child` steps keep the order of their input. When the context nodes of a child step lie inside one another — in `//Pane/Button`, a pane nested in another pane — the step merges their children as it goes: a button of the inner pane that lies before the outer pane's next button comes out first.
+- `descendant`, `descendant-or-self` and `following` first drop the context nodes whose results another context node already covers — for `descendant`, a context node inside another one — and then walk from the rest.
+- A reverse axis from a single context node, such as `ancestor::Window` from one button, walks nearest first; the engine reverses its output. `preceding` keeps only the last of its context nodes, because that node's preceding nodes include every other's.
 
-Which of these an axis needs follows conservative, spec-compliant rules:
+Only where a step cannot guarantee the order does the engine **normalize**: it collects the step's output, removes duplicates and sorts it into document order. That happens for `//Button/..`, the parents of many buttons, for a path that starts from a variable or a sequence, such as `($dialog, $main)//Button`, for a path step that is an arbitrary expression, and for `union`, `intersect` and `except`. A step that normalizes has to read all of its input before it can hand out its first result, and it checks the cancel flag (§9.4) while it reads.
 
-- Forward axes `child`, `self`, `attribute`, `namespace`: no normalization.
-- Forward axes `descendant`, `descendant-or-self`, `following`, `following-sibling`: `EnsureDistinct`.
-- Reverse axes `parent`, `ancestor*`, `preceding*`: `EnsureDistinct` plus `EnsureOrder`.
-- Path steps and set operations are normalized before the next step runs.
+**Each node once, by identity.** Two nodes are the same when the model says they are equal — for the runtime, the same runtime id (§5.4) — not when they were reached the same way. Where a walk may meet one node twice, the engine removes the second occurrence as the results stream by. To look nodes up quickly, it asks each node for an identity hint, a number that equal nodes share, and compares only nodes with the same hint; a model that offers none is searched linearly.
 
-There is one more trick that keeps normalization rare. Before certain axes (`descendant*`, `following*`), the engine minimizes the context set — it removes overlapping starting points at the source. Because the overlap that would have produced duplicates is gone before the axis runs, the after-the-fact normalization often isn't needed at all.
+**A total order.** To sort, the engine must be able to place any two nodes. A model can give its nodes document-order keys, and then the keys decide. Otherwise the engine derives a node's place from the lists of children on its path from the root, and reads each list at most once per sort. Comparing two nodes needs only the lists below their deepest shared ancestor. An attribute comes right after its element, before the element's children; attributes of one element are ordered by name, so their order is stable, and the engine never reads an element's attributes to place them. A node that its parent's list does not contain goes after the listed siblings, and nodes of different trees keep the order in which their trees first appeared. The order is therefore defined for every pair of nodes, and a sort cannot fail on a model whose answers do not fit together.
+
+**Positions count per context node.** A positional predicate — a number such as `[2]`, or anything that reads `position()` or `last()` — counts within its own step, separately for every context node. `//Button[2]` is every button that is the second button child of its parent, while `(//Button)[2]` is the second button of the whole tree. `.//Pane/Button[last()]` is the last button of every pane. A predicate that cannot count positions, such as `[@Name='OK']`, selects the same nodes whether it runs per context node or over all of them, so the engine is free to run it over the merged stream and to fold it into the step itself.
+
+**Rewrites into one descendant step.** Two common shapes become a single `descendant` step when the query is compiled, because that walk is cheaper and streams in document order on its own:
+
+- `//Button[@Name='OK']` and `.//Button[@Name='OK']` become `descendant::Button[@Name='OK']`;
+- the union idiom `.//(Frame|Window)[@Name='Main']` becomes `descendant::*[self::Frame or self::Window][@Name='Main']`.
+
+The rewrite applies only when no predicate counts positions: `//Button[1]` is the first button child of every parent, and one descendant step would select only the first button of all. After the rewrite, a filter on the whole result, such as `(//Button)[@Name='OK']`, folds into the step as well.
+
+**The first match is cheap.** A caller that needs only the first result, such as `Runtime::evaluate_single`, stops the stream after one item, so the first item has to come out before the engine has read the rest of the tree. The child steps see to that. In `//Pane/Button[1]`, the first button of the first pane may be handed out only once no pane still to come could hold a button that lies before it. So the step asks the search that finds the panes for "the next pane, if it lies before this button", and the search can answer without reading past the button. A first match therefore reads only the part of the tree that lies before it — unless a step on the way has to normalize, because a sort needs its whole input.
 
 ### 9.3 XDM Cache
 

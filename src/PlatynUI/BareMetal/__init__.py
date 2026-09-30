@@ -819,6 +819,25 @@ class BareMetal(OurDynamicCore):
     | `Pointer Click`    //Button[@Name="Save" and @IsVisible=true()]    # named *and* visible
     | `Pointer Click`    //Button[@Name="OK" or @Name="Yes"]    # either label
 
+    Matches come in document order: the order in which you meet the elements reading the tree from
+    the top, each element before its children. A keyword that needs one element acts on the first.
+
+    A position counts within its own step, once for every element the step starts from.
+    ``//Button[2]`` matches every button that is the second button of its parent — possibly several
+    — while ``(//Button)[2]`` is the second button of the whole search. Put the search in parentheses
+    whenever you mean "the n-th match":
+
+    | `Pointer Click`    (//Button)[2]    # the second button of all
+    | @{seconds}=    `Query`    //Button[2]    # the second button of every parent
+
+    The same parentheses help when you pick a child by position below a container that you know is
+    unique. ``.//Table[@Name="Orders"]/*[544]`` has to rule out another *Orders* table nested in one
+    of the 543 cells before the one you want, whose cells would come first, so it looks inside each
+    of them. ``(.//Table[@Name="Orders"])[1]/*[544]`` stops at the first table, and only counts its
+    cells:
+
+    | `Get Attribute Value`    (.//Table[@Name="Orders"])[1]/*[544]    Name
+
     == Narrowing the search ==
 
     A bare ``//`` is quick to write, but it searches the *whole desktop*: ``//Edit[@Name="Street"]``

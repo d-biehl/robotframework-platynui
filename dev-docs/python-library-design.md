@@ -2945,7 +2945,12 @@ LocatorScope: TypeAlias = Literal[
    außer `prefix`/`axis`-Präfix.
 2. Sonst: Knotenname = `node` ?? `role` ?? `default_role` ?? `*`.
 3. Achse aus `axis` ?? `LocatorScope`-Mapping (`children` → leer,
-   `descendants` → `.//`, `ancestor` → `ancestor::`, …).
+   `descendants` → `.//`, `ancestor` → `ancestor::`, …). Hat ein
+   Locator im Scope `descendants` einen `index`, eine `position` oder
+   eigene Prädikate, wird daraus ein einziger `descendant::`-Schritt
+   (`descendant::Button[2]`): Die Positionen zählen dann über alle
+   Nachfahren des Parents in Dokumentreihenfolge, während `.//Button[2]`
+   pro Elternknoten zählen würde.
 4. Prädikate aus drei Quellen (siehe §7.1 für die User-Konvention):
    - **Convenience-Felder** (`name`, `id`, `class_name`, `runtime_id`,
      `framework_id`) werden über `_standard_attributes()` zu
@@ -2975,7 +2980,9 @@ LocatorScope: TypeAlias = Literal[
      Convenience-Feld `name=` vs. Kwarg `Name=` vs.
      `attributes={('control','Name'): ...}`) werfen `TypeError` mit
      genauer Fehlermeldung.
-5. Suffix `[N]` aus `index`, `[position()=N]` aus `position`.
+5. Suffix `[N]` aus `index`, `[position()=N]` aus `position`. Beide
+   zählen im Schritt der Rolle, bei `descendants` also über alle
+   Nachfahren (siehe Punkt 3): `descendant::Button[position()=3][1]`.
 6. Default-Scope-Regel: ohne Parent → `children`; mit Parent →
    `children` falls Parent ein `Application`/`Desktop`, sonst
    `descendants`. (1:1 aus Altcode.)
