@@ -11,7 +11,8 @@ const NAME_LIMIT: usize = 60;
 ///
 /// The name is cut to at most 60 characters (a longer one keeps its first 59
 /// and `…`) and then escaped, so quotes, backslashes and line breaks never
-/// break the line. The id follows after `#` when it is set and not blank.
+/// break the line. The id follows after `#` when it is set and not empty; an id
+/// of whitespace is shown as it is.
 ///
 /// This asks the provider for the name and the id, which can cost a call into
 /// the application per element; build a description only where it is logged
@@ -35,7 +36,7 @@ pub fn describe_parts(role: &str, name: &str, id: Option<&str>) -> String {
         push_escaped(&mut description, name);
     }
     description.push('"');
-    if let Some(id) = id.filter(|id| !id.trim().is_empty()) {
+    if let Some(id) = id.filter(|id| !id.is_empty()) {
         description.push_str(" #");
         push_escaped(&mut description, id);
     }
@@ -113,9 +114,15 @@ mod tests {
     }
 
     #[test]
-    fn a_blank_id_counts_as_absent() {
-        assert_eq!(described("Button", "OK", Some("  ")), r#"Button "OK""#);
+    fn an_empty_id_counts_as_absent() {
         assert_eq!(described("Button", "OK", Some("")), r#"Button "OK""#);
+    }
+
+    /// Spec `attribute-values`: *A whitespace-only identifier shows in a
+    /// one-line description*.
+    #[test]
+    fn a_whitespace_only_id_is_shown() {
+        assert_eq!(described("Button", "Save", Some("  ")), r#"Button "Save" #  "#);
     }
 
     #[test]

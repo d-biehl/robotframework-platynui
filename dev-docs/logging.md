@@ -467,7 +467,8 @@ Button "OK" #ok
 - the name in double quotes, cut to at most 60 characters — a longer name keeps its first 59
   characters and `…` — and then escaped, so that quotes, backslashes and control characters such as
   a line break cannot break the line;
-- `#` and the element's id, when it has one that is not blank.
+- `#` and the element's id, when it has one that is not empty. An id of whitespace is shown as it
+  is, like every value (architecture §5.7).
 
 A description is produced by `platynui_core::ui::describe` in Rust and by `UiNode.describe()` in
 Python. It asks the provider for the name and the id, which on AT-SPI can cost D-Bus calls per
