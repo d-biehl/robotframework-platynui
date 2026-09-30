@@ -116,6 +116,15 @@ impl Tree {
         repeated
     }
 
+    /// The nodes whose children were read since the last call, sorted.
+    fn take_listed(&self) -> Vec<String> {
+        let mut listings = self.listings.lock().unwrap();
+        let mut listed: Vec<String> = listings.keys().cloned().collect();
+        listed.sort();
+        listings.clear();
+        listed
+    }
+
     /// The node is gone: it reports itself invalid, and no listing has it.
     fn remove(&self, id: &str) {
         self.removed.lock().unwrap().insert(id.to_owned());
@@ -345,6 +354,7 @@ fn integer(items: &[EvaluationItem]) -> i64 {
 #[case::following_siblings("//Pane/following-sibling::*")]
 #[case::last("(//Button)[last()]")]
 #[case::preceding("//Button/preceding::Pane")]
+#[case::union_of_attributes_and_elements("//Pane/@Name | //Button")]
 fn each_list_is_read_once_per_query(#[case] query: &str) {
     let tree = Tree::new(shape(), Parents::Weak);
     let root = tree.root();
@@ -353,6 +363,31 @@ fn each_list_is_read_once_per_query(#[case] query: &str) {
 
     assert!(!items.is_empty(), "{query} should have a result");
     assert_eq!(tree.take_listed_more_than_once(), Vec::<String>::new(), "lists read more than once by {query}");
+}
+
+// --- The first result does not require reading the rest of the tree (xpath-evaluation) ---
+
+#[rstest]
+fn the_first_match_reads_only_the_lists_up_to_it() {
+    let tree = Tree::new(shape(), Parents::Weak);
+    let root = tree.root();
+
+    // What `Runtime::evaluate_single` does: the first item of a stream.
+    let first = EvaluationStream::new(None, "//Button".to_owned(), options(&root)).expect("query").next();
+    let Some(Ok(EvaluationItem::Node(button))) = first else { panic!("expected a button, got {first:?}") };
+
+    assert_eq!(button.runtime_id().as_str(), "root/0/0/0", "the first button in document order");
+    let mut expected = vec![DESKTOP_RUNTIME_ID.to_owned(), "root/0".to_owned(), "root/0/0".to_owned()];
+    expected.sort();
+    assert_eq!(tree.take_listed(), expected, "only the lists of the button's ancestors");
+}
+
+#[rstest]
+fn the_second_match_overall_is_the_child_of_the_first() {
+    let tree = Tree::new(shape(), Parents::Weak);
+    let root = tree.root();
+
+    assert_eq!(ids(evaluate(None, "(//Button)[2]", options(&root)).expect("query")), ["root/0/0/0/0"]);
 }
 
 // --- The next query may reuse the snapshot ---

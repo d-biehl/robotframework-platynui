@@ -1,5 +1,6 @@
 //
 use platynui_core::ui::PatternName;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
@@ -404,7 +405,9 @@ enum RuntimeXdmNode {
     Attribute(Arc<AttributeData>),
 }
 
-/// A weak reference to the wrapper whose list of children holds an element.
+/// A weak reference to the wrapper whose list of children holds an element, or
+/// that listed an attribute.
+#[derive(Clone)]
 enum WeakXdmNode {
     Document(Weak<DocumentData>),
     Element(Weak<ElementData>),
@@ -425,9 +428,10 @@ impl WeakXdmNode {
 /// has just built, never an existing one. Every strong reference between
 /// wrappers therefore points from an older wrapper to a newer one — a child is
 /// built by its parent's list of children and links back weakly, an owned
-/// parent is built by the child that owns it, and attributes hold only provider
-/// nodes — so the wrappers of a snapshot never form a cycle. The drop-count
-/// tests in `crates/runtime/tests/xdm_release.rs` fail if one comes back.
+/// parent is built by the child that owns it, and an attribute holds provider
+/// nodes and links back weakly to the wrapper that listed it — so the wrappers
+/// of a snapshot never form a cycle. The drop-count tests in
+/// `crates/runtime/tests/xdm_release.rs` fail if one comes back.
 enum ParentLink {
     /// Not looked up yet.
     Unresolved,
@@ -594,7 +598,14 @@ impl XdmNode for RuntimeXdmNode {
         match self {
             RuntimeXdmNode::Document(_) => None,
             RuntimeXdmNode::Element(elem) => Some(elem.parent_wrapper()),
-            RuntimeXdmNode::Attribute(attr) => Some(RuntimeXdmNode::from_node(attr.owner.clone())),
+            // The wrapper that listed the attribute, with the lists of children it has read,
+            // while it lives.
+            RuntimeXdmNode::Attribute(attr) => Some(
+                attr.owner_wrapper
+                    .as_ref()
+                    .and_then(WeakXdmNode::upgrade)
+                    .unwrap_or_else(|| RuntimeXdmNode::from_node(attr.owner.clone())),
+            ),
         }
     }
 
@@ -607,7 +618,7 @@ impl XdmNode for RuntimeXdmNode {
 
     fn attributes(&self) -> Self::Attributes<'_> {
         match self.parts() {
-            Some((node, content)) => content.attributes(node),
+            Some((node, content)) => content.attributes(node, self),
             None => NodeAttributeIter::empty(),
         }
     }
@@ -621,6 +632,21 @@ impl XdmNode for RuntimeXdmNode {
             RuntimeXdmNode::Element(elem) => elem.order_key,
             RuntimeXdmNode::Document(_) | RuntimeXdmNode::Attribute(_) => None,
         }
+    }
+
+    /// A hash of what `==` compares: the runtime id of a document, the runtime
+    /// id and order key of an element, the owner's runtime id and the name of an
+    /// attribute.
+    fn identity_hint(&self) -> Option<u64> {
+        let mut hasher = DefaultHasher::new();
+        match self {
+            RuntimeXdmNode::Document(doc) => (0u8, &doc.runtime_id).hash(&mut hasher),
+            RuntimeXdmNode::Element(elem) => (1u8, &elem.runtime_id, elem.order_key).hash(&mut hasher),
+            RuntimeXdmNode::Attribute(attr) => {
+                (2u8, &attr.owner_runtime_id, attr.namespace, &attr.name).hash(&mut hasher);
+            }
+        }
+        Some(hasher.finish())
     }
 
     /// O(1) attribute lookup via the provider's `UiNode::attribute()` method,
@@ -648,12 +674,10 @@ impl XdmNode for RuntimeXdmNode {
 
         // Fast path: direct provider lookup (handles Role, Name, Id, Bounds, …)
         if let Some(attr) = node.attribute(ui_ns, &name.local) {
-            return Some(RuntimeXdmNode::attribute(AttributeData::new_from_source(
-                node.clone(),
-                attr.namespace(),
-                attr.name().to_string(),
-                attr,
-            )));
+            return Some(RuntimeXdmNode::attribute(
+                AttributeData::new_from_source(node.clone(), attr.namespace(), attr.name().to_string(), attr)
+                    .listed_by(self.downgrade()),
+            ));
         }
 
         // Handle virtual component attributes (e.g. Bounds.X, ActivationPoint.Y)
@@ -670,13 +694,16 @@ impl XdmNode for RuntimeXdmNode {
                 if let Some(comp) = comp
                     && let Some(base) = node.attribute(ui_ns, attribute_names::element::BOUNDS)
                 {
-                    return Some(RuntimeXdmNode::attribute(AttributeData::new_rect_component(
-                        node.clone(),
-                        ui_ns,
-                        base,
-                        attribute_names::element::BOUNDS,
-                        comp,
-                    )));
+                    return Some(RuntimeXdmNode::attribute(
+                        AttributeData::new_rect_component(
+                            node.clone(),
+                            ui_ns,
+                            base,
+                            attribute_names::element::BOUNDS,
+                            comp,
+                        )
+                        .listed_by(self.downgrade()),
+                    ));
                 }
             }
             if let Some(suffix) = name.local.strip_prefix("ActivationPoint.") {
@@ -688,13 +715,16 @@ impl XdmNode for RuntimeXdmNode {
                 if let Some(comp) = comp
                     && let Some(base) = node.attribute(ui_ns, attribute_names::activation_target::ACTIVATION_POINT)
                 {
-                    return Some(RuntimeXdmNode::attribute(AttributeData::new_point_component(
-                        node.clone(),
-                        ui_ns,
-                        base,
-                        attribute_names::activation_target::ACTIVATION_POINT,
-                        comp,
-                    )));
+                    return Some(RuntimeXdmNode::attribute(
+                        AttributeData::new_point_component(
+                            node.clone(),
+                            ui_ns,
+                            base,
+                            attribute_names::activation_target::ACTIVATION_POINT,
+                            comp,
+                        )
+                        .listed_by(self.downgrade()),
+                    ));
                 }
             }
         }
@@ -779,7 +809,7 @@ impl LazyContent {
         .with_parent_node(owner.clone())
     }
 
-    fn attributes<'a>(&self, node: &Arc<dyn UiNode>) -> NodeAttributeIter<'a> {
+    fn attributes<'a>(&self, node: &Arc<dyn UiNode>, owner: &RuntimeXdmNode) -> NodeAttributeIter<'a> {
         if !self.attrs_finished.load(Ordering::Acquire) && lock(&self.attrs_inner).is_none() {
             let fresh = node.attributes();
             let unused = {
@@ -795,6 +825,7 @@ impl LazyContent {
         }
         NodeAttributeIter::from_shared(
             Arc::clone(node),
+            owner.downgrade(),
             Arc::clone(&self.attrs_inner),
             Arc::clone(&self.attrs_cache),
             Arc::clone(&self.attrs_finished),
@@ -978,6 +1009,9 @@ impl Drop for ElementData {
 
 struct AttributeData {
     owner: Arc<dyn UiNode>,
+    // The wrapper that listed this attribute, which `parent()` returns while it
+    // lives. Weak, so the wrappers of a snapshot stay free of cycles.
+    owner_wrapper: Option<WeakXdmNode>,
     owner_runtime_id: RuntimeId,
     namespace: UiNamespace,
     name: String,
@@ -1021,6 +1055,7 @@ impl AttributeData {
         let qname = attribute_qname(namespace, &name);
         Self {
             owner,
+            owner_wrapper: None,
             owner_runtime_id,
             namespace,
             name,
@@ -1050,6 +1085,7 @@ impl AttributeData {
         let qname = attribute_qname(namespace, &name);
         Self {
             owner,
+            owner_wrapper: None,
             owner_runtime_id,
             namespace,
             name,
@@ -1077,6 +1113,7 @@ impl AttributeData {
         let qname = attribute_qname(namespace, &name);
         Self {
             owner,
+            owner_wrapper: None,
             owner_runtime_id,
             namespace,
             name,
@@ -1085,6 +1122,11 @@ impl AttributeData {
             value_cell: std::sync::OnceLock::new(),
             typed_cell: std::sync::OnceLock::new(),
         }
+    }
+    /// Links the attribute to the wrapper it was read from.
+    fn listed_by(mut self, owner_wrapper: Option<WeakXdmNode>) -> Self {
+        self.owner_wrapper = owner_wrapper;
+        self
     }
     fn value(&self) -> UiValue {
         self.value_cell
@@ -1348,6 +1390,7 @@ impl Iterator for NodeChildrenIter<'_> {
 
 struct NodeAttributeIter<'a> {
     owner: Arc<dyn UiNode>,
+    owner_wrapper: Option<WeakXdmNode>,
     inner: AttributeIteratorCell,
     cache: NodeCacheCell,
     finished: SharedFlag,
@@ -1357,21 +1400,27 @@ struct NodeAttributeIter<'a> {
 impl NodeAttributeIter<'_> {
     fn from_shared(
         owner: Arc<dyn UiNode>,
+        owner_wrapper: Option<WeakXdmNode>,
         inner: AttributeIteratorCell,
         cache: NodeCacheCell,
         finished: SharedFlag,
     ) -> Self {
-        Self { owner, inner, cache, finished, pos: 0, _marker: std::marker::PhantomData }
+        Self { owner, owner_wrapper, inner, cache, finished, pos: 0, _marker: std::marker::PhantomData }
     }
     fn empty() -> Self {
         Self {
             owner: Arc::new(DummyNode),
+            owner_wrapper: None,
             inner: Arc::new(Mutex::new(None)),
             cache: Arc::new(Mutex::new(Vec::new())),
             finished: Arc::new(AtomicBool::new(true)),
             pos: 0,
             _marker: std::marker::PhantomData,
         }
+    }
+    /// Wraps an attribute read here, linked to the wrapper that listed it.
+    fn wrap(&self, data: AttributeData) -> RuntimeXdmNode {
+        RuntimeXdmNode::attribute(data.listed_by(self.owner_wrapper.clone()))
     }
 }
 impl Iterator for NodeAttributeIter<'_> {
@@ -1397,35 +1446,35 @@ impl Iterator for NodeAttributeIter<'_> {
             let src = attr.clone();
             {
                 let mut cache = lock(&self.cache);
-                cache.push(RuntimeXdmNode::attribute(AttributeData::new_from_source(
+                cache.push(self.wrap(AttributeData::new_from_source(
                     self.owner.clone(),
                     ns,
                     base_name.clone(),
                     src.clone(),
                 )));
                 if base_name == attribute_names::element::BOUNDS {
-                    cache.push(RuntimeXdmNode::attribute(AttributeData::new_rect_component(
+                    cache.push(self.wrap(AttributeData::new_rect_component(
                         self.owner.clone(),
                         ns,
                         src.clone(),
                         attribute_names::element::BOUNDS,
                         RectComp::X,
                     )));
-                    cache.push(RuntimeXdmNode::attribute(AttributeData::new_rect_component(
+                    cache.push(self.wrap(AttributeData::new_rect_component(
                         self.owner.clone(),
                         ns,
                         src.clone(),
                         attribute_names::element::BOUNDS,
                         RectComp::Y,
                     )));
-                    cache.push(RuntimeXdmNode::attribute(AttributeData::new_rect_component(
+                    cache.push(self.wrap(AttributeData::new_rect_component(
                         self.owner.clone(),
                         ns,
                         src.clone(),
                         attribute_names::element::BOUNDS,
                         RectComp::Width,
                     )));
-                    cache.push(RuntimeXdmNode::attribute(AttributeData::new_rect_component(
+                    cache.push(self.wrap(AttributeData::new_rect_component(
                         self.owner.clone(),
                         ns,
                         src,
@@ -1434,14 +1483,14 @@ impl Iterator for NodeAttributeIter<'_> {
                     )));
                 } else if base_name == attribute_names::activation_target::ACTIVATION_POINT {
                     let src_point = attr.clone();
-                    cache.push(RuntimeXdmNode::attribute(AttributeData::new_point_component(
+                    cache.push(self.wrap(AttributeData::new_point_component(
                         self.owner.clone(),
                         ns,
                         src_point.clone(),
                         attribute_names::activation_target::ACTIVATION_POINT,
                         PointComp::X,
                     )));
-                    cache.push(RuntimeXdmNode::attribute(AttributeData::new_point_component(
+                    cache.push(self.wrap(AttributeData::new_point_component(
                         self.owner.clone(),
                         ns,
                         src_point,
@@ -1799,6 +1848,41 @@ mod tests {
             }
             other => panic!("unexpected evaluation result: {other:?}"),
         }
+    }
+
+    #[rstest]
+    fn equal_wrappers_share_their_identity_hint() {
+        let tree = sample_tree();
+        let document = RuntimeXdmNode::from_node(tree.clone());
+        let window = document.children().next().expect("the window");
+        let again = RuntimeXdmNode::from_node(tree.children().next().expect("the window"));
+        assert!(window == again, "two wrappers of one provider node are equal");
+        assert_eq!(window.identity_hint(), again.identity_hint());
+        assert_eq!(document.identity_hint(), RuntimeXdmNode::from_node(tree).identity_hint());
+
+        let name = QName { prefix: None, local: "Name".to_string(), ns_uri: None };
+        let listed = window.attributes().find(|attr| attr.name().is_some_and(|q| q.local == "Name")).expect("Name");
+        let looked_up = window.attribute_by_name(&name).expect("Name");
+        assert!(listed == looked_up, "an attribute listed and one looked up are equal");
+        assert_eq!(listed.identity_hint(), looked_up.identity_hint());
+    }
+
+    #[rstest]
+    fn an_attribute_returns_to_the_wrapper_that_listed_it() {
+        let tree = sample_tree();
+        let document = RuntimeXdmNode::from_node(tree.clone());
+        let window = document.children().next().expect("the window");
+        let listed = window.attributes().next().expect("an attribute");
+        let (RuntimeXdmNode::Element(lister), Some(RuntimeXdmNode::Element(parent))) = (&window, listed.parent())
+        else {
+            panic!("the window and the attribute's parent are elements");
+        };
+        assert!(Arc::ptr_eq(lister, &parent), "the parent is the wrapper that listed the attribute");
+
+        drop((parent, document, window));
+        let rebuilt = listed.parent().expect("an attribute keeps a parent");
+        let window = RuntimeXdmNode::from_node(tree.children().next().expect("the window"));
+        assert!(rebuilt == window, "once the lister is gone, the parent is built from the provider");
     }
 
     #[rstest]
