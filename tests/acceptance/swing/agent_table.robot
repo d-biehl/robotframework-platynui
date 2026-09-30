@@ -34,6 +34,15 @@ The Agent Serves The Fixture Window
     ...    the bridge's shape under an agent suite's name.
     BM.Get Attribute Value    .//Window[@Name="${SWING_AGENT_TITLE}"]    Technology    ==    JavaAgent
 
+The Window Is One Element Per View
+    [Documentation]    The agent shows the window twice, in the desktop's flat list of windows and under
+    ...    its ``app:Application`` node. Each view is an element of its own with a ``RuntimeId`` of its
+    ...    own, as with UI Automation and the Access Bridge, so a union of both views keeps both.
+    VAR    ${window}    control:Window[@Name="${SWING_AGENT_TITLE}"][@Technology="JavaAgent"]
+    ${windows}=    BM.Query    /${window} | /app:Application/${window}
+    Length Should Be    ${windows}    2    msg=the flat window and the window under its application node
+    Should Not Be Equal    ${windows[0].runtime_id}    ${windows[1].runtime_id}
+
 A Table's Children Are Its Rows
     [Documentation]    One hundred rows, not six hundred cells. The flat cell list is what
     ...    ``AccessibleContext.getAccessibleChild(i)`` offers and all the bridge ever had; the model

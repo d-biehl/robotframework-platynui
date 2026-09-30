@@ -20,7 +20,7 @@
 
 use super::app::{AgentAppNode, ProcessFacts};
 use super::element::Element;
-use super::node::AgentNode;
+use super::node::{AgentNode, View};
 use super::session::AgentSession;
 use crate::backend::{Enumeration, ForeignWindows, JavaBackend};
 use crate::provider::{check_unknown_settings, setting};
@@ -400,6 +400,7 @@ impl JavaBackend for AgentBackend {
                 served_any = true;
                 pass.nodes.push(AgentNode::new(
                     Arc::clone(&served.session),
+                    View::Flat,
                     element,
                     None,
                     window_manager.clone(),
@@ -509,8 +510,14 @@ fn build_chain(
     let mut parent_role: Option<String> = None;
     for element in chain {
         let role = element.role.clone();
-        let node =
-            AgentNode::new(Arc::clone(&served.session), element, parent_role.clone(), owned.clone(), Some(&parent));
+        let node = AgentNode::new(
+            Arc::clone(&served.session),
+            View::Application,
+            element,
+            parent_role.clone(),
+            owned.clone(),
+            Some(&parent),
+        );
         node.hold_parent(Arc::clone(&parent));
         parent_role = Some(role);
         parent = node;

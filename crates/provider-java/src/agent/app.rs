@@ -15,7 +15,7 @@
 //! know — the main class as the display name, which is what a user recognises
 //! their application by, and the JVM's name and version.
 
-use super::node::{AgentNode, TECHNOLOGY};
+use super::node::{AgentNode, TECHNOLOGY, View};
 use super::session::AgentSession;
 use platynui_core::platform::WindowManager;
 use platynui_core::ui::attribute_names::{application, common};
@@ -166,7 +166,14 @@ impl UiNode for AgentAppNode {
         let session = Arc::clone(&self.session);
         let window_manager = self.window_manager.clone();
         Box::new(windows.into_iter().map(move |window| {
-            let node = AgentNode::new(Arc::clone(&session), window, None, window_manager.clone(), parent.as_ref());
+            let node = AgentNode::new(
+                Arc::clone(&session),
+                View::Application,
+                window,
+                None,
+                window_manager.clone(),
+                parent.as_ref(),
+            );
             // A window keeps its application node alive.
             if let Some(parent) = &parent {
                 node.hold_parent(Arc::clone(parent));

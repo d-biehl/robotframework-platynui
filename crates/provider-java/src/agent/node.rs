@@ -9,7 +9,8 @@
 //!   identity-based and stable for as long as the element lives. That is what
 //!   makes a `RuntimeId` here mean "this element" rather than "whatever is
 //!   currently in that position" — the fundamental limit of the Access Bridge's
-//!   enumeration-index scheme.
+//!   enumeration-index scheme. The id is scoped to the tree the node was
+//!   reached through (see [`View`]).
 //! - **Validity.** `UiNode::is_valid` is load-bearing: the Robot Framework
 //!   library reuses the element a scoped root resolved to for exactly as long as
 //!   it answers `true`, so the trait's `true` default would pin a dead root
@@ -46,9 +47,33 @@ use tracing::debug;
 /// needs to be able to see.
 pub(crate) const TECHNOLOGY: &str = "JavaAgent";
 
+/// The tree a node was reached through, which scopes its runtime id, as UI
+/// Automation and the Access Bridge scope theirs: a window listed for the
+/// desktop and the same window under its `app:Application` are two nodes, each
+/// at its own place in the tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum View {
+    /// The top-levels the desktop lists, and everything below them.
+    Flat,
+    /// Everything below a JVM's `app:Application` node.
+    Application,
+}
+
+impl View {
+    /// The runtime id of the agent element `id` of the JVM `pid` in this view.
+    pub(crate) fn runtime_id(self, pid: u32, id: u64) -> RuntimeId {
+        match self {
+            View::Flat => RuntimeId::from(format!("agent/{pid}/{id}")),
+            View::Application => RuntimeId::from(format!("agent/app/{pid}/{id}")),
+        }
+    }
+}
+
 /// One element of one JVM.
 pub(crate) struct AgentNode {
     session: Arc<AgentSession>,
+    /// Fixed where the node is created, and passed to every child.
+    view: View,
     /// The last payload read for this element. Refreshed on
     /// [`UiNode::invalidate`] rather than per access — an XPath step reads a
     /// dozen attributes off one node, and a call per attribute is what makes
@@ -78,6 +103,7 @@ pub(crate) struct AgentNode {
 impl AgentNode {
     pub(crate) fn new(
         session: Arc<AgentSession>,
+        view: View,
         element: Element,
         parent_role: Option<String>,
         window_manager: Option<Arc<dyn WindowManager>>,
@@ -85,6 +111,7 @@ impl AgentNode {
     ) -> Arc<Self> {
         let node = Arc::new(Self {
             session,
+            view,
             snapshot: Mutex::new(element),
             stale: AtomicBool::new(false),
             parent_role,
@@ -220,8 +247,8 @@ impl UiNode for AgentNode {
     fn runtime_id(&self) -> &RuntimeId {
         // Identity-based and therefore stable: the agent's id stands for the
         // object, not for a position, so a relayout that reorders siblings does
-        // not rename anything.
-        self.runtime_id.get_or_init(|| RuntimeId::from(format!("agent/{}/{}", self.session.pid(), self.element_id())))
+        // not rename anything. Scoped to the node's view.
+        self.runtime_id.get_or_init(|| self.view.runtime_id(self.session.pid(), self.element_id()))
     }
 
     fn id(&self) -> Option<String> {
@@ -263,11 +290,13 @@ impl UiNode for AgentNode {
             .and_then(|children| serde_json::from_value(children.clone()).ok())
             .unwrap_or_default();
         let session = Arc::clone(&self.session);
+        let view = self.view;
         let window_manager = self.window_manager.clone();
         let parent_role = element.role.clone();
         Box::new(payloads.into_iter().map(move |child| {
             let node = AgentNode::new(
                 Arc::clone(&session),
+                view,
                 child,
                 Some(parent_role.clone()),
                 window_manager.clone(),
@@ -360,13 +389,16 @@ impl UiNode for AgentNode {
                 UiValue::from(states.multiselectable),
             ));
             // RuntimeIds of the selected children — the *same* ids the child nodes
-            // carry, so a consumer can match them against nodes it already holds.
+            // carry in this node's view, so a consumer can match them against
+            // nodes it already holds.
             // Emitted only when the agent could name the children exactly; a list
             // of ids that resolve to nothing is worse than no list, because it
             // looks like an answer.
             if let Some(ids) = selection.ids.as_ref() {
-                let runtime_ids: Vec<UiValue> =
-                    ids.iter().map(|id| UiValue::from(format!("agent/{}/{id}", self.session.pid()))).collect();
+                let runtime_ids: Vec<UiValue> = ids
+                    .iter()
+                    .map(|id| UiValue::from(self.view.runtime_id(self.session.pid(), *id).as_str()))
+                    .collect();
                 attrs.push(literal(
                     Namespace::Control,
                     selection_provider::SELECTED_ITEMS,
@@ -770,7 +802,7 @@ mod tests {
     /// payload alone, so the session never connects.
     fn node(payload: &str) -> Arc<AgentNode> {
         let element = serde_json::from_str(payload).expect("recorded payload must parse");
-        AgentNode::new(Arc::new(AgentSession::unconnected(4242)), element, None, None, None)
+        AgentNode::new(Arc::new(AgentSession::unconnected(4242)), View::Flat, element, None, None, None)
     }
 
     fn attribute(node: &AgentNode, namespace: Namespace, name: &str) -> Option<UiValue> {
@@ -805,5 +837,31 @@ mod tests {
         );
         assert_eq!(attribute(&button, Namespace::Control, common::DESCRIPTION), None);
         assert_eq!(button.description(), None);
+    }
+
+    /// A list, agent element 42 of JVM 4711, whose selected child is element 43.
+    fn list(view: View) -> Arc<AgentNode> {
+        let element: Element = serde_json::from_value(json!({
+            "id": 42,
+            "kind": "component",
+            "role": "list",
+            "className": "javax.swing.JList",
+            "selection": { "count": 1, "indices": [0], "ids": [43] },
+        }))
+        .expect("an element payload");
+        AgentNode::new(Arc::new(AgentSession::unconnected(4711)), view, element, None, None, None)
+    }
+
+    #[test]
+    fn runtime_ids_are_scoped_per_view() {
+        for (view, prefix) in [(View::Flat, "agent/4711/"), (View::Application, "agent/app/4711/")] {
+            let node = list(view);
+            assert_eq!(node.runtime_id().as_str(), format!("{prefix}42"), "{view:?}");
+            assert_eq!(
+                attribute(&node, Namespace::Control, selection_provider::SELECTED_ITEMS),
+                Some(UiValue::Array(vec![UiValue::from(format!("{prefix}43"))])),
+                "{view:?}: the selected child's id in the list's own view"
+            );
+        }
     }
 }

@@ -1160,7 +1160,13 @@ fn live_agent_serves_table_cells_the_bridge_cannot() {
     // Hit-testing passes through the row. In-process this is a walk over
     // rectangles the toolkit already knows, so it needs no physical pointer —
     // and it must hand back the *same* objects the enumeration does, which is
-    // what lets the Inspector reveal a pick in the tree it already shows.
+    // what lets the Inspector reveal a pick in the tree it already shows. A pick
+    // belongs to the application view: its chain hangs below the fixture's
+    // `app:Application` node, so it is the cell as that node lists it.
+    let (app_window, application_id) = window_through_application(&provider, &parent, &app, "JavaAgent");
+    let mut app_nodes = Vec::new();
+    walk(&app_window, &mut app_nodes, 0);
+    let app_cell = find_by_name(&app_nodes, "r2c0");
     let picked = provider
         .element_at_point(rect.center())
         .expect("hit-test over a cell")
@@ -1168,8 +1174,18 @@ fn live_agent_serves_table_cells_the_bridge_cannot() {
     assert_eq!(picked.role(), "TableCell", "the pick reaches the cell, not the table");
     assert_eq!(
         picked.runtime_id(),
-        cell.runtime_id(),
-        "the picked cell must be the very node the enumeration produced"
+        app_cell.runtime_id(),
+        "the picked cell must be the very node the application view lists"
+    );
+    let mut ancestors = Vec::new();
+    let mut ancestor = picked.parent().and_then(|parent| parent.upgrade());
+    while let Some(node) = ancestor {
+        ancestors.push(node.runtime_id().as_str().to_owned());
+        ancestor = node.parent().and_then(|parent| parent.upgrade());
+    }
+    assert!(
+        ancestors.contains(&application_id),
+        "the pick's ancestors must lead to the fixture's app:Application node {application_id}: {ancestors:?}"
     );
     let picked_row = picked.parent().and_then(|parent| parent.upgrade()).expect("a picked cell has a parent");
     assert_eq!(picked_row.role(), "TableRow", "the chain reaches the cell by way of its row");
@@ -1654,6 +1670,76 @@ fn live_two_hosts_share_one_agent_and_agree_on_identity() {
     assert!(test_run_window.is_valid(), "the surviving host still has a live node");
 
     test_run.shutdown();
+}
+
+/// The agent backend shows a Java window twice: flat in the desktop's list of
+/// windows, and under its process's `app:Application` node. Each view is a node
+/// of its own with a runtime id of its own, as UI Automation and the bridge scope
+/// theirs, so identity and tree position agree (spec `java-provider`, *Agent
+/// runtime ids are scoped per view*).
+#[test]
+#[ignore = "needs a desktop, a Java runtime, the built Swing fixture and the built agent JAR"]
+fn live_agent_runtime_ids_are_scoped_per_view() {
+    let app = FixtureApp::launch_with_agent("views");
+    let provider = build_provider(&RuntimeConfig::default());
+    let parent = desktop_stub();
+    let flat_prefix = format!("agent/{}/", app.pid());
+    let app_prefix = format!("agent/app/{}/", app.pid());
+    let element_id = |node: &Arc<dyn UiNode>, prefix: &str| -> String {
+        let id = node.runtime_id().as_str();
+        id.strip_prefix(prefix)
+            .unwrap_or_else(|| panic!("{id} of {:?} must start with {prefix}", node.name()))
+            .to_owned()
+    };
+
+    // The two views of the window are two nodes, one element.
+    let deadline = Instant::now() + DISCOVERY_DEADLINE;
+    let flat_window = loop {
+        let window = provider.get_nodes(Arc::clone(&parent)).expect("get_nodes").find(|node| {
+            node.name() == app.title && attribute_value(node, "Technology") == Some(UiValue::from("JavaAgent"))
+        });
+        if let Some(window) = window {
+            break window;
+        }
+        assert!(Instant::now() < deadline, "no agent-served window within {DISCOVERY_DEADLINE:?}");
+        std::thread::sleep(Duration::from_millis(250));
+    };
+    let (app_window, _) = window_through_application(&provider, &parent, &app, "JavaAgent");
+    assert_eq!(element_id(&flat_window, &flat_prefix), element_id(&app_window, &app_prefix));
+
+    // Descendants carry their window's view.
+    let mut flat_nodes = Vec::new();
+    walk(&flat_window, &mut flat_nodes, 0);
+    let mut app_nodes = Vec::new();
+    walk(&app_window, &mut app_nodes, 0);
+    for node in &flat_nodes {
+        element_id(node, &flat_prefix);
+    }
+    for node in &app_nodes {
+        element_id(node, &app_prefix);
+    }
+    assert_eq!(
+        element_id(find_by_name(&flat_nodes, "stage1-button"), &flat_prefix),
+        element_id(find_by_name(&app_nodes, "stage1-button"), &app_prefix),
+        "the same button differs only in the prefix of its view"
+    );
+
+    // An element keeps its id within a view.
+    let app_table = find_by_name(&app_nodes, "main-table");
+    let rows: Vec<String> = app_table.children().map(|row| row.runtime_id().as_str().to_owned()).collect();
+    let again: Vec<String> = app_table.children().map(|row| row.runtime_id().as_str().to_owned()).collect();
+    assert_eq!(again, rows, "a row keeps its runtime id across enumerations of the application view");
+
+    // SelectedItems names nodes of its own view: row 2 is preselected.
+    let flat_table = find_by_name(&flat_nodes, "main-table");
+    let flat_row = flat_table.children().nth(2).expect("the fixture table's third row");
+    assert_eq!(
+        attribute_value(flat_table, "SelectedItems"),
+        Some(UiValue::Array(vec![UiValue::from(flat_row.runtime_id().as_str().to_owned())]))
+    );
+    assert_eq!(attribute_value(app_table, "SelectedItems"), Some(UiValue::Array(vec![UiValue::from(rows[2].clone())])));
+
+    provider.shutdown();
 }
 
 // ---------------------------------------------------------------------------
