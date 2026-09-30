@@ -761,3 +761,49 @@ fn make_window_pattern(id: &str, surface: &Arc<WindowSurface>) -> Arc<dyn UiPatt
         _ => unreachable!("make_window_pattern called with a non-window pattern id"),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A node over a recorded payload. A component's attributes come from the
+    /// payload alone, so the session never connects.
+    fn node(payload: &str) -> Arc<AgentNode> {
+        let element = serde_json::from_str(payload).expect("recorded payload must parse");
+        AgentNode::new(Arc::new(AgentSession::unconnected(4242)), element, None, None, None)
+    }
+
+    fn attribute(node: &AgentNode, namespace: Namespace, name: &str) -> Option<UiValue> {
+        node.attributes()
+            .find(|attribute| attribute.namespace() == namespace && attribute.name() == name)
+            .map(|attribute| attribute.value())
+    }
+
+    /// Spec `attribute-values`: *The Java agent passes an empty native value
+    /// through*. The native attributes carry `""`, `Name` is `""`, and `Id`
+    /// keeps its rule: an empty component name is no identifier.
+    #[test]
+    fn empty_strings_on_the_wire_are_listed_as_reported() {
+        let button = node(
+            r#"{"id": 4, "kind": "component", "role": "push button", "className": "javax.swing.JButton",
+                "name": "", "accessibleName": "", "toolTipText": ""}"#,
+        );
+        assert_eq!(attribute(&button, Namespace::Native, "AccessibleName"), Some(UiValue::from("")));
+        assert_eq!(attribute(&button, Namespace::Native, "ComponentName"), Some(UiValue::from("")));
+        assert_eq!(attribute(&button, Namespace::Native, "ToolTipText"), Some(UiValue::from("")));
+        assert_eq!(attribute(&button, Namespace::Control, common::NAME), Some(UiValue::from("")));
+        assert_eq!(attribute(&button, Namespace::Control, common::ID), None);
+        assert_eq!(button.id(), None);
+    }
+
+    /// Spec `description-attribute`: an empty description is no `Description`.
+    #[test]
+    fn an_empty_accessible_description_is_no_description() {
+        let button = node(
+            r#"{"id": 4, "kind": "component", "role": "push button", "className": "javax.swing.JButton",
+                "accessibleDescription": ""}"#,
+        );
+        assert_eq!(attribute(&button, Namespace::Control, common::DESCRIPTION), None);
+        assert_eq!(button.description(), None);
+    }
+}

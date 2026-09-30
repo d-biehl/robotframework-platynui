@@ -406,10 +406,13 @@ final class SwingElement {
      * because {@code JComponent} does not override {@code constructComponentName()}. The reflective
      * read is the guarantee; the fallback is best effort, since a heavyweight AWT component such
      * as {@code java.awt.Button} would keep its generated name ({@code button0}) there.
+     *
+     * <p>A name set to the empty string is returned as {@code ""}: it is what was set, and the value
+     * travels as reported (capability {@code attribute-values}). {@code null} means no name was set.
      */
     private static String explicitNameOf(Component component) {
         String name = component.getName();
-        if (name == null || name.isEmpty()) {
+        if (name == null) {
             return null;
         }
         Boolean explicit = nameWasExplicitlySet(component);
@@ -705,8 +708,14 @@ final class SwingElement {
 
     // ------------------------------------------------------------------ helpers
 
+    /**
+     * Puts {@code value} as Swing reported it, the empty string included (capability
+     * {@code attribute-values}): an empty string is a value the provider's {@code native:} attributes
+     * show. Only {@code null}, a value Swing does not report, is left out. Whether an empty
+     * {@code Id} or {@code Description} counts as none is the provider's decision, not the wire's.
+     */
     private static void putIfPresent(Map<String, Object> target, String key, String value) {
-        if (value != null && !value.isEmpty()) {
+        if (value != null) {
             target.put(key, value);
         }
     }
