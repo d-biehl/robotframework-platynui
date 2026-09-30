@@ -237,13 +237,13 @@ Providers generate deterministic IDs stable for the element's lifetime. The `pla
 
 Visible labels change — they get renamed, translated, or reworded — so they make brittle selectors. The **Id** exists to give you something steadier: the identifier an element's toolkit reports for automation, independent of the visible label and of language. When you want a selector that survives, prefer `@control:Id='...'` wherever it is available.
 
-Each provider takes the Id from one source: on Windows the UIA `AutomationId`; on Linux/AT-SPI2 the `AccessibleId` property, or the object attribute `accessible-id`, `accessible_id` or `id` when that is empty; through the Java agent, `Component.getName()` of components and windows, when it was set through `setName`; on macOS/AX the `AXIdentifier`. The Java Access Bridge reports none. Who set the value does not matter: an identifier the toolkit or framework generated — a Qt object path, a name Swing gives its own parts such as `Spinner.nextButton`, an AccessKit author id forwarded to UIA and AT-SPI — is the Id just like one the application set. A provider never puts another value in place of a missing identifier: not the name, the process ID or the runtime id.
+Each provider takes the Id from one source: on Windows the UIA `AutomationId`; on Linux/AT-SPI2 the `AccessibleId` property, or, when that is empty or unreadable, the first of the object attributes `accessible-id`, `accessible_id` and `id` that is not empty; through the Java agent, `Component.getName()` of components and windows, when it was set through `setName`; on macOS/AX the `AXIdentifier`. The Java Access Bridge reports none. Who set the value does not matter: an identifier the toolkit or framework generated — a Qt object path, a name Swing gives its own parts such as `Spinner.nextButton`, an AccessKit author id forwarded to UIA and AT-SPI — is the Id just like one the application set. A provider never puts another value in place of a missing identifier: not the name, the process ID or the runtime id. It takes the identifier unmodified, as every value (§5.7): an identifier of whitespace is an identifier, and only the empty string counts as none.
 
 The Id is present only with a value. A node without one lists no `control:Id`, and its id accessor (`element.id` in Python) answers none rather than an empty string. The accessor and the attribute always carry the same value, and listing a node's attributes agrees with looking `Id` up by name. **Application nodes carry no Id** on any provider: an application is identified by its `@ProcessId`, so its one-line description ends with its quoted name, without a `#…` suffix. The rule is spec `id-attribute`; the contract testkit checks it with `verify_id`.
 
 ### 5.6 Accessible Description (`control:Description`)
 
-The **description** is the accessibility API's longer, human-readable explanation of an element — distinct from its short accessible name. It is a common attribute (see §6.3), and like the Id it is **optional**: a node emits `control:Description` only when its platform value is non-empty, so absence is normal and expected rather than an error.
+The **description** is the accessibility API's longer, human-readable explanation of an element — distinct from its short accessible name. It is a common attribute (see §6.3), and like the Id it is **optional**: a node emits `control:Description` only when its platform value is non-empty, so absence is normal and expected rather than an error. The value is taken unmodified (§5.7), so a description of whitespace is a description.
 
 The mapping is deliberately **strict** — `control:Description` maps 1:1 to the platform's genuine accessible-description property and nothing else:
 
@@ -260,6 +260,14 @@ The value parity with `name`/`id` extends up the stack: `UiNode::description()` 
 ### 5.7 UiValue & Attribute Normalization
 
 Attribute values are **typed** rather than stringly-typed: a `UiValue` is one of String, Bool, Integer, Number (an `f64`), or Null, plus the structured values Rect, Point, Size, Array, and Object. Carrying real types means the XPath and interaction layers can compare and compute on values without re-parsing them out of text.
+
+Values themselves are **not normalized**: every provider passes a value through as its platform reported it. No provider trims, collapses or otherwise rewrites a string, in any namespace, and that includes the strings inside structured values (the keys and values of an object, the entries of an array); a value of whitespace is a value. Where a platform transports a typed value as a string, the provider parses the unmodified string, and a string that does not parse stays the string it was — the Java Access Bridge sends an accessible value, a `java.lang.Number`, as its `toString()`. Whether the empty string is a value depends on the attribute group:
+
+- **Common attributes:** `Name` is always present and may be `""`; `Id` and `Description` are present only when they are not the empty string (§5.5, §5.6).
+- **Pattern attributes** are present whenever the node implements the pattern, and `""` is a value: an empty text field has `control:Text` = `""`.
+- **Native attributes** are passed one to one, so an empty string stays `""`. A property the platform does not report at all, because it is unsupported or its read failed, stays absent or null.
+
+A locator that wants to ignore surrounding whitespace says so with `normalize-space(...)`. The rule is spec `attribute-values`.
 
 For the structured values, the runtime makes the parts directly addressable. From a value like `Bounds` it auto-generates **alias attributes** for the components — `Bounds.X`, `Bounds.Width`, `ActivationPoint.Y`, and so on — so a query can reach a single coordinate without unpacking the whole rectangle. These aliases are synthesized by the runtime and XPath layer; providers must not generate them themselves.
 
@@ -321,7 +329,7 @@ Each action can fail — a platform may refuse a move, or the window may have go
 
 #### Common Attributes
 
-Every `control:`/`item:` node carries a small common attribute set independent of its patterns. `Role`, `Name`, `RuntimeId`, and `Technology` are always present; `Id`, `Description`, and `SupportedPatterns` are present conditionally as noted. The canonical name constants live in `crates/core/src/ui/attributes.rs` (`attribute_names::common`).
+Every `control:`/`item:` node carries a small common attribute set independent of its patterns. `Role`, `Name`, `RuntimeId`, and `Technology` are always present; `Id`, `Description`, and `SupportedPatterns` are present conditionally as noted. The values are taken as the platform reports them (§5.7): `Name` is present even when it is `""`, while `Id` and `Description` are absent only for the empty string — a value of whitespace is present. The canonical name constants live in `crates/core/src/ui/attributes.rs` (`attribute_names::common`).
 
 | Attribute | Presence | Meaning |
 |---|---|---|
@@ -557,6 +565,7 @@ All providers must:
 - Use correct namespaces (`control`, `item`, `app`, `native`).
 - Deliver all coordinates in the desktop coordinate system (DPI-aware).
 - Maintain stable `RuntimeId` values for element lifetimes (format: `prefix:value`).
+- Pass attribute values through as reported (§5.7): never trim or rewrite a string, list `""` for a pattern or native attribute that has it, and parse a string-transported number without trimming it first.
 - Emit `Id` only when non-empty, and never on application nodes. `id()` answers none rather than `""`, and always the same value as `control:Id`; the listing and the lookup by name agree (§5.5, checked by the testkit's `verify_id`).
 - Emit `Description` only when non-empty, sourced strictly from the platform's accessible-description property (no HelpText/tooltip fallback; see §5.6).
 - Set `parent` references correctly in children iterators, and keep the parent of every node a child iterator lists alive with a strong reference from child to parent, so that a node the runtime hands out keeps its chain of ancestors while it is held (§9.3). Never make a node hold its children, and keep the runtime's desktop only as a `Weak`: a top-level node reaches the desktop only while the runtime lives. The strong link belongs in the child iterators, not in the constructors, which also serve `get_nodes` with the desktop as parent. A provider that owns its whole tree, such as the mock provider, meets this already. The testkit checks `verify_children_keep_parent` and `verify_subtree_released` test both halves of the rule.
