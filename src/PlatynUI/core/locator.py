@@ -329,6 +329,13 @@ class Locator:
         ``use_default_prefix`` is true. ``default_attribute_namespace``
         names the namespace used for bare-string keys in
         `attributes`.
+
+        On the ``descendants`` scope, a locator with an ``index``, a
+        ``position`` or custom predicates renders one ``descendant::``
+        step, such as ``descendant::Button[2]``: it counts over all
+        descendants of the parent in document order, while
+        ``.//Button[2]`` would count per parent. Other locators render
+        ``.//``.
         """
         if self.path is not None:
             return self.path
@@ -368,6 +375,10 @@ class Locator:
             if scope is None:
                 scope = 'children' if parent_is_root_like else 'descendants'
             axis_prefix = _XPATH_AXIS[scope]
+            # A custom predicate may count positions as well.
+            counts = self.index is not None or self.position is not None or any(self.custom_attributes)
+            if scope == 'descendants' and counts:
+                axis_prefix = 'descendant::'
 
         result = axis_prefix + node_name
 

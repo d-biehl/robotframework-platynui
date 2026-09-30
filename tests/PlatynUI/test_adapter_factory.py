@@ -238,6 +238,47 @@ def test_find_one_rejects_adapter_without_native_node(
         factory.find_one(bogus, loc)
 
 
+@pytest.fixture
+def operations_console(factory: RuntimeAdapterFactory, desktop_adapter: UiNodeAdapter) -> Adapter:
+    found = factory.find_one(desktop_adapter, Locator(path='(//control:Window[@Name="Operations Console"])[1]'))
+    assert found is not None
+    return found
+
+
+def test_find_one_index_counts_over_all_descendants(
+    factory: RuntimeAdapterFactory,
+    operations_console: Adapter,
+) -> None:
+    # The window's tree holds Dashboard (Overview, Metrics) and Reports (Täglich, Monatlich,
+    # Jährlich); the second item in document order is Overview.
+    found = factory.find_one(operations_console, Locator(prefix='item', role='TreeItem', index=2))
+    assert found is not None
+    assert found.name == 'Overview'
+
+
+def test_find_one_index_past_the_last_descendant_finds_nothing(
+    factory: RuntimeAdapterFactory,
+    operations_console: Adapter,
+) -> None:
+    assert factory.find_one(operations_console, Locator(prefix='item', role='TreeItem', index=8)) is None
+
+
+def test_find_all_returns_matches_in_document_order(
+    factory: RuntimeAdapterFactory,
+    operations_console: Adapter,
+) -> None:
+    found = factory.find_all(operations_console, Locator(prefix='item', role='TreeItem'))
+    assert [a.name for a in found] == [
+        'Dashboard',
+        'Overview',
+        'Metrics',
+        'Reports',
+        'Täglich',
+        'Monatlich',
+        'Jährlich',
+    ]
+
+
 # ----------------------------------------------------------------------
 # Proxy chaining — Designdoc §4.4 step 3
 # ----------------------------------------------------------------------

@@ -116,7 +116,40 @@ def test_custom_attributes_appended_raw() -> None:
 
 def test_index_and_position() -> None:
     xpath = Locator(role='Button', position=3, index=1).to_xpath()
-    assert xpath == './/Button[position()=3][1]'
+    assert xpath == 'descendant::Button[position()=3][1]'
+
+
+def test_index_renders_one_descendant_step() -> None:
+    # `index` counts over all descendants of the parent: `.//Button[2]` would count per parent.
+    assert Locator(role='Button', index=2).to_xpath() == 'descendant::Button[2]'
+
+
+def test_custom_predicates_render_one_descendant_step() -> None:
+    xpath = Locator(role='X', custom_attributes=["@Foo='bar'", 'position()=2']).to_xpath()
+    assert xpath == "descendant::X[@Foo='bar' and position()=2]"
+
+
+def test_plain_locator_keeps_the_descendant_search() -> None:
+    assert Locator(role='Button', name='OK').to_xpath() == './/Button[@Name="OK"]'
+
+
+@pytest.mark.parametrize(
+    ('loc', 'parent_is_root_like', 'expected'),
+    [
+        (Locator(role='Button', index=2), True, 'Button[2]'),
+        (Locator(role='Window', scope='root', index=1), False, '/Window[1]'),
+        (Locator(role='Pane', scope='ancestor', index=1), False, 'ancestor::Pane[1]'),
+        (Locator(role='Button', scope='preceding-sibling', index=1), False, 'preceding-sibling::Button[1]'),
+    ],
+)
+def test_single_step_scopes_keep_their_rendering(loc: Locator, parent_is_root_like: bool, expected: str) -> None:
+    # One step from one parent already counts over the whole scope.
+    assert loc.to_xpath(parent_is_root_like=parent_is_root_like) == expected
+
+
+def test_path_and_explicit_axis_render_as_given() -> None:
+    assert Locator(path='.//Button[2]', index=5).to_xpath() == './/Button[2]'
+    assert Locator(role='Button', axis='.//', index=2).to_xpath() == './/Button[2]'
 
 
 def test_prefix_explicit() -> None:
