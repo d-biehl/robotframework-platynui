@@ -126,13 +126,13 @@ unsafe fn monitor_friendly_name(infoex: &MONITORINFOEXW) -> Option<String> {
     #[allow(clippy::cast_possible_truncation)]
     let mut dd: DISPLAY_DEVICEW = DISPLAY_DEVICEW { cb: size_of::<DISPLAY_DEVICEW>() as u32, ..Default::default() };
     let ok = unsafe { EnumDisplayDevicesW(windows::core::PCWSTR(infoex.szDevice.as_ptr()), 0, &raw mut dd, 0) };
-    if ok.as_bool() {
-        let s = trim_wstr(&dd.DeviceString);
-        if !s.trim().is_empty() {
-            return Some(s);
-        }
-    }
-    None
+    if ok.as_bool() { device_string_name(&dd.DeviceString) } else { None }
+}
+
+/// The monitor name a display device's `DeviceString` gives, as reported; none
+/// when it is empty.
+fn device_string_name(device_string: &[u16]) -> Option<String> {
+    Some(trim_wstr(device_string)).filter(|name| !name.is_empty())
 }
 
 static FRIENDLY_NAMES: std::sync::OnceLock<HashMap<String, String>> = std::sync::OnceLock::new();
@@ -224,6 +224,17 @@ mod tests {
         assert_eq!(trim_wstr(&buf), "AB");
     }
 
+    /// Spec `attribute-values`: *A whitespace-only monitor name is a name*.
+    #[test]
+    fn a_device_string_of_a_space_is_a_name() {
+        assert_eq!(device_string_name(&[u16::from(b' '), 0]).as_deref(), Some(" "));
+    }
+
+    #[test]
+    fn an_empty_device_string_is_no_name() {
+        assert_eq!(device_string_name(&[0, u16::from(b'A')]), None);
+    }
+
     #[test]
     fn os_version_string_is_non_empty() {
         let s = os_version_string();
@@ -266,7 +277,7 @@ mod tests {
             // Names/IDs should not be empty (friendly name may still be generic depending on system).
             assert!(info.monitors.iter().all(|m| !m.id.trim().is_empty()), "device ids must be non-empty");
             assert!(
-                info.monitors.iter().all(|m| !m.name.as_deref().unwrap_or("").trim().is_empty()),
+                info.monitors.iter().all(|m| m.name.as_deref().is_some_and(|name| !name.is_empty())),
                 "monitor names should be present"
             );
         }
