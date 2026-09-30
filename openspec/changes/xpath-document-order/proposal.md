@@ -16,7 +16,7 @@ The maintainer decided that the engine becomes XPath 2.0 conformant in all of th
 
 - **Path results are in document order without duplicates** for every step shape and every model, with or without order keys.
 - **Positional predicates count per context node.** `//X[1]` is the first X of every parent, and `(//X)[1]` is the first X overall. The optimizer no longer moves a possibly positional predicate from a parenthesized expression into a step.
-- **The first match stays cheap.** Evaluation keeps streaming, and normalizes only where order cannot be proven. The usual locator shapes (`//T[p]`, `.//T[p]`, `A//T[p]`, `//A/T[p]`, chains of child steps) find their first result by reading no more of the tree than the nodes up to it and their ancestors.
+- **The first match stays cheap.** Evaluation keeps streaming, and normalizes only where order cannot be proven. The usual locator shapes (`//T[p]`, `.//T[p]`, `A//T[p]`, `//A/T[p]`, `.//(A|B)[p]`, chains of child steps) find their first result by reading no more of the tree than the nodes up to it and their ancestors.
 - **`following::` keeps all results**, and context minimization is used only where every predicate of the step is non-positional.
 - **Sorting is total.** The comparator-based repair cursor is replaced by a normalization cursor that orders by keys, or else by sibling-index paths built from the snapshot's cached lists. Set operations use the same order. Deduplication stays by identity, made cheap by an optional identity hint on nodes.
 - **The Java agent scopes its runtime ids per view**, as UI Automation and JAB already do: a window listed flat under the desktop and the same window under its `app:Application` are two nodes with two ids. Desktop-wide `//Window` therefore keeps returning both copies, as it does for the other providers.
@@ -30,7 +30,7 @@ Behavior changes that users see, for the release notes:
 - `//X[n]`, `A/X[n]`, `X[last()]` and `X[position()=n]` inside a step count per parent and may return several elements. `(//X)[n]` is the n-th match overall, which is what `//X[n]` returned before.
 - Positional predicates on reverse axes count from each context node: `//B/ancestor::*[1]` is every B's parent.
 - `following::` from nested context nodes no longer loses results.
-- Paths whose order cannot be proven (sibling and reverse axes from several context nodes, filter-expression steps, paths from arbitrary sequences) collect their input before the first result.
+- Paths whose order cannot be proven (sibling and reverse axes from several context nodes, filter-expression steps, paths from arbitrary sequences) collect their input before the first result. The union idiom `.//(A|B)[p]` streams when `p` does not count positions.
 - On the mock, `//control:Window[@Name=…]` first finds the copy under its `app:Application`, because the mock lists applications before its flat windows.
 - Java agent elements get new runtime ids in their `app:Application` view (`agent/app/<pid>/<id>`).
 
@@ -50,7 +50,7 @@ Behavior changes that users see, for the release notes:
 
 - **Rust crates:**
   - `crates/xpath`:
-    - the parser's AST and the compiler (predicate classification next to `is_context_dependent`, stream properties, where normalization is emitted);
+    - the parser's AST and the compiler (predicate classification next to `is_context_dependent`, the `.//(A|B)[p]` rewrite, stream properties, where normalization is emitted);
     - the optimizer (pushdown only for non-positional predicates; `//T[p]` becomes `descendant::T[p]`);
     - the evaluator and cursors (per-context predicates, an order-preserving child-step merge, the normalization cursor, the `following::` fix, identity-based deduplication);
     - the model (an optional identity hint);

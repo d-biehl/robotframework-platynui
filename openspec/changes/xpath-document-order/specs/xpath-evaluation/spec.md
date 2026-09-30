@@ -38,6 +38,13 @@ The engine SHALL return the nodes that a path expression `E1/E2` selects in docu
 - **THEN** the results SHALL be `[b2, c]` and `[a, b1, b2, c]`
 - **NOTE:** Before this change `[c, b2]` and `[a, c, b1, b2]`.
 
+#### Scenario: A union step after // is in document order
+
+- **GIVEN** the tree `W:[P1:[B1,B2],B3,P2:[B4,B5]]`
+- **WHEN** `//(P|B)` and `//(P|B)[@id!='B1']` are evaluated
+- **THEN** the results SHALL be `[P1, B1, B2, B3, P2, B4, B5]` and `[P1, B2, B3, P2, B4, B5]`
+- **NOTE:** Before this change `[P1, B3, B1, B2, P2, B4, B5]` and `[P1, B3, B2, P2, B4, B5]`.
+
 #### Scenario: following from nested context nodes keeps every result
 
 - **GIVEN** the tree `r:[a1:[a2,c1]]`
@@ -116,6 +123,13 @@ A predicate within a step that uses `position()` or `last()`, or that yields a n
 - **THEN** the result SHALL be `[B2, B3, B4]`
 - **NOTE:** Before this change `[B3]`.
 
+#### Scenario: A positional predicate on a union step counts per parent
+
+- **GIVEN** the same tree
+- **WHEN** `//(P|B)[1]` and `//(P|B)[last()]` are evaluated
+- **THEN** the results SHALL be `[P1, B1, B4]` and `[B2, P2, B5]`
+- **NOTE:** Unchanged; each position counts among the P and B children of one node.
+
 #### Scenario: Reverse axes count from each context node
 
 - **GIVEN** the same tree
@@ -181,7 +195,7 @@ A predicate on a parenthesized expression, `(E)[p]`, SHALL count `position()` an
 
 ### Requirement: The first result does not require reading the rest of the tree
 
-The first item of a streamed evaluation (the first item of the engine's stream, and what the runtime's `evaluate_single` returns) SHALL be the first item of the full result in document order. For the shapes `//T[p]`, `.//T[p]`, `A//T[p]`, `//A/T[p]`, `(//T[p])[1]`, `//T[n]`, `.//T[p][n]` and chains of child steps after them, finding the first item SHALL read only the lists of children of the item's ancestors, of the item itself, and of nodes that precede it in document order.
+The first item of a streamed evaluation (the first item of the engine's stream, and what the runtime's `evaluate_single` returns) SHALL be the first item of the full result in document order. For the shapes `//T[p]`, `.//T[p]`, `A//T[p]`, `//A/T[p]`, `(//T[p])[1]`, `//T[n]`, `.//T[p][n]`, `.//(A|B)[p]` whose predicates do not count positions, and chains of child steps after them, finding the first item SHALL read only the lists of children of the item's ancestors, of the item itself, and of nodes that precede it in document order.
 
 #### Scenario: The first match of a descendant search
 
@@ -193,7 +207,7 @@ The first item of a streamed evaluation (the first item of the engine's stream, 
 #### Scenario: The first match reads only what precedes it
 
 - **GIVEN** a keyless tree of one `W` with 50 `P` children of 20 `B` children each (1,052 nodes), which records whose children were read
-- **WHEN** the first item of `//B[@id='B0_3']`, `//B`, `(//B)[1]`, `//B[1]`, `//P/B[1]`, `//P/B[@id='B0_3']`, `//W/P[@id='P0']`, and of `.//B[2]` from `W` is taken
+- **WHEN** the first item of `//B[@id='B0_3']`, `//B`, `(//B)[1]`, `//B[1]`, `//P/B[1]`, `//P/B[@id='B0_3']`, `//W/P[@id='P0']`, `//(P|B)[@id='B0_3']`, and of `.//B[2]` from `W` is taken
 - **THEN** each SHALL be the first item of the full result, and every list read SHALL belong to that item, one of its ancestors, or a node before it in document order, while the full evaluation of `//B` reads 1,052 lists
 - **NOTE:** A guard against sorting where streaming is possible.
 

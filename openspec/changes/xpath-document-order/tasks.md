@@ -4,7 +4,8 @@ Rules for every task:
 
 - No test or measurement uses the taskbar, the shell or applications that Windows ships.
 - Queries used for measurements are scoped to a repository test app, for example `count(.//*)` with the root `/app:Application[@ProcessId=${pid}]`. They are never desktop-wide.
-- Running the acceptance lane takes over the pointer and the keyboard. Ask the maintainer before each run.
+- The Windows acceptance lane runs on the real desktop and takes over the pointer and the keyboard. Ask the maintainer before each run. The Linux lanes run in a display of their own and need no asking.
+- When the Windows lane runs in the VM, run no host lane or build at the same time. The VM shares the host's CPU, and the timings of both would be skewed.
 
 ## 1. Before the change
 
@@ -38,26 +39,31 @@ Follow the `robot-test-style` skill.
 
   Declare every new test module in `tests/it/main.rs` (`:1-6`). Verify that `just test-crate platynui-xpath` builds.
 - [ ] 3.2 Add `document_order.rs`. It is a table over the scenarios of "A path returns its nodes in document order without duplicates", and each row runs on the keyed and on the keyless model. Include the missing-node and two-roots scenarios; the atomic scenario already exists at `evaluator_path_filter_expr.rs:40-53`. Verify that the rows marked "before this change" fail today, and that the `(//B)[last()]` and `//B/..` controls pass.
-- [ ] 3.3 Add `positional_predicates_per_step.rs` with the scenarios of "A positional predicate in a step counts per context node" and "A predicate on a parenthesized expression counts over the whole sequence", keyed and keyless. Verify that the rows with a "before this change" note fail today, `//B[3]` included. Also verify that `//B[0]`, `//B[1.5]`, `(//B)[6]`, the atomic-sequence row and `//B[(1, 2)]` → `FORG0006` pass.
+- [ ] 3.3 Add `positional_predicates_per_step.rs` with the scenarios of "A positional predicate in a step counts per context node" and "A predicate on a parenthesized expression counts over the whole sequence", keyed and keyless. Verify that the rows with a "before this change" note fail today, `//B[3]` included. Also verify that `//B[0]`, `//B[1.5]`, `(//B)[6]`, `//(P|B)[1]`, `//(P|B)[last()]`, the atomic-sequence row and `//B[(1, 2)]` → `FORG0006` pass.
 - [ ] 3.4 Add `document_order_oracle.rs`:
   - It enumerates every ordered tree of up to six element nodes labelled `a` or `b`.
-  - It compares, on the keyed and keyless models, `//a`, `//a[1]`, `//a[last()]`, `(//a)[2]`, `//a/b`, `//a/b[1]`, `//*/following-sibling::a`, `//a/following::b`, `//a/following::b[1]`, `//a/preceding::b[1]`, `//a/ancestor::*[1]`, `//a/descendant::b[1]` and `//*/..` against a naive evaluator written in the test itself. The naive evaluator lists each axis from each context by pre-order index, applies predicates per context, then sorts and deduplicates, and shares no code with the engine.
+  - It compares, on the keyed and keyless models, `//a`, `//a[1]`, `//a[last()]`, `(//a)[2]`, `//a/b`, `//a/b[1]`, `//*/following-sibling::a`, `//a/following::b`, `//a/following::b[1]`, `//a/preceding::b[1]`, `//a/ancestor::*[1]`, `//a/descendant::b[1]`, `//(a|b)[1]`, `//(a|b)[b]` and `//*/..` against a naive evaluator written in the test itself. The naive evaluator lists each axis, and each union of child steps, from each context by pre-order index, applies predicates per context, then sorts and deduplicates, and shares no code with the engine.
 
   Verify that it fails today and names the first failing tree and expression.
-- [ ] 3.5 Add `first_match_reads.rs`, using the recording wrapper on the wide tree. For the first item of `//B[@id='B0_3']`, `//B`, `(//B)[1]`, `//B[1]`, `//P/B[1]`, `//P/B[@id='B0_3']`, `//W/P[@id='P0']` and `.//B[2]` from `W`, assert three things:
+- [ ] 3.5 Add `first_match_reads.rs`, using the recording wrapper on the wide tree. For the first item of `//B[@id='B0_3']`, `//B`, `(//B)[1]`, `//B[1]`, `//P/B[1]`, `//P/B[@id='B0_3']`, `//W/P[@id='P0']`, `.//B[2]` from `W` and `//(P|B)[@id='B0_3']`, assert three things:
   - the item equals the first item of the full result;
   - every list read belongs to the item, one of its ancestors, or a node before it;
-  - the count stays within the design's bounds: 6, 3, 3, 3, 3, 6, 2 and 3.
+  - the count stays within the design's bounds: 6, 3, 3, 3, 3, 6, 2, 3 and 6.
 
   Also assert that the first item of `//B/..` on `W:[P1:[B1,B2],B3,P2:[B4,B5]]` is `W`, and that a full `//B` reads 1,052 lists. Verify that the order assertions fail today where the order is wrong (for example `//B` gives `B3` first on the small tree).
-- [ ] 3.6 Add `compiler_document_order_plan.rs`. It asserts:
-  - no normalization op for `//B[@id='x']`, `Window[@Name='x']//Button[@Name='y']`, `//Window/Button[@Name='OK']`, `.//B[2]`, `(//B)[1]` and `.//*[@Name='t']/*[3]/*[2]`;
-  - one normalization op for `//B/..`, `//B/ancestor::*`, `(//c, //a)/self::*` and `//*/following-sibling::*`;
-  - pushdown of the leading non-positional run only: `(//T)[@a][1]` moves `[@a]` and keeps `[1]`, and `(//T)[1][@a]` moves nothing;
-  - `[1]`, `[$n]`, `[count(x)]` and `[position() < 3]` never move into a step;
-  - `[@a]`, `[@a='x']` and `[contains(@a,'x')]` move.
+- [ ] 3.6 Add two plan tests:
+  - `compiler_predicate_rewrites.rs` (design decisions 1 and 3) asserts:
+    - pushdown of the leading non-positional run only: `(//T)[@a][1]` moves `[@a]` and keeps `[1]`, and `(//T)[1][@a]` moves nothing;
+    - `[1]`, `[$n]`, `[count(x)]` and `[position() < 3]` never move into a step;
+    - `[@a]`, `[@a='x']` and `[contains(@a,'x')]` move;
+    - `//T[@a]` and `.//T[@a]` compile to one `descendant::T` step, while `descendant::A[@q]/T[@p]` keeps its child step;
+    - `//(A|B)` and `.//(A|B)[@a]` compile to one `descendant::*` step whose first predicate is `self::A or self::B`, and `(//(A|B))[@a]` moves `[@a]` into it;
+    - `.//(A|B)[1]` and `.//(A|B/C)[@a]` keep their filter-expression step.
+  - `compiler_document_order_plan.rs` (design decision 4) asserts:
+    - no normalization op for `//B[@id='x']`, `Window[@Name='x']//Button[@Name='y']`, `//Window/Button[@Name='OK']`, `.//B[2]`, `(//B)[1]`, `.//*[@Name='t']/*[3]/*[2]` and `.//(A|B)[@a]`;
+    - one normalization op for `//B/..`, `//B/ancestor::*`, `(//c, //a)/self::*`, `//*/following-sibling::*` and `.//(A|B)[1]`.
 
-  It names the opcodes of design decisions 1 and 4. Verify that it does not compile yet.
+  Each names the IR it checks: the predicate flag of decision 1, and the normalization op of decision 4. Verify that neither compiles yet. The first compiles once 6.1 carries the flag, the second once group 7 adds the op.
 - [ ] 3.7 Update the tests that assert the old behavior:
   - In `evaluator_more.rs:158-181`, the helper `:41-60` counts position per section, so the count becomes 48 instead of 53.
   - The shape tests of `compiler_paths_predicates.rs` (`:8-14`, `:22-36`, `:38-49`, `:63-68`, `:164-194`, `:196-222`, `:259-272`) move to the new plan and predicate type.
@@ -96,7 +102,8 @@ Follow the `robot-test-style` skill.
 
 - [ ] 6.1 Classify each predicate when it is lowered (design decision 1), with a classifier on the AST next to `Expr::is_context_dependent` (`crates/xpath/src/parser/ast.rs:115`) that shares its focus walk. Carry the flag in the IR, and print it in `Display` and `fmt_with_indent`. Add unit tests for the classifier: the non-positional and possibly-positional cases of the decision, `position()` inside a nested step and inside `for`, `some` and `every`. Verify with `just test-crate platynui-xpath` that the classifier tests pass, that `parser_context_dependence.rs` stays green, and that the crate builds.
 - [ ] 6.2 Evaluate a step's predicates per context node when one of them may be positional, and allow the three minimizing cursors only when none is (design decision 2). Verify that the per-context rows of 3.3 whose result does not depend on order now pass, for example `count(//B[1])` and `//B[3]`.
-- [ ] 6.3 Push down only the leading non-positional predicates, and rewrite a predicate-free `descendant-or-self::node()` followed by a non-positional `child::T[…]` into `descendant::T[…]` after pushdown (design decision 3). Correct the doc comments at `optimizer.rs:11-51` and `:129-158`. Verify that the pushdown assertions of 3.6 and the updated unit tests of 3.7 pass.
+- [ ] 6.3 Push down only the leading non-positional predicates, and rewrite a predicate-free `descendant-or-self::node()` followed by a non-positional `child::T[…]` into `descendant::T[…]` after pushdown (design decision 3). Correct the doc comments at `optimizer.rs:11-51` and `:129-158`. Verify that the pushdown and `//T[p]` rows of `compiler_predicate_rewrites.rs` (3.6) and the updated unit tests of 3.7 pass.
+- [ ] 6.4 Rewrite `.//(A|B)[p]` into `descendant::*[self::A or self::B][p]` while the path is lowered, under the conditions of design decision 3. Cover both forms of `//`: the explicit `descendant-or-self::node()` step and the `//` at the start of a path. Verify that the union rows of 3.2 now pass, that the union rows of 3.3 still pass, and that `compiler_predicate_rewrites.rs` passes in full.
 
 ## 7. Engine — order
 
@@ -111,9 +118,9 @@ Follow the `robot-test-style` skill.
   - the cancellation flag checked while draining.
 
   Replace `EnsureOrderCursor`, and use the same order in the set operations. Add unit tests for each case, and one where the sort sees no call to `attributes()`. Verify that they pass and that `evaluator_path_filter_expr.rs` stays green.
-- [ ] 7.3 Track single, ordered, distinct and peer through a path, and emit normalization according to the table of design decision 4, including `(E)/…` bases, filter-expression steps and `(E)[p]`. Verify that 3.2 and the normalization assertions of 3.6 pass.
+- [ ] 7.3 Track single, ordered, distinct and peer through a path, and emit normalization according to the table of design decision 4, including `(E)/…` bases, filter-expression steps and `(E)[p]`. Verify that 3.2 and the one-normalization-op rows of `compiler_document_order_plan.rs` (3.6) pass.
 - [ ] 7.4 Minimize `following::` by the earliest subtree end (design decision 7), with a unit test on `r:[a1:[a2,c1]]`. Verify that `//a/following::c` in 3.2 passes.
-- [ ] 7.5 Add the ordered child merge and the bounded advance (design decision 5), and answer the bounded advance in the descendant walkers and in the merge itself. Verify that 3.3, 3.4 and 3.5 pass, and that the no-normalization assertions of 3.6 pass.
+- [ ] 7.5 Add the ordered child merge and the bounded advance (design decision 5), and answer the bounded advance in the descendant walkers and in the merge itself. Verify that 3.3, 3.4 and 3.5 pass, and that `compiler_document_order_plan.rs` (3.6) passes in full.
 - [ ] 7.6 Correct the remaining engine docs: `evaluator/mod.rs:220-244` (`(//item)[1]` as the first-item example), `ir.rs:99-104` and the comment at `cursors.rs:529`. Verify that `just test-crate platynui-xpath` is fully green, the tests updated in 3.7 included, and that `just clippy` is clean.
 
 ## 8. Runtime
@@ -138,7 +145,7 @@ Follow the `robot-test-style` skill.
 
 - [ ] 11.1 Update:
   - `dev-docs/architecture.md`:
-    - §9.1–9.2 (`:709-739`): document order by construction, normalization only where it is not proven, per-context positional predicates, `(E)[n]` against `E[n]`, the bounded advance;
+    - §9.1–9.2 (`:709-739`): document order by construction, normalization only where it is not proven, per-context positional predicates, `(E)[n]` against `E[n]`, the rewrites of `//T[p]` and `.//(A|B)[p]` into one descendant step, the bounded advance;
     - §5.4 (`:222-234`): an agent row with `agent/<pid>/<id>` and `agent/app/<pid>/<id>`, and the rule of one id per view;
   - `crates/xpath/docs/xpath20_coverage.md:55-56`, including the attribute-before-namespace deviation;
   - `dev-docs/python-library-design.md:2948` and `:2977`, the Locator's scope mapping and its `[N]` suffix; the English summary at the top of this German document already exists;
@@ -148,7 +155,7 @@ Follow the `robot-test-style` skill.
 
 ## 12. Verification
 
-- [ ] 12.1 Run `just check`, `just test`, `just test-python` and `just test-baremetal`, then `just build-native`. Verify that everything is green.
+- [ ] 12.1 Run `just check`, `just test`, `just test-python` and `just test-baremetal`, then the Linux lanes `just headless=true test-acceptance-x11` and `just headless=true test-acceptance-compositor`, which build the native module without the mock provider again. Verify that everything is green, and that the lanes' logs have no WARN or ERROR from PlatynUI.
 - [ ] 12.2 On Windows, with the maintainer's go-ahead, run `just install-provider-java`, `just test-acceptance-windows` and `uv run --no-sync robotcode results log --level WARN --execution-messages`. Verify:
   - everything is green, including 5.1, 5.2 and the Swing suites that address cells by position;
   - there is no WARN or ERROR from PlatynUI.

@@ -10,7 +10,8 @@ The proposal says why this change exists (see proposal.md, Why). The specs say w
 - The compiler decides after each step whether to normalize (`crates/xpath/src/compiler/mod.rs:543-585`):
   - after `child`, `self` and `attribute` it emits nothing (`:557`);
   - after `descendant*`, `following` and `following-sibling` it emits only `EnsureDistinct` (`:558-562`);
-  - after `parent`, `ancestor*` and `preceding*` it emits `EnsureDistinct` and `EnsureOrder` (`:563-571`).
+  - after `parent`, `ancestor*` and `preceding*` it emits `EnsureDistinct` and `EnsureOrder` (`:563-571`);
+  - a filter-expression step, such as the union in `.//(A|B)[p]`, becomes an opaque `PathExprStep` followed by both (`:574-581`). `//(P|B)` still gives `[P1, B3, B1, B2, P2, B4, B5]`, because `EnsureOrder` cannot repair it (see Order repair).
 - A child step over nested context nodes therefore concatenates their children in the order of their parents.
 - The base of `(E)/steps` is never normalized (`:373-376`).
 
@@ -64,7 +65,7 @@ The proposal says why this change exists (see proposal.md, Why). The specs say w
 
 | Shapes | Lists read by a correct engine |
 |---|---|
-| `//B[@id='B0_3']`, `//P/B[@id='B0_3']` | 6 (`#doc`, `W`, `P0`, `B0_0`, `B0_1`, `B0_2`) |
+| `//B[@id='B0_3']`, `//P/B[@id='B0_3']`, `//(P|B)[@id='B0_3']` | 6 (`#doc`, `W`, `P0`, `B0_0`, `B0_1`, `B0_2`) |
 | `//B`, `(//B)[1]`, `//B[1]`, `//P/B[1]`, `.//B[2]` from `W` | 3 |
 | `//W/P[@id='P0']` | 2 |
 
@@ -117,7 +118,7 @@ Context minimization is allowed only when every predicate of the step is non-pos
 
 *Alternatives:* rewriting `X[n]` into `[count(preceding-sibling::X) = n-1]` has no `last()`, costs O(siblings²) and does not cover reverse axes. Keeping global positions was overruled by the maintainer.
 
-### 3. Push down only non-positional predicates, then rewrite `//T[p]` into one descendant step
+### 3. Push down only non-positional predicates, then rewrite `//T[p]` and `.//(A|B)[p]` into one descendant step
 
 For `(E)[p1][p2]…`, the optimizer moves only the leading run of non-positional predicates into E's last axis step:
 
@@ -128,7 +129,21 @@ Today the whole list moves or none of it (`optimizer.rs:96-121`).
 
 After pushdown, a `descendant-or-self::node()` step without predicates, followed by `child::T[p…]` with only non-positional predicates, becomes `descendant::T[p…]`. The two are equivalent exactly under that condition. `descendant::A[q]/child::T[p]` is not rewritten: from a context that itself matches `A[q]` the result would change (verified: `[T1, T2]` instead of `[T2]` on `A0:[T1, A1:[T2]]`). The optional pushdown of a positional predicate into a step whose input is statically one node, as in `(child::X)[1]`, is left out: it saves little.
 
-*Alternatives:* removing pushdown entirely loses streaming for `(//X)[@a='x']`. The triage's rewrite to `descendant::T[p][parent::A[q]]` is wrong, as shown above.
+The union idiom `.//(A|B)[p…]` gets the same rewrite. The robot-test-style skill recommends it for windows (`.//(Frame|Window)[@Name=…]`). Three conditions must hold:
+
+- a filter-expression step follows a `descendant-or-self::node()` without predicates;
+- its expression is a parenthesized union whose operands are single `child::` steps with name tests and no predicates;
+- every predicate on it is non-positional.
+
+Then the step becomes `descendant::*[self::A or self::B][p…]`. The two are equivalent exactly under those conditions: `//(P|B)[1]` is the first P or B of every parent (`[P1, B1, B4]`), while `descendant::*[self::P or self::B][1]` is the first overall (`[P1]`).
+
+The optimizer sees such a step only as an opaque `PathExprStep` (`compiler/mod.rs:574-581`). So the compiler rewrites it while it lowers the path, where the union is still visible on the AST. It covers both forms of `//`: the explicit step of `.//` and `A//`, and the `//` at the start of a path. The rewrite comes before the optimizer, so pushdown applies to its result: `(//(A|B))[@a]` becomes one descendant step as well.
+
+*Alternatives:*
+
+- Removing pushdown entirely loses streaming for `(//X)[@a='x']`.
+- The triage's rewrite to `descendant::T[p][parent::A[q]]` is wrong, as shown above.
+- Rewriting the union in the optimizer would mean recognizing it inside the instructions of a `PathExprStep`. On the AST it is one pattern.
 
 ### 4. Track what the compiler knows about a node stream, and normalize only where order is not proven
 
@@ -154,7 +169,7 @@ The rules:
 | `parent`, `ancestor*`, `preceding-sibling` | single | reversed buffer; ordered, distinct |
 | `preceding` without positional predicates | ordered | last context only, reversed; ordered, distinct |
 | every other case of these axes, including positional predicates on `descendant*`, `following` or `preceding` from more than one context | — | normalize |
-| filter-expression step; `(E)/…` whose base is a variable, a sequence or a function call | — | normalize |
+| filter-expression step that decision 3 does not rewrite; `(E)/…` whose base is a variable, a sequence or a function call | — | normalize |
 | `(E)[p]` | — | E's properties; a literal `[1]` makes it single |
 | `union`, `intersect`, `except` | — | ordered, distinct |
 
@@ -259,8 +274,8 @@ The change updates:
   - Document order requires reading the lists of the 543 cells before cell 544, because a nested `main-table` inside one of them would come first. On the agent and JAB that is one call per cell, for every `Get Attribute Value` (`tests/acceptance/swing/native_attributes.robot:66-68`, `agent_table.robot:37-132`).
   - → Measure the suites' keyword times on the Swing fixture before and after. If the regression is noticeable, rewrite the repo's suites to `(.//*[@Name="main-table"])[1]/*[n]`, which reads only the table's list, and document the idiom (decision 10). The engine cost is the price of a correct answer, and it is accepted.
 - **[Shapes that must sort read all their input before the first result]**
-  - These shapes are sibling, parent and reverse axes from several contexts, filter-expression steps (including the idiom `.//(Frame|Window)[@Name=…]`), and `(E)/…` bases. `evaluate_single` on them reads every matching context.
-  - → `.//(A|B)[p]` already waits for a second item today. A rewrite to `descendant::*[self::A or self::B][p]` is a possible later optimization.
+  - These shapes are sibling, parent and reverse axes from several contexts, filter-expression steps that decision 3 does not rewrite (such as `.//(A|B)[1]`), and `(E)/…` bases. `evaluate_single` on them reads every matching context.
+  - → They already wait for more than one item today. The union idiom `.//(Frame|Window)[@Name=…]` streams, because decision 3 rewrites it.
 - **[User suites that wrote `//X[n]` meaning "n-th overall" change silently]** They may now match several elements, and keywords take the first. → A release note, the BareMetal doc line, and the new BareMetal suite that shows both forms.
 - **[The mock resolves the other copy of a window]**
   - `//control:Window[@Name=…]` on the mock now finds the copy under `Mock Application` first, because the mock lists applications first (`crates/provider-mock/src/provider.rs:34-40`).
@@ -287,4 +302,4 @@ The change updates:
 
 ## Open Questions
 
-- Whether to add the rewrite `.//(A|B)[p]` → `descendant::*[self::A or self::B][p]` for non-positional `p`. It would restore streaming for the robot-test-style idiom, and it changes no result, so it can follow as a separate optimization once the measurements of the Windows lane are in.
+None.
