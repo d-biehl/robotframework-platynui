@@ -93,8 +93,8 @@ pub struct AtspiNode {
     namespace: OnceLock<Namespace>,
     state: ClearableCell<Option<StateSet>>,
     pub(crate) interfaces: ClearableCell<Option<InterfaceSet>>,
-    /// Cached name resolved from the accessibility bus.
-    pub(crate) cached_name: ClearableCell<Option<String>>,
+    /// Cached name resolved from the accessibility bus (see [`name_from`]).
+    pub(crate) cached_name: ClearableCell<String>,
     /// Cached child count (from AT-SPI `ChildCount` property).
     pub(crate) cached_child_count: ClearableCell<Option<i32>>,
     /// Registry of event-discovered transient popups (see `popups.rs`),
@@ -183,7 +183,7 @@ impl AtspiNode {
         child_count: i32,
         interfaces: Option<InterfaceSet>,
         role: Role,
-        name: Option<String>,
+        name: String,
         local_number: Option<u32>,
     ) {
         self.cached_child_count.set(Some(child_count));
@@ -250,7 +250,7 @@ impl AtspiNode {
         })
     }
 
-    fn resolve_name(&self) -> Option<String> {
+    fn resolve_name(&self) -> String {
         self.cached_name.get_or_init(|| resolve_name(self.conn.as_ref(), &self.timeouts, &self.obj))
     }
 
@@ -331,7 +331,7 @@ impl UiNode for AtspiNode {
     }
 
     fn name(&self) -> String {
-        self.resolve_name().unwrap_or_default()
+        self.resolve_name()
     }
 
     fn runtime_id(&self) -> &RuntimeId {
@@ -771,20 +771,75 @@ fn object_runtime_id(obj: &ObjectRefOwned) -> String {
     format!("atspi://{}{}", name, obj.path_as_str())
 }
 
-pub(crate) fn normalize_value(value: &str) -> Option<String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+// Every string below is taken as the bus returned it (spec `attribute-values`).
+// D-Bus has no null string, so a property nobody set arrives as `""`: where an
+// attribute is absent when empty, only `""` means none, and whitespace is a
+// value like any other.
+
+/// Object attributes that name an element whose `Accessible.Name` is empty,
+/// asked in this order.
+const NAME_ATTRIBUTES: [&str; 4] = ["accessible-name", "name", "label", "title"];
+
+/// Object attributes that carry an element's identifier when its
+/// `Accessible.AccessibleId` is empty, asked in this order.
+const ID_ATTRIBUTES: [&str; 3] = ["accessible-id", "accessible_id", "id"];
+
+/// The `Name` decision over what the bus returned: `accessible_name` is the
+/// `Accessible.Name` read (`None` when it failed), and `attributes` reads the
+/// object attributes, only when the name is needed from them.
+///
+/// The name as reported, or, when it is empty or unreadable, the first naming
+/// object attribute that is not empty; `""` when there is neither.
+fn name_from(accessible_name: Option<String>, attributes: impl FnOnce() -> Option<Vec<(String, String)>>) -> String {
+    match accessible_name {
+        Some(name) if !name.is_empty() => name,
+        _ => attributes().and_then(|attrs| pick_attr_value(&attrs, &NAME_ATTRIBUTES)).unwrap_or_default(),
+    }
 }
 
-fn pick_attr_value(attrs: &[(String, String)], keys: &[&str]) -> Option<String> {
-    for key in keys {
-        if let Some((_name, value)) = attrs.iter().find(|(name, _)| name.eq_ignore_ascii_case(key))
-            && let Some(value) = normalize_value(value)
-        {
-            return Some(value);
-        }
+/// The `Id` decision over what the bus returned: `accessible_id` is the
+/// `Accessible.AccessibleId` read (`None` when it failed), and `attributes`
+/// reads the object attributes, only when the identifier is needed from them.
+///
+/// The identifier as reported, or, when it is empty or unreadable, the first
+/// identifying object attribute that is not empty (spec `id-attribute`).
+fn id_from(
+    accessible_id: Option<String>,
+    attributes: impl FnOnce() -> Option<Vec<(String, String)>>,
+) -> Option<String> {
+    match accessible_id {
+        Some(id) if !id.is_empty() => Some(id),
+        _ => attributes().and_then(|attrs| pick_attr_value(&attrs, &ID_ATTRIBUTES)),
     }
-    None
+}
+
+/// The `Description` decision over the `Accessible.Description` read (`None`
+/// when it failed): the description as reported, and none when it is empty
+/// (spec `description-attribute`).
+fn description_from(description: Option<String>) -> Option<String> {
+    description.filter(|description| !description.is_empty())
+}
+
+/// The name an application node is seeded with during desktop enumeration
+/// (see [`AtspiNode::seed_application`]), from its root's `Accessible.Name`
+/// read (`None` when it failed): the name as reported, `""` when unreadable.
+pub(crate) fn application_name(read: Option<String>) -> String {
+    read.unwrap_or_default()
+}
+
+/// A native string property from its read (`None` when it failed): the string
+/// as reported, `""` included, and null only when the read failed.
+fn native_string(read: Option<String>) -> UiValue {
+    read.map_or(UiValue::Null, UiValue::from)
+}
+
+/// The value of the first of `keys` (compared ignoring ASCII case) whose
+/// object attribute is present and not empty, unmodified.
+fn pick_attr_value(attrs: &[(String, String)], keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        let (_, value) = attrs.iter().find(|(name, _)| name.eq_ignore_ascii_case(key))?;
+        (!value.is_empty()).then(|| value.clone())
+    })
 }
 
 fn resolve_attributes(
@@ -802,61 +857,45 @@ fn resolve_attributes(
     Some(pairs)
 }
 
-fn resolve_name(conn: &AccessibilityConnection, timeouts: &AppTimeouts, obj: &ObjectRefOwned) -> Option<String> {
-    if let Some(Ok(name)) = accessible_proxy(conn, obj)
+/// Resolve the element's name (`Accessible.Name`) as reported, falling back to
+/// the naming object attributes only when it is empty (see [`name_from`]).
+fn resolve_name(conn: &AccessibilityConnection, timeouts: &AppTimeouts, obj: &ObjectRefOwned) -> String {
+    let name = accessible_proxy(conn, obj)
         .and_then(|p| block_on_timeout_call(timeouts, bus_name(obj), "Accessible.Name", p.name()))
-        && let Some(value) = normalize_value(&name)
-    {
-        return Some(value);
-    }
-    resolve_attributes(conn, timeouts, obj)
-        .and_then(|attrs| pick_attr_value(&attrs, &["accessible-name", "name", "label", "title"]))
+        .and_then(std::result::Result::ok);
+    name_from(name, || resolve_attributes(conn, timeouts, obj))
 }
 
 /// Resolve the accessible description (`Accessible.Description`), the strict
-/// source for `control:Description`. Empty/whitespace values normalize to
-/// `None` so the attribute is emitted only when non-empty. Deliberately does
-/// NOT fall back to `HelpText`.
+/// source for `control:Description`, as reported; `None` when it is empty (see
+/// [`description_from`]), so the attribute is emitted only with a value.
+/// Deliberately does NOT fall back to `HelpText`.
 fn resolve_description(conn: &AccessibilityConnection, timeouts: &AppTimeouts, obj: &ObjectRefOwned) -> Option<String> {
-    if let Some(Ok(description)) = accessible_proxy(conn, obj)
-        .and_then(|p| block_on_timeout_call(timeouts, bus_name(obj), "Accessible.Description", p.description()))
-    {
-        return normalize_value(&description);
-    }
-    None
+    description_from(
+        accessible_proxy(conn, obj)
+            .and_then(|p| block_on_timeout_call(timeouts, bus_name(obj), "Accessible.Description", p.description()))
+            .and_then(std::result::Result::ok),
+    )
 }
 
+/// Resolve the element's identifier (`Accessible.AccessibleId`) as reported,
+/// falling back to the identifying object attributes only when it is empty (see
+/// [`id_from`]).
 fn resolve_id(conn: &AccessibilityConnection, timeouts: &AppTimeouts, obj: &ObjectRefOwned) -> Option<String> {
-    if let Some(Ok(id)) = accessible_proxy(conn, obj)
+    let id = accessible_proxy(conn, obj)
         .and_then(|p| block_on_timeout_call(timeouts, bus_name(obj), "Accessible.AccessibleId", p.accessible_id()))
-        && let Some(value) = normalize_value(&id)
-    {
-        return Some(value);
-    }
-    resolve_attributes(conn, timeouts, obj)
-        .and_then(|attrs| pick_attr_value(&attrs, &["accessible-id", "accessible_id", "id"]))
+        .and_then(std::result::Result::ok);
+    id_from(id, || resolve_attributes(conn, timeouts, obj))
 }
 
+/// Object attributes as an object, every key and value as reported.
 fn attributes_object(attrs: &[(String, String)]) -> UiValue {
-    let mut map = BTreeMap::new();
-    for (name, value) in attrs {
-        if name.trim().is_empty() {
-            continue;
-        }
-        map.insert(name.clone(), UiValue::from(value.clone()));
-    }
-    UiValue::Object(map)
+    UiValue::Object(attrs.iter().map(|(name, value)| (name.clone(), UiValue::from(value.as_str()))).collect())
 }
 
+/// A string map as an object, every key and value as reported.
 fn string_map_object(map: &std::collections::HashMap<String, String>) -> UiValue {
-    let mut out = BTreeMap::new();
-    for (name, value) in map {
-        if name.trim().is_empty() {
-            continue;
-        }
-        out.insert(name.clone(), UiValue::from(value.clone()));
-    }
-    UiValue::Object(out)
+    UiValue::Object(map.iter().map(|(name, value)| (name.clone(), UiValue::from(value.as_str()))).collect())
 }
 
 fn interface_set_value(interfaces: InterfaceSet) -> UiValue {
@@ -873,7 +912,8 @@ fn actions_value(actions: Vec<AtspiAction>, names: &[Option<String>]) -> UiValue
         .enumerate()
         .map(|(i, action)| {
             let mut map = BTreeMap::new();
-            // Machine-readable (non-localized) name via `GetName`.
+            // Machine-readable (non-localized) name via `GetName`, as reported;
+            // absent only when that read failed.
             if let Some(Some(name)) = names.get(i) {
                 map.insert("Name".to_string(), UiValue::from(name.clone()));
             }
@@ -1615,7 +1655,7 @@ impl LazyNodeData {
     }
 
     fn resolve_name(&self) -> &str {
-        self.name.get_or_init(|| resolve_name(&self.conn, &self.timeouts, &self.obj).unwrap_or_default())
+        self.name.get_or_init(|| resolve_name(&self.conn, &self.timeouts, &self.obj))
     }
 
     fn resolve_id(&self) -> Option<&str> {
@@ -1822,10 +1862,8 @@ impl UiAttribute for LazyStdAttr {
             }
             StdAttrKind::IsTopmost => UiValue::from(self.ctx.resolve_window_state().is_some_and(|state| state.topmost)),
             StdAttrKind::Text => {
-                // Verbatim GetText(0,-1); preserve empty strings (an empty
-                // text field must stay present-and-empty, not collapse to
-                // Null) — so this deliberately bypasses `fetch_str`'s
-                // empty-to-Null normalization used for names.
+                // Verbatim GetText(0,-1); an empty text field stays
+                // present-and-empty, not Null (spec `attribute-values`).
                 self.ctx.resolve_text().map_or(UiValue::Null, UiValue::from)
             }
         }
@@ -2121,14 +2159,10 @@ impl LazyNativeAttr {
         self.call(future).and_then(std::result::Result::ok).map_or(UiValue::Null, Into::into)
     }
 
-    /// Fetch a D-Bus string property, normalise it (trim, reject empty), and
-    /// convert to [`UiValue`].
+    /// Fetch a D-Bus string property as reported, `""` included (see
+    /// [`native_string`]). Returns [`UiValue::Null`] on timeout or D-Bus error.
     fn fetch_str<E>(&self, future: impl std::future::Future<Output = Result<String, E>>) -> UiValue {
-        self.call(future)
-            .and_then(std::result::Result::ok)
-            .as_deref()
-            .and_then(normalize_value)
-            .map_or(UiValue::Null, UiValue::from)
+        native_string(self.call(future).and_then(std::result::Result::ok))
     }
 
     /// Fetch a D-Bus property and apply a custom mapping to [`UiValue`].
@@ -2225,8 +2259,6 @@ impl LazyNativeAttr {
                     .map(|i| {
                         block_on_timeout_call(&self.timeouts, bus_name(&self.obj), "Action.GetName", proxy.get_name(i))
                             .and_then(std::result::Result::ok)
-                            .as_deref()
-                            .and_then(normalize_value)
                     })
                     .collect();
                 actions_value(actions, &names)
@@ -2565,22 +2597,122 @@ mod tests {
         assert_eq!(AppAttr::named(Namespace::Control, "IsActive"), None);
     }
 
-    // ---- normalize_value ----
+    // ---- values as the bus returned them (spec `attribute-values`) ----
 
-    #[test]
-    fn normalize_value_trims_whitespace() {
-        assert_eq!(normalize_value("  hello  "), Some("hello".to_string()));
+    /// Object attributes as `GetAttributes` returns them.
+    fn pairs(entries: &[(&str, &str)]) -> Vec<(String, String)> {
+        entries.iter().map(|(key, value)| ((*key).to_owned(), (*value).to_owned())).collect()
+    }
+
+    /// An object-attribute read that must not happen, because the property
+    /// read answered.
+    fn unread() -> Option<Vec<(String, String)>> {
+        panic!("must not read the object attributes")
     }
 
     #[test]
-    fn normalize_value_empty_returns_none() {
-        assert_eq!(normalize_value(""), None);
-        assert_eq!(normalize_value("   "), None);
+    fn the_name_is_taken_as_reported() {
+        // *An AT-SPI name keeps its whitespace*
+        assert_eq!(name_from(Some("  Save  as  ".to_owned()), unread), "  Save  as  ");
+        // *A whitespace-only AT-SPI name is a name*
+        assert_eq!(name_from(Some("   ".to_owned()), unread), "   ");
     }
 
     #[test]
-    fn normalize_value_preserves_inner_spaces() {
-        assert_eq!(normalize_value("hello world"), Some("hello world".to_string()));
+    fn an_empty_name_without_a_naming_attribute_is_empty() {
+        // *An element without an accessible name has an empty Name*
+        assert_eq!(name_from(Some(String::new()), || Some(pairs(&[("toolkit", "Qt")]))), "");
+        assert_eq!(name_from(None, || None), "");
+    }
+
+    #[test]
+    fn an_empty_name_falls_back_to_a_naming_attribute_unmodified() {
+        // The object-attribute fallback stays until `name-is-accessible-name`.
+        assert_eq!(name_from(Some(String::new()), || Some(pairs(&[("label", " Save ")]))), " Save ");
+    }
+
+    #[test]
+    fn the_id_is_taken_as_reported() {
+        // *An AT-SPI identifier keeps its whitespace*
+        assert_eq!(id_from(Some(" btn-save ".to_owned()), unread).as_deref(), Some(" btn-save "));
+        // *A whitespace-only AT-SPI identifier is not replaced by an object attribute*
+        assert_eq!(id_from(Some("  ".to_owned()), || Some(pairs(&[("id", "btn-save")]))).as_deref(), Some("  "));
+    }
+
+    #[test]
+    fn an_empty_id_falls_back_to_the_first_non_empty_attribute_unmodified() {
+        // *An AT-SPI object-attribute identifier is taken unmodified*
+        let attributes = || Some(pairs(&[("accessible-id", ""), ("id", " btn-save ")]));
+        assert_eq!(id_from(Some(String::new()), attributes).as_deref(), Some(" btn-save "));
+        // An `AccessibleId` that cannot be read falls back alike.
+        assert_eq!(id_from(None, attributes).as_deref(), Some(" btn-save "));
+    }
+
+    #[test]
+    fn an_empty_id_without_an_identifying_attribute_is_absent() {
+        // *An empty identifier or description is absent*
+        assert_eq!(id_from(Some(String::new()), || Some(pairs(&[("accessible-id", ""), ("id", "")]))), None);
+        assert_eq!(id_from(None, || None), None);
+    }
+
+    #[test]
+    fn the_description_is_taken_as_reported_and_absent_only_when_empty() {
+        // *AT-SPI keeps the description's whitespace*
+        assert_eq!(
+            description_from(Some("  Closes the dialog  ".to_owned())).as_deref(),
+            Some("  Closes the dialog  ")
+        );
+        // *A whitespace-only AT-SPI description is listed as reported*
+        assert_eq!(description_from(Some("   ".to_owned())).as_deref(), Some("   "));
+        // *An empty identifier or description is absent*
+        assert_eq!(description_from(Some(String::new())), None);
+        assert_eq!(description_from(None), None);
+    }
+
+    #[test]
+    fn native_strings_are_taken_as_reported() {
+        // *AT-SPI native string properties are taken as reported*
+        assert_eq!(native_string(Some(" Press F1 ".to_owned())), UiValue::from(" Press F1 "));
+        assert_eq!(native_string(Some("de_DE".to_owned())), UiValue::from("de_DE"));
+        // *An empty AT-SPI native property is listed*: `""`, not null.
+        assert_eq!(native_string(Some(String::new())), UiValue::from(""));
+        // A read that failed reports nothing.
+        assert_eq!(native_string(None), UiValue::Null);
+    }
+
+    #[test]
+    fn the_native_description_equals_the_description() {
+        // *The native AT-SPI description is the description as reported*
+        let reported = || Some("Closes the dialog ".to_owned());
+        assert_eq!(native_string(reported()), UiValue::from("Closes the dialog "));
+        assert_eq!(description_from(reported()).as_deref(), Some("Closes the dialog "));
+    }
+
+    #[test]
+    fn an_application_is_seeded_with_its_name_as_reported() {
+        // *An AT-SPI application's name is taken as reported*
+        assert_eq!(application_name(Some(" gedit ".to_owned())), " gedit ");
+        assert_eq!(application_name(Some(String::new())), "");
+        assert_eq!(application_name(None), "");
+    }
+
+    #[test]
+    fn action_names_are_taken_as_reported() {
+        // *AT-SPI action names are taken as reported*
+        let action = || AtspiAction { name: "Click".to_owned(), description: String::new(), keybinding: String::new() };
+        let names = [Some(" click ".to_owned()), Some(String::new()), None];
+        let UiValue::Array(actions) = actions_value(vec![action(), action(), action()], &names) else {
+            panic!("expected UiValue::Array");
+        };
+        let names: Vec<Option<&UiValue>> = actions
+            .iter()
+            .map(|action| match action {
+                UiValue::Object(map) => map.get("Name"),
+                other => panic!("expected UiValue::Object, got {other:?}"),
+            })
+            .collect();
+        // An empty name is a name; a read that failed gives none.
+        assert_eq!(names, [Some(&UiValue::from(" click ")), Some(&UiValue::from("")), None]);
     }
 
     // ---- pick_attr_value ----
@@ -2599,9 +2731,12 @@ mod tests {
     }
 
     #[test]
-    fn pick_attr_value_skips_empty_values() {
-        let attrs = vec![("name".to_string(), "   ".to_string()), ("label".to_string(), "fallback".to_string())];
-        assert_eq!(pick_attr_value(&attrs, &["name", "label"]), Some("fallback".to_string()));
+    fn pick_attr_value_takes_the_first_non_empty_value_unmodified() {
+        let attrs = pairs(&[("name", ""), ("label", " fallback ")]);
+        assert_eq!(pick_attr_value(&attrs, &["name", "label"]), Some(" fallback ".to_string()));
+        // Whitespace is a value.
+        let attrs = pairs(&[("name", "   "), ("label", "fallback")]);
+        assert_eq!(pick_attr_value(&attrs, &["name", "label"]), Some("   ".to_string()));
     }
 
     #[test]
@@ -2723,22 +2858,26 @@ mod tests {
 
     // ---- helper value conversions ----
 
+    /// Object attributes with a whitespace key, an empty key and an empty
+    /// value, and the object they are reported as.
+    fn every_kind_of_key() -> (Vec<(String, String)>, UiValue) {
+        let attrs = pairs(&[("toolkit", "Qt"), (" ", "x"), ("", "no key"), ("tag", "")]);
+        let object = attrs.iter().map(|(key, value)| (key.clone(), UiValue::from(value.as_str()))).collect();
+        (attrs, UiValue::Object(object))
+    }
+
     #[test]
-    fn attributes_object_skips_empty_keys() {
-        let attrs = vec![
-            ("key1".to_string(), "val1".to_string()),
-            ("  ".to_string(), "ignored".to_string()),
-            ("key2".to_string(), "val2".to_string()),
-        ];
-        let value = attributes_object(&attrs);
-        match value {
-            UiValue::Object(map) => {
-                assert_eq!(map.len(), 2);
-                assert!(map.contains_key("key1"));
-                assert!(map.contains_key("key2"));
-            }
-            other => panic!("expected UiValue::Object, got {other:?}"),
-        }
+    fn attributes_object_keeps_every_key() {
+        // *AT-SPI object attributes keep every key and value*
+        let (attrs, expected) = every_kind_of_key();
+        assert_eq!(attributes_object(&attrs), expected);
+    }
+
+    #[test]
+    fn string_map_object_keeps_every_key() {
+        let (attrs, expected) = every_kind_of_key();
+        let map: std::collections::HashMap<String, String> = attrs.into_iter().collect();
+        assert_eq!(string_map_object(&map), expected);
     }
 
     #[test]

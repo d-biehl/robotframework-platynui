@@ -314,11 +314,11 @@ impl UiTreeProvider for AtspiProvider {
             let role = block_on_timeout_call(&timeouts, name, "Accessible.GetRole", proxy.get_role())
                 .and_then(std::result::Result::ok)
                 .unwrap_or(Role::Invalid);
-            let node_name = block_on_timeout_call(&timeouts, name, "Accessible.Name", proxy.name())
-                .and_then(std::result::Result::ok)
-                .as_deref()
-                .and_then(node::normalize_value);
-            timeouts.learned(name, node_name.as_deref(), None);
+            let node_name = node::application_name(
+                block_on_timeout_call(&timeouts, name, "Accessible.Name", proxy.name())
+                    .and_then(std::result::Result::ok),
+            );
+            timeouts.learned(name, Some(node_name.as_str()).filter(|app_name| !app_name.is_empty()), None);
 
             let node = AtspiNode::new_application(
                 conn.clone(),
@@ -337,7 +337,7 @@ impl UiTreeProvider for AtspiProvider {
             let elapsed_ms = elapsed.as_millis() as u64;
             trace!(
                 app = %app_bus,
-                name = node_name.as_deref().unwrap_or(""),
+                name = node_name.as_str(),
                 children = child_count,
                 elapsed_ms,
                 "get_nodes: resolved app",
