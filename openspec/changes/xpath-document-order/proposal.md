@@ -50,7 +50,7 @@ Behavior changes that users see, for the release notes:
 
 - **Rust crates:**
   - `crates/xpath`:
-    - the compiler (predicate classification, stream properties, where normalization is emitted);
+    - the parser's AST and the compiler (predicate classification next to `is_context_dependent`, stream properties, where normalization is emitted);
     - the optimizer (pushdown only for non-positional predicates; `//T[p]` becomes `descendant::T[p]`);
     - the evaluator and cursors (per-context predicates, an order-preserving child-step merge, the normalization cursor, the `following::` fix, identity-based deduplication);
     - the model (an optional identity hint);
@@ -67,5 +67,6 @@ Behavior changes that users see, for the release notes:
 - **Platforms:** every provider, because the engine is shared: UI Automation, AT-SPI, JAB, the Java agent and the mock. Only the Java agent's provider code changes.
 - **Docs:** `dev-docs/architecture.md`, `crates/xpath/docs/xpath20_coverage.md`, `dev-docs/python-library-design.md` (the Locator), and the BareMetal library documentation.
 - **Coordination:**
-  - `xdm-snapshot-release` (implemented, not archived) owns `crates/runtime/src/xpath.rs` and its rule that a list of children is read at most once per query. The new sort must build its sibling indices from the snapshot's cached lists. The only changes to that file are the identity hint and the attribute's weak owner link, which keeps the snapshot free of strong cycles.
-  - `application-process-attributes` and `snapshot-validity` touch the agent's `app.rs`, which the per-view ids also touch, so they land one after another.
+  - `crates/runtime/src/xpath.rs` follows the `xpath-snapshot` capability, which `xdm-snapshot-release` introduced (archived 2026-09-28): a list of children is read at most once per query. The new sort must build its sibling indices from the snapshot's cached lists. The only changes to that file are the identity hint and the attribute's weak owner link, which keeps the snapshot free of strong cycles.
+  - `application-process-attributes` and `snapshot-validity`, which also changed the agent's `app.rs`, are archived (2026-09-29). The per-view ids build on that state.
+  - Open changes edit other functions of the agent's files: `java-agent-attach-diagnostics` and `windows-keyboard-diagnostics` in `agent/backend.rs`, and `attribute-values-as-reported`, `name-is-accessible-name` and `gate-uia-window-patterns` in `agent/node.rs`. `name-is-accessible-name` also edits the documentation of `agent_table.robot`, which gains a test here. Neither side depends on the other; whichever lands second rebases.

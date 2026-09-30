@@ -2,7 +2,7 @@
 
 ## Context
 
-The proposal says why this change exists (see proposal.md, Why). The specs say what the results must be. This section records the state of the code that the decisions below depend on. Every line reference was checked on `main` at `999ce95`. Every "today" result was measured on that commit with a scratch crate that depends on `crates/xpath`. Each expression ran on `SimpleNode`, which has order keys, and on a keyless wrapper that delegates to `try_compare_by_ancestry`, as the real providers do. Keyed and keyless results were identical.
+The proposal says why this change exists (see proposal.md, Why). The specs say what the results must be. This section records the state of the code that the decisions below depend on. Every line reference was checked on `main` at `65cd1c17`. Every "today" result was measured at `999ce95` with a scratch crate that depends on `crates/xpath`; since then `crates/xpath/src` has changed only in `Expr::is_context_dependent`, which the compiler does not use, and in when a trace record is compiled, so the results still hold. Each expression ran on `SimpleNode`, which has order keys, and on a keyless wrapper that delegates to `try_compare_by_ancestry`, as the real providers do. Keyed and keyless results were identical.
 
 **Where order is lost.**
 
@@ -35,25 +35,25 @@ The proposal says why this change exists (see proposal.md, Why). The specs say w
 
 **Runtime snapshot.**
 
-- `RuntimeXdmNode` compares elements by runtime id plus order key, and attributes by owner id, namespace and name (`crates/runtime/src/xpath.rs:517-530`).
-- The parent of an attribute is a fresh wrapper built from the provider node (`:596`). It has an unresolved parent link, so navigating from an attribute upward reads the provider again.
-- The `xpath-snapshot` capability of `xdm-snapshot-release` requires that a list of children is read at most once per query. It also requires that wrappers never form a strong cycle (`:414-425`).
+- `RuntimeXdmNode` compares elements by runtime id plus order key, and attributes by owner id, namespace and name (`crates/runtime/src/xpath.rs:518-531`).
+- The parent of an attribute is a fresh wrapper built from the provider node (`:597`). It has an unresolved parent link, so navigating from an attribute upward reads the provider again.
+- The `xpath-snapshot` capability requires that a list of children is read at most once per query. It also requires that wrappers never form a strong cycle (`:422-430`).
 
 **Keys.** Since `04d3aed` only the mock supplies order keys (`crates/provider-mock/src/tree.rs:175-205`); every real provider is keyless.
 
 **Identity per view.**
 
-- UI Automation and JAB scope runtime ids per view (`crates/provider-windows-uia/src/map.rs:248-266`; `dev-docs/architecture.md` §5.4).
-- The Java agent does not. The backend lists each window flat (`crates/provider-java/src/agent/backend.rs:384-404`) and under an `AgentAppNode` (`:405-411`). `AgentAppNode::children` (`agent/app.rs:125-137`) builds new nodes whose id is `agent/{pid}/{element id}` (`agent/node.rs:224`), the same in both views.
-- The hit-test chain hangs below an `AgentAppNode` (`backend.rs:498-514`).
+- UI Automation and JAB scope runtime ids per view (`crates/provider-windows-uia/src/map.rs:230-253`; `dev-docs/architecture.md` §5.4).
+- The Java agent does not. The backend lists each window flat (`crates/provider-java/src/agent/backend.rs:387-408`) and under an `AgentAppNode` (`:409-416`). `AgentAppNode::children` (`agent/app.rs:163-176`) builds new nodes whose id is `agent/{pid}/{element id}` (`agent/node.rs:224`), the same in both views.
+- The hit-test chain hangs below an `AgentAppNode` (`backend.rs:500-519`).
 - `SelectedItems` builds the same flat ids (`agent/node.rs:369`).
 - The Inspector reveals a picked node by walking down its ancestors' runtime ids (`apps/inspector/src/viewmodel/async_tasks.rs:177-215`, `inspector_vm.rs:307-331`). With one id in two places, `reveal_node_cached` can land on either copy.
 
 **First-match consumers.**
 
 - `evaluate_first` and the runtime's `evaluate_single*` take the first streamed item (`evaluator/mod.rs:294-299`; `crates/runtime/src/runtime/evaluation.rs:85-96`, `:192-219`).
-- BareMetal uses the first item for selector resolution, `Query only_first` and the waits (`src/PlatynUI/BareMetal/__init__.py:296`, `:1537`, `:1620`, `:1726`, `:1756`).
-- PlatynUI.core's `find_one` uses it too (`src/PlatynUI/core/adapter_factory.py:93`).
+- BareMetal uses the first item for selector resolution, `Query only_first` and the waits (`src/PlatynUI/BareMetal/__init__.py:416`, `:1832`, `:1934`, `:2041`, `:2164`).
+- PlatynUI.core's `find_one` uses it too (`src/PlatynUI/core/adapter_factory.py:104`).
 - The CLI's `focus`, `pointer` and `query`, and the Inspector's search, also consume it.
 
 **Measured first-match cost.**
@@ -103,9 +103,11 @@ A predicate is **non-positional** only when it is provably boolean or node-value
 
 Everything else is **possibly positional**: numeric literals, variables, arithmetic, other function calls, and a path ending in a filter-expression step. `position()` and `last()` inside a nested step's predicate have their own focus and do not count. Inside `for`, `some` and `every` bodies they count.
 
-The flag is stored per predicate in the IR, so each predicate becomes an instruction sequence plus a flag. This touches `compiler/mod.rs:457-466`, the IR types in `compiler/ir.rs:96-104`, and the IR's `Display` (`:415-421`) and `fmt_with_indent` (`:495-508`). A conservative "possibly positional" is always correct.
+The classifier uses the focus rule of `Expr::is_context_dependent` (`crates/xpath/src/parser/ast.rs:115`, since `8871d04a`): operands, conditions, bindings, function arguments and the bodies of `for`, `some` and `every` evaluate in the predicate's focus, while a nested predicate and every later step of a path have their own. It sits next to that method on the AST and shares its walk, so the rule lives in one place and the two cannot drift apart. The compiler asks it when it lowers a predicate.
 
-*Alternatives:* an IR scan like `instr_seq_uses_last` (`cursors.rs:1073-1099`) cannot tell that a predicate yields a number. Treating every predicate as positional is correct, but it would disable minimization, pushdown and the `//T[p]` rewrite for every locator.
+The flag is stored per predicate in the IR, so each predicate becomes an instruction sequence plus a flag. This touches `parser/ast.rs`, `compiler/mod.rs:457-466`, the IR types in `compiler/ir.rs:96-104`, and the IR's `Display` (`:415-421`) and `fmt_with_indent` (`:495-508`). A conservative "possibly positional" is always correct.
+
+*Alternatives:* an IR scan like `instr_seq_uses_last` (`cursors.rs:1073-1099`) cannot tell that a predicate yields a number. Treating every predicate as positional is correct, but it would disable minimization, pushdown and the `//T[p]` rewrite for every locator. A walk of its own in the compiler would repeat the focus rule of `is_context_dependent`, and the two could drift apart.
 
 ### 2. Evaluate possibly-positional step predicates per context node, and minimize only without them
 
@@ -198,7 +200,7 @@ The normalization op buffers its input, removes duplicates by identity (decision
 
 - Keeping the one-item-lookahead cursor: it cannot be made correct.
 - Keeping `node_compare` and `try_compare_by_ancestry` as comparators: they are not total.
-- Ranking children in "attributes, then namespaces, then children" order through `parent.attributes()`: that reads about 1,050 COM properties per element on UIA (`crates/runtime/src/xpath.rs:627`).
+- Ranking children in "attributes, then namespaces, then children" order through `parent.attributes()`: that reads about 1,050 COM properties per element on UIA (`crates/runtime/src/xpath.rs:628`).
 - A k-way merge of per-context streams: it does not help reverse axes. It may come later as an optimization.
 
 ### 7. Minimize `following::` by the earliest subtree end
@@ -235,7 +237,7 @@ For `following::` without positional predicates, the minimizing cursor keeps the
 
 On the `descendants` scope, a locator with an `index`, a `position` or custom predicates renders `descendant::X[…]` instead of `.//X[…]`. Examples: `descendant::Button[2]` and `descendant::Button[position()=3][1]`.
 
-A locator is resolved against one parent (`src/PlatynUI/core/adapter_factory.py:87-94`), so this counts over all descendants in document order, which is what `index` and `position` mean to users. The rendering also streams through decision 3's descendant walker.
+A locator is resolved against one parent (`src/PlatynUI/core/adapter_factory.py:89-107`), so this counts over all descendants in document order, which is what `index` and `position` mean to users. The rendering also streams through decision 3's descendant walker.
 
 Plain locators keep `.//X[…]`. Of the 23 `.//` assertions in `tests/PlatynUI/test_locator.py`, only `test_index_and_position` (`:117-119`) changes; the raw `position()=2` case (`:111-114`) checks substrings and still passes. The `children`, `root` and reverse scopes are a single step from one parent and are unchanged. `ancestor::Pane[1]` stays the nearest ancestor. A `path` or an explicit `axis` is rendered as given.
 
@@ -245,16 +247,16 @@ Plain locators keep `.//X[…]`. Of the 23 `.//` assertions in `tests/PlatynUI/t
 
 The change updates:
 
-- `dev-docs/architecture.md` §9.1–9.2 (`:701-731`) and the §5.4 table: a Java agent row and "one id per view".
+- `dev-docs/architecture.md` §9.1–9.2 (`:709-739`) and the §5.4 table (`:222-234`): a Java agent row and "one id per view".
 - `crates/xpath/docs/xpath20_coverage.md:55-56`.
 - The doc comments at `optimizer.rs:11-51` and `:129-158`, `evaluator/mod.rs:220-244` (`(//item)[1]` as the first-item example), `ir.rs:99-104` and `cursors.rs:529`.
-- `dev-docs/python-library-design.md:2978`, a German document, so an English summary line goes at its top.
-- BareMetal's "Finding elements" (`src/PlatynUI/BareMetal/__init__.py:568-583`). It explains `(//Button)[2]` against `//Button[2]`, and recommends `(.//X[@Name="t"])[1]/*[n]` over `.//X[@Name="t"]/*[n]` when the container is known to be unique (see the risk on wide lists).
+- `dev-docs/python-library-design.md:2948` and `:2977`, the Locator's scope mapping and its `[N]` suffix. The document is German; its English summary (`:3-7`) describes the whole document and needs no new line.
+- BareMetal's "Finding elements" (`src/PlatynUI/BareMetal/__init__.py:800-820`). It explains `(//Button)[2]` against `//Button[2]`, and recommends `(.//X[@Name="t"])[1]/*[n]` over `.//X[@Name="t"]/*[n]` when the container is known to be unique (see the risk on wide lists).
 
 ## Risks / Trade-offs
 
 - **[`.//*[@Name="main-table"]/*[544]` reads every preceding cell]**
-  - Document order requires reading the lists of the 543 cells before cell 544, because a nested `main-table` inside one of them would come first. On the agent and JAB that is one call per cell, for every `Get Attribute Value` (`tests/acceptance/swing/native_attributes.robot:66-67`, `agent_table.robot:50-129`).
+  - Document order requires reading the lists of the 543 cells before cell 544, because a nested `main-table` inside one of them would come first. On the agent and JAB that is one call per cell, for every `Get Attribute Value` (`tests/acceptance/swing/native_attributes.robot:66-68`, `agent_table.robot:37-132`).
   - → Measure the suites' keyword times on the Swing fixture before and after. If the regression is noticeable, rewrite the repo's suites to `(.//*[@Name="main-table"])[1]/*[n]`, which reads only the table's list, and document the idiom (decision 10). The engine cost is the price of a correct answer, and it is accepted.
 - **[Shapes that must sort read all their input before the first result]**
   - These shapes are sibling, parent and reverse axes from several contexts, filter-expression steps (including the idiom `.//(Frame|Window)[@Name=…]`), and `(E)/…` bases. `evaluate_single` on them reads every matching context.
@@ -262,12 +264,12 @@ The change updates:
 - **[User suites that wrote `//X[n]` meaning "n-th overall" change silently]** They may now match several elements, and keywords take the first. → A release note, the BareMetal doc line, and the new BareMetal suite that shows both forms.
 - **[The mock resolves the other copy of a window]**
   - `//control:Window[@Name=…]` on the mock now finds the copy under `Mock Application` first, because the mock lists applications first (`crates/provider-mock/src/provider.rs:34-40`).
-  - Reading found no mock suite or Python test that depends on the flat copy's parent chain. `tests/BareMetal/set_root_scope.robot:120-124` keeps its counts.
+  - Reading found no mock suite or Python test that depends on the flat copy's parent chain. `tests/BareMetal/set_root_scope.robot:119-127` keeps its counts.
   - → The full `just test-python` and `just test-baremetal` runs are part of verification.
 - **[The sort must stay total]** → It never calls the old comparators. Unit tests cover a keyless node missing from its parent's list, and nodes of two roots.
 - **[Wide lists get a second quadratic path]** → Each parent's list is indexed once per sort through the identity hint. Nodes are not looked up one by one.
 - **[Scope: several substantial parts land together]** The parts are the classification, per-context predicates, the property table, the merge with bounded advance, the normalization cursor, the identity hint and the per-view agent ids. → Tests come first and are grouped per part. `tasks.md` orders the parts so that each group turns its own tests green.
-- **[The runtime snapshot is shared with `xdm-snapshot-release`]** Its `xpath-snapshot` rules (one read per list and query, no strong cycles) constrain decisions 6 and 8. → The attribute's weak owner link and the identity hint are the only changes to `crates/runtime/src/xpath.rs`. `xdm_release.rs` stays green, with the read-once test extended to a sort over attributes and elements.
+- **[The runtime snapshot follows the `xpath-snapshot` rules]** One read per list and query, and no strong cycles, constrain decisions 6 and 8. → The attribute's weak owner link and the identity hint are the only changes to `crates/runtime/src/xpath.rs`. `xdm_release.rs` stays green, with the read-once test extended to a sort over attributes and elements.
 
 ## Migration Plan
 
@@ -280,7 +282,7 @@ The change updates:
   4. The Locator.
   5. The docs.
 
-  Each lands as its own commit that passes lint. `xdm-snapshot-release` should be archived before this change's runtime commit. Failing that, the runtime commit must keep its `xdm_release.rs` tests green unchanged. `application-process-attributes` and `snapshot-validity` touch `crates/provider-java/src/agent/app.rs` too, so they land one after another, not interleaved.
+  Each lands as its own commit that passes lint. The changes this one waited for are archived: `xdm-snapshot-release` (2026-09-28), `application-process-attributes` and `snapshot-validity` (2026-09-29). The runtime commit extends `xdm_release.rs` and keeps its existing tests green. Open changes that edit other functions of the agent's files are listed in the proposal (Coordination); whichever lands second rebases.
 - **Rollback.** Revert the commits and rebuild the native module. Suites that adopted `(//X)[n]` keep working after a rollback, because before this change `(//X)[n]` and `//X[n]` evaluated to the same thing.
 
 ## Open Questions

@@ -10,12 +10,11 @@ Rules for every task:
 
 - [ ] 1.1 Record the baseline on Windows, with the maintainer's go-ahead:
   1. `just install-provider-java`.
-  2. `just test-acceptance-windows --profile real-windows run --suite "Agent Table" --suite "Native Attributes"`.
-  3. From `results/output.xml` (`uv run --no-sync robotcode results`), note the keyword times of the tests that address cells by position (`agent_table.robot:50-129`, `native_attributes.robot:49-68`).
+  2. `just test-acceptance-windows --profile real-windows run --suite AgentTable --suite NativeAttributes`. Suite names go without spaces: `just` passes its arguments on unquoted, and Robot Framework matches names without spaces.
+  3. From `results/output.xml` (`uv run --no-sync robotcode results`), note the keyword times of the tests that address cells by position (`agent_table.robot:37-132`, `native_attributes.robot:49-68`).
   4. The time of `Query    count(.//*)    only_first=${True}` with the root set to the fixture's `/app:Application[@ProcessId=${pid}]`.
 
   Record the numbers here.
-- [ ] 1.2 Check whether `xdm-snapshot-release` has been archived. If it has not, groups 4 and 8 leave its artifacts alone and keep the existing tests of `crates/runtime/tests/xdm_release.rs` unchanged. Record the state here.
 
 ## 2. Tests first — Robot Framework on the mock
 
@@ -25,7 +24,7 @@ Follow the `robot-test-style` skill.
   - Import: `Library    PlatynUI.BareMetal    use_mock=${True}    query_settings={'timeout': 0.2}`, with the root set to `//control:Window[@Name="Operations Console"]`, in the style of `selector_resolution.robot`.
   - The suite documentation explains `(.//X)[n]` against `.//X[n]`.
 
-  Verify that all six fail today: `just test-baremetal --suite "Document Order"`.
+  Verify that all six fail today: `just test-baremetal --suite DocumentOrder`.
 
 ## 3. Tests first — XPath engine
 
@@ -87,7 +86,7 @@ Follow the `robot-test-style` skill.
 
 - [ ] 5.1 In `crates/provider-java/tests/live_fixture.rs`:
   - Add an ignored live test for the scenarios of "Agent runtime ids are scoped per view": two nodes and two id forms for the fixture window, the prefixes of one button in both views, and `SelectedItems` per view.
-  - Change the hit-test check of `live_agent_serves_table_cells_the_bridge_cannot` (`:1146-1155`). It compares the picked cell with a cell of the flat window. It must compare with the same cell reached through the fixture's `app:Application` node, and check that the pick's ancestors lead to that node.
+  - Change the hit-test check of `live_agent_serves_table_cells_the_bridge_cannot` (`:1160-1176`). It compares the picked cell with a cell of the flat window. It must compare with the same cell reached through the fixture's `app:Application` node, and check that the pick's ancestors lead to that node.
   - Keep `live_two_hosts_share_one_agent_and_agree_on_identity` unchanged.
 
   Verify with `cargo check -p platynui-provider-java --tests`. The tests run in the Windows lane (12.2).
@@ -95,7 +94,7 @@ Follow the `robot-test-style` skill.
 
 ## 6. Engine — predicates
 
-- [ ] 6.1 Classify each predicate when it is lowered (design decision 1). Carry the flag in the IR, and print it in `Display` and `fmt_with_indent`. Add unit tests for the classifier: the non-positional and possibly-positional cases of the decision, `position()` inside a nested step and inside `for`, `some` and `every`. Verify with `just test-crate platynui-xpath` that the classifier tests pass and the crate builds.
+- [ ] 6.1 Classify each predicate when it is lowered (design decision 1), with a classifier on the AST next to `Expr::is_context_dependent` (`crates/xpath/src/parser/ast.rs:115`) that shares its focus walk. Carry the flag in the IR, and print it in `Display` and `fmt_with_indent`. Add unit tests for the classifier: the non-positional and possibly-positional cases of the decision, `position()` inside a nested step and inside `for`, `some` and `every`. Verify with `just test-crate platynui-xpath` that the classifier tests pass, that `parser_context_dependence.rs` stays green, and that the crate builds.
 - [ ] 6.2 Evaluate a step's predicates per context node when one of them may be positional, and allow the three minimizing cursors only when none is (design decision 2). Verify that the per-context rows of 3.3 whose result does not depend on order now pass, for example `count(//B[1])` and `//B[3]`.
 - [ ] 6.3 Push down only the leading non-positional predicates, and rewrite a predicate-free `descendant-or-self::node()` followed by a non-positional `child::T[…]` into `descendant::T[…]` after pushdown (design decision 3). Correct the doc comments at `optimizer.rs:11-51` and `:129-158`. Verify that the pushdown assertions of 3.6 and the updated unit tests of 3.7 pass.
 
@@ -119,13 +118,13 @@ Follow the `robot-test-style` skill.
 
 ## 8. Runtime
 
-- [ ] 8.1 Implement the identity hint for `RuntimeXdmNode` from what its equality compares. Give `AttributeData` a weak link to the element wrapper that listed it, and let `parent()` of an attribute use it while it lives (design decisions 6 and 8). Update the cycle note at `crates/runtime/src/xpath.rs:414-425`. Verify with `just test-crate platynui-runtime` that 4.1 passes and that every existing test of `xdm_release.rs` stays green, the drop counts and the read-once rule included.
+- [ ] 8.1 Implement the identity hint for `RuntimeXdmNode` from what its equality compares. Give `AttributeData` a weak link to the element wrapper that listed it, and let `parent()` of an attribute use it while it lives (design decisions 6 and 8). Update the cycle note at `crates/runtime/src/xpath.rs:422-430`. Verify with `just test-crate platynui-runtime` that 4.1 passes and that every existing test of `xdm_release.rs` stays green, the drop counts and the read-once rule included.
 
 ## 9. Java agent ids per view
 
-- [ ] 9.1 Give `AgentNode` its view, fixed where it is created and passed to every child:
-  - flat in the backend's sweep (`crates/provider-java/src/agent/backend.rs:384-404`);
-  - the application view in `AgentAppNode::children` (`agent/app.rs:125-137`) and in `build_chain` (`backend.rs:498-514`).
+- [ ] 9.1 Give `AgentNode` its view, fixed where it is created and passed to every child in `AgentNode::children` (`agent/node.rs:251-281`):
+  - flat in the backend's sweep (`crates/provider-java/src/agent/backend.rs:387-408`);
+  - the application view in `AgentAppNode::children` (`agent/app.rs:163-176`) and in `build_chain` (`backend.rs:500-519`).
 
   Build the runtime id as `agent/<pid>/<id>` or `agent/app/<pid>/<id>` (`agent/node.rs:224`), and the `SelectedItems` ids in the node's own view (`:369`). Add a unit test of the id format per view. Verify with `just test-crate platynui-provider-java` and `cargo check -p platynui-provider-java --tests`.
 
@@ -133,17 +132,17 @@ Follow the `robot-test-style` skill.
 
 - [ ] 10.1 Render `descendant::X[…]` on the `descendants` scope when `index`, `position` or custom predicates are set (design decision 9, `src/PlatynUI/core/locator.py:314-380`). Update the `to_xpath` docstring. Verify that the rendering tests of 4.3 pass (`uv run pytest tests/PlatynUI/test_locator.py`).
 - [ ] 10.2 Run `just test-python`, which rebuilds the native module with the mock provider. Verify that 4.2 and the `test_adapter_factory.py` cases of 4.3 pass, and that the whole Python suite is green.
-- [ ] 10.3 Run `just test-baremetal`. Verify that 2.1 passes, that every other mock suite stays green, `set_root_scope.robot:120-124` included, and that no suite depended on the mock's flat window copy. Then run `just build-native`, so that the real `Runtime` enumerates the desktop again.
+- [ ] 10.3 Run `just test-baremetal`. Verify that 2.1 passes, that every other mock suite stays green, `set_root_scope.robot:119-127` included, and that no suite depended on the mock's flat window copy. Then run `just build-native`, so that the real `Runtime` enumerates the desktop again.
 
 ## 11. Documentation
 
 - [ ] 11.1 Update:
   - `dev-docs/architecture.md`:
-    - §9.1–9.2 (`:701-731`): document order by construction, normalization only where it is not proven, per-context positional predicates, `(E)[n]` against `E[n]`, the bounded advance;
-    - §5.4: an agent row with `agent/<pid>/<id>` and `agent/app/<pid>/<id>`, and the rule of one id per view;
+    - §9.1–9.2 (`:709-739`): document order by construction, normalization only where it is not proven, per-context positional predicates, `(E)[n]` against `E[n]`, the bounded advance;
+    - §5.4 (`:222-234`): an agent row with `agent/<pid>/<id>` and `agent/app/<pid>/<id>`, and the rule of one id per view;
   - `crates/xpath/docs/xpath20_coverage.md:55-56`, including the attribute-before-namespace deviation;
-  - `dev-docs/python-library-design.md:2978`, with an English summary line at the top of this German document;
-  - BareMetal's "Finding elements" (`src/PlatynUI/BareMetal/__init__.py:568-583`): `(//Button)[2]` against `//Button[2]`, and the idiom `(.//X[@Name="t"])[1]/*[n]` for a container known to be unique.
+  - `dev-docs/python-library-design.md:2948` and `:2977`, the Locator's scope mapping and its `[N]` suffix; the English summary at the top of this German document already exists;
+  - BareMetal's "Finding elements" (`src/PlatynUI/BareMetal/__init__.py:800-820`): `(//Button)[2]` against `//Button[2]`, and the idiom `(.//X[@Name="t"])[1]/*[n]` for a container known to be unique.
 
   Verify by reading, and with `just check`.
 
