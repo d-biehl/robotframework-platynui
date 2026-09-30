@@ -882,9 +882,10 @@ unsafe fn variant_to_ui_value(variant: &VARIANT) -> Option<UiValue> {
             let v = unsafe { variant.Anonymous.Anonymous.Anonymous.date };
             Some(UiValue::from(v))
         }
+        // The string as reported, the empty one included (spec `attribute-values`).
         x if x == VT_BSTR.0 => {
             let s = unsafe { variant.Anonymous.Anonymous.Anonymous.bstrVal.to_string() };
-            if s.is_empty() { None } else { Some(UiValue::from(s)) }
+            Some(UiValue::from(s))
         }
         x if x == VT_DECIMAL.0 => {
             let dec = unsafe { &variant.Anonymous.decVal };
@@ -918,5 +919,29 @@ mod text_editability_tests {
     #[test]
     fn no_answer_counts_as_read_only() {
         assert!(resolve_read_only(None));
+    }
+}
+
+/// Spec `attribute-values`: a string property is the string UIA reported.
+#[cfg(test)]
+mod variant_string_tests {
+    use super::{VARIANT, variant_to_ui_value};
+    use platynui_core::ui::UiValue;
+
+    fn converted(value: &str) -> Option<UiValue> {
+        let variant = VARIANT::from(value);
+        // SAFETY: `variant` is an initialized VT_BSTR that outlives the call.
+        unsafe { variant_to_ui_value(&variant) }
+    }
+
+    /// *An empty UIA native property is listed*: the empty string is a value.
+    #[test]
+    fn an_empty_string_is_a_value() {
+        assert_eq!(converted(""), Some(UiValue::from("")));
+    }
+
+    #[test]
+    fn a_padded_string_stays_padded() {
+        assert_eq!(converted(" Press F1 "), Some(UiValue::from(" Press F1 ")));
     }
 }
