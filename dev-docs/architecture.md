@@ -254,7 +254,11 @@ The mapping is deliberately **strict** — `control:Description` maps 1:1 to the
 |---|---|---|
 | Windows UIA | `FullDescription` (`UIA_FullDescriptionPropertyId`) | `HelpText`, `LegacyIAccessible.Description` |
 | Linux AT-SPI2 | `Accessible.Description` | `Accessible.HelpText` |
+| Java Access Bridge (Swing/AWT, Windows) | the accessible description the bridge reports, which is Swing's `getAccessibleDescription()` | — |
+| Java agent (Swing/AWT) | Swing's `getAccessibleDescription()`, which Swing derives from the tool tip text when nothing else is set | — |
 | macOS AX | open (stub provider; `AXHelp` is help text, not a description) | — |
+
+The Java rows add no fallback either: where Swing derives a description from a component's tool tip, that is the accessible description Swing reports, and the providers take it as such.
 
 There is **no fallback** to help/tooltip-like properties: HelpText is a different concept (tooltip/help semantics), and returning it as a "description" would surface plausible-looking but semantically wrong values. The excluded properties remain reachable under the `native:` namespace for callers who genuinely want them; a dedicated help/tooltip attribute, if ever wanted, would be a separate concept. UIA `FullDescription` requires Windows 10 1703+ and app support, so on older targets or apps that never set it the attribute is simply absent — again, correct behavior, not an error.
 
@@ -417,7 +421,7 @@ Each capability is defined once, in platform-neutral terms, but it has to be sat
 | Id | AutomationId | Accessible.AccessibleId, else the object attribute `accessible-id` / `accessible_id` / `id` | AXIdentifier |
 | Description | FullDescription (`UIA_FullDescriptionPropertyId`) | Accessible.Description | open (stub; `AXHelp` is help text, not a description) |
 
-The Java nodes on Windows source `Id` as follows: the Java Access Bridge reports none, and the Java agent reports `Component.getName()` for components and windows, when it was set through `setName` — table cells, rows and other accessibility-only children have none. `Description` maps strictly to the true accessible-description property and never falls back to HelpText-like sources (`HelpText`, `LegacyIAccessible.Description`, `Accessible.HelpText`), which remain under `native:`. `Id` and `Description` are emitted only when non-empty, and application nodes carry no `Id`.
+The Java nodes on Windows source `Id` as follows: the Java Access Bridge reports none, and the Java agent reports `Component.getName()` for components and windows, when it was set through `setName` — table cells, rows and other accessibility-only children have none. `Name` is the accessible name and nothing else, with no fallback (spec `name-attribute`): AT-SPI2 takes `Accessible.Name` alone, and the object attributes stay readable in `native:Accessible.Attributes`; the Java Access Bridge takes the accessible name it reports; the Java agent takes Swing's `getAccessibleName()` for every element, a window's title stays readable as `native:WindowTitle` and a table cell's model value as `native:TableCell.ModelValue`. `Description` maps strictly to the true accessible-description property and never falls back to HelpText-like sources (`HelpText`, `LegacyIAccessible.Description`, `Accessible.HelpText`), which remain under `native:`. `Id` and `Description` are emitted only when non-empty, and application nodes carry no `Id`.
 
 **TextContent**
 
