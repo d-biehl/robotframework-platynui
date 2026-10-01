@@ -776,25 +776,16 @@ fn object_runtime_id(obj: &ObjectRefOwned) -> String {
 // attribute is absent when empty, only `""` means none, and whitespace is a
 // value like any other.
 
-/// Object attributes that name an element whose `Accessible.Name` is empty,
-/// asked in this order.
-const NAME_ATTRIBUTES: [&str; 4] = ["accessible-name", "name", "label", "title"];
-
 /// Object attributes that carry an element's identifier when its
 /// `Accessible.AccessibleId` is empty, asked in this order.
 const ID_ATTRIBUTES: [&str; 3] = ["accessible-id", "accessible_id", "id"];
 
-/// The `Name` decision over what the bus returned: `accessible_name` is the
-/// `Accessible.Name` read (`None` when it failed), and `attributes` reads the
-/// object attributes, only when the name is needed from them.
-///
-/// The name as reported, or, when it is empty or unreadable, the first naming
-/// object attribute that is not empty; `""` when there is neither.
-fn name_from(accessible_name: Option<String>, attributes: impl FnOnce() -> Option<Vec<(String, String)>>) -> String {
-    match accessible_name {
-        Some(name) if !name.is_empty() => name,
-        _ => attributes().and_then(|attrs| pick_attr_value(&attrs, &NAME_ATTRIBUTES)).unwrap_or_default(),
-    }
+/// The `Name` decision over the `Accessible.Name` read (`None` when it failed):
+/// the name as reported, and `""` when it cannot be read (spec
+/// `name-attribute`). Nothing stands in for an empty name — in particular no
+/// object attribute, which stays readable in `native:Accessible.Attributes`.
+fn name_from(accessible_name: Option<String>) -> String {
+    accessible_name.unwrap_or_default()
 }
 
 /// The `Id` decision over what the bus returned: `accessible_id` is the
@@ -857,13 +848,14 @@ fn resolve_attributes(
     Some(pairs)
 }
 
-/// Resolve the element's name (`Accessible.Name`) as reported, falling back to
-/// the naming object attributes only when it is empty (see [`name_from`]).
+/// Resolve the element's name: its `Accessible.Name` as reported, with no
+/// fallback (see [`name_from`]).
 fn resolve_name(conn: &AccessibilityConnection, timeouts: &AppTimeouts, obj: &ObjectRefOwned) -> String {
-    let name = accessible_proxy(conn, obj)
-        .and_then(|p| block_on_timeout_call(timeouts, bus_name(obj), "Accessible.Name", p.name()))
-        .and_then(std::result::Result::ok);
-    name_from(name, || resolve_attributes(conn, timeouts, obj))
+    name_from(
+        accessible_proxy(conn, obj)
+            .and_then(|p| block_on_timeout_call(timeouts, bus_name(obj), "Accessible.Name", p.name()))
+            .and_then(std::result::Result::ok),
+    )
 }
 
 /// Resolve the accessible description (`Accessible.Description`), the strict
@@ -2613,22 +2605,28 @@ mod tests {
     #[test]
     fn the_name_is_taken_as_reported() {
         // *An AT-SPI name keeps its whitespace*
-        assert_eq!(name_from(Some("  Save  as  ".to_owned()), unread), "  Save  as  ");
+        assert_eq!(name_from(Some("  Save  as  ".to_owned())), "  Save  as  ");
         // *A whitespace-only AT-SPI name is a name*
-        assert_eq!(name_from(Some("   ".to_owned()), unread), "   ");
+        assert_eq!(name_from(Some("   ".to_owned())), "   ");
     }
 
+    /// Spec `name-attribute`: *An empty Accessible.Name is no name, whatever the
+    /// object attributes carry*. The object attributes are no input of the
+    /// decision at all; they stay readable in `native:Accessible.Attributes`.
     #[test]
-    fn an_empty_name_without_a_naming_attribute_is_empty() {
+    fn an_empty_name_is_not_replaced_by_an_object_attribute() {
         // *An element without an accessible name has an empty Name*
-        assert_eq!(name_from(Some(String::new()), || Some(pairs(&[("toolkit", "Qt")]))), "");
-        assert_eq!(name_from(None, || None), "");
+        assert_eq!(name_from(Some(String::new())), "");
+        assert_eq!(name_from(None), "", "a name that cannot be read is no name either");
     }
 
+    /// Spec `name-attribute`: *AT-SPI object attributes stay readable*.
     #[test]
-    fn an_empty_name_falls_back_to_a_naming_attribute_unmodified() {
-        // The object-attribute fallback stays until `name-is-accessible-name`.
-        assert_eq!(name_from(Some(String::new()), || Some(pairs(&[("label", " Save ")]))), " Save ");
+    fn a_naming_object_attribute_stays_readable() {
+        let UiValue::Object(map) = attributes_object(&pairs(&[("label", "Save")])) else {
+            panic!("expected UiValue::Object");
+        };
+        assert_eq!(map.get("label"), Some(&UiValue::from("Save")));
     }
 
     #[test]
