@@ -71,7 +71,7 @@ A provider SHALL list `control:Id` exactly when the element has an identifier, a
 - **GIVEN** an element of the egui test application whose toolkit reports no identifier
 - **WHEN** its attributes are enumerated, `Id` is looked up by name and its id accessor is read
 - **THEN** no `control:Id` SHALL be listed, the lookup SHALL find none, `[@Id]` SHALL not match it, and the accessor SHALL return none
-- **NOTE** Real provider only. Runs in the X11, compositor and Windows lanes. Today AT-SPI lists `@Id=""` for such an element.
+- **NOTE** Real provider only. Runs in the X11, compositor and Windows lanes.
 
 #### Scenario: An empty accessible-id is no Id
 
@@ -92,7 +92,7 @@ A provider SHALL list `control:Id` exactly when the element has an identifier, a
 - **GIVEN** an AT-SPI element whose `Accessible.AccessibleId` read does not answer in time, and whose object-attribute read does not answer either or carries no identifier
 - **WHEN** its attributes are read
 - **THEN** it SHALL carry no `control:Id` for that read, and in particular not one with the value `""`
-- **NOTE** Verified on the provider's decision in isolation for a read that answers nothing. That an unanswered call answers nothing is the read's own behaviour, which this change does not alter.
+- **NOTE** Verified on the provider's decision in isolation for a read that answers nothing. That an unanswered call answers nothing is the read's own behaviour.
 
 ### Requirement: Application nodes carry no Id
 
@@ -103,7 +103,7 @@ A node at the application level — the `app` namespace, on every provider — S
 - **GIVEN** the egui test application launched with the process ID `N`
 - **WHEN** `/app:Application[@ProcessId=N]` is evaluated, the node's attributes are enumerated, `Id` is looked up by name and its id accessor is read
 - **THEN** exactly that application node SHALL be selected, no `control:Id` SHALL be listed, the lookup SHALL find none, and its id accessor SHALL return none
-- **NOTE** Real provider only. Runs in the X11, compositor and Windows lanes. On AT-SPI, today the id accessor returns `N`, and `@Id` is listed with the root's accessible-id or `""`. On UI Automation, today the id accessor, the listed `Id` and the lookup by name all return the node's name, its `app:ProcessName`; the listing and the lookup answer it on separate paths.
+- **NOTE** Real provider only. Runs in the X11, compositor and Windows lanes.
 
 #### Scenario: No application is selected by Id
 
@@ -131,11 +131,11 @@ A node at the application level — the `app` namespace, on every provider — S
 - **GIVEN** the Swing test application, once through the Java Access Bridge and once through the Java agent
 - **WHEN** each application node's attributes and id accessor are read
 - **THEN** neither SHALL carry a `control:Id`, both id accessors SHALL return none, and both SHALL carry `@ProcessId`
-- **NOTE** Real provider only; the Java live fixture on Windows. Both nodes already behave so; the scenario guards it.
+- **NOTE** Real provider only; the Java live fixture on Windows.
 
 #### Scenario: An application is described without an id
 
 - **GIVEN** the egui test application launched with the process ID `N`
 - **WHEN** its application node is described in one line, as action log lines do
 - **THEN** the description SHALL end with the quoted name, without a `#` suffix
-- **NOTE** Real provider only. Runs in the X11, compositor and Windows lanes. Today AT-SPI appends `#N` and UI Automation the process name.
+- **NOTE** Real provider only. Runs in the X11, compositor and Windows lanes.

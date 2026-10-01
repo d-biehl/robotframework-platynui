@@ -47,7 +47,7 @@ rules:
   specs:
     - "Write each scenario as one concrete acceptance criterion in Given/When/Then form — the BDD style Robot Framework supports, not full Gherkin — specific enough to become a single automated test."
     - "Cover failure and edge cases (timeouts, invalid input, fallbacks), not only the happy path."
-    - "Note when a scenario can only be verified against a real provider rather than the mock."
+    - "Note when a scenario can only be verified against a real provider rather than the mock. Notes say how a scenario is verified, never how the code behaved before the change; that belongs in the proposal."
   design:
     - "Back load-bearing claims with concrete code references (file:line), and separate what was verified against the real code from what is assumed."
     - "In the Migration Plan, state whether the change is additive or behavioral, whether it needs a native rebuild, and how to roll back."
