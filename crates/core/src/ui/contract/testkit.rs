@@ -147,7 +147,7 @@ pub enum ContractIssue {
 }
 
 /// The attributes every `control:`/`item:` node carries regardless of the
-/// patterns it advertises (`dev-docs/architecture.md` §6.3).
+/// patterns it advertises (`dev-docs/architecture.md` §6.6).
 ///
 /// `Id` and `Description` are conditional by contract — present only when the
 /// platform reports a value — so they are declared optional here; a provider

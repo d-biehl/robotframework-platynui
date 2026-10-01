@@ -351,7 +351,7 @@ pub(crate) fn map_role(element: &Element, parent_role: Option<&str>) -> (Namespa
 
 /// The shared `role_en_US` table. Where the JAB and AT-SPI2 vocabularies
 /// coincide the mapping follows the AT-SPI2 column of
-/// `dev-docs/architecture.md` §6.4, so the same Swing app tends to answer the
+/// the role table in `dev-docs/architecture.md` §10, so the same Swing app tends to answer the
 /// same selectors on Windows and Linux.
 fn map_role_name(role: &str) -> (Namespace, String) {
     let (namespace, name): (Namespace, &str) = match role {

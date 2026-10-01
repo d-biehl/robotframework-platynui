@@ -4,7 +4,7 @@
 //! The map is keyed on `role_en_US` (locale-independent); unknown roles fall
 //! back to generic PascalCase and are never an error. Where the JAB and
 //! AT-SPI2 vocabularies coincide ("push button", "check box", …) the mapping
-//! follows the AT-SPI2 column of `dev-docs/architecture.md` §6.4, so the same
+//! follows the AT-SPI2 column of the role table in `dev-docs/architecture.md` §10, so the same
 //! Swing app tends to answer the same selectors on Windows and Linux — a soft
 //! goal, resolved in favor of PlatynUI semantics where they diverge (JAB's
 //! `spinbox` → `SpinButton`).
