@@ -201,7 +201,9 @@ Follow the `robot-test-style` skill.
   | `count(.//*)`, 652 elements | JAB | 2,359 / 1,933–2,005 | 2,166 / 1,977–2,010 | 2,310 / 1,933–1,954 |
 
   Decision: with the old selectors the positional tests are noticeably slower, because a correct answer has to look inside the rows or cells before the one addressed. The Swing suites therefore address the table as `(.//*[@Name="main-table"])[1]`, which brings every positional test back to the baseline. The full walks did not change.
-- [ ] 12.3 CI runs the X11 and compositor lanes on push. Verify there that both lanes are green and their logs have no WARN or ERROR from PlatynUI, and record the run here.
+- [x] 12.3 CI runs the X11 and compositor lanes on push. Verify there that both lanes are green and their logs have no WARN or ERROR from PlatynUI, and record the run here.
+
+  Recorded on 2026-10-01: CI run 36831829876 on `main` at `7fc00e2d` passed every job. The X11 lane passed 102 of 102 tests and the compositor lane 103 of 103. Their job logs have no WARN or ERROR from PlatynUI; the only warning is apt's note about its command line, in the setup of the system packages.
 
 ## 13. Commit (only when the maintainer asks)
 
