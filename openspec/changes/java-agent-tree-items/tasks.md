@@ -26,7 +26,7 @@
 
 ## 4. The node payload
 
-- [ ] 4.1 `SwingElement`: describe a tree-node virtual child — a node kind the provider can map without inference (design 4), name from the model's rendered value, `enabled`/`visible`/`showing` from the tree.
+- [ ] 4.1 `SwingElement`: describe a tree-node virtual child — a node kind the provider can map without inference (design 4), name, description and text from the node's accessible wrapper like every element's (design 1, specs `name-attribute`, `textcontent-pattern`), `enabled`/`visible`/`showing` from the tree.
 - [ ] 4.2 `SwingGeometry`: a node's rectangle from `JTree.getPathBounds`, through the existing `hasArea` guard.
 - [ ] 4.3 Publish expansion state from `JTree.isExpanded` and the model's leaf test, so `control:Expandable.IsExpanded`/`CanExpand` are model-derived rather than renderer-derived.
 - [ ] 4.4 Publish per-node selection from `isPathSelected`, and re-derive the tree's selection from `getSelectionPaths()` instead of the accessible selection view, which answers for the root only (design 5).

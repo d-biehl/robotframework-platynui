@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Hierarchical content served by the agent is a real hierarchy
-A tree surfaced through the agent backend SHALL report its content as nested nodes, each node carrying its own children, rather than as a single level of accessibility wrappers. Node structure, names, expansion state and selection SHALL come from the toolkit's own model, because the accessibility view of a Swing tree is measurably wrong on all four counts: it truncates below the first level, announces children it cannot name or place, derives roles from the cell renderer, and reports a selection that only ever considers the root.
+A tree surfaced through the agent backend SHALL report its content as nested nodes, each node carrying its own children, rather than as a single level of accessibility wrappers. Node structure, expansion state and selection SHALL come from the toolkit's own model, because the accessibility view of a Swing tree is measurably wrong on all three counts: it truncates below the first level and announces children it cannot name or place, derives roles from the cell renderer, and reports a selection that only ever considers the root. A node's name SHALL be the accessible name Swing reports for it, and its text only what Swing provides through a text interface, as for every element (specs `name-attribute`, `textcontent-pattern`).
 
 A node that is **not realized on screen** — one inside a collapsed branch — SHALL NOT appear in the tree. A node that can be expanded SHALL say so, so a consumer can expand it and then find what it contains. This keeps the invariant that every node in the tree is one a user could see and point at.
 
@@ -35,3 +35,8 @@ Each node SHALL keep its identity across expansions and collapses elsewhere in t
 #### Scenario: Tree nodes are recognizable as tree items
 - **WHEN** any node of a tree is inspected
 - **THEN** its role identifies it as a tree item rather than as whatever component the tree happens to render its rows with
+
+#### Scenario: A tree node is named by its accessible name
+- **WHEN** a realized node drawn by the default renderer is inspected
+- **THEN** its name is the accessible name Swing reports for it, which is the text the renderer displays for that node, and not a value read from the model
+- **AND** it exposes text only where Swing provides a text interface for it, so a node drawn as plain text exposes none
