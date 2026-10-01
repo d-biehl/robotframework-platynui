@@ -22,7 +22,9 @@ Library           PlatynUI.BareMetal    AS    BM
 # forward-slash exe path even when it exists, and it needs the .exe suffix.
 # os.path.abspath resolves against the project root (robotcode's CWD).
 ${TEST_APP_BIN}        ${{ os.environ.get("PLATYNUI_TEST_APP_BIN") or os.path.abspath("target/debug/platynui-test-app-egui" + (".exe" if os.name == "nt" else "")) }}
-${APP_WAIT_TIMEOUT}    15
+# How long Launch Test App waits for a new instance's window. The first start in a
+# fresh lane session is the slowest; on CI it has taken more than 15 s.
+${APP_WAIT_TIMEOUT}    30
 # Window root of the instance started by Launch Default Instance, plus its handle.
 ${WINDOW}              ${None}
 ${TEST_APP_HANDLE}     ${None}
