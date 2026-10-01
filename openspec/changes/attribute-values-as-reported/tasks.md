@@ -86,7 +86,7 @@ Each test in this group fails until group 2 lands.
   2. `just test-acceptance-windows`, with `PYTHONIOENCODING=utf-8` set for the Robot run
 
   Verify: the UIA, JAB and agent checks and all suites pass, with no WARN or ERROR.
-- [ ] 4.3 Run `just test-acceptance-x11` and `just test-acceptance-compositor`, with `PYTHONIOENCODING=utf-8` set for the Robot runs. Verify:
+- [x] 4.3 Run `just test-acceptance-x11` and `just test-acceptance-compositor`, with `PYTHONIOENCODING=utf-8` set for the Robot runs. Verify:
   - `tests/acceptance/egui/query.robot` passes its `Name`, `Id` and `Description` checks;
   - the Qt, QML and egui suites pass;
   - the runs show no WARN or ERROR.
