@@ -88,6 +88,12 @@ impl FixtureApp {
     /// Launch the fixture JVM carrying the `PlatynUI` agent — the state the
     /// agent-presence classification fact exists to report.
     fn launch_with_agent(title_suffix: &str) -> Self {
+        Self::launch_with_agent_and(title_suffix, &[])
+    }
+
+    /// [`Self::launch_with_agent`] with further JVM arguments, such as a default
+    /// locale.
+    fn launch_with_agent_and(title_suffix: &str, jvm_args: &[&str]) -> Self {
         let jar = std::env::var_os("PLATYNUI_JAVA_AGENT_JAR").map_or_else(
             || {
                 PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -102,7 +108,9 @@ impl FixtureApp {
             PathBuf::from,
         );
         assert!(jar.is_file(), "agent JAR not found at {} — run `just build-java-agent` first", jar.display());
-        Self::launch_with(title_suffix, true, &[format!("-javaagent:{}", jar.display())])
+        let mut args = vec![format!("-javaagent:{}", jar.display())];
+        args.extend(jvm_args.iter().map(|arg| (*arg).to_owned()));
+        Self::launch_with(title_suffix, true, &args)
     }
 
     fn launch_with(title_suffix: &str, bridge: bool, extra_jvm_args: &[String]) -> Self {
@@ -403,6 +411,24 @@ fn live_fixture_contract_and_interaction() {
         textfield.pattern_by_name(&PatternName::from(pattern_names::TEXT_EDITABLE)).is_none(),
         "TextEditable must stay a marker — no programmatic set-text action"
     );
+
+    // Through the bridge the names button answers to its accessible name, and
+    // its description is listed, looked up by name and returned by the accessor
+    // alike (specs `name-attribute`, `description-attribute`).
+    const NAMES_DESCRIPTION: &str = "A button with a developer name";
+    let names_button = find_by_name(&nodes, "names-button");
+    assert_eq!(names_button.role(), "Button");
+    let listed = names_button
+        .attributes()
+        .find(|attr| attr.namespace() == Namespace::Control && attr.name() == attribute_names::common::DESCRIPTION)
+        .map(|attr| attr.value());
+    assert_eq!(listed, Some(UiValue::from(NAMES_DESCRIPTION)), "the bridge's description is listed");
+    assert_eq!(
+        attribute_value(names_button, attribute_names::common::DESCRIPTION),
+        Some(UiValue::from(NAMES_DESCRIPTION)),
+        "and found by name"
+    );
+    assert_eq!(names_button.description().as_deref(), Some(NAMES_DESCRIPTION), "and returned by the accessor");
 
     // Toggle/value surfaces on the stage-2 controls.
     let checkbox = find_by_name(&nodes, "stage2-checkbox");
@@ -837,7 +863,9 @@ fn live_jvm_classification_facts_and_diagnostic() {
 #[test]
 #[ignore = "needs a desktop, a Java runtime, the built Swing fixture and the built agent JAR"]
 fn live_agent_serves_table_cells_the_bridge_cannot() {
-    let app = FixtureApp::launch_with_agent("agent-cells");
+    // A German default locale: the names table's amount has to display in its
+    // fixed format whatever the JVM's locale (spec `swing-test-app`).
+    let app = FixtureApp::launch_with_agent_and("agent-cells", &["-Duser.language=de", "-Duser.country=DE"]);
     let provider = build_provider(&RuntimeConfig::default());
     let parent = desktop_stub();
 
@@ -866,6 +894,68 @@ fn live_agent_serves_table_cells_the_bridge_cannot() {
         assert!(Instant::now() < deadline, "no agent-served window for {:?} within {DISCOVERY_DEADLINE:?}", app.title);
         std::thread::sleep(Duration::from_millis(250));
     };
+
+    // What a full walk of the 600-cell table costs, printed for the change's
+    // design (`name-is-accessible-name`, Open Questions): every cell's payload
+    // reads its name, description, states and, since that change, its text.
+    {
+        let mut all = Vec::new();
+        walk(&window, &mut all, 0);
+        let table = find_by_name(&all, "main-table");
+        let started = Instant::now();
+        let mut walked = Vec::new();
+        walk(table, &mut walked, 0);
+        println!("full walk of main-table: {} nodes in {:?}", walked.len(), started.elapsed());
+    }
+
+    // Where each value comes from, through the agent (specs `name-attribute`,
+    // `description-attribute`, `textcontent-pattern`, `swing-test-app`): the
+    // name is Swing's accessible name and nothing else, the values that are not
+    // the name stay readable, and `Text` is only what Swing provides.
+    {
+        let mut all = Vec::new();
+        walk(&window, &mut all, 0);
+        let by_id = |id: &str| {
+            all.iter()
+                .find(|node| node.id().as_deref() == Some(id))
+                .unwrap_or_else(|| panic!("no element with the Id {id:?}"))
+        };
+
+        let button = by_id("namesButton");
+        assert_eq!(button.name(), "names-button", "the accessible name, not the component name");
+        assert_eq!(native_value(button, "ComponentName"), Some(UiValue::from("namesButton")));
+        assert_eq!(button.description().as_deref(), Some("A button with a developer name"));
+        assert!(all.iter().all(|node| node.name() != "namesButton"), "no node is named by a component name");
+
+        let pane = by_id("null.layeredPane");
+        assert_eq!(pane.name(), "", "a component name does not stand in for a missing accessible name");
+        assert_eq!(attribute_value(pane, attribute_names::common::NAME), Some(UiValue::from("")));
+
+        let names_table = find_by_name(&all, "names-table");
+        let row = names_table.children().next().expect("the names table has one row");
+        let cells: Vec<Arc<dyn UiNode>> = row.children().collect();
+        assert_eq!(cells[0].name(), "1,234.50", "the displayed text, in its fixed format under a German locale");
+        assert_eq!(native_value(&cells[0], "TableCell.ModelValue"), Some(UiValue::Number(1234.5)));
+        assert_eq!(attribute_value(&cells[0], "Text"), None, "a plain-text renderer provides no text");
+        assert_eq!(cells[1].name(), "", "the check box renderer reports no name, and the model value is not one");
+        assert_eq!(native_value(&cells[1], "TableCell.ModelValue"), Some(UiValue::Bool(true)));
+        assert_eq!(attribute_value(&cells[1], "Text"), None, "the check box renderer provides no text");
+
+        let amount = all
+            .iter()
+            .find(|node| node.role() == "ColumnHeader" && node.name() == "amount")
+            .expect("the amount column header");
+        assert_eq!(attribute_value(amount, "Text"), None, "a plain-text header provides no text");
+        assert_eq!(attribute_value(find_by_name(&all, "col-1"), "Text"), None);
+
+        for name in ["stage1-status-clicks-0", "stage1-button"] {
+            assert_eq!(attribute_value(find_by_name(&all, name), "Text"), None, "{name} has no text interface");
+        }
+
+        for cell in all.iter().filter(|node| node.role() == "TableCell") {
+            assert_eq!(native_value(cell, "ComponentName"), None, "a cell lists no component name");
+        }
+    }
 
     // The core node contract, over the agent's whole tree.
     //
@@ -897,11 +987,13 @@ fn live_agent_serves_table_cells_the_bridge_cannot() {
             "and pair it with the editability marker"
         );
 
-        // A cell's name is its *model value*, which is content — not a
+        // A cell's name is the text it displays, and its model value is
+        // `native:TableCell.ModelValue` — content either way, not a
         // developer-provided identifier. Publishing it as `control:Id` would
         // promise a stability that editing the data breaks.
         let cell = find_by_name(&all, "r2c0");
-        assert_eq!(cell.id(), None, "a table cell's model value must not be published as control:Id");
+        assert_eq!(cell.id(), None, "a table cell's content must not be published as control:Id");
+        assert_eq!(native_value(cell, "TableCell.ModelValue"), Some(UiValue::from("r2c0")));
 
         // A name Swing sets itself is the `Id` like any other (spec
         // `id-attribute`: *An identifier Swing sets itself counts as the Id*).
@@ -944,7 +1036,7 @@ fn live_agent_serves_table_cells_the_bridge_cannot() {
             for (column, cell) in cells.iter().enumerate() {
                 let column_position = i64::try_from(column).expect("fixture column index");
                 assert_eq!(cell.role(), "TableCell", "a row's children are cells");
-                assert_eq!(cell.name(), format!("r{index}c{column}"), "the model value, in model order");
+                assert_eq!(cell.name(), format!("r{index}c{column}"), "the displayed text, in model order");
                 assert_eq!(native_value(cell, "TableCell.Row"), Some(UiValue::Integer(position)));
                 assert_eq!(native_value(cell, "TableCell.Column"), Some(UiValue::Integer(column_position)));
                 assert_eq!(

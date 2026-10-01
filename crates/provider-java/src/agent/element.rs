@@ -36,12 +36,19 @@ pub(crate) struct Element {
     pub role: String,
     #[serde(rename = "className")]
     pub class_name: String,
-    /// `Component.getName()` — the spine's exclusive contribution, and for a
-    /// table cell the model value. Invisible to any out-of-process bridge.
-    #[serde(default)]
-    pub name: Option<String>,
+    /// `Component.getName()` when it was set through `setName`, for components
+    /// and windows only — the spine's exclusive contribution, invisible to any
+    /// out-of-process bridge. It is the element's identifier, not its name.
+    #[serde(rename = "componentName", default)]
+    pub component_name: Option<String>,
+    /// The accessible name Swing reports, which is the element's name.
     #[serde(rename = "accessibleName", default)]
     pub accessible_name: Option<String>,
+    /// A table cell's model value, typed on the agent side: an integer, a
+    /// number, a boolean or a string. Absent for a null value and for every
+    /// element that is not a cell.
+    #[serde(rename = "modelValue", default)]
+    pub model_value: Option<serde_json::Value>,
     #[serde(rename = "accessibleDescription", default)]
     pub accessible_description: Option<String>,
     #[serde(default)]
@@ -221,52 +228,31 @@ pub(crate) const FRAME_MAXIMIZED_BOTH: i64 = 6;
 pub(crate) const FRAME_ICONIFIED: i64 = 1;
 
 impl Element {
-    /// The node's display name.
+    /// The node's name: the accessible name Swing reports, or `""` when there is
+    /// none (spec `name-attribute`).
     ///
-    /// For anything but a top-level window, `Component.getName()` first, when it
-    /// was set through `setName`, by the application or by Swing itself: it is
-    /// stable across relayouts, and the one thing no out-of-process bridge can
-    /// see. The accessible name is the fallback, which
-    /// is also what keeps JAB-era locators matching — those were written against
-    /// it because it was all there was.
-    ///
-    /// **A window is named by its title**, and that ordering is deliberate: a
-    /// window's title is what the user sees, what the window manager shows and
-    /// what every other provider names it by, so a locator like
-    /// `//Window[@Name="..."]` has to keep working. A window's component name is
-    /// an internal identifier at best (the agent already drops AWT's
-    /// auto-generated ones), and letting it win here would rename every window in
-    /// the tree.
+    /// Nothing stands in for it — not the component name, which is the `Id`, not
+    /// a window's title, not a cell's model value. Where Swing derives the
+    /// accessible name itself, the derived value is the name: a frame without an
+    /// explicit accessible name answers to its title because Swing reports the
+    /// title, and a table cell to the text its renderer displays.
     pub fn display_name(&self) -> String {
-        if let Some(title) =
-            self.window.as_ref().and_then(|window| window.title.as_deref()).filter(|title| !title.is_empty())
-        {
-            return title.to_owned();
-        }
-        self.name
-            .as_deref()
-            .filter(|name| !name.is_empty())
-            .or(self.accessible_name.as_deref())
-            .unwrap_or_default()
-            .to_owned()
+        self.accessible_name.clone().unwrap_or_default()
     }
 
     /// The toolkit's identifier (`control:Id`), when there is one (spec
-    /// `id-attribute`).
+    /// `id-attribute`): the component name, set through `setName` by the
+    /// application or by Swing itself (`Spinner.nextButton`).
     ///
-    /// **Only components and windows have one.** `name` carries different things
-    /// for different kinds: for a component or a window it is
-    /// `Component.getName()` as the agent reports it, only when it was set through
-    /// `setName`, by the application or by Swing itself (`Spinner.nextButton`);
-    /// for a cell it is the *model value*, and for an accessibility-only child the
-    /// accessible name. Publishing those as `control:Id` would promise stability
-    /// that content does not have — a locator `//*[@Id="r2c1"]` would match a
-    /// table cell until somebody edits the data.
+    /// **Only components and windows have one.** The agent sends a component
+    /// name for nothing else, and the kind gate keeps it so should that change:
+    /// a cell's content is no identifier, and a locator `//*[@Id="r2c1"]` would
+    /// match a table cell only until somebody edits the data.
     pub fn stable_id(&self) -> Option<String> {
         if !matches!(self.kind, Kind::Component | Kind::Window) {
             return None;
         }
-        self.name.as_deref().filter(|name| !name.is_empty()).map(std::borrow::ToOwned::to_owned)
+        self.component_name.as_deref().filter(|name| !name.is_empty()).map(std::borrow::ToOwned::to_owned)
     }
 
     pub fn state_flags(&self) -> StateFlags {
@@ -483,7 +469,7 @@ mod tests {
 
     const WINDOW: &str = r#"{
         "id": 1, "kind": "window", "role": "frame", "className": "javax.swing.JFrame",
-        "name": "frame0", "accessibleName": "PlatynUI Probe 39852",
+        "accessibleName": "PlatynUI Probe 39852",
         "bounds": {"x": 156.0, "y": 156.0, "width": 810.0, "height": 317.0},
         "states": ["enabled", "focusable", "visible", "showing", "resizable"],
         "childCount": 1, "enabled": true, "visible": true, "showing": true,
@@ -495,7 +481,7 @@ mod tests {
 
     const SELECTED_CELL: &str = r#"{
         "id": 38, "kind": "cell", "role": "label", "className": "javax.swing.JTable",
-        "name": "r2c0", "accessibleName": "r2c0",
+        "accessibleName": "r2c0", "modelValue": "r2c0",
         "bounds": {"x": 230.0, "y": 470.0, "width": 74.0, "height": 15.0},
         "cell": {"row": 2, "column": 0, "rowExtent": 1, "columnExtent": 1,
                  "selected": true, "editable": false},
@@ -528,41 +514,84 @@ mod tests {
         assert_eq!(map_role(&nested, Some("desktop pane")), (Namespace::Control, "Frame".to_owned()));
     }
 
-    /// The name precedence is the whole reason to read the instance tree: the
-    /// name set through `setName` wins over the accessible name.
+    /// Spec `name-attribute`: the name is the accessible name, and the name set
+    /// through `setName` is the `Id`. Neither stands in for the other.
     #[test]
-    fn component_get_name_wins_over_the_accessible_name() {
+    fn a_component_is_named_by_its_accessible_name_not_its_component_name() {
         let button = parse(
             r#"{"id": 4, "kind": "component", "role": "push button", "className": "javax.swing.JButton",
-                "name": "okButton", "accessibleName": "OK"}"#,
+                "componentName": "namesButton", "accessibleName": "names-button"}"#,
         );
-        assert_eq!(button.display_name(), "okButton");
-        assert_eq!(button.stable_id().as_deref(), Some("okButton"));
+        assert_eq!(button.display_name(), "names-button");
+        assert_eq!(button.stable_id().as_deref(), Some("namesButton"));
 
-        let anonymous = Element { name: None, ..button };
-        assert_eq!(anonymous.display_name(), "OK", "the accessible name is the fallback");
-        assert_eq!(anonymous.stable_id(), None, "an absent name is not an id");
+        // Swing's own `null.layeredPane` has a component name but no accessible name.
+        let pane = parse(
+            r#"{"id": 5, "kind": "component", "role": "layered pane", "className": "javax.swing.JLayeredPane",
+                "componentName": "null.layeredPane"}"#,
+        );
+        assert_eq!(pane.display_name(), "", "no accessible name is an empty name, not the component name");
+        assert_eq!(pane.stable_id().as_deref(), Some("null.layeredPane"));
     }
 
-    /// A window is named by its title, whatever else it carries.
-    ///
-    /// This is not a preference, it is a regression guard. AWT manufactures a
-    /// component name for every unnamed `Frame` (`"frame0"`), so letting the
-    /// component name win would rename every Swing window in the tree and break
-    /// every `//Window[@Name="..."]` locator at once. The agent drops
-    /// auto-generated names, and this ordering is the second line of defence.
+    /// A window is named by its accessible name; its title is no name of its
+    /// own. Swing reports the title as the accessible name when nothing else is
+    /// set, which is why the recorded window answers to its title.
     #[test]
-    fn a_window_is_named_by_its_title_not_by_its_component_name() {
-        let window = parse(WINDOW);
-        assert_eq!(window.display_name(), "PlatynUI Probe 39852");
-        // Even with a component name present — the recorded payload has one.
-        assert_eq!(window.name.as_deref(), Some("frame0"));
-        // A titleless window still falls back rather than reporting nothing.
+    fn a_window_is_named_by_its_accessible_name_not_its_title() {
+        let companion = parse(
+            r#"{"id": 2, "kind": "window", "role": "frame", "className": "javax.swing.JFrame",
+                "accessibleName": "companion-window",
+                "window": {"handleSource": "none", "title": "PlatynUI Probe companion"}}"#,
+        );
+        assert_eq!(companion.display_name(), "companion-window");
+        assert_eq!(parse(WINDOW).display_name(), "PlatynUI Probe 39852");
+
         let untitled = parse(
-            r#"{"id": 2, "kind": "window", "role": "window", "className": "javax.swing.JWindow",
+            r#"{"id": 3, "kind": "window", "role": "window", "className": "javax.swing.JWindow",
                 "accessibleName": "popup", "window": {"handleSource": "none"}}"#,
         );
         assert_eq!(untitled.display_name(), "popup");
+        let anonymous = parse(
+            r#"{"id": 3, "kind": "window", "role": "window", "className": "javax.swing.JWindow",
+                "window": {"handleSource": "none", "title": "untitled"}}"#,
+        );
+        assert_eq!(anonymous.display_name(), "", "a title does not stand in for a missing accessible name");
+    }
+
+    /// A cell, a column header and a row are named by their accessible name
+    /// alone; a cell's model value is no name and no identifier.
+    #[test]
+    fn items_are_named_by_their_accessible_name() {
+        let amount = parse(
+            r#"{"id": 40, "kind": "cell", "role": "label", "className": "javax.swing.JTable",
+                "accessibleName": "1,234.50", "modelValue": 1234.5, "cell": {"row": 0, "column": 0}}"#,
+        );
+        assert_eq!(amount.display_name(), "1,234.50");
+        assert_eq!(amount.stable_id(), None, "a cell has no identifier");
+        let active = parse(
+            r#"{"id": 41, "kind": "cell", "role": "check box", "className": "javax.swing.JTable",
+                "modelValue": true, "cell": {"row": 0, "column": 1}}"#,
+        );
+        assert_eq!(active.display_name(), "", "a renderer without a name gives an empty name");
+
+        let header = parse(
+            r#"{"id": 50, "kind": "accessible", "role": "column header", "className": "javax.swing.table.JTableHeader",
+                "accessibleName": "amount", "columnHeader": {"column": 0, "modelIndex": 0}}"#,
+        );
+        assert_eq!(header.display_name(), "amount");
+        assert_eq!(parse(SELECTED_ROW).display_name(), "");
+    }
+
+    /// Spec `attribute-values`: names and descriptions travel as Swing reported them.
+    #[test]
+    fn a_padded_name_and_description_pass_through_unchanged() {
+        let padded = parse(
+            r#"{"id": 6, "kind": "component", "role": "push button", "className": "javax.swing.JButton",
+                "accessibleName": " Save ", "accessibleDescription": "  Closes the dialog  "}"#,
+        );
+        assert_eq!(padded.display_name(), " Save ");
+        assert_eq!(padded.accessible_description.as_deref(), Some("  Closes the dialog  "));
     }
 
     /// A cell is an item of its table, identified by carrying coordinates — not
@@ -579,7 +608,7 @@ mod tests {
         assert_eq!((coordinates.row, coordinates.column), (2, 0));
         assert!(coordinates.selected, "row 2 is preselected in the fixture");
         assert_eq!(coordinates.row_extent, 1);
-        assert_eq!(cell.display_name(), "r2c0", "the model value, not the renderer's last configuration");
+        assert_eq!(cell.display_name(), "r2c0", "the accessible name Swing reports for this very cell");
         assert_eq!(cell.rect(), Some(Rect::new(230.0, 470.0, 74.0, 15.0)));
     }
 

@@ -31,8 +31,9 @@ import javax.swing.table.DefaultTableModel;
  * accessible name reads whatever cell was configured last — bridge-facing tests address cells by
  * their row-major child position ({@code row * }{@value #COLUMNS}{@code  + column}, 1-based in
  * XPath) and assert content-independent facts via the {@code native:TableCell.*} attributes. Through
- * the in-JVM agent the name is the model value and is stable, and the cells sit beneath row nodes
- * rather than directly beneath the table.
+ * the in-JVM agent a cell's name is the text its renderer displays for exactly that cell, read on
+ * the toolkit thread and therefore stable; its model value is {@code native:TableCell.ModelValue},
+ * and the cells sit beneath row nodes rather than directly beneath the table.
  */
 final class TablePanel extends JPanel {
 

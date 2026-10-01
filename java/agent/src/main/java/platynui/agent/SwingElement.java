@@ -100,8 +100,9 @@ final class SwingElement {
         payload.put("role", roleOf(context, component, isWindow));
         // `Component.getName()` is the spine's exclusive contribution — but only
         // when it was set through `setName`, by the application or by Swing
-        // itself. See {@link #explicitNameOf}.
-        putIfPresent(payload, "name", explicitNameOf(component));
+        // itself. See {@link #explicitNameOf}. It is the element's identifier,
+        // not its name: the name is the accessible name, reported beside it.
+        putIfPresent(payload, "componentName", explicitNameOf(component));
         if (context != null) {
             putIfPresent(payload, "accessibleName", context.getAccessibleName());
             putIfPresent(payload, "accessibleDescription", context.getAccessibleDescription());
@@ -181,14 +182,16 @@ final class SwingElement {
     // ---------------------------------------------------------- virtual cells
 
     /**
-     * A child the toolkit has no component for: a table cell, a list entry, a tree row.
+     * A child the toolkit has no component for: a table cell, a column header, a list entry, a tree
+     * row.
      *
-     * <p>For a table cell the authoritative name comes from the <strong>model</strong>, not from the
-     * accessible wrapper. Both are reported, and the difference is the entire reason this change
-     * exists: the JDK aliases every {@code JTable} cell to one shared renderer component, so the
-     * accessible view of a cell is only correct while that renderer happens to be configured for it
-     * — a condition an out-of-process bridge cannot hold, and the source of the volatile cell names
-     * JAB reports. The model read has no such window of validity.
+     * <p>Its name, description and text come from Swing's per-item accessible wrapper
+     * ({@code AccessibleJTableCell}, {@code AccessibleJTableHeaderEntry}, {@code AccessibleJListChild}),
+     * which configures the renderer for exactly this item on every read. Read here, on the toolkit
+     * thread, the wrapper is therefore right about its item — unlike the bridge's cached contexts,
+     * which see whichever item the shared renderer was configured for last and are the source of the
+     * volatile cell names JAB reports. A cell's model value travels beside its name, typed, as
+     * {@code modelValue}: it is what the cell holds, not what it displays.
      */
     private static void describeVirtual(SwingTree.VirtualChild child, Map<String, Object> payload) {
         Component owner = child.owner();
@@ -202,6 +205,12 @@ final class SwingElement {
             putIfPresent(payload, "accessibleName", wrapper.getAccessibleName());
             putIfPresent(payload, "accessibleDescription", wrapper.getAccessibleDescription());
             payload.put("states", statesOf(wrapper));
+            // Only where the wrapper provides a text interface, which Swing's renderers
+            // do for HTML text alone; nothing stands in for a missing one.
+            String text = accessibleTextOf(wrapper);
+            if (text != null) {
+                payload.put("text", text);
+            }
         } else {
             payload.put("states", new ArrayList<Object>());
         }
@@ -210,7 +219,7 @@ final class SwingElement {
             JTable table = (JTable) owner;
             int row = child.row();
             int column = child.column();
-            payload.put("name", modelValueAt(table, row, column));
+            putModelValue(payload, table, row, column);
             // Only the part that is on screen: a table larger than its viewport
             // still answers `getCellRect` for every cell of the model, and a
             // rectangle below the window is worse than none (see
@@ -241,14 +250,11 @@ final class SwingElement {
         } else if (child.isRow() && owner instanceof JTable) {
             describeTableRow((JTable) owner, child.row(), payload);
         } else if (owner instanceof JTableHeader) {
-            describeColumnHeader((JTableHeader) owner, child.index(), payload, wrapper);
+            describeColumnHeader((JTableHeader) owner, child.index(), payload);
         } else {
-            // A non-cell virtual child (list entry, tree row): the accessible
-            // wrapper is the only view there is, and unlike a table cell it is not
-            // renderer-aliased per lookup.
-            if (wrapper != null) {
-                putIfPresent(payload, "name", wrapper.getAccessibleName());
-            }
+            // A non-cell virtual child (list entry, tree row): the wrapper's name,
+            // description and text above are all there is to it; only its
+            // geometry is read here.
             Map<String, Object> bounds = virtualBounds(owner, wrapper);
             if (bounds != null) {
                 payload.put("bounds", bounds);
@@ -322,11 +328,11 @@ final class SwingElement {
      * most clickable things in a table: sorting, resizing and reordering all happen there.
      *
      * <p>The header component knows better. {@code getHeaderRect} is the rectangle the user sees, and
-     * the column model carries the header's value and its model index — the latter being the one that
-     * survives the user dragging columns around, which is exactly what a test wants to address.
+     * the column model carries the header's model index — the one that survives the user dragging
+     * columns around, which is exactly what a test wants to address. The name stays the wrapper's
+     * accessible name, read above like every item's.
      */
-    private static void describeColumnHeader(
-            JTableHeader header, int column, Map<String, Object> payload, AccessibleContext wrapper) {
+    private static void describeColumnHeader(JTableHeader header, int column, Map<String, Object> payload) {
         TableColumnModel columns = header.getColumnModel();
         boolean valid = column >= 0 && column < columns.getColumnCount();
 
@@ -335,12 +341,6 @@ final class SwingElement {
         payload.put("role", "column header");
         if (valid) {
             TableColumn model = columns.getColumn(column);
-            Object value = model.getHeaderValue();
-            if (value != null) {
-                payload.put("name", String.valueOf(value));
-            } else if (wrapper != null) {
-                putIfPresent(payload, "name", wrapper.getAccessibleName());
-            }
             Map<String, Object> bounds = SwingGeometry.boundsWithin(header, header.getHeaderRect(column));
             if (bounds != null) {
                 payload.put("bounds", bounds);
@@ -352,8 +352,6 @@ final class SwingElement {
             block.put("modelIndex", Long.valueOf(model.getModelIndex()));
             block.put("resizable", Boolean.valueOf(model.getResizable()));
             payload.put("columnHeader", block);
-        } else if (wrapper != null) {
-            putIfPresent(payload, "name", wrapper.getAccessibleName());
         }
         payload.put("enabled", Boolean.valueOf(header.isEnabled()));
         payload.put("visible", Boolean.valueOf(header.isVisible()));
@@ -370,19 +368,46 @@ final class SwingElement {
     }
 
     /**
-     * The cell's value straight from the table model — a bulk-readable source with no renderer in
-     * the way (design decision 1).
+     * The cell's value straight from the table model, typed (see {@link #typedModelValue}). A null
+     * value, or one the model cannot give, travels as no {@code modelValue} at all.
      */
-    private static String modelValueAt(JTable table, int row, int column) {
+    private static void putModelValue(Map<String, Object> payload, JTable table, int row, int column) {
+        Object value;
         try {
-            Object value = table.getValueAt(row, column);
-            return value == null ? "" : String.valueOf(value);
+            value = table.getValueAt(row, column);
         } catch (RuntimeException e) {
-            // A model mutating underneath the read; an empty name beats failing
-            // the whole enumeration pass over one cell.
+            // A model mutating underneath the read; no value beats failing the
+            // whole enumeration pass over one cell.
             AgentLog.debug("cell value unavailable at " + row + "/" + column + ": " + e);
-            return "";
+            return;
         }
+        Object typed = typedModelValue(value);
+        if (typed != null) {
+            payload.put("modelValue", typed);
+        }
+    }
+
+    /**
+     * A model value as the wire carries it, so the provider can compare it as what it is: an
+     * integral number as a {@code Long}, a finite floating-point number as a {@code Double}, a
+     * boolean as itself, and anything else — a NaN or an infinity included, which JSON cannot carry
+     * as numbers — as its {@code String.valueOf}. {@code null} for a null value.
+     */
+    static Object typedModelValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Byte || value instanceof Short || value instanceof Integer || value instanceof Long) {
+            return Long.valueOf(((Number) value).longValue());
+        }
+        if (value instanceof Float || value instanceof Double) {
+            double number = ((Number) value).doubleValue();
+            return Double.isNaN(number) || Double.isInfinite(number) ? String.valueOf(value) : Double.valueOf(number);
+        }
+        if (value instanceof Boolean) {
+            return value;
+        }
+        return String.valueOf(value);
     }
 
     // ------------------------------------------------------------ accessibility
@@ -395,8 +420,8 @@ final class SwingElement {
      * {@code getName()} does not return {@code null} for an unnamed component — AWT
      * <em>manufactures</em> one on first read: {@code Frame} becomes {@code "frame0"},
      * {@code Dialog} {@code "dialog0"}, and so on for every heavyweight class. Reporting that as the
-     * element's name would make every Swing window answer to {@code frame0} instead of to its title,
-     * and any locator matching a window by name would stop matching.
+     * component name would give every Swing window the identifier {@code frame0}, which nobody set
+     * and which says nothing about the window.
      *
      * <p>AWT records which of the two happened, in {@code Component.nameExplicitlySet}, so this is an
      * exact answer rather than a guess about name shapes. The agent has already opened
@@ -517,17 +542,47 @@ final class SwingElement {
                 return null;
             }
         }
+        return accessibleTextOf(context);
+    }
+
+    /**
+     * The text of the {@code AccessibleText} Swing provides for {@code context}, plain or extended,
+     * or {@code null} when it provides none (spec {@code textcontent-pattern}).
+     *
+     * <p>Swing's labels and buttons, and the renderers of cells, headers and list entries built on
+     * them, return a text interface only for HTML text, so a plain-text one has none and no text is
+     * put in its place: neither the accessible name nor the component's own {@code getText()}. A
+     * plain interface is read character by character, as the JDK's bridge does; an HTML document's
+     * text starts with its line break, and travels as Swing reports it. A read that throws — a
+     * header renderer that is not {@code Accessible} — counts as no text interface.
+     */
+    static String accessibleTextOf(AccessibleContext context) {
         if (context == null) {
             return null;
         }
-        AccessibleText text = context.getAccessibleText();
-        if (!(text instanceof AccessibleExtendedText)) {
-            return null;
-        }
         try {
+            AccessibleText text = context.getAccessibleText();
+            if (text == null) {
+                return null;
+            }
             int count = text.getCharCount();
-            return count <= 0 ? "" : ((AccessibleExtendedText) text).getTextRange(0, count);
+            if (count <= 0) {
+                return "";
+            }
+            if (text instanceof AccessibleExtendedText) {
+                return ((AccessibleExtendedText) text).getTextRange(0, count);
+            }
+            StringBuilder builder = new StringBuilder(count);
+            for (int index = 0; index < count; index++) {
+                // A null character is no character; the bridge would spell it "null".
+                String character = text.getAtIndex(AccessibleText.CHARACTER, index);
+                if (character != null) {
+                    builder.append(character);
+                }
+            }
+            return builder.toString();
         } catch (RuntimeException e) {
+            AgentLog.debug("text unavailable: " + e);
             return null;
         }
     }

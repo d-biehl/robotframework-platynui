@@ -19,7 +19,9 @@ import org.junit.jupiter.api.Test;
  */
 class SwingValuesAsReportedTest {
 
-    private static final String[] STRING_KEYS = {"name", "accessibleName", "accessibleDescription", "toolTipText"};
+    private static final String[] STRING_KEYS = {
+        "componentName", "accessibleName", "accessibleDescription", "toolTipText"
+    };
 
     @Test
     void explicitly_empty_strings_travel_as_empty_strings() {

@@ -561,12 +561,17 @@ fn push_native(attrs: &mut Vec<Arc<dyn UiAttribute>>, element: &Element) {
     }
     dynamic(attrs, "ElementId", UiValue::from(i64::try_from(element.id).unwrap_or(i64::MAX)));
     dynamic(attrs, "Kind", UiValue::from(kind_label(element.kind)));
-    if let Some(name) = element.name.as_ref() {
+    if let Some(name) = element.component_name.as_ref() {
         // `Component.getName()` verbatim, next to the normalised `control:Id`.
+        // Only components and windows have one.
         dynamic(attrs, "ComponentName", UiValue::from(name.clone()));
     }
     if let Some(accessible) = element.accessible_name.as_ref() {
         dynamic(attrs, "AccessibleName", UiValue::from(accessible.clone()));
+    }
+    if let Some(value) = element.model_value.as_ref().and_then(model_value) {
+        // What a cell holds, next to what it displays, which is its `control:Name`.
+        dynamic(attrs, "TableCell.ModelValue", value);
     }
     if let Some(tip) = element.tool_tip_text.as_ref() {
         dynamic(attrs, "ToolTipText", UiValue::from(tip.clone()));
@@ -586,6 +591,21 @@ fn kind_label(kind: Kind) -> &'static str {
         Kind::Component => "component",
         Kind::Cell => "cell",
         Kind::Accessible => "accessible",
+    }
+}
+
+/// A cell's model value as the agent typed it: an integral number as an
+/// integer — asked first, so `42` and `42.0` stay apart, which [`json_scalar`]
+/// does not keep — any other number as a number, a boolean and a string as
+/// themselves.
+fn model_value(value: &serde_json::Value) -> Option<UiValue> {
+    match value {
+        serde_json::Value::Number(number) => {
+            number.as_i64().map(UiValue::Integer).or_else(|| number.as_f64().map(UiValue::Number))
+        }
+        serde_json::Value::Bool(flag) => Some(UiValue::from(*flag)),
+        serde_json::Value::String(text) => Some(UiValue::from(text.clone())),
+        _ => None,
     }
 }
 
@@ -818,7 +838,7 @@ mod tests {
     fn empty_strings_on_the_wire_are_listed_as_reported() {
         let button = node(
             r#"{"id": 4, "kind": "component", "role": "push button", "className": "javax.swing.JButton",
-                "name": "", "accessibleName": "", "toolTipText": ""}"#,
+                "componentName": "", "accessibleName": "", "toolTipText": ""}"#,
         );
         assert_eq!(attribute(&button, Namespace::Native, "AccessibleName"), Some(UiValue::from("")));
         assert_eq!(attribute(&button, Namespace::Native, "ComponentName"), Some(UiValue::from("")));
@@ -837,6 +857,56 @@ mod tests {
         );
         assert_eq!(attribute(&button, Namespace::Control, common::DESCRIPTION), None);
         assert_eq!(button.description(), None);
+    }
+
+    /// Spec `attribute-values`: a padded description is listed as reported.
+    #[test]
+    fn a_padded_description_is_listed_unchanged() {
+        let button = node(
+            r#"{"id": 4, "kind": "component", "role": "push button", "className": "javax.swing.JButton",
+                "accessibleName": " Save ", "accessibleDescription": "  Closes the dialog  "}"#,
+        );
+        assert_eq!(attribute(&button, Namespace::Control, common::NAME), Some(UiValue::from(" Save ")));
+        assert_eq!(
+            attribute(&button, Namespace::Control, common::DESCRIPTION),
+            Some(UiValue::from("  Closes the dialog  "))
+        );
+        assert_eq!(button.description().as_deref(), Some("  Closes the dialog  "));
+    }
+
+    /// Spec `name-attribute`: `native:ComponentName` is a component's name set
+    /// through `setName`, and nothing else.
+    #[test]
+    fn only_a_component_name_is_listed_as_native_component_name() {
+        let button = node(
+            r#"{"id": 4, "kind": "component", "role": "push button", "className": "javax.swing.JButton",
+                "componentName": "namesButton", "accessibleName": "names-button"}"#,
+        );
+        assert_eq!(attribute(&button, Namespace::Native, "ComponentName"), Some(UiValue::from("namesButton")));
+        let cell = node(
+            r#"{"id": 40, "kind": "cell", "role": "label", "className": "javax.swing.JTable",
+                "accessibleName": "r2c0", "modelValue": "r2c0", "cell": {"row": 2, "column": 0}}"#,
+        );
+        assert_eq!(attribute(&cell, Namespace::Native, "ComponentName"), None, "a cell has no component name");
+    }
+
+    /// Spec `name-attribute`: `native:TableCell.ModelValue` keeps the model
+    /// value typed — an integer, a number, a boolean, otherwise a string — and
+    /// a cell without one lists none.
+    #[test]
+    fn a_cell_lists_its_model_value_typed() {
+        let model_value = |value: &str| {
+            let cell = node(&format!(
+                r#"{{"id": 40, "kind": "cell", "role": "label", "className": "javax.swing.JTable",
+                    {value} "cell": {{"row": 0, "column": 0}}}}"#
+            ));
+            attribute(&cell, Namespace::Native, "TableCell.ModelValue")
+        };
+        assert_eq!(model_value(r#""modelValue": 42,"#), Some(UiValue::Integer(42)));
+        assert_eq!(model_value(r#""modelValue": 1234.5,"#), Some(UiValue::Number(1234.5)));
+        assert_eq!(model_value(r#""modelValue": true,"#), Some(UiValue::Bool(true)));
+        assert_eq!(model_value(r#""modelValue": "NaN","#), Some(UiValue::from("NaN")));
+        assert_eq!(model_value(""), None, "a null model value lists none");
     }
 
     /// A list, agent element 42 of JVM 4711, whose selected child is element 43.

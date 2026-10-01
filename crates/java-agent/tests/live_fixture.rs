@@ -620,10 +620,9 @@ fn await_windows(client: &mut AgentClient) -> Vec<serde_json::Value> {
     panic!("the agent never reported a window");
 }
 
-/// The accessible name an element carries, under either of the two keys the
-/// payload uses: an explicitly set name, or the accessibility API's own.
+/// The accessible name an element carries, which is the name it is located by.
 fn named(element: &serde_json::Value) -> Option<&str> {
-    element["name"].as_str().or_else(|| element["accessibleName"].as_str())
+    element["accessibleName"].as_str()
 }
 
 /// Walks the tree from `id` and returns the first element carrying `name`.
