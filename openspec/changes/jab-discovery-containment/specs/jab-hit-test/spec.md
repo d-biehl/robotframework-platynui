@@ -34,7 +34,7 @@ The JAB provider SHALL implement `element_at_point`.
 When the Java provider has claimed a Java top-level window through its JAB backend, a point over that window SHALL resolve to the JAB node, or to a provider error while the window is held. It SHALL never resolve to the UIA shell, regardless of provider order.
 
 - **The UIA provider** SHALL abstain from `element_at_point` for windows claimed by another provider (config `providers.windows-uia.honor_window_claims`, default true). With the kill switch off, UIA MAY resolve the shell.
-- **The Java provider** SHALL route a point to the first backend that does not abstain. It SHALL pass the abstention on when no backend answers, so a point over a window it does not claim falls through to the platform's native provider exactly as before.
+- **The Java provider** SHALL route a point to the first backend that does not abstain. It SHALL pass the abstention on when no backend answers, so a point over a window it does not claim falls through to the platform's native provider.
 
 #### Scenario: Claimed Java window resolves to the JAB node
 - **WHEN** the fixture app runs with the bridge enabled and claims are honored, and a point inside its window is hit-tested
