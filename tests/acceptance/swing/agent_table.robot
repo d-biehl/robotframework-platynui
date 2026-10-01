@@ -8,8 +8,8 @@ Documentation       Tabular content served by the **in-JVM agent**: a table's ch
 ...                 ``@Name`` is whatever the shared cell renderer was configured for last — so those
 ...                 suites address cells by position and assert coordinates through
 ...                 ``native:TableCell.*``. The agent reads the toolkit's own model, where a row is a
-...                 first-class thing and a cell's name is its model value, so here a cell is
-...                 addressable by both.
+...                 first-class thing, and names a cell by the text its renderer displays for that
+...                 very cell, so here a cell is addressable by both.
 ...
 ...                 A table's shape therefore follows the backend that serves it. That is deliberate
 ...                 and observable: ``@Technology`` says which one answered, and this suite waits for
@@ -53,7 +53,7 @@ A Table's Children Are Its Rows
     END
 
 A Row Holds One Cell Per Column
-    [Documentation]    Six cells under the third row (row index 2), carrying their model values in
+    [Documentation]    Six cells under the third row (row index 2), named by the text they display, in
     ...    model order — which through the bridge is impossible, because every cell resolves to the
     ...    one shared renderer.
     BM.Wait Until Query    count((.//*[@Name="main-table"])[1]/*[3]/*)    ==    ${6}
@@ -70,7 +70,7 @@ A Row Holds One Cell Per Column
 
 A Row Below The Fold Is In The Tree But Not On Screen
     [Documentation]    The table does not fit its viewport, and the two halves of that must both
-    ...    hold: row 90 is present with its position, its name and its cells' model values, and it
+    ...    hold: row 90 is present with its position and its cells' names, and it
     ...    reports **no** bounds and is not in view. A rectangle two thousand pixels below the window
     ...    would aim the pointer at whatever happens to be there.
     BM.Get Attribute Value    (.//*[@Name="main-table"])[1]/*[91]    native:TableRow.Index    ==    ${90}
@@ -100,8 +100,9 @@ A Cell Keeps Its Coordinates One Level Deeper
 
 A Cell Is Reachable Through Its Row By Name
     [Documentation]    The row-scoped locator a user would actually write. Both halves matter: the
-    ...    cell is found *under its row*, and it is found by its content — the agent reads the model,
-    ...    so a cell's name is stable rather than whatever the renderer last held.
+    ...    cell is found *under its row*, and it is found by the text it displays — the agent reads
+    ...    each cell's name for that very cell, so it is stable rather than whatever the shared
+    ...    renderer last held.
     BM.Get Attribute Value    (.//*[@Name="main-table"])[1]/*[3]//*[@Name="r2c1"]    native:TableCell.Column    ==    ${1}
     ${stray}=    BM.Query    (.//*[@Name="main-table"])[1]/*[1]//*[@Name="r2c1"]    only_first=${True}
     Should Be Equal    ${stray}    ${None}    msg=a cell must only be found under the row it belongs to
