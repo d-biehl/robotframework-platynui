@@ -135,7 +135,7 @@ Each test in this group fails until groups 3 and 4 land.
   - the provider's live checks for the agent and JAB pass;
   - `agent_names.robot`, `agent_table.robot` and all other Swing suites pass;
   - the run shows no WARN or ERROR.
-- [ ] 6.3 Run the Linux acceptance lanes `just test-acceptance-x11` and `just test-acceptance-compositor`, with `PYTHONIOENCODING=utf-8` set for the Robot runs. Verify:
+- [x] 6.3 Run the Linux acceptance lanes `just test-acceptance-x11` and `just test-acceptance-compositor`, with `PYTHONIOENCODING=utf-8` set for the Robot runs. Verify:
   - `tests/acceptance/egui/query.robot` passes its `Name`, `Id` and `Description` checks;
   - the Qt, QML and egui suites pass;
   - the runs show no WARN or ERROR.
