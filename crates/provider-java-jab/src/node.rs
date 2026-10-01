@@ -362,6 +362,10 @@ impl UiNode for JabNode {
         self.info_opt().map(|info| info.name.clone()).unwrap_or_default()
     }
 
+    fn description(&self) -> Option<String> {
+        self.info_opt().and_then(|info| description_of(&info.description))
+    }
+
     fn runtime_id(&self) -> &RuntimeId {
         self.runtime_id
             .get_or_init(|| RuntimeId::from(format_runtime_id(self.scope, self.vm, self.hwnd, &self.index_path)))
@@ -435,6 +439,9 @@ impl UiNode for JabNode {
             static_attr(ns, focusable::IS_FOCUSED, UiValue::from(states.focused)),
             static_attr(ns, common::SUPPORTED_PATTERNS, supported_patterns_value(&self.supported_patterns_for(&info))),
         ];
+        // Listed only with a value, like on every provider; the named lookup
+        // scans this listing, so it and the accessor agree by construction.
+        attrs.extend(description_attr(&info));
 
         // Descendants expose bounds only when JAB reports a real rect (the
         // hidden-element sentinel maps to "no Bounds"); top-level windows always
@@ -905,6 +912,21 @@ fn hit_fallback_node(
 
 fn static_attr(namespace: Namespace, name: &'static str, value: UiValue) -> Arc<dyn UiAttribute> {
     Arc::new(StaticAttr { namespace, name, value })
+}
+
+/// The `Description` decision over the description the bridge reported (spec
+/// `description-attribute`): the bridge passes Swing's
+/// `getAccessibleDescription()` through, so the value is taken as reported, and
+/// the empty string — what the bridge sends for none — is no description.
+fn description_of(reported: &str) -> Option<String> {
+    (!reported.is_empty()).then(|| reported.to_owned())
+}
+
+/// `control:Description` of a context, when the bridge reports one (see
+/// [`description_of`]).
+fn description_attr(info: &ContextInfo) -> Option<Arc<dyn UiAttribute>> {
+    description_of(&info.description)
+        .map(|text| static_attr(Namespace::Control, common::DESCRIPTION, UiValue::from(text)))
 }
 
 /// JVM classification facts (java-app-classification) on a top-level window:
@@ -1566,6 +1588,15 @@ mod tests {
             assert_eq!(found, expected, "app:{name}");
         }
         assert!(app_process_attribute(Some(&process), "ProcessId").is_none(), "not an app attribute");
+    }
+
+    /// Spec `description-attribute`: the bridge's description is the
+    /// `Description` as reported (spec `attribute-values`), and an empty one is
+    /// none.
+    #[test]
+    fn the_bridge_description_is_taken_as_reported_and_none_when_empty() {
+        assert_eq!(description_of(""), None);
+        assert_eq!(description_of("  Closes the dialog  ").as_deref(), Some("  Closes the dialog  "));
     }
 
     /// A null window has no process; `0` must never stand for one.
