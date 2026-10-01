@@ -36,7 +36,7 @@ Every provider SHALL take the identifier unmodified, whichever source it came fr
 
 #### Scenario: A table cell has no Id although the agent reports a name for it
 
-- **GIVEN** a Swing table served by the Java agent, whose cell reports its model value as its name
+- **GIVEN** a Swing table served by the Java agent, whose cell reports the text it displays as its name and its model value as `native:TableCell.ModelValue`
 - **WHEN** the cell's attributes and id accessor are read
 - **THEN** it SHALL carry no `control:Id`, and its id accessor SHALL return none
 - **NOTE** Real provider only; the Java agent's live fixture on Windows.
@@ -46,14 +46,14 @@ Every provider SHALL take the identifier unmodified, whichever source it came fr
 - **GIVEN** an AT-SPI element whose `Accessible.AccessibleId` is ` btn-save `
 - **WHEN** its `Id` is decided
 - **THEN** it SHALL be ` btn-save `, unchanged
-- **NOTE** Verified on the provider's decision in isolation. Today AT-SPI trims it to `btn-save`.
+- **NOTE** Verified on the provider's decision in isolation.
 
 #### Scenario: A whitespace-only AT-SPI identifier is not replaced by an object attribute
 
 - **GIVEN** an AT-SPI element whose `Accessible.AccessibleId` consists of two spaces, and whose object attribute `id` is `btn-save`
 - **WHEN** its `Id` is decided
 - **THEN** it SHALL be the two spaces
-- **NOTE** Verified on the provider's decision in isolation. Today AT-SPI treats the blank value as missing and takes `btn-save`.
+- **NOTE** Verified on the provider's decision in isolation.
 
 #### Scenario: An AT-SPI object-attribute identifier is taken unmodified
 
