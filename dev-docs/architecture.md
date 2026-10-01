@@ -240,7 +240,7 @@ Providers generate deterministic IDs stable for the element's lifetime. The `pla
 
 Visible labels change — they get renamed, translated, or reworded — so they make brittle selectors. The **Id** exists to give you something steadier: the identifier an element's toolkit reports for automation, independent of the visible label and of language. When you want a selector that survives, prefer `@control:Id='...'` wherever it is available.
 
-Each provider takes the Id from one source: on Windows the UIA `AutomationId`; on Linux/AT-SPI2 the `AccessibleId` property, or, when that is empty or unreadable, the first of the object attributes `accessible-id`, `accessible_id` and `id` that is not empty; through the Java agent, `Component.getName()` of components and windows, when it was set through `setName`; on macOS/AX the `AXIdentifier`. The Java Access Bridge reports none. Who set the value does not matter: an identifier the toolkit or framework generated — a Qt object path, a name Swing gives its own parts such as `Spinner.nextButton`, an AccessKit author id forwarded to UIA and AT-SPI — is the Id just like one the application set. A provider never puts another value in place of a missing identifier: not the name, the process ID or the runtime id. It takes the identifier unmodified, as every value (§5.7): an identifier of whitespace is an identifier, and only the empty string counts as none.
+Each provider takes the Id from one source: the identifier its technology reports for automation (§10 names the source per provider). A technology that reports no identifier gives its nodes no Id. Who set the value does not matter: an identifier the toolkit or framework generated — an object path a toolkit builds, a name a toolkit gives the parts of a composite control, an id a cross-platform UI library forwards to the platform — is the Id just like one the application set. A provider never puts another value in place of a missing identifier: not the name, the process ID or the runtime id. It takes the identifier unmodified, as every value (§5.7): an identifier of whitespace is an identifier, and only the empty string counts as none.
 
 The Id is present only with a value. A node without one lists no `control:Id`, and its id accessor (`element.id` in Python) answers none rather than an empty string. The accessor and the attribute always carry the same value, and listing a node's attributes agrees with looking `Id` up by name. **Application nodes carry no Id** on any provider: an application is identified by its `@ProcessId`, so its one-line description ends with its quoted name, without a `#…` suffix. The rule is spec `id-attribute`; the contract testkit checks it with `verify_id`.
 
@@ -248,19 +248,7 @@ The Id is present only with a value. A node without one lists no `control:Id`, a
 
 The **description** is the accessibility API's longer, human-readable explanation of an element — distinct from its short accessible name. It is a common attribute (see §6.6), and like the Id it is **optional**: a node emits `control:Description` only when its platform value is non-empty, so absence is normal and expected rather than an error. The value is taken unmodified (§5.7), so a description of whitespace is a description.
 
-The mapping is deliberately **strict** — `control:Description` maps 1:1 to the platform's genuine accessible-description property and nothing else:
-
-| Platform | Source | Explicitly excluded |
-|---|---|---|
-| Windows UIA | `FullDescription` (`UIA_FullDescriptionPropertyId`) | `HelpText`, `LegacyIAccessible.Description` |
-| Linux AT-SPI2 | `Accessible.Description` | `Accessible.HelpText` |
-| Java Access Bridge (Swing/AWT, Windows) | the accessible description the bridge reports, which is Swing's `getAccessibleDescription()` | — |
-| Java agent (Swing/AWT) | Swing's `getAccessibleDescription()`, which Swing derives from the tool tip text when nothing else is set | — |
-| macOS AX | open (stub provider; `AXHelp` is help text, not a description) | — |
-
-The Java rows add no fallback either: where Swing derives a description from a component's tool tip, that is the accessible description Swing reports, and the providers take it as such.
-
-There is **no fallback** to help/tooltip-like properties: HelpText is a different concept (tooltip/help semantics), and returning it as a "description" would surface plausible-looking but semantically wrong values. The excluded properties remain reachable under the `native:` namespace for callers who genuinely want them; a dedicated help/tooltip attribute, if ever wanted, would be a separate concept. UIA `FullDescription` requires Windows 10 1703+ and app support, so on older targets or apps that never set it the attribute is simply absent — again, correct behavior, not an error.
+The mapping is deliberately **strict**: `control:Description` comes from the technology's genuine accessible-description property and nothing else (§10 names the source per provider). There is **no fallback** to help or tooltip properties: help text is a different concept, and returning it as a "description" would surface plausible-looking but semantically wrong values. Those properties remain reachable under `native:` for callers who genuinely want them; a dedicated help or tooltip attribute, if ever wanted, would be a concept of its own. Where a toolkit itself derives its accessible description from a tool tip, that is the description the technology reports, and the provider takes it as such. A platform that supports descriptions only from a certain version on, or an application that never sets one, leaves the attribute absent — correct behavior, not an error.
 
 The value parity with `name`/`id` extends up the stack: `UiNode::description()` is the first-class accessor (see §5.1), exposed through the native bindings and as a read-only `description` property on the Python `Adapter` and `Context`.
 
@@ -314,7 +302,7 @@ Patterns compose. An element does not get a fixed class ("this is a button, so i
 
 ### 6.2 Providers read, the client acts
 
-Providers give **read access** to the elements and their attributes. The only exception are the **runtime actions**: setting the keyboard focus and controlling windows — activate, minimize, maximize, restore, close, move, resize — plus the question whether a window currently accepts input. These are the actions a provider performs itself, through the platform.
+Providers give **read access** to the elements and their attributes. The only exception are the **runtime actions**: setting the keyboard focus, bringing an element into view, and controlling windows — activate, minimize, maximize, restore, close, move, resize — plus the question whether a window currently accepts input. These are the actions a provider performs itself, through the platform. A provider may also ask the platform to make an element readable at all: some technologies keep the entries of long lists as placeholders until something asks for them. Creating such an element can change what the user sees — a list may scroll — and a script that works with these elements reacts to it.
 
 Everything else a user does with an element — clicking it, switching it, selecting it, expanding it, typing into it — the client does the way a user does: with the pointer and the keyboard, through the platform devices (§8). No provider offers a programmatic shortcut such as "select this item" or "set this text", even where its accessibility technology has one. A programmatic shortcut takes a different path through the application than a user does, so a test that uses it can pass while the real interaction is broken. For text input this is spec `text-input-policy`.
 
@@ -322,7 +310,7 @@ The system therefore stops at *describing* and at the few runtime actions. Once 
 
 ### 6.3 Two kinds of pattern
 
-- A **runtime pattern** is an action the provider performs: Focusable, Activatable, Minimizable, Maximizable, Restorable, Closeable, Movable, Resizable and Responsive (§6.6). A node that announces one hands out an *instance* of it on request, and the instance carries the action. The instance is what the announcement guarantees. Where the action changes a state the element has — focus, minimized, maximized — the pattern also carries that state as a required attribute, so a client can check the effect of the action.
+- A **runtime pattern** is an action the provider performs: Focusable, BringIntoViewable, Activatable, Minimizable, Maximizable, Restorable, Closeable, Movable, Resizable and Responsive (§6.6). A node that announces one hands out an *instance* of it on request, and the instance carries the action. The instance is what the announcement guarantees. Where the action changes a state the element has — focus, in view, minimized, maximized — the pattern also carries that state as a required attribute, so a client can check the effect of the action.
 - A **client pattern** is carried out by the client: clicking a toggle, selecting an item, clearing a field (§6.2). It never has an instance in the provider. Client patterns come in two forms:
   - **Announced by the provider.** The provider can tell from the platform that an element has the capability, and it delivers the attributes that go with it — Toggleable with `ToggleState`, Selectable with `IsSelected`. It announces such a pattern, and the announcement is the name plus its attributes. Every announced client pattern has **at least one attribute a client can always evaluate**: a required attribute, or an optional one whose absence has a defined meaning (an absent `CanSelectMultiple` means single selection). That way the announcement always promises something a client can read. The one exception is Application (§6.6), where the announcement itself is the fact.
   - **The client's own.** Some capabilities need nothing from the provider beyond what other patterns already deliver: clearing a field is a keyboard action on an editable text, highlighting needs only the element's rectangle, and a container of items — a list box, a row, a cell — is described from the tree and its other patterns. Such patterns are never announced and have no part in the provider; the client library decides when they apply and implements them (`python-library-design.md`).
@@ -374,6 +362,7 @@ Every `control:` and `item:` node carries a small set of attributes, independent
 | Pattern | The provider performs | Required | Optional |
 |---|---|---|---|
 | **Focusable** | give the element the keyboard focus | `IsFocused` | — |
+| **BringIntoViewable** | bring the element into the visible area of its container, the way the application does it — usually by scrolling | `IsInView` | — |
 | **Activatable** | bring a window to the foreground and make it the active one | — | — |
 | **Minimizable** | minimize a window | `IsMinimized` | `CanMinimize` |
 | **Maximizable** | maximize a window | `IsMaximized` | `CanMaximize` |
@@ -383,7 +372,7 @@ Every `control:` and `item:` node carries a small set of attributes, independent
 | **Resizable** | change a window's size | — | `CanResize` |
 | **Responsive** | answer whether a window currently accepts input (yes, no, unknown) | — | — |
 
-Each window action is its own pattern, so a window that can be minimized but not moved announces exactly that. A `Can…` attribute that is absent counts as true (§6.4, rule 5). Each action can still fail — the platform may refuse it, or the window may be gone — and the caller handles that.
+BringIntoViewable serves a user who wants to operate an element that is out of sight — a table row scrolled away — where reaching it with pointer and keyboard would mean guessing how far to scroll, through possibly nested scroll areas. It reaches only elements that exist in the tree: an entry a virtualizing list has not created yet is not there to be asked. Each window action is its own pattern, so a window that can be minimized but not moved announces exactly that. A `Can…` attribute that is absent counts as true (§6.4, rule 5). Each action can still fail — the platform may refuse it, or the window may be gone — and the caller handles that.
 
 #### Client patterns announced by providers
 
@@ -501,47 +490,7 @@ All providers must:
 - Keyboard device: key naming case-insensitive lookup, `known_key_names()` stable-sortable, `UnsupportedKey` errors informative.
 - `ActivationTarget` provides `ActivationPoint` (native API preferred, bounds center as fallback).
 
-#### Platform-Specific Checklist: Windows (UIA)
-
-- Bounds from `BoundingRectangle` in desktop coordinates (Per-Monitor-V2 DPI active).
-- ActivationPoint via `GetClickablePoint()` or center of bounds as fallback.
-- `control:Text` (TextContent) priority: `TextPattern.DocumentRange.GetText` → `ValuePattern.Value`; never the accessible name. Absent when the element supports neither pattern.
-- `control:Description` from `FullDescription` (`UIA_FullDescriptionPropertyId`) only — never `HelpText` or `LegacyIAccessible.Description`. Win10 1703+ property; absent when empty/unsupported. The hardcoded `attribute()` fast-path must agree with the `attributes()` iterator.
-- Window capability patterns (Activatable, Minimizable, Maximizable, Restorable, Closeable, Movable, Resizable) via `WindowPattern`/`TransformPattern`; `ResponsivePattern::accepts_user_input()` via `IsEnabled && IsInView` + `WaitForInputIdle`.
-- Application node: process attributes (`control:ProcessId` for a positive pid; `app:ProcessName`, `ExecutablePath`, `CommandLine`, `UserName`, `StartTime`, `Architecture`), each listed only when it was read for the node's recorded process; `control:Name` is the process name, and the node carries no `control:Id`.
-- `SelectionItemPattern`/`SelectionPattern` sync verified.
-- COM initialized (`CoInitializeEx` MTA) before any UIA call.
-- `VirtualizedItemPattern::Realize()` attempted before child traversal.
-- Native properties via `GetCurrentPropertyValueEx(id, true)` with sentinel filtering (`ReservedNotSupportedValue`, `ReservedMixedAttributeValue`).
-- VARIANT type conversion: `VT_BOOL` → Bool, `VT_I*/VT_UI*` → Integer, `VT_R*/VT_DECIMAL` → Number, `BSTR` → String, `SAFEARRAY(1D)` → Array.
-
-#### Platform-Specific Checklist: Linux (AT-SPI2 + X11)
-
-- Coordinates from `Component.GetExtents(ATSPI_COORD_TYPE_SCREEN)`.
-- TextContent/TextSelection via AT-SPI `Text` interface.
-- SelectionProvider via AT-SPI `Selection` interface.
-- Window capability actions (Activatable, Minimizable, Maximizable, Restorable, Closeable, Movable, Resizable) delegate to EWMH WindowManager (not direct X11 calls from provider).
-- Component-gated attributes (`Bounds`, `ActivationPoint`, `IsEnabled`, `IsVisible`, `IsInView`, `IsFocused`) only present when Component interface available.
-- `control:Description` from `Accessible.Description` only — never `Accessible.HelpText` (which stays under `native:`). Emitted only when non-empty.
-- Native attributes: `Native/<Interface>.<Property>` format for all AT-SPI interfaces.
-- Virtual desktops: provider does NOT handle desktop switching — that is `WindowManager::ensure_window_accessible()` responsibility.
-
-#### Platform-Specific Checklist: macOS (AX)
-
-- Coordinates from `AXFrame` in Core Graphics desktop coordinate system.
-- `TextEditable` via `AXEditable`/`AXEnabled`.
-- `Activatable` via `AXPress` action.
-- Window capability patterns via accessibility actions + `CGWindow`/`NSWorkspace`.
-- `kAXRaiseAction` for window activation (implicitly switches Spaces).
-
-#### Platform-Specific Checklist: Mock
-
-- Reference data covers typical pattern combinations (Button, Window, TextBox, List, TreeItem).
-- Spec-driven `control:Description`: emitted (and returned from `description()`) when the mock tree spec sets a description, omitted otherwise. Deliberately partial — not authoritative for platform mapping semantics.
-- Desktop coordinates tested (multi-monitor arrangement: 2160x3840 left, 3840x2160 center primary, 1920x1080 right).
-- Scripted mock allows negative scenarios (missing patterns, failing focus).
-- Pointer/keyboard mock produce deterministic logging (`take_pointer_log`, `take_keyboard_log`, `reset_*` helpers).
-- Text buffer operations: `append_text`, `replace_text`, `apply_keyboard_events`.
+What a provider has to observe for its own technology is listed with that provider in §10.
 
 ## 8. Platform Devices
 
@@ -789,6 +738,7 @@ UI Automation offers each capability as a pattern of its own, and a property per
 |---|---|---|
 | common | Name, Id, Description | CurrentName; AutomationId; FullDescription |
 | Focusable | focus; IsFocused | SetFocus; HasKeyboardFocus |
+| BringIntoViewable | bring into view; IsInView | ScrollItemPattern.ScrollIntoView, offered where `IsScrollItemPatternAvailable`; not IsOffscreen |
 | Activatable | activate | restore the window if minimized, then bring it to the foreground |
 | Minimizable, Maximizable, Restorable | minimize, maximize, restore; IsMinimized, IsMaximized; CanMinimize, CanMaximize | WindowPattern.SetWindowVisualState; WindowVisualState; CanMinimize, CanMaximize |
 | Closeable | close | WindowPattern.Close |
@@ -809,6 +759,16 @@ UI Automation offers each capability as a pattern of its own, and a property per
 
 ValuePattern.Value is a string, so it feeds `Text`, never the numeric `Value`.
 
+Implementation notes:
+
+- Description comes from `FullDescription` alone, a property of Windows 10 1703 and later. `HelpText` and `LegacyIAccessible.Description` stay readable under `native:`.
+- Coordinates are desktop coordinates with Per-Monitor-V2 DPI awareness active.
+- COM is initialized as a multithreaded apartment (`CoInitializeEx` MTA) on each thread before its first UI Automation call.
+- The provider answers a lookup of a single attribute by name through a fast path; it must agree with the full attribute listing.
+- Before it lists an element's children, the provider asks an element that offers `VirtualizedItemPattern` to realize itself (`Realize()`).
+- Native properties are read with `GetCurrentPropertyValueEx(id, true)`, and the sentinels `ReservedNotSupportedValue` and `ReservedMixedAttributeValue` are filtered out.
+- VARIANT values convert as `VT_BOOL` → Bool, `VT_I*`/`VT_UI*` → Integer, `VT_R*`/`VT_DECIMAL` → Number, `BSTR` → String, a one-dimensional `SAFEARRAY` → Array.
+
 #### Linux: AT-SPI2
 
 AT-SPI2 describes most capabilities as states of an element (checked, selected, expanded, …) and some as interfaces (Text, Selection, Value). Whether an element *can* have a state is a state of its own — checkable, selectable, expandable — and decides what a node announces. Window actions and window state come from the platform's window manager device (§8.5): EWMH on X11, the control socket of the PlatynUI compositor on Wayland.
@@ -817,6 +777,7 @@ AT-SPI2 describes most capabilities as states of an element (checked, selected, 
 |---|---|---|
 | common | Name, Id, Description | Accessible.Name alone (the object attributes stay readable in `native:Accessible.Attributes`); Accessible.AccessibleId, else the object attribute `accessible-id`, `accessible_id` or `id`; Accessible.Description |
 | Focusable | focus; IsFocused | Component.GrabFocus; state FOCUSED |
+| BringIntoViewable | bring into view; IsInView | Component.ScrollTo (at-spi2-core 2.28 and later; whether a toolkit implements it, only the call's result tells); state VISIBLE or SHOWING |
 | window runtime patterns | the window actions; IsMinimized, IsMaximized | window manager |
 | Responsive | accepts input? | states SENSITIVE and SHOWING |
 | Element | Bounds; IsVisible, IsInView; IsEnabled | Component extents, the window manager for top-level windows; state VISIBLE or SHOWING; state ENABLED or SENSITIVE |
@@ -832,6 +793,13 @@ AT-SPI2 describes most capabilities as states of an element (checked, selected, 
 | TextSelection | SelectedText, SelectionStart, SelectionEnd | Text.GetSelection |
 | Scrollable | — | no scroll interface; derivable from the scroll bars' Value |
 
+Implementation notes:
+
+- `Accessible.HelpText` is not the description; it stays readable under `native:`.
+- The Element attributes, `ActivationPoint` and `IsFocused` exist only on elements that offer the Component interface; an element without it announces neither Element nor ActivationTarget.
+- Window actions and window state go through the window manager device, never through direct X11 calls from the provider. Switching virtual desktops is the window manager's concern as well (§8.5), not the provider's.
+- Native attributes are named `native:<Interface>.<Property>` for every AT-SPI2 interface.
+
 #### Java: Access Bridge and in-JVM agent
 
 The Java provider serves Swing and AWT on Windows through two backends: the Java Access Bridge, and the agent PlatynUI loads into the JVM. Both read the `javax.accessibility` model, in which capabilities are states (checked, selected, expanded, …) and interfaces (AccessibleText, AccessibleSelection, AccessibleValue); the agent can also read the toolkit's own model, for example the selection of a table. Planned: the agent on Linux, and adapters for JavaFX and SWT ([`java-toolkits.md`](java-toolkits.md)). Java windows are native windows, so the window actions and window state come from the platform's window manager.
@@ -840,6 +808,7 @@ The Java provider serves Swing and AWT on Windows through two backends: the Java
 |---|---|---|
 | common | Name, Id, Description | the accessible name the bridge reports / Swing's `getAccessibleName()` for every element, with a window's title in `native:WindowTitle` and a table cell's model value in `native:TableCell.ModelValue`; none / `Component.getName()` when set with `setName` (cells, rows and other accessibility-only children have none); the accessible description the bridge reports / Swing's `getAccessibleDescription()`, which Swing derives from the tool tip text when nothing else is set |
 | Focusable | focus; IsFocused | requestFocus; state `focused` / `Component.isFocusOwner` |
+| BringIntoViewable | bring into view; IsInView | — / `JComponent.scrollRectToVisible`, for a table cell with the cell's rectangle; `showing` / `Component.isShowing` |
 | window runtime patterns | the window actions; IsMinimized, IsMaximized | window manager |
 | Element | Bounds; IsVisible; IsEnabled; IsInView | context bounds / component location and size; `visible` and `showing` / `Component.isVisible`; `enabled` / `Component.isEnabled`; `showing` / `Component.isShowing` |
 | ActivationTarget | ActivationPoint | centre of the bounds (the Access Bridge has no clickable-point call) |
@@ -862,6 +831,7 @@ The AX provider is a stub. Its mapping is planned as follows:
 |---|---|---|
 | common | Name, Id, Description | AXTitle or AXDescription, depending on the role; AXIdentifier; open (AXHelp is help text, not a description) |
 | Focusable | focus; IsFocused | set AXFocused; AXFocused |
+| BringIntoViewable | bring into view | the AXScrollToVisible action |
 | Activatable | activate | AXRaise and AXFocused |
 | Minimizable, Restorable | minimize, restore; IsMinimized | AXMinimized |
 | Maximizable | maximize; IsMaximized | AXFullScreen (an approximation) |
@@ -880,13 +850,27 @@ The AX provider is a stub. Its mapping is planned as follows:
 | WindowState | IsActive; IsModal | AXMain; AXModal |
 | TextSelection | SelectedText, SelectionStart, SelectionEnd | AXSelectedText; AXSelectedTextRange |
 
+Implementation notes:
+
+- Coordinates come from `AXFrame` in the Core Graphics desktop coordinate system.
+- Window actions use accessibility actions together with `CGWindow` and `NSWorkspace`. Activation raises the window with `kAXRaiseAction`, which also switches to the window's Space.
+
 #### Mock
 
-The mock provider declares patterns and attributes per node in its tree file (`crates/provider-mock/assets/mock_tree.xml`): what a node announces is what the file says. It follows the same rules as every provider, and it is deliberately partial ([`testing-strategy.md`](testing-strategy.md) §4).
+The mock provider declares patterns and attributes per node in its tree file (`crates/provider-mock/assets/mock_tree.xml`): what a node announces is what the file says. It follows the same rules as every provider, and it is deliberately partial ([`testing-strategy.md`](testing-strategy.md) §4); it is not authoritative for how a platform maps anything.
+
+Implementation notes:
+
+- The tree covers the typical pattern combinations (button, window, text box, list, tree item).
+- `Description` is emitted, and returned from `description()`, exactly when the tree file sets a description.
+- The mock desktop has three monitors: 2160×3840 on the left, 3840×2160 in the centre as the primary, 1920×1080 on the right.
+- Scripted scenarios cover negative cases such as missing patterns and failing focus.
+- The mock pointer and keyboard log what they do, deterministically (`take_pointer_log`, `take_keyboard_log` and the `reset_*` helpers).
+- Its text buffers support `append_text`, `replace_text` and `apply_keyboard_events`.
 
 #### Application nodes
 
-Every provider on a platform reads the process attributes through the one reader of `platynui-process`, bound to the process identity the node recorded; the Java provider's JAB and agent nodes on Windows included. Formats and the presence rule: spec `application-process-attributes`. `ProcessId` is an application node's identity: application nodes carry no `Id` on any provider (§5.5).
+Every provider on a platform reads the process attributes through the one reader of `platynui-process`, bound to the process identity the node recorded; the Java provider's JAB and agent nodes on Windows included. Formats and the presence rule: spec `application-process-attributes`. `ProcessId` is an application node's identity: application nodes carry no `Id` on any provider (§5.5). UI Automation and the Java Access Bridge name an application node after its process, so its `Name` equals its `app:ProcessName`.
 
 | Attribute | Windows (UIA, JAB, Java agent) | Linux (AT-SPI2) | macOS AX |
 |-----------|-----|---------|----------|
