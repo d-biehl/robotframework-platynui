@@ -85,7 +85,7 @@ The engine SHALL return the nodes that a path expression `E1/E2` selects in docu
 
 ### Requirement: A positional predicate in a step counts per context node
 
-A predicate within a step that uses `position()` or `last()`, or that yields a number, SHALL be evaluated for each context node separately. It SHALL count along the step's axis from that context node: in document order for forward axes, and in reverse document order for reverse axes. The step's result SHALL be the union of the per-context results, in document order. Predicates that are not positional SHALL select the same nodes as before.
+A predicate within a step that uses `position()` or `last()`, or that yields a number, SHALL be evaluated for each context node separately. It SHALL count along the step's axis from that context node: in document order for forward axes, and in reverse document order for reverse axes. The step's result SHALL be the union of the per-context results, in document order. A predicate that is not positional SHALL select a node by its condition alone, so it selects the same nodes whether it is evaluated per context node or over the whole step.
 
 #### Scenario: The first match of every parent
 
@@ -137,13 +137,13 @@ A predicate within a step that uses `position()` or `last()`, or that yields a n
 - **WHEN** `//B[3]`, `//B[0]` and `//B[1.5]` are evaluated
 - **THEN** each result SHALL be empty, and no error SHALL be raised
 
-#### Scenario: Non-positional predicates are unchanged
+#### Scenario: Non-positional predicates select by their condition alone
 
 - **GIVEN** the same tree
 - **WHEN** `//B[@id='B4']` and `//P[B]` are evaluated
 - **THEN** the results SHALL be `[B4]` and `[P1, P2]`
 
-#### Scenario: A predicate error is still raised
+#### Scenario: A predicate error is raised
 
 - **GIVEN** the same tree
 - **WHEN** `//B[(1, 2)]` is evaluated
@@ -171,7 +171,7 @@ A predicate on a parenthesized expression, `(E)[p]`, SHALL count `position()` an
 - **WHEN** `(//B)[6]` is evaluated
 - **THEN** the result SHALL be empty
 
-#### Scenario: Predicates over atomic sequences are unchanged
+#### Scenario: Positional predicates over an atomic sequence count within it
 
 - **GIVEN** any context
 - **WHEN** `(1 to 100)[position() > 3][position() <= 5][2]` is evaluated

@@ -16,12 +16,12 @@ construction. Rests on per-runtime platform ownership
 ## Requirements
 ### Requirement: Empty configuration reproduces environment-derived behavior
 
-A runtime built with no `config`, or with an empty `config`, SHALL behave exactly as a runtime built today: the active platform SHALL be auto-detected from the environment and each provider SHALL resolve its connection from the environment (for AT-SPI, discovering the accessibility bus as it does now). No configuration key SHALL be required for any currently-working scenario.
+A runtime built with no `config`, or with an empty `config`, SHALL derive its behavior from the environment: the active platform SHALL be auto-detected from the environment and each provider SHALL resolve its connection from the environment (for AT-SPI, by discovering the accessibility bus). No setup that the environment alone supports SHALL require a configuration key.
 
 #### Scenario: No config argument
 
 - **WHEN** a `Runtime` is constructed with no `config` argument
-- **THEN** the platform SHALL be auto-detected from the environment and the runtime SHALL be functionally identical to one built before this change
+- **THEN** the platform SHALL be auto-detected from the environment and each provider SHALL resolve its connection from the environment
 
 #### Scenario: Empty config dictionary
 
@@ -58,7 +58,7 @@ For any setting a component understands, the value from `config` SHALL take prec
 
 ### Requirement: An explicit platform backend can be selected
 
-When `config.platform.backend` names a registered platform id, that backend SHALL be used regardless of environment auto-detection. When `config.platform.backend` is absent, the active backend SHALL be auto-detected from the environment as it is today. When it names a backend that cannot serve the current environment, construction SHALL fail with a clear error naming the requested backend.
+When `config.platform.backend` names a registered platform id, that backend SHALL be used regardless of environment auto-detection. When `config.platform.backend` is absent, the active backend SHALL be auto-detected from the environment. When it names a backend that cannot serve the current environment, construction SHALL fail with a clear error naming the requested backend.
 
 #### Scenario: Forced backend selection
 

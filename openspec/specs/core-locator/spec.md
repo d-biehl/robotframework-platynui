@@ -22,18 +22,18 @@ A locator is resolved against one parent element. Its `index` SHALL select the n
 - **WHEN** it is rendered
 - **THEN** the XPath SHALL be `descendant::X[@Foo='bar' and position()=2]`
 
-#### Scenario: A locator without index, position or custom predicates is unchanged
+#### Scenario: A locator without index, position or custom predicates renders a plain descendant step
 
 - **GIVEN** `Locator(role='Button', name='OK')`
 - **WHEN** it is rendered
 - **THEN** the XPath SHALL be `.//Button[@Name="OK"]`
 
-#### Scenario: The other scopes are unchanged
+#### Scenario: The other scopes render a single step
 
 - **GIVEN** `Locator(role='Button', index=2)` rendered with `parent_is_root_like=True`, `Locator(role='Window', scope='root', index=1)`, `Locator(role='Pane', scope='ancestor', index=1)` and `Locator(role='Button', scope='preceding-sibling', index=1)`
 - **WHEN** they are rendered
 - **THEN** the XPaths SHALL be `Button[2]`, `/Window[1]`, `ancestor::Pane[1]` and `preceding-sibling::Button[1]`
-- **NOTE:** Each is one step from one parent element, so its positions already count over the whole scope; `ancestor::Pane[1]` stays the nearest ancestor.
+- **NOTE:** Each is one step from one parent element, so its positions count over the whole scope; `ancestor::Pane[1]` is the nearest ancestor.
 
 #### Scenario: A path and an explicit axis are rendered as given
 

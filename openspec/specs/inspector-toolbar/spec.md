@@ -118,12 +118,12 @@ The search row SHALL contain the XPath input field and the Search/Stop button, w
 - **WHEN** the Inspector window is at its default size
 - **THEN** every control in the search row SHALL be fully visible (no truncated labels)
 
-#### Scenario: Field behavior unchanged after the redesign
+#### Scenario: Enter in the XPath field starts the search
 
 - **WHEN** the user types an XPath expression and presses Enter
-- **THEN** the expression SHALL be evaluated exactly as before the redesign
+- **THEN** the expression SHALL be evaluated, as the Search button evaluates it
 
-#### Scenario: Refresh controls no longer in the search row
+#### Scenario: Refresh controls are in the toolbar, not in the search row
 
-- **WHEN** the redesigned Inspector renders
+- **WHEN** the Inspector renders
 - **THEN** the Refresh Node and Refresh Subtree controls SHALL be located in the toolbar and SHALL NOT appear in the search row

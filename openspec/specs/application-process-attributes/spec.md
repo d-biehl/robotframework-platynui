@@ -149,7 +149,7 @@ A provider SHALL report a process attribute only where its platform has a source
 
 - **Windows** supplies all seven attributes.
 - **Linux** supplies `ProcessId`, `ProcessName`, `ExecutablePath`, `CommandLine`, `UserName` and `StartTime`. It does not supply `Architecture`: Linux keeps no architecture per process. Which process ID an AT-SPI application reports, and when the process table may be read at all, is specified by `sidecar-deployment`.
-- **macOS** supplies none today, because its provider builds no application nodes. When it does, it reports the attributes its platform has a source for, under this specification.
+- **macOS** supplies none, because its provider builds no application nodes. When it does, it reports the attributes its platform has a source for, under this specification.
 
 #### Scenario: A Linux application carries no architecture
 

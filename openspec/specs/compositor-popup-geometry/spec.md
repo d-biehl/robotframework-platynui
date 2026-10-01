@@ -34,7 +34,7 @@ The platform `WindowManager` abstraction SHALL offer a popup-geometry query (glo
 - **WHEN** a test running under the PlatynUI compositor clicks a context-menu entry that opens a submenu, then a nested submenu, and hit-tests an item
 - **THEN** each pointer action SHALL land on the visually intended element (the submenu opens, the nested item resolves), i.e. the three previously Wayland-skipped submenu scenarios of the Qt context-menu acceptance suite SHALL pass without skips
 
-#### Scenario: X11 behavior is unchanged
+#### Scenario: On X11 popup bounds are the toolkit's screen extents
 
 - **WHEN** the same suites run on the X11 lane
-- **THEN** popup bounds SHALL resolve exactly as before (toolkit screen extents) and all previously passing tests SHALL keep passing
+- **THEN** popup bounds SHALL resolve to the toolkit's screen extents, and the suites SHALL pass

@@ -7,7 +7,7 @@ Swing implements no UIA provider on Windows, so a Swing window is opaque to the 
 ## Requirements
 
 ### Requirement: Self-bootstrapping build via Gradle wrapper
-The Swing test app SHALL build via the checked-in Gradle wrapper (current Gradle) driven by a `just` recipe (`just build-test-app-swing`), requiring only a `java` (8+) on PATH: the wrapper client SHALL run on that JVM, the Gradle daemon JVM SHALL be auto-provisioned via committed daemon JVM criteria (`gradle/gradle-daemon-jvm.properties`), the build SHALL compile with an auto-provisioned JDK 21 toolchain (Foojay resolver) targeting Java 8 bytecode (`--release 8`), and the app SHALL keep depending on nothing beyond the JDK APIs (no external libraries). The sources SHALL remain outside the Cargo workspace (root `Cargo.toml` `exclude`) and SHALL NOT change for this migration.
+The Swing test app SHALL build via the checked-in Gradle wrapper (current Gradle) driven by a `just` recipe (`just build-test-app-swing`), requiring only a `java` (8+) on PATH: the wrapper client SHALL run on that JVM, the Gradle daemon JVM SHALL be auto-provisioned via committed daemon JVM criteria (`gradle/gradle-daemon-jvm.properties`), the build SHALL compile with an auto-provisioned JDK 21 toolchain (Foojay resolver) targeting Java 8 bytecode (`--release 8`), and the app SHALL depend on nothing beyond the JDK APIs (no external libraries). The sources SHALL remain outside the Cargo workspace (root `Cargo.toml` `exclude`).
 
 Because the build self-provisions every JVM it needs, the Windows acceptance lane SHALL treat it as a hard prerequisite: a failed fixture build fails the lane. The Swing suites themselves are selected by platform tag (`platform:windows`); their remaining runtime prerequisite checks (usable launcher, built classes) SHALL fail with an actionable message naming `just build-test-app-swing` — they SHALL NOT skip.
 
@@ -15,9 +15,9 @@ Because the build self-provisions every JVM it needs, the Windows acceptance lan
 - **WHEN** `just build-test-app-swing` runs on a machine with any `java` 8+ on PATH (and network access on first run)
 - **THEN** the build compiles all sources with the JDK 21 toolchain at `--release 8` into Gradle's classes output and the recipe exits successfully, with no manually installed JDK or library
 
-#### Scenario: Launch contract is preserved
+#### Scenario: Consumers launch the fixture with their own command line
 - **WHEN** a consumer (JAB live test, Robot suite, `just run-test-app-swing`) launches the fixture
-- **THEN** it still builds its own `java` command line against a classes directory (`PLATYNUI_TEST_APP_SWING_CLASSES`, now Gradle's output) with full control over JVM flags — in particular the per-launch AccessBridge enable/disable system property
+- **THEN** it builds its own `java` command line against the classes directory (`PLATYNUI_TEST_APP_SWING_CLASSES`, Gradle's output) with full control over JVM flags — in particular the per-launch AccessBridge enable/disable system property
 
 #### Scenario: Unavailable build fails the lane loudly
 - **WHEN** the fixture cannot be built (e.g. no network on first run) and `just test-acceptance-windows` runs
@@ -132,7 +132,7 @@ The app SHALL contain a titled panel with the accessible name `names-panel` that
   - `amount` holds the `Double` `1234.5` and displays it as `1,234.50`;
   - `active` holds the `Boolean` `true` and displays it as a check box without text.
 
-The displayed text SHALL NOT depend on the JVM's default locale. Adding the panel SHALL NOT change any existing accessible name, and `main-table` SHALL keep its 100×6 shape and its preselected row.
+The displayed text SHALL NOT depend on the JVM's default locale. Every other accessible name the fixture designates SHALL be as its own requirement specifies, and `main-table` SHALL have 100 rows and 6 columns, with row 2 selected.
 
 #### Scenario: The named button carries two different names
 - **WHEN** the fixture's tree is read through the Java agent
@@ -151,7 +151,7 @@ The displayed text SHALL NOT depend on the JVM's default locale. Adding the pane
 - **THEN** it displays `1,234.50`, not `1.234,50`
 - *(Real provider only.)*
 
-#### Scenario: Existing names and the main table stay as they were
+#### Scenario: The other names and the main table are as specified
 - **WHEN** the fixture with the new panel is read through the Java Access Bridge
-- **THEN** every accessible name the fixture designated before is present unchanged, and `main-table` still has 100 rows and 6 columns with row 2 selected
-- *(Real provider only; the existing JAB suites guard it.)*
+- **THEN** every other accessible name the fixture designates is present, and `main-table` has 100 rows and 6 columns with row 2 selected
+- *(Real provider only; the JAB suites cover it.)*

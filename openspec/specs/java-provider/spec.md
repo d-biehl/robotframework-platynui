@@ -7,15 +7,15 @@ The `java-provider` capability is the single place Java applications enter Platy
 The single-claimant shape is the point. Because there is only ever one Java claimant, window claims stay a boolean question ("is someone else representing this window?") instead of becoming rank-based ownership between competing Java providers: gaining a backend changes which backend *serves* a window, never who *claims* it, so no registry protocol and no generic consumer is affected. A Java window that no backend reaches is deliberately left unclaimed and served by the platform's native provider rather than claimed and shown empty — and the provider says why, through the shared enablement diagnostic, because only it knows whether some other backend got there.
 ## Requirements
 ### Requirement: Single Java provider with toolkit backends
-The system SHALL register exactly one Java UiTree provider (`provider-java`), which routes each claimed Java top-level window to a toolkit backend; backends serve trees, patterns, and diagnostics under their own `@Technology` value. A window SHALL be claimed exactly when one of the available backends can serve it — backends do not all cover the same windows, so a Java window no backend can serve SHALL be left to the platform's native provider rather than claimed and served empty. Window claims SHALL remain boolean (single-appearance as today): adding or enabling a backend changes which backend serves a window, never the claim semantics. A missing or disabled backend SHALL be inert (no nodes, no failures), and runtime construction MUST NOT fail because of backend availability.
+The system SHALL register exactly one Java UiTree provider (`provider-java`), which routes each claimed Java top-level window to a toolkit backend; backends serve trees, patterns, and diagnostics under their own `@Technology` value. A window SHALL be claimed exactly when one of the available backends can serve it — backends do not all cover the same windows, so a Java window no backend can serve SHALL be left to the platform's native provider rather than claimed and served empty. Window claims SHALL be boolean, so a window appears exactly once in the tree: adding or enabling a backend changes which backend serves a window, never the claim semantics. A missing or disabled backend SHALL be inert (no nodes, no failures), and runtime construction MUST NOT fail because of backend availability.
 
-#### Scenario: JAB backend serves the Swing fixture unchanged
+#### Scenario: The JAB backend serves the Swing fixture
 - **WHEN** the Swing fixture runs with the bridge enabled and the desktop is enumerated
-- **THEN** the fixture window appears exactly once with `@Technology = "JAB"`, with the same tree, roles, patterns, and RuntimeIds as before the refactor (existing acceptance suite passes unchanged)
+- **THEN** the fixture window appears exactly once with `@Technology = "JAB"`, and the JAB acceptance suites pass against it
 
 #### Scenario: A Java window no backend can serve is left alone
 - **WHEN** a JVM-backed window that JAB cannot serve is enumerated and no other backend is available for it (an SWT or JavaFX window with no agent)
-- **THEN** the Java provider does not claim it, and it is served by the platform's native provider exactly as before
+- **THEN** the Java provider does not claim it, and it is served by the platform's native provider
 
 #### Scenario: Umbrella kill switch
 - **WHEN** `providers.java.enabled` is `false`
@@ -58,7 +58,7 @@ Nodes served by the agent backend SHALL report their validity: a node SHALL be v
 - **THEN** the node reports invalid (never valid-by-default), and no call blocks beyond the deadline margin
 
 ### Requirement: Automatic, keyword-free backend selection
-Backend selection SHALL be automatic and internal to the Java provider: a JVM window is served via the agent backend exactly when an agent is present in that window's JVM — detected from the **agent's own handshake rendezvous**, not from a platform Java classifier, so the criterion needs nothing that only some platforms have — with no explicit attach/connect keyword and **no change to the boolean `window_claims` semantics** — the Java provider remains the single Java claimant. A Java JVM with no agent SHALL continue to be served by the JAB backend (Windows) or the platform's native provider (elsewhere). When an agent appears in an already-running JVM, the serving backend SHALL switch without re-claiming: on the *same* pass when that pass is what injected it, and on the next one otherwise.
+Backend selection SHALL be automatic and internal to the Java provider: a JVM window is served via the agent backend exactly when an agent is present in that window's JVM — detected from the **agent's own handshake rendezvous**, not from a platform Java classifier, so the criterion needs nothing that only some platforms have — with no explicit attach/connect keyword and **without affecting the boolean `window_claims` semantics** — the Java provider is the single Java claimant. A Java JVM with no agent SHALL be served by the JAB backend (Windows) or the platform's native provider (elsewhere). When an agent appears in an already-running JVM, the serving backend SHALL switch without re-claiming: on the *same* pass when that pass is what injected it, and on the next one otherwise.
 
 #### Scenario: Agent backend preferred over JAB for the same window
 - **WHEN** a Swing window's JVM has the agent loaded and the JAB bridge is also enabled
@@ -66,7 +66,7 @@ Backend selection SHALL be automatic and internal to the Java provider: a JVM wi
 
 #### Scenario: No agent falls back to the JAB backend
 - **WHEN** a Swing window's JVM has no agent
-- **THEN** the window is served by the JAB backend (Windows) exactly as before
+- **THEN** the window is served by the JAB backend (Windows)
 
 #### Scenario: An unresponsive agent does not hang the runtime
 - **WHEN** an agent stops responding
@@ -88,7 +88,7 @@ When a Java window's JVM carries no agent, the Java provider SHALL attach one au
 - **THEN** no injection occurs, the window is served by the JAB backend, and the diagnostic names the agent as an available option
 
 ### Requirement: Tabular content served by the agent is structured by row
-A table surfaced through the agent backend SHALL place its cells beneath **row** nodes rather than directly beneath the table, so a row is addressable in its own right. Each row SHALL carry its own identity, its own selection state, and — when it is in view — its own on-screen rectangle; each cell SHALL remain reachable and keep the coordinates it reports today, so a cell's position stays knowable both structurally and by attribute.
+A table surfaced through the agent backend SHALL place its cells beneath **row** nodes rather than directly beneath the table, so a row is addressable in its own right. Each row SHALL carry its own identity, its own selection state, and — when it is in view — its own on-screen rectangle; each cell SHALL remain reachable and keep reporting its row and column (`native:TableCell.Row`, `native:TableCell.Column`), so a cell's position stays knowable both structurally and by attribute.
 
 A table is routinely larger than the viewport showing it, and the toolkit answers geometry questions from the model regardless of what is scrolled into view. Rows and cells that are **not** on screen SHALL therefore report no rectangle at all and SHALL NOT claim to be in view, rather than publishing the position they would occupy — a rectangle outside the window would aim pointer input at whatever is there instead.
 
@@ -98,9 +98,9 @@ The row level SHALL come from the toolkit's own model rather than from the acces
 - **WHEN** a Swing table with four rows and three columns is enumerated through the agent backend
 - **THEN** the table node has four children, each a row, and each row has three cells — not twelve cells directly under the table
 
-#### Scenario: A cell still knows where it is
+#### Scenario: A cell beneath a row knows where it is
 - **WHEN** a cell inside a row is inspected
-- **THEN** it reports the same row and column coordinates as before the row level existed, and its name, bounds and selection state are unchanged
+- **THEN** it reports its row and column in the table (`native:TableCell.Row`, `native:TableCell.Column`) and its own name, bounds and selection state, not those of its row
 
 #### Scenario: A row is addressable and locatable
 - **WHEN** a row that is in view is inspected
@@ -115,7 +115,7 @@ The row level SHALL come from the toolkit's own model rather than from the acces
 - **WHEN** a point inside a cell is hit-tested through the agent backend
 - **THEN** the returned chain reaches the cell by way of its row, so a consumer revealing the result can place it in the tree
 
-#### Scenario: Selected cells are still named correctly
+#### Scenario: Selected cells beneath rows are named correctly
 - **WHEN** a table reports its selection while its cells sit beneath rows
 - **THEN** the identifiers it publishes for the selected items resolve to nodes that exist in the tree, or are omitted — never identifiers assembled from a position that no longer addresses what it used to
 

@@ -204,12 +204,12 @@ Whether an application node carries a node identifier (`Id`) is stated by the ca
 - **THEN** its process-ID attribute SHALL report the application's own process ID, and its process-table attributes SHALL be absent and SHALL in particular not describe the automation binary or any unrelated local process
 - **NOTE** Real provider only. That the reported process ID equals the runtime's own is not a finding: it is the application's number, and it is not compared with ours.
 
-#### Scenario: On an ordinary desktop the process attributes are unchanged
+#### Scenario: On an ordinary desktop the process attributes describe the application
 
 - **GIVEN** a single-namespace desktop session where the bus daemon resolves process IDs
 - **WHEN** an application node's attributes are read
-- **THEN** the process-ID attribute and the process-table attributes SHALL describe that application exactly as before
-- **NOTE** Real provider only; this is the regression guard for the normal case, where the process ID the daemon reports and the one valid in the runtime's namespace are the same number.
+- **THEN** the process-ID attribute and the process-table attributes SHALL describe that application
+- **NOTE** Real provider only; this is the normal case, where the process ID the daemon reports and the one valid in the runtime's namespace are the same number.
 
 ### Requirement: Only definitive identity answers are remembered
 

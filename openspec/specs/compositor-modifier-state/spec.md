@@ -29,7 +29,7 @@ The Inspector's live mouse picker SHALL be available under the PlatynUI composit
 - **WHEN** the compositor session environment still carries the host's X11 `DISPLAY`
 - **THEN** the picker SHALL still observe the compositor seat's modifiers (not the host X server's), and the local compositor lane SHALL behave like the isolated CI lane
 
-#### Scenario: X11 and Windows picker behavior is unchanged
+#### Scenario: On X11 and Windows the picker reads modifiers from the platform
 
 - **WHEN** the Inspector runs on X11 or Windows
-- **THEN** modifier observation SHALL keep using the existing platform readers and the picker suites SHALL keep passing there
+- **THEN** modifier observation SHALL use that platform's modifier reader, and the picker suites SHALL pass there

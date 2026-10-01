@@ -19,7 +19,7 @@ Acceptance suites and tests SHALL declare platform-bound behavior via the tag vo
 - **WHEN** the X11 lane runs
 - **THEN** the test is not selected at all — the report contains neither a skip nor any trace of an attempted run (verifiable only on a real session lane, not the mock lane)
 
-#### Scenario: No runtime environment guards remain
+#### Scenario: Suites carry no runtime environment guards
 - **WHEN** the egui acceptance suites run on their matching lane
 - **THEN** no test or suite setup evaluates `XDG_SESSION_TYPE` (or any equivalent environment probe) to skip
 
@@ -64,7 +64,7 @@ The lane profile SHALL be the entry point of an acceptance run: selecting it SHA
 - **WHEN** `robotcode --profile real-x11 discover tests` runs
 - **THEN** the test list is returned without starting an X server or accessibility stack, so editor discovery and analysis stay session-free
 
-#### Scenario: Backend selection remains available to the caller
+#### Scenario: Backend selection is available to the caller
 - **GIVEN** `PLATYNUI_BACKEND=headless` in the environment
 - **WHEN** a Linux lane runs
 - **THEN** its session uses the windowless backend (compositor headless / Xvfb) and the suites pass exactly as with a visible backend

@@ -16,10 +16,10 @@ On Wayland sessions the Inspector SHALL start with window decorations disabled â
 - **THEN** the window SHALL show no client-drawn title bar or frame
 - **NOTE** This matches the look under niri; under GNOME/Mutter it removes the sctk-adwaita fallback bar.
 
-#### Scenario: Non-Wayland platforms are unchanged
+#### Scenario: Windows, macOS and X11 show the native decorations
 
 - **WHEN** the Inspector starts on Windows, macOS, or an X11 session
-- **THEN** the window SHALL carry the native/window-manager decorations as before
+- **THEN** the window SHALL carry the native/window-manager decorations
 - **AND** the menu bar SHALL show no window buttons and no move grip
 
 ### Requirement: Menu bar hosts Maximize and Close window buttons on Wayland

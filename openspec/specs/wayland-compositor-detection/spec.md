@@ -8,37 +8,37 @@ How the Wayland backend decides which compositor it is talking to, and what a ca
 
 ### Requirement: The PlatynUI compositor identifies itself over its control socket
 
-The PlatynUI Wayland compositor SHALL identify itself as a PlatynUI compositor in its control-socket status response, with a stable marker that does not depend on process names, paths or versions, alongside its version. The marker SHALL be part of the response every status request returns, so that one request answers both "is this a PlatynUI compositor" and "is its control channel usable". Adding it SHALL NOT change any existing field, so existing clients and the compositor control CLI keep working unchanged.
+The PlatynUI Wayland compositor SHALL identify itself as a PlatynUI compositor in its control-socket status response, with a stable marker that does not depend on process names, paths or versions, alongside its version. The marker SHALL be part of the response every status request returns, so that one request answers both "is this a PlatynUI compositor" and "is its control channel usable". It SHALL be an additional field and SHALL NOT change any other field, so a client that does not know it, such as the compositor control CLI, reads the response as if the marker were absent.
 
 #### Scenario: A status request carries the identity marker
 
 - **GIVEN** a running PlatynUI compositor with its control socket enabled
 - **WHEN** a client sends the status request over that socket
-- **THEN** the response SHALL report success, SHALL carry the PlatynUI identity marker, and SHALL still carry the fields it carries today (version, backend, uptime, socket name, XWayland state, window counts, outputs)
+- **THEN** the response SHALL report success, SHALL carry the PlatynUI identity marker, and SHALL carry the fields version, backend, uptime, socket name, XWayland state, window counts and outputs
 
-#### Scenario: Existing control-socket clients are unaffected
+#### Scenario: Control-socket clients that do not know the marker are unaffected
 
-- **GIVEN** a client written against today's status response
+- **GIVEN** a client that reads the status response but does not know the identity marker
 - **WHEN** it queries a compositor that sends the identity marker
-- **THEN** it SHALL keep working, reading the fields it knows and ignoring the marker
+- **THEN** it SHALL work, reading the fields it knows and ignoring the marker
 - **NOTE** Verifiable against the real compositor binary and the compositor control CLI, not the mock.
 
 #### Scenario: The identity marker is not a side effect of any other command
 
 - **GIVEN** a running PlatynUI compositor
 - **WHEN** a client sends an unknown command
-- **THEN** the response SHALL be an error as today, and SHALL NOT be mistakable for an identity answer
+- **THEN** the response SHALL be an error, and SHALL NOT be mistakable for an identity answer
 
 ### Requirement: Compositor identification does not depend on process visibility
 
-The Wayland backend SHALL identify the PlatynUI compositor without requiring the compositor's process to be visible to the runtime. Neither the peer credentials of the Wayland socket nor any `/proc` lookup derived from them SHALL be necessary for that identification, and a failure to read peer credentials SHALL NOT be interpreted as "this is not the PlatynUI compositor". The backend SHALL identify a session as PlatynUI when the session's control channel answers as a PlatynUI compositor, or when the session environment marks the session as a PlatynUI session. Compositors other than PlatynUI SHALL keep being classified from the peer process and the session environment as today, and a session with no PlatynUI evidence SHALL remain unidentified rather than be guessed.
+The Wayland backend SHALL identify the PlatynUI compositor without requiring the compositor's process to be visible to the runtime. Neither the peer credentials of the Wayland socket nor any `/proc` lookup derived from them SHALL be necessary for that identification, and a failure to read peer credentials SHALL NOT be interpreted as "this is not the PlatynUI compositor". The backend SHALL identify a session as PlatynUI when the session's control channel answers as a PlatynUI compositor, or when the session environment marks the session as a PlatynUI session. Compositors other than PlatynUI SHALL be classified from the peer process and the session environment, and a session with no PlatynUI evidence SHALL remain unidentified rather than be guessed.
 
-#### Scenario: A runtime in the compositor's own namespace is unchanged
+#### Scenario: A runtime in the compositor's own namespace identifies the compositor
 
 - **GIVEN** a PlatynUI compositor session where runtime and compositor share a PID namespace
 - **WHEN** the Wayland backend initializes
-- **THEN** it SHALL identify the compositor as PlatynUI, and window management, screenshots, highlighting and element-at-point SHALL work exactly as before this change
-- **NOTE** Regression anchor for the existing compositor acceptance lane; needs the real compositor, not the mock.
+- **THEN** it SHALL identify the compositor as PlatynUI, and window management, screenshots, highlighting and element-at-point SHALL be available
+- **NOTE** Covered by the compositor acceptance lane; needs the real compositor, not the mock.
 
 #### Scenario: A runtime in a sibling PID namespace identifies the compositor
 
@@ -60,11 +60,11 @@ The Wayland backend SHALL identify the PlatynUI compositor without requiring the
 - **WHEN** the Wayland backend initializes in a session with no other PlatynUI evidence
 - **THEN** it SHALL NOT identify the compositor as PlatynUI
 
-#### Scenario: A foreign compositor is still recognised
+#### Scenario: A foreign compositor is recognised
 
 - **GIVEN** a session running a compositor other than PlatynUI (for example Mutter, KWin, sway or Hyprland)
 - **WHEN** the Wayland backend initializes
-- **THEN** it SHALL classify that compositor as it does today, SHALL NOT identify it as PlatynUI, and SHALL select the input backend that compositor supports
+- **THEN** it SHALL classify that compositor from its peer process and the session environment, SHALL NOT identify it as PlatynUI, and SHALL select the input backend that compositor supports
 - **NOTE** Verifiable only against a real foreign compositor session, not the mock.
 
 #### Scenario: A session with no PlatynUI evidence stays unidentified
@@ -118,19 +118,19 @@ A capability the Wayland backend switches off because the identified compositor 
 
 ### Requirement: A substituted window geometry is visible in the log
 
-Where a window's position on screen comes from the window manager — a real platform top-level window — and the window manager cannot answer for that window, because it cannot resolve the window or cannot report its bounds, the window's bounds SHALL still be answered with the geometry the application's toolkit reports for it, exactly as before: the same rectangle, reported as a successful read, with no error to the caller. The substitution SHALL be recorded as a warning that names the window, says why the window manager could not answer (including its error, which for the PlatynUI compositor's control channel names the socket path), and states that the toolkit's own geometry was used instead. Apart from that warning, the result SHALL be unchanged.
+Where a window's position on screen comes from the window manager — a real platform top-level window — and the window manager cannot answer for that window, because it cannot resolve the window or cannot report its bounds, the window's bounds SHALL still be answered with the geometry the application's toolkit reports for it: that rectangle, reported as a successful read, with no error to the caller. The substitution SHALL be recorded as a warning that names the window, says why the window manager could not answer (including its error, which for the PlatynUI compositor's control channel names the socket path), and states that the toolkit's own geometry was used instead. Apart from that warning, the result SHALL be unchanged.
 
 The warning SHALL NOT flood the log. It SHALL be emitted at most once per top-level window for as long as the window manager keeps failing for that window, however often the window's bounds are read and however often the tree is enumerated again; a window the window manager answers for again, and that later fails once more, SHALL be reported again. Each affected window SHALL be reported on its own, so one window's warning does not hide another's.
 
 This requirement and *A gated capability reports unavailable instead of success* answer different questions and do not conflict. A gated capability is an action — highlight, screenshot, a window operation — and reporting success for it would claim an effect that did not happen, so it reports unavailable. Reading a window's bounds is a read that has a best-effort answer: on X11 the toolkit's geometry is in real screen coordinates, while on Wayland it is relative to the window itself and therefore off by the window's position. Bounds therefore keep the best-effort value and say in the log that it is one; gated actions do not pretend to have acted. On Wayland the warning is what makes the substituted value diagnosable at all. The window manager's own call still fails by name as *An identified PlatynUI session is not silently downgraded* requires; this requirement governs what the consumer of that failure does with a window's bounds.
 
-Nodes whose geometry does not come from the window manager are unaffected: a node inside a window SHALL keep being placed relative to its ancestors as before and SHALL NOT be warned about separately — its window's warning covers it — and a transient popup SHALL keep using the geometry source specified for popups.
+Nodes whose geometry does not come from the window manager are unaffected: a node inside a window SHALL be placed relative to its ancestors and SHALL NOT be warned about separately — its window's warning covers it — and a transient popup SHALL use the geometry source specified for popups.
 
 #### Scenario: A top-level window whose window manager is unusable keeps its fallback bounds and is reported
 
 - **GIVEN** a session identified as PlatynUI whose control channel is unusable, and an application with a top-level window positioned away from the screen origin
 - **WHEN** that window's bounds are read
-- **THEN** the read SHALL succeed with the rectangle the application's toolkit reports for the window, exactly as it did before this change
+- **THEN** the read SHALL succeed with the rectangle the application's toolkit reports for the window
 - **AND** the log SHALL contain a warning naming that window, the window manager's failure including the control-socket path, and that the toolkit's geometry was used instead
 - **NOTE** Real provider only. On Wayland that rectangle is relative to the window — measured as `{0,0,600,500}` while the compositor's own geometry for the window was `{10,40,600,500}`, with a click by locator that reported success and landed at the wrong place — which is why the warning, not the value, is what makes this case diagnosable.
 
@@ -142,12 +142,12 @@ Nodes whose geometry does not come from the window manager are unaffected: a nod
 - **AND** a second top-level window failing in the same way SHALL get its own single warning
 - **AND** if the window manager answers for the first window again and later fails for it once more, that later failure SHALL be warned about again
 
-#### Scenario: A usable window manager reports the same bounds as before, without a warning
+#### Scenario: A usable window manager's bounds come without a warning
 
 - **GIVEN** a session whose compositor is identified and whose control channel works
 - **WHEN** a top-level window's bounds are read
-- **THEN** they SHALL be the window manager's geometry for that window, exactly as before this change, and no substitution warning SHALL be logged
-- **NOTE** Regression anchor for both Linux backends that share this provider, X11 and the PlatynUI compositor.
+- **THEN** they SHALL be the window manager's geometry for that window, and no substitution warning SHALL be logged
+- **NOTE** Applies to both Linux backends that share this provider, X11 and the PlatynUI compositor.
 
 #### Scenario: Geometry that never came from the window manager is unchanged
 

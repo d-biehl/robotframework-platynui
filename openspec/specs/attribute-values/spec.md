@@ -83,7 +83,7 @@ The empty string SHALL be handled per attribute group:
 
 - **Common attributes:** `Name` SHALL be present on every `control:` and `item:` node, and the empty string is a valid `Name`. `Id` and `Description` SHALL be present only when their value is not the empty string (specs `id-attribute`, `description-attribute`). A value of whitespace only is not empty.
 - **Pattern attributes** SHALL NOT be omitted or set to null because their value is the empty string. When the element implements the pattern, `""` is the attribute's value.
-- **Native attributes** SHALL be passed through one to one: an empty string stays `""`. A property the platform does not report at all, because it is unsupported or its read failed, stays absent or null as before.
+- **Native attributes** SHALL be passed through one to one: an empty string stays `""`. A property the platform does not report at all, because it is unsupported or its read failed, stays absent or null.
 
 #### Scenario: An empty text field keeps an empty Text
 
@@ -131,5 +131,5 @@ The empty string SHALL be handled per attribute group:
 
 - **GIVEN** a Java Access Bridge element whose bridge call for the current value reports no value
 - **WHEN** its `control:Value` and `native:Value.Current` are read
-- **THEN** both SHALL be absent or null, as before
+- **THEN** both SHALL be absent or null
 - **NOTE** Verified on the provider's conversion in isolation.

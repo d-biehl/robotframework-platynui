@@ -39,9 +39,9 @@ The namespace of a menu entry SHALL NOT depend on which platform accessibility t
 - **THEN** it SHALL resolve the menu entry on both, because both classify menu entries in the `control` namespace
 - *(Windows UIA already derives `control` from `IsControlElement`; verifiable only against real providers.)*
 
-### Requirement: Collection data-item roles remain in the item namespace
+### Requirement: Collection data-item roles are in the item namespace
 
-Reclassifying menu entries SHALL NOT change any other role. Roles that genuinely represent data items of a collection container — including `ListItem`, `TreeItem`, `TableCell`, `TableRow`, `TabItem`, and the column/row header roles — SHALL remain in the `item` namespace.
+Roles that genuinely represent data items of a collection container — including `ListItem`, `TreeItem`, `TableCell`, `TableRow`, `TabItem`, and the column/row header roles — SHALL be in the `item` namespace.
 
 #### Scenario: List and tree items are unaffected
 

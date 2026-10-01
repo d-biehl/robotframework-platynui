@@ -193,13 +193,13 @@ is the identity the compositor captured for each connection.
   process namespace, not the mock. The runtime in a container on the host's display and a
   host application reusing the runtime's in-container number is one such case.
 
-#### Scenario: The window system cannot be asked, so the previous behaviour is kept and reported
+#### Scenario: The window system cannot be asked, so a window with the runtime's own process identifier is skipped and reported
 
 - **GIVEN** the window system provides no facility to ask which process owns a connection
   (for example a display server without the required extension)
 - **WHEN** hit-test is called with a point over a window whose reported process identifier
   equals the runtime's own
-- **THEN** hit-test SHALL skip that window as before, and SHALL emit exactly one warning for
+- **THEN** hit-test SHALL skip that window, and SHALL emit exactly one warning for
   that connection stating that own-UI exclusion is unverified on this display
 - **NOTE** Verifiable against a real display server started without the extension; the
   single-warning behaviour is verifiable from the log of a run that performs several

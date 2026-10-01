@@ -51,11 +51,11 @@ A completed pick SHALL produce a transient message in the left segment identifyi
 - **THEN** the left segment SHALL show a message identifying the picked element
 - **NOTE** End-to-end verifiable via the BareMetal egui acceptance lane reading the Inspector's own AccessKit tree.
 
-### Requirement: Existing status behavior is preserved
+### Requirement: The left segment reports activity, results and errors
 
-The left segment SHALL keep the existing behavior: the activity indicator reflects running background work, result statuses render as today, and error statuses remain visually distinguished from informational ones.
+The left segment SHALL show the activity indicator while background work runs, show result statuses as text in the informational styling, and render error statuses visually distinguished from informational ones.
 
-#### Scenario: Error status still distinguished
+#### Scenario: An error status is distinguished
 
 - **WHEN** a search fails with an error
 - **THEN** the left segment SHALL render the error message in the error styling, alongside an unchanged persistent segment

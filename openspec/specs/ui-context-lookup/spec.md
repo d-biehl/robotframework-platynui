@@ -43,7 +43,7 @@ When a context's lookup or check gives up — at its timeout, or at once for a l
 
 - **GIVEN** a context with no matching element
 - **WHEN** a lookup without retries for one or for all matches finds nothing
-- **THEN** the lookup SHALL report that nothing was found, as it does today, and the snapshot SHALL have been discarded
+- **THEN** the lookup SHALL report that nothing was found, and the snapshot SHALL have been discarded
 
 ### Requirement: A lookup that succeeds keeps the snapshot
 

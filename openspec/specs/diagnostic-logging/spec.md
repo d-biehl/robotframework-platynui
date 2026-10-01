@@ -131,7 +131,7 @@ PlatynUI SHALL record the following fallbacks, in which an action proceeds diffe
 - A pointer target outside the desktop, moved to the nearest edge, SHALL be reported as a warning.
 - Keys that could not be released after a keyboard error SHALL be reported as an error.
 - A window that did not become the foreground window after activation SHALL be recorded at debug level.
-- A failed automatic activation before an action SHALL be recorded at debug level, with the element and the reason, and the action SHALL proceed as before.
+- A failed automatic activation before an action SHALL be recorded at debug level, with the element and the reason, and the action SHALL proceed.
 
 #### Scenario: A clamped pointer target is reported
 
@@ -284,7 +284,7 @@ No keyword line, error or record up to the debug level that PlatynUI produces fr
 
 - **GIVEN** a Robot Framework without `Secret`
 - **WHEN** `Keyboard Type` types a string
-- **THEN** it SHALL work as before
+- **THEN** it SHALL type the string
 
 ### Requirement: The level setting means the same everywhere
 

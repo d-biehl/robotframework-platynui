@@ -159,7 +159,7 @@ This exclusion SHALL apply to the point lookup alone. Every listing — the wind
 
 ### Requirement: A restrictive security policy denies a client it cannot identify
 
-When the compositor runs under a restrictive protocol policy, a client whose process cannot be identified SHALL NOT be granted privileged protocol access, and the decision SHALL be reached without ending the session. A client whose process is identified SHALL be judged as before, by its process name against the policy's list.
+When the compositor runs under a restrictive protocol policy, a client whose process cannot be identified SHALL NOT be granted privileged protocol access, and the decision SHALL be reached without ending the session. A client whose process is identified SHALL be judged by its process name against the policy's list.
 
 #### Scenario: An unidentifiable client is denied under a restrictive policy
 
