@@ -21,10 +21,10 @@ Each test in this group fails until groups 3 and 4 land.
 - [ ] 2.1 Write `tests/acceptance/swing/agent_names.robot`, following the `robot-test-style` skill and the BareMetal keywords of `testapp_agent.resource`. It covers the real-provider scenarios of `name-attribute`, `description-attribute`, `textcontent-pattern` and `swing-test-app` for the agent:
   - the names button: `@Name`, `@Id`, `@Description` and `native:ComponentName`, and that `[@Name="namesButton"]` matches nothing;
   - the layered pane: `[@Id="null.layeredPane"][@Name=""]`;
-  - the `names-table` cells: `Name`, `Text` and `native:TableCell.ModelValue` (number, boolean);
+  - the `names-table` cells: `Name` and `native:TableCell.ModelValue` (number, boolean), and no `control:Text`;
   - a `main-table` cell's `native:TableCell.ModelValue` (`r2c0`) and the absence of `native:ComponentName` on it;
-  - the `amount` and `col-1` headers: `Name` and `Text`;
-  - the stage-1 label and button: `Text`;
+  - the `amount` and `col-1` headers: `Name`, and no `control:Text`;
+  - the stage-1 label and button: no `control:Text`, and the label's `Name` stays `stage1-status-clicks-0`;
   - the main frame's `Name`, equal to its title;
   - a second instance started with `--app-context --companion-window`, whose companion window has `Name` = `companion-window` and `native:WindowTitle`.
 
@@ -32,13 +32,13 @@ Each test in this group fails until groups 3 and 4 land.
 - [ ] 2.2 Add JUnit tests (`java/agent/src/test/java/platynui/agent/`, headless like `SwingTableRowsTest`) on the payload of `SwingElement.describe`:
   - a `JButton` with `setName`, an accessible name and an accessible description gives `componentName`, `accessibleName` and `accessibleDescription`, and no `name` key;
   - a component with only a tool tip gives that tool tip as `accessibleDescription`;
-  - a `JLabel` and a `JButton` without extended text get `text` from their plain `AccessibleText`;
-  - the cells of a formatted `Double` column give `accessibleName`, `text` and `modelValue` as a `Double`;
-  - a `Boolean` column gives an empty name, `text` `""` and `modelValue` `true`;
+  - a plain-text `JLabel` and `JButton` carry no `text`, and an HTML `JLabel` gets `text` from its plain `AccessibleText` (`\nHi there`);
+  - the cells of a formatted `Double` column give `accessibleName` and `modelValue` as a `Double`, and no `text`;
+  - a `Boolean` column gives no name, no `text` and `modelValue` `true`;
   - `Short` and `Integer` columns give `modelValue` as a `Long`;
   - a null cell gives no `modelValue`, and a NaN cell gives `modelValue` `"NaN"`;
-  - a column header gives `accessibleName` and `text`;
-  - a `JList` entry gives `accessibleName` and `text` `Alpha`.
+  - a column header gives `accessibleName` and no `text`;
+  - a `JList` entry `Beta` gives `accessibleName` `Beta` and no `text`, and an HTML entry gives `text` `\nAlpha`.
 
   Verify: `just test-java-agent` fails exactly on the new tests.
 - [ ] 2.3 Add Rust unit tests in `crates/provider-java/src/agent/element.rs` and `node.rs` on recorded payloads with the new fields:
@@ -72,11 +72,11 @@ Each test in this group fails until groups 3 and 4 land.
   - through `getTextRange(0, count)` for an `AccessibleExtendedText`;
   - otherwise through `getAtIndex(AccessibleText.CHARACTER, i)` for each index.
 
-  A throwing read counts as no text interface. Verify: the label and button tests of 2.2 pass.
+  A throwing read counts as no text interface. Verify: the label and button tests of 2.2 pass: the HTML label gets its text, and the plain-text label and button get none.
 - [ ] 3.2 In `describeComponent`, report the explicit component name as `componentName` instead of `name`. Verify: the button and tool tip tests of 2.2 pass.
 - [ ] 3.3 In `describeVirtual` and `describeColumnHeader`:
   - drop `name`;
-  - report `text` from the item's wrapper for cells, headers and list entries;
+  - report `text` from the item's wrapper for cells, headers and list entries, when the wrapper provides an `AccessibleText`;
   - report the typed `modelValue` for cells (design decision 5: integral → `Long`, finite floating → `Double`, `Boolean`, otherwise `String.valueOf`, null omitted).
 
   Correct the Javadoc claims about the renderer alias and about the model value as the name. Verify: `just test-java-agent` passes all tests.

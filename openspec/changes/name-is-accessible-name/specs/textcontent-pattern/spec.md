@@ -8,7 +8,7 @@ The UI model SHALL surface the current textual content of a text-bearing element
 
 - the AT-SPI `Text` interface (`GetText(0,-1)`);
 - on Windows, the UIA `TextPattern` document text, falling back to the `ValuePattern` value when there is no TextPattern;
-- through the Java agent, the element's Swing text: a text component's document text, and otherwise its `AccessibleText`. For a table cell, a column header or a list entry this is the `AccessibleText` Swing provides for that item, which is the text its renderer displays.
+- through the Java agent, the element's Swing text: a text component's document text, and otherwise the `AccessibleText` Swing provides, plain or extended. For a table cell, a column header or a list entry this is the `AccessibleText` Swing provides for that item. Swing's labels and buttons, and the renderers built on them, provide one only for HTML text, so a plain-text label, button, cell, header or list entry has no text interface.
 
 It SHALL NOT fall back to the element's accessible name/label. An element that exposes no text interface SHALL NOT expose `control:Text`.
 
@@ -36,51 +36,37 @@ It SHALL NOT fall back to the element's accessible name/label. An element that e
 - **THEN** `control:Text` SHALL be absent and the label text SHALL remain available via `control:Name`
 - *(Verifiable only against a real provider.)*
 
-#### Scenario: A Swing label exposes its text, not its accessible name
+#### Scenario: A plain Swing label has no Text and does not borrow its name
 
-- **GIVEN** the Swing test application's stage-1 status label, which displays `clicks-0` and whose accessible name is `stage1-status-clicks-0`
-- **WHEN** the label's `control:Text` is read through the Java agent
-- **THEN** it SHALL be `clicks-0`
-- *(Verifiable only against a real provider — the Java agent on Windows. Swing's label implements a plain text interface without the extended one.)*
+- **GIVEN** the Swing test application's stage-1 status label, which displays `clicks-0` without HTML and whose accessible name is `stage1-status-clicks-0`
+- **WHEN** the label's attributes are read through the Java agent
+- **THEN** it SHALL NOT expose `control:Text`, and its `control:Name` SHALL be `stage1-status-clicks-0`
+- *(Verifiable only against a real provider — the Java agent on Windows. Swing's label provides a text interface only for HTML text.)*
 
-#### Scenario: A Swing button exposes its label as Text
+#### Scenario: A plain Swing button has no Text
 
-- **GIVEN** the Swing test application's stage-1 button, which displays `Click me` and whose accessible name is `stage1-button`
-- **WHEN** the button's `control:Text` is read through the Java agent
-- **THEN** it SHALL be `Click me`
+- **GIVEN** the Swing test application's stage-1 button, which displays `Click me` without HTML
+- **WHEN** the button's attributes are read through the Java agent
+- **THEN** it SHALL NOT expose `control:Text`
 - *(Verifiable only against a real provider.)*
 
-#### Scenario: A Swing table cell exposes the text it displays
+#### Scenario: Plain Swing table cells and column headers have no Text
 
-- **GIVEN** the Swing test application's `names-table`, whose `amount` cell holds the model value `1234.5` and displays `1,234.50`
-- **WHEN** the cell's `control:Text` is read through the Java agent
-- **THEN** it SHALL be `1,234.50`
-- *(Verifiable only against a real provider — the Java agent on Windows.)*
-
-#### Scenario: A Swing table cell that displays no text exposes empty Text
-
-- **GIVEN** the Swing test application's `names-table`, whose `active` cell is displayed as a check box without text
-- **WHEN** the cell's attributes are read through the Java agent
-- **THEN** `control:Text` SHALL be present and empty, because the check box renderer implements a text interface
+- **GIVEN** the Swing test application's `names-table`, whose `amount` cell displays `1,234.50`, whose `active` cell displays a check box, and whose first column header displays `amount`, all without HTML
+- **WHEN** their attributes are read through the Java agent
+- **THEN** none of them SHALL expose `control:Text`, and the `amount` cell's `control:Name` SHALL be `1,234.50`
 - *(Verifiable only against a real provider.)*
 
-#### Scenario: A Swing column header exposes the text it displays
+#### Scenario: An HTML Swing label exposes the text Swing reports
 
-- **GIVEN** the Swing test application's `main-table`, whose second column header displays `col-1`
-- **WHEN** the header's `control:Text` is read through the Java agent
-- **THEN** it SHALL be `col-1`
-- *(Verifiable only against a real provider.)*
+- **GIVEN** a Swing label whose text is `<html>Hi <b>there</b></html>`
+- **WHEN** it is described by the Java agent
+- **THEN** its text SHALL be what its `AccessibleText` reports: `Hi there`, preceded by the line break the HTML document starts with
+- *(Verified on the agent's description in isolation.)*
 
-#### Scenario: A Swing list entry exposes the text it displays
+#### Scenario: An HTML item exposes its text through Swing's item wrapper
 
-- **GIVEN** a Swing list whose renderer displays `Alpha` for its first entry
-- **WHEN** the entry is described by the Java agent
-- **THEN** its text SHALL be `Alpha`
-- *(Verified on the agent's description in isolation; the fixture has no list outside a combo box popup.)*
-
-#### Scenario: A Swing cell's text reaches the TextContent capability
-
-- **GIVEN** a table cell served by the Java agent that exposes `control:Text`
-- **WHEN** `supports_pattern(TextContent)` and `get_pattern(TextContent).text` are asked of its node
-- **THEN** the pattern SHALL be supported and its text SHALL equal the cell's `control:Text`
-- *(Verifiable only against a real provider; the synthesis itself is covered by the requirement below.)*
+- **GIVEN** a Swing list whose renderer draws its first entry from `<html>Alpha</html>` and its second entry `Beta` without HTML
+- **WHEN** both entries are described by the Java agent
+- **THEN** the first entry's text SHALL be `Alpha`, preceded by that line break, and the second entry SHALL carry no text
+- *(Verified on the agent's description in isolation; the fixture has no HTML item.)*

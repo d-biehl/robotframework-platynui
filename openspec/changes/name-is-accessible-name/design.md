@@ -43,7 +43,7 @@ See `proposal.md` for the motivation and `specs/` for the behavior. This section
 
 - `textOf` (`:506-530`) is called for components only (`:128`). Virtual children never carry `text`.
 - For a non-text-component it reads the `AccessibleText` only when that is an `AccessibleExtendedText` (`:521`).
-- `editableOf` (`:541-550`) counts any `AccessibleText` as text-bearing (`:545`). So a Swing label or button gets `IsReadOnly` today but no `Text`.
+- `editableOf` (`:541-550`) counts any `AccessibleText` as text-bearing (`:545`). So a Swing label or button with HTML text gets `IsReadOnly` today but no `Text`. A plain-text one gets neither, because Swing gives it no `AccessibleText` (below).
 - JAB publishes `Text` and `IsReadOnly` together for every context with the text interface (`crates/provider-java-jab/src/node.rs:447-450`).
 
 **Swing** (verified in the JDK 21 and JDK 8 sources shipped with the provisioned Temurin runtimes):
@@ -56,7 +56,10 @@ See `proposal.md` for the motivation and `specs/` for the behavior. This section
   - `getAccessibleText()` has **no null check** on the renderer context (`:1165`).
 - `AccessibleJListChild` behaves likewise: its name comes from the renderer (`JList.java:3297`) and so does its text (`:3433`).
 - `AccessibleJFrame` and `AccessibleJDialog` return an explicit accessible name, else the title (`JFrame.java:898`, `JDialog.java:1257`).
-- `AccessibleJLabel` implements `AccessibleText` but not `AccessibleExtendedText` (`JLabel.java:1072-1073`). `AccessibleAbstractButton` implements `AccessibleText` (`AbstractButton.java:2356-2358`), and so does the table's check box renderer for boolean columns.
+- `AccessibleJLabel` implements `AccessibleText` but not `AccessibleExtendedText` (`JLabel.java:1072-1073`), and so does `AccessibleAbstractButton` (`AbstractButton.java:2356-2358`). **Both return it from `getAccessibleText()` only for HTML text**: the method checks the `html` client property and answers null otherwise, in JDK 8 and JDK 21 alike.
+  - The renderers of table cells, column headers and list entries are labels or check boxes, so a plain-text item has no `AccessibleText` either.
+  - A headless probe on both JDKs confirms it. The label `clicks-0`, the button `Click me`, the cell `r0c0`, the header `col-0` and the list entry `Beta` report none. The HTML label `<html>Hi <b>there</b></html>` reports `\nHi there`, with the line break the HTML document starts with, and an HTML cell, header or list entry reports its text the same way through the item's wrapper.
+  - The Boolean column's check box renderer reports neither a name nor a text.
 - The JDK's own bridge reads a plain `AccessibleText` character by character with `getAtIndex(AccessibleText.CHARACTER, i)` (`jdk.accessibility/.../AccessBridge.java`, `getAccessibleTextRangeFromContext`).
 
 **Wire format** (verified):
@@ -75,7 +78,7 @@ The agent, `crates/java-agent` and `packages/provider-java` carry one version, a
 - AT-SPI's `control:Name` is `Accessible.Name` alone, without the object-attribute fallback.
 - JAB publishes `control:Description` and answers the description accessor, like every other provider that has a description.
 - Every value that stops being a name stays readable: `control:Id`, `native:ComponentName`, `native:WindowTitle`, `native:TableCell.ModelValue`.
-- The agent reads text from any `AccessibleText`. Cells, column headers and list entries report it.
+- The agent reads text from any `AccessibleText`. Cells, column headers and list entries report it where Swing provides one.
 - Each field on the wire means one thing.
 
 **Non-Goals:**
@@ -107,11 +110,13 @@ The agent, `crates/java-agent` and `packages/provider-java` carry one version, a
    - *Alternative:* call the renderer directly. Rejected: that would re-implement Swing's lookup and miss names set on the wrapper.
    - The Javadoc claim that the accessible view of a cell "is only correct while that renderer happens to be configured for it" (`SwingElement.java:186-192`) holds for the bridge's cached contexts. It does not hold for a read on the toolkit thread, because `getCurrentAccessibleContext()` configures the renderer on every call. The comment is corrected.
 
-4. **One text read for every element.**
+4. **One text read for every element, and only what Swing provides.**
    - A text component keeps `getText()`.
    - Otherwise the agent reads the element's `AccessibleText`: `getTextRange(0, count)` when it is an `AccessibleExtendedText`, else `getAtIndex(CHARACTER, i)` for each index, as the JDK's bridge does.
+   - An element without an `AccessibleText` carries no `text`. For Swing's labels and buttons and the renderers built on them, that is every plain-text one; only HTML text has a text interface. The value is taken as reported, including the leading line break of the HTML document (capability `attribute-values`).
    - A read that throws counts as "no text interface", so `text` is absent. This covers the unguarded header path (`JTableHeader.java:1165`).
    - Components already pair this with `editable`/`IsReadOnly` through `editableOf` (`:541-550`). After the change `Text` and `IsReadOnly` appear together, as through JAB.
+   - *Alternative:* read the displayed text where Swing provides no `AccessibleText`: `JLabel.getText()`, `AbstractButton.getText()`, or the text of the renderer Swing configures for a cell, header or list entry. Rejected by the maintainer: the agent reports what Swing provides and invents nothing, so plain-text elements keep no `Text`, as through the bridge.
    - *Alternative:* read plain `AccessibleText` only for virtual items. Rejected by the maintainer: a label in a cell would have `Text` while a free-standing label would not, and the agent would keep differing from JAB.
 
 5. **The model value is typed once, on the agent side.**
@@ -148,9 +153,9 @@ The agent, `crates/java-agent` and `packages/provider-java` carry one version, a
 
 10. **Test layers**, per `dev-docs/testing-strategy.md`:
    - JUnit, headless (the precedent is `SwingTableRowsTest`, which needs no display):
-     - the payload of a named button and of a label (plain text);
+     - the payload of a named button, of a plain-text label and button (no text) and of an HTML label (its text);
      - the cells of a formatted, a boolean, a null and a NaN column;
-     - a column header and a list entry.
+     - a column header, a plain list entry and an HTML list entry.
    - Rust unit tests: `display_name`, `stable_id` and `push_native` on recorded payloads, including the ModelValue typing. These are free functions and need no session.
    - The provider's live fixture (`#[ignore]`, Windows): the agent-served names button, layered pane, `names-table` and headers, and the stage-1 label and button. Through JAB, the names button is found by `@Name`, and its `Description` agrees across enumeration, lookup and accessor. The live test launches the fixture with a German default locale, which covers the locale scenario without a second launch.
    - An AT-SPI unit test on the name decision: an empty name with the object attributes `accessible-name`, `name`, `label` and `title` gives `""`. The `pick_attr_value` tests stay, because `Id` still uses it.
@@ -163,7 +168,7 @@ The agent, `crates/java-agent` and `packages/provider-java` carry one version, a
 - [Reading the text configures the renderer once more per cell] → Name, description and states already configure it once each (`SwingElement.java:202-204`), so the text read adds one more of several. Measure a full walk of the fixture's 600 cells in the live test before and after.
 - [A header renderer that is not `Accessible` makes `getAccessibleText()` throw] → Every text read is guarded, and a failure means "no text interface", logged at debug.
 - [Locators on `@Name` with a component name or a model value stop matching] → The release notes name the replacements: `@Id` and `native:TableCell.ModelValue`, or the displayed text.
-- [Labels and buttons gain `Text`, so a button's `text` in Python returns its label instead of `""`] → This is intended and aligns the agent with JAB. The release notes list it.
+- [Plain-text cells keep no `Text`, so `Cell.text` keeps failing for them] → It matches what Swing provides and what the bridge reports. A cell is read by its `Name`, which is its displayed text, or by `native:TableCell.ModelValue`.
 - [A stale dev JAR after the wire rename] → In dev both sides report the same version, so the handshake cannot notice. The provider would then read no `componentName` and silently lose `@Id`. The tasks run `just install-provider-java` before any Python or Robot run, and the Rust live tests use the freshly built JAR (`PLATYNUI_JAVA_AGENT_JAR`).
 - [An AT-SPI toolkit that leaves `Accessible.Name` empty and labels an element only through an object attribute loses its `@Name`] → No toolkit in the fixture set is known to do so. The attributes stay in `native:Accessible.Attributes`, and the X11 and compositor lanes show whether a suite relied on the fallback.
 - [JAB elements gain `Description`, so snapshots, `platynui-cli query` and the Inspector list more, and `[@Description]` matches more] → This is intended. It matches the agent for the same application, and the release notes list it.
@@ -172,7 +177,7 @@ The agent, `crates/java-agent` and `packages/provider-java` carry one version, a
 ## Migration Plan
 
 - **Behavioral, not additive:**
-  - for windows served by the Java agent: the name source, new `Text` attributes and changed `native:` attributes;
+  - for windows served by the Java agent: the name source, `Text` where Swing provides HTML text, and changed `native:` attributes;
   - for AT-SPI elements with an empty `Accessible.Name`;
   - for JAB elements with a description.
 

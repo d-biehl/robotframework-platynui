@@ -23,7 +23,7 @@ That values are taken as the platform reports them, without trimming, is not thi
 No spec pins what `Name` is, so nothing caught this. There are two more consequences:
 
 - The same Swing application answers `@Name` and `@Description` differently depending on whether the bridge or the agent serves it.
-- The agent's cells carry no `control:Text` at all, so the Python `Cell.text` (`Item.text`, `src/PlatynUI/ui/item.py:33`) finds no `TextContent` for them.
+- The agent reads text only from an `AccessibleExtendedText`. Where Swing provides a plain `AccessibleText`, as it does for HTML text in labels, buttons and renderers, the bridge reports the text and the agent does not.
 
 ## What Changes
 
@@ -37,9 +37,9 @@ No spec pins what `Name` is, so nothing caught this. There are two more conseque
   - Components: the accessible name. `Component.getName()` stays `control:Id` and is no longer the name.
   - Windows: the accessible name. Swing already falls back to the title inside `AccessibleJFrame`/`AccessibleJDialog`. The title stays readable as `native:WindowTitle`.
   - Table cells, column headers and list entries: the accessible name of Swing's per-item wrapper (`AccessibleJTableCell`, `AccessibleJTableHeaderEntry`, `AccessibleJListChild`). Each wrapper configures the renderer for exactly that item on every read, so in-process the name is the displayed text.
-- **The agent reads every element's text from its `AccessibleText`, plain or extended**, the way the JDK's own bridge does. Today it reads only `AccessibleExtendedText`, which the common Swing labels and buttons do not implement.
-  - Cells, column headers and list entries expose their content through `TextContent`. `control:Text` is read from the item's `AccessibleText`, which Swing takes from the renderer. The existing pattern carries it, so no new pattern is needed.
-  - Labels, buttons, check boxes, radio buttons and menu items gain `control:Text`, as they already have through the bridge.
+- **The agent reads an element's text from every `AccessibleText` Swing provides, plain or extended**, the way the JDK's own bridge does. Today it reads only `AccessibleExtendedText`.
+  - Swing's labels and buttons, and the renderers built on them, provide a plain `AccessibleText` only for HTML text. Plain-text labels, buttons, check boxes, radio buttons and menu items, and the table cells, column headers and list entries their renderers draw, have no text interface and carry no `control:Text`. The agent invents none: it does not read a component's or a renderer's own text.
+  - Cells, column headers and list entries report the `AccessibleText` of Swing's per-item wrapper when it provides one, as for an HTML renderer. The existing `TextContent` pattern carries it, so no new pattern is needed.
 - **The table model value stays readable** as a typed `native:TableCell.ModelValue`: an integer, a number or a boolean, otherwise a string.
 - **`native:ComponentName` carries only a component name.** The overloaded wire field `name` is split. Today a cell reports its model value as `native:ComponentName`.
 - **The Swing fixture gains** a control whose component name differs from its accessible name and which carries an accessible description, and a small table whose displayed text differs from its model values.
@@ -52,8 +52,7 @@ Through the Java agent:
 - **A component with a component name but no accessible name has an empty `@Name`.** Examples are Swing's own `null.contentPane` and `Spinner.nextButton`. Their `@Id` is unchanged.
 - **A window whose accessible name differs from its title is named by the accessible name.** The title stays readable as `native:WindowTitle`.
 - **`@Name` of a table cell or column header is its displayed text.** It is no longer the model or header value. The two differ for formatted, non-string and custom-rendered columns. The model value moves to `native:TableCell.ModelValue`.
-- **Cells, column headers and list entries gain `control:Text`**, so `Cell.text` works for them.
-- **Labels, buttons, check boxes, radio buttons and menu items gain `control:Text`**, their displayed text, as through the bridge. `Label.text` and a button's `text` return it instead of failing or returning an empty string.
+- **Elements whose text Swing exposes as HTML gain `control:Text`**: labels, buttons and menu items with HTML text, and cells, column headers and list entries whose renderer draws HTML. The value is what Swing's `AccessibleText` reports, which starts with the line break of the HTML document. Plain-text elements stay without `control:Text`, as through the bridge.
 - **`native:ComponentName` disappears from cells, column headers and list entries.**
 
 Through the Java Access Bridge:
@@ -76,14 +75,14 @@ These build on the text `attribute-values-as-reported` gives the same requiremen
 
 - `id-attribute`: the scenario *A table cell has no Id although the agent reports a name for it* of the requirement *Id is the identifier the toolkit reports, taken by source* no longer claims that the cell's name is its model value.
 - `description-attribute`: the requirement *Strict per-platform source mapping* names the sources of the Java Access Bridge and the Java agent, including the description Swing derives from a tool tip, and gains scenarios for both Java backends.
-- `textcontent-pattern`: the requirement *TextContent exposes an element's text as a read-only Text attribute* names the Java agent's source: a text component's document, otherwise the element's `AccessibleText`, which for table cells, column headers and list entries is the item's.
+- `textcontent-pattern`: the requirement *TextContent exposes an element's text as a read-only Text attribute* names the Java agent's source: a text component's document, otherwise the `AccessibleText` Swing provides, which for table cells, column headers and list entries is the item's. Swing's plain-text labels, buttons and renderers provide none.
 - `swing-test-app`: a new requirement for the fixture additions: a control with differing component and accessible names and an accessible description, and a table whose displayed text differs from its model values.
 
 ## Impact
 
 - **Java agent** (`java/agent`, `SwingElement.java`):
   - The payload splits `name` into `componentName` (components and windows only) and `modelValue` (table cells only, typed).
-  - It reads `text` from any `AccessibleText`, including a plain one, which Swing's labels and buttons (`AccessibleJLabel`, `AccessibleAbstractButton`) implement without `AccessibleExtendedText`. It reports that text for components and, new, for cells, column headers and list entries.
+  - It reads `text` from any `AccessibleText`, including a plain one. Swing's labels and buttons (`AccessibleJLabel`, `AccessibleAbstractButton`) and the renderers built on them return a plain one for HTML text only. It reports that text for components and, new, for cells, column headers and list entries.
   - The agent, `crates/java-agent` and `packages/provider-java` carry one version and move together. The handshake still compares versions for exact equality.
 - **Rust:**
   - `crates/provider-java/src/agent/element.rs`: the payload fields, `display_name()` (the accessible name only), `stable_id()` (reads `componentName`) and the unit tests.
@@ -91,7 +90,7 @@ These build on the text `attribute-values-as-reported` gives the same requiremen
   - `crates/provider-atspi/src/node.rs`: `resolve_name` loses its object-attribute step. `pick_attr_value` stays for the `Id` fallback.
   - `crates/provider-java-jab/src/node.rs`: `control:Description` from the bridge's description when it is not empty, and a `description()` accessor that returns it. The named lookup follows the enumeration, so the two agree.
   - UIA needs no code change.
-- **Python / Robot Framework:** no keyword or API change. `Cell.text` and `Item.text` start working for agent-served cells, and `description` for bridge-served elements.
+- **Python / Robot Framework:** no keyword or API change. `description` starts working for bridge-served elements. `Cell.text` and `Item.text` work for agent-served cells only where the renderer draws HTML; a plain-text cell has no text interface, through the agent as through the bridge.
 - **Tests:**
   - JUnit tests for the payload.
   - Rust unit tests for the Java mapping, for JAB's description, and for AT-SPI's name decision without the fallback.
