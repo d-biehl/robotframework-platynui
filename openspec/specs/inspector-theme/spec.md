@@ -55,7 +55,7 @@ With the System preference active, the Inspector SHALL render the dark theme whe
 
 - **WHEN** the Inspector starts with the System preference in a session without a settings portal (e.g. the PlatynUI compositor test session)
 - **THEN** the Inspector SHALL render the dark theme
-- **NOTE** Exactly today's appearance — keeps the acceptance lanes' rendering deterministic.
+- **NOTE** Keeps the acceptance lanes' rendering deterministic.
 
 ### Requirement: An ephemeral override pins the theme for one run
 

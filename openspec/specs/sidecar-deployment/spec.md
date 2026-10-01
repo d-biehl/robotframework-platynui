@@ -141,7 +141,7 @@ The point hit-test SHALL likewise not resolve the host's own UI, but it starts f
 - **AND** the window system therefore resolved a window whose reported process identifier happens to equal the runtime's own
 - **WHEN** the element at that point is resolved
 - **THEN** the provider SHALL NOT discard that window on the ground that its reported identifier equals the runtime's own process identifier
-- **NOTE** Real provider only. Measured today as the opposite: under a forced collision the window is dropped a second time at the provider level, so `element-at-point` answers *No element* even once the window manager returns the window. The provider therefore performs no ownership comparison of its own on this path at all (design.md D10), which also covers the narrower case of a bus whose numbering *is* the runtime's while the display server's is not.
+- **NOTE** Real provider only. The provider performs no ownership comparison of its own on this path at all, which also covers the narrower case of a bus whose numbering *is* the runtime's while the display server's is not (design D10 of the archived change `2026-09-24-atspi-process-identity`).
 
 #### Scenario: Without identity, the host's own UI is no longer hidden
 
@@ -174,35 +174,35 @@ Whether an application node carries a node identifier (`Id`) is stated by the ca
 - **GIVEN** the sidecar topology, and an application whose connection the bus daemon cannot resolve for us, in each of the three ways daemons answer: the credentials carry the process ID `0` (dbus-daemon 1.12/1.14, dbus-broker 29/33); the credentials omit it while the dedicated process-ID query answers a successful `0` (dbus-broker 35/37); the credentials omit it while that query answers that the process ID is unknown (dbus-daemon ≥ 1.15.10)
 - **WHEN** that application node's attributes are read
 - **THEN** it SHALL carry no process-ID attribute — in particular not one with the value `0`
-- **NOTE** Decidable from injected credentials for all three shapes; end to end against a real daemon only for the implementations installed. Measured today with three applications on one bus: on dbus-daemon 1.14.10 and dbus-broker 37 such an application reports the process ID `0`, on dbus-daemon 1.16.2 no process-ID attribute at all — the two behave differently for anything keying off the attribute.
+- **NOTE** Decidable from injected credentials for all three shapes; end to end against a real daemon only for the implementations installed.
 
 #### Scenario: Process-table attributes need a local process ID even when the process ID is reported
 
 - **GIVEN** the sidecar topology, where the bus daemon cannot see the runtime and the outcome is therefore *no identity*, and an application whose process ID the daemon does report
 - **WHEN** that application node's attributes are read
 - **THEN** the process-ID attribute SHALL be present, and every process-table attribute SHALL be absent
-- **NOTE** Decidable from injected inputs; end to end only against a real provider across two PID namespaces. This is the normal picture of a sidecar deployment. Measured today: the process-table attributes are present and empty or wrong there, because they are read with the reported number.
+- **NOTE** Decidable from injected inputs; end to end only against a real provider across two PID namespaces. This is the normal picture of a sidecar deployment.
 
 #### Scenario: An attribute that cannot be determined is absent, not guessed
 
 - **GIVEN** an application whose process the provider cannot read
 - **WHEN** its process-table attributes are read
 - **THEN** every such attribute SHALL be absent, and none SHALL report a placeholder or a value taken from the automation host instead of the application
-- **NOTE** Real provider only. Measured before this change: the architecture attribute fell back to the architecture the runtime was built for, so an application the runtime could not even see was reported as `x64` — indistinguishable from a real answer, and wrong outright on a container of another architecture. The provider no longer reports an architecture at all (design D7).
+- **NOTE** Real provider only. The provider reports no architecture at all (design D7 of the archived change `2026-09-24-atspi-process-identity`).
 
 #### Scenario: A local process ID does not promise process-table attributes
 
 - **GIVEN** an application with a process ID valid in the runtime's namespace, while the runtime cannot read some of that process's entries in the local process table
 - **WHEN** that application node's attributes are read
 - **THEN** the attributes that could not be read SHALL be absent rather than empty or substituted
-- **NOTE** Real provider only. Not measured as such: the empty values measured in the sidecar came from reading the process table with a number that was not local, which the previous scenarios cover. Today an unreadable value is answered with an empty string, a null or `unknown` instead of being left out.
+- **NOTE** Real provider only.
 
 #### Scenario: A PID collision does not attribute the runtime's own binary to the application
 
 - **GIVEN** the sidecar topology where the runtime's own process ID equals the process ID the bus daemon reports for the application
 - **WHEN** the application node's attributes are read
 - **THEN** its process-ID attribute SHALL report the application's own process ID, and its process-table attributes SHALL be absent and SHALL in particular not describe the automation binary or any unrelated local process
-- **NOTE** Real provider only. Measured today: the target application reports the automation binary's own name as its process name, and with an unrelated process parked on the colliding ID, that process's name, command line and executable path. That the reported process ID equals the runtime's own is not a finding: it is the application's number, and it is not compared with ours.
+- **NOTE** Real provider only. That the reported process ID equals the runtime's own is not a finding: it is the application's number, and it is not compared with ours.
 
 #### Scenario: On an ordinary desktop the process attributes are unchanged
 

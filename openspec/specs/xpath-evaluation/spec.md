@@ -15,56 +15,48 @@ The engine SHALL return the nodes that a path expression `E1/E2` selects in docu
 - **GIVEN** the tree `r:[A:[X1],X2]`
 - **WHEN** `//X` is evaluated
 - **THEN** the result SHALL be `[X1, X2]`
-- **NOTE:** Before this change `[X2, X1]`.
 
 #### Scenario: A descendant search over nested parents is in document order
 
 - **GIVEN** the tree `W:[P1:[B1,B2],B3,P2:[B4,B5]]`
 - **WHEN** `//B` is evaluated
 - **THEN** the result SHALL be `[B1, B2, B3, B4, B5]`
-- **NOTE:** Before this change `[B3, B1, B2, B4, B5]`.
 
 #### Scenario: A child step over nested context nodes is in document order
 
 - **GIVEN** the tree `r:[X1:[X2:[Y1],Y2]]`
 - **WHEN** `//X/Y` is evaluated
 - **THEN** the result SHALL be `[Y1, Y2]`
-- **NOTE:** Before this change `[Y2, Y1]`.
 
 #### Scenario: Sibling and child steps from several context nodes are in document order
 
 - **GIVEN** the tree `r:[a:[b1,b2],c]`
 - **WHEN** `//*/following-sibling::*` and `//*/child::*` are evaluated
 - **THEN** the results SHALL be `[b2, c]` and `[a, b1, b2, c]`
-- **NOTE:** Before this change `[c, b2]` and `[a, c, b1, b2]`.
 
 #### Scenario: A union step after // is in document order
 
 - **GIVEN** the tree `W:[P1:[B1,B2],B3,P2:[B4,B5]]`
 - **WHEN** `//(P|B)` and `//(P|B)[@id!='B1']` are evaluated
 - **THEN** the results SHALL be `[P1, B1, B2, B3, P2, B4, B5]` and `[P1, B2, B3, P2, B4, B5]`
-- **NOTE:** Before this change `[P1, B3, B1, B2, P2, B4, B5]` and `[P1, B3, B2, P2, B4, B5]`.
 
 #### Scenario: following from nested context nodes keeps every result
 
 - **GIVEN** the tree `r:[a1:[a2,c1]]`
 - **WHEN** `//a/following::c` is evaluated
 - **THEN** the result SHALL be `[c1]`
-- **NOTE:** Before this change empty.
 
 #### Scenario: A path from an arbitrary sequence is ordered and duplicate-free
 
 - **GIVEN** the tree `r:[a,b,c]`
 - **WHEN** `(//b, //c, //a)/.` and `(//c, //a, //c)/self::*` are evaluated
 - **THEN** the results SHALL be `[a, b, c]` and `[a, c]`
-- **NOTE:** Before this change `[b, a, c]` and `[c, a, c]`.
 
 #### Scenario: A parent step from nodes given out of order is in document order
 
 - **GIVEN** the tree `W:[P1:[B1,B2],B3,P2:[B4,B5]]`
 - **WHEN** `(//B[@id='B1'], //B[@id='B4'], //B[@id='B3'])/..` is evaluated
 - **THEN** the result SHALL be `[W, P1, P2]`
-- **NOTE:** Before this change `[P1, W, P2]`.
 
 #### Scenario: Keyless models give the same results
 
@@ -100,28 +92,24 @@ A predicate within a step that uses `position()` or `last()`, or that yields a n
 - **GIVEN** the tree `W:[P1:[B1,B2],B3,P2:[B4,B5]]`
 - **WHEN** `//B[1]` and `count(//B[1])` are evaluated
 - **THEN** the results SHALL be `[B1, B3, B4]` and `3`
-- **NOTE:** Before this change `[B3]` and `1`.
 
 #### Scenario: The last match of every parent
 
 - **GIVEN** the same tree
 - **WHEN** `//B[last()]` is evaluated
 - **THEN** the result SHALL be `[B2, B3, B5]`
-- **NOTE:** Before this change `[B5]`.
 
 #### Scenario: A positional child step after a child step
 
 - **GIVEN** the same tree
 - **WHEN** `//P/B[2]` and `/W/*/B[1]` are evaluated
 - **THEN** the results SHALL be `[B2, B5]` and `[B1, B4]`
-- **NOTE:** Before this change `[B2]` and `[B1]`.
 
 #### Scenario: A position after a filter counts the filtered nodes of each parent
 
 - **GIVEN** the same tree
 - **WHEN** `//B[@id!='B1'][1]` is evaluated
 - **THEN** the result SHALL be `[B2, B3, B4]`
-- **NOTE:** Before this change `[B3]`.
 
 #### Scenario: A positional predicate on a union step counts per parent
 
@@ -135,21 +123,19 @@ A predicate within a step that uses `position()` or `last()`, or that yields a n
 - **GIVEN** the same tree
 - **WHEN** `//B/ancestor::*[1]`, `//B/preceding-sibling::*[1]` and `//B/preceding::B[1]` are evaluated
 - **THEN** the results SHALL be `[W, P1, P2]`, `[P1, B1, B4]` and `[B1, B2, B3, B4]`
-- **NOTE:** Before this change `[W]`, `[P1]` and `[B2]`.
 
 #### Scenario: Forward axes from several context nodes count from each
 
 - **GIVEN** the same tree, the tree `r:[x1,x2,y1,x3,y2]`, and the tree `r:[X1:[B1,X2:[B2]]]`
 - **WHEN** `//B/following::B[1]`, `//x/following-sibling::y[1]` and `//X/descendant::B[1]` are evaluated
 - **THEN** the results SHALL be `[B2, B3, B4, B5]`, `[y1, y2]` and `[B1, B2]`
-- **NOTE:** Before this change `[B4]`, one node, and one node. Context minimization may not merge context nodes when a predicate is positional.
+- **NOTE:** Context minimization may not merge context nodes when a predicate is positional.
 
 #### Scenario: Positions that match nothing
 
 - **GIVEN** the tree `W:[P1:[B1,B2],B3,P2:[B4,B5]]`
 - **WHEN** `//B[3]`, `//B[0]` and `//B[1.5]` are evaluated
 - **THEN** each result SHALL be empty, and no error SHALL be raised
-- **NOTE:** `//B[3]` gives `[B2]` before this change.
 
 #### Scenario: Non-positional predicates are unchanged
 
@@ -172,14 +158,12 @@ A predicate on a parenthesized expression, `(E)[p]`, SHALL count `position()` an
 - **GIVEN** the tree `W:[P1:[B1,B2],B3,P2:[B4,B5]]`
 - **WHEN** `(//B)[1]`, `(//B)[2]`, `(//B)[last()]` and `(//P/B)[3]` are evaluated
 - **THEN** the results SHALL be `B1`, `B2`, `B5` and `B4`
-- **NOTE:** Before this change `B3`, `B1`, `B5` and `B4`.
 
 #### Scenario: The first match overall at different depths
 
 - **GIVEN** the tree `r:[A:[X1],X2]`
 - **WHEN** `(//X)[1]` is evaluated
 - **THEN** the result SHALL be `X1`
-- **NOTE:** Before this change `X2`.
 
 #### Scenario: A position past the end
 
@@ -202,7 +186,6 @@ The first item of a streamed evaluation (the first item of the engine's stream, 
 - **GIVEN** the tree `W:[P1:[B1,B2],B3,P2:[B4,B5]]`
 - **WHEN** the first item of `//B` is taken
 - **THEN** it SHALL be `B1`
-- **NOTE:** Before this change `B3`.
 
 #### Scenario: The first match reads only what precedes it
 
@@ -216,7 +199,6 @@ The first item of a streamed evaluation (the first item of the engine's stream, 
 - **GIVEN** the lazy fake provider of the runtime's lifetime tests (`root → 2 Window → [Pane, Button, Pane] → [Button, Text, Button] → [Button]`) without a retained snapshot
 - **WHEN** the first item of the runtime's evaluation stream for `//Button` is taken, which is what `evaluate_single` returns
 - **THEN** it SHALL be `root/0/0/0`, and only the lists of `root`, `root/0` and `root/0/0` SHALL have been read
-- **NOTE:** Before this change it is `root/0/1`.
 
 #### Scenario: A child by position of a container taken with (…)[1] reads only that container
 

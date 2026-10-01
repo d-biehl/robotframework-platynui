@@ -41,7 +41,7 @@ A snapshot that the caller retains SHALL be reused by the next query from the sa
 - **GIVEN** a retained snapshot of `following-sibling::*` evaluated from a held element, which returned two siblings
 - **WHEN** one of the siblings reports that it is no longer valid and the same query runs again from the same element
 - **THEN** the result SHALL contain only the sibling that is still valid
-- **NOTE:** Exercised at the runtime unit level. Before this change the gone sibling was still returned, because the ancestors reached upward from a held element were never checked again.
+- **NOTE:** Exercised at the runtime unit level.
 
 #### Scenario: An added node appears only after the snapshot was discarded
 
@@ -116,7 +116,7 @@ When a snapshot ends, the runtime SHALL release it, together with every provider
 - **GIVEN** the Windows desktop with a large application window, such as an editor with thousands of elements
 - **WHEN** a query under that window runs 20 times from Python, with `clear_cache()` before each run
 - **THEN** the process's private memory SHALL NOT grow in proportion to the number of runs
-- **NOTE:** Verifiable only against a real provider, as a manual measurement on Windows that is recorded in the change's tasks. Before this change it grew by about 15 MiB per run.
+- **NOTE:** Verifiable only against a real provider, as a manual measurement on Windows, recorded in the tasks of the archived change `2026-09-28-xdm-snapshot-release`.
 
 ### Requirement: A node that is handed out keeps its ancestors while it is held
 

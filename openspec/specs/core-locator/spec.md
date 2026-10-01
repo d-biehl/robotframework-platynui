@@ -15,7 +15,6 @@ A locator is resolved against one parent element. Its `index` SHALL select the n
 - **GIVEN** `Locator(role='Button', index=2)` and `Locator(role='Button', position=3, index=1)`
 - **WHEN** they are rendered with `to_xpath()`
 - **THEN** the XPaths SHALL be `descendant::Button[2]` and `descendant::Button[position()=3][1]`
-- **NOTE:** Before this change `.//Button[2]` and `.//Button[position()=3][1]`, which count per parent in XPath 2.0.
 
 #### Scenario: Custom predicates on the descendants scope render a single descendant step
 
@@ -48,7 +47,6 @@ A locator is resolved against one parent element. Its `index` SHALL select the n
 - **GIVEN** the mock provider, and the `Operations Console` window as the parent, whose tree holds the tree items Dashboard (with Overview and Metrics) and Reports (with Täglich, Monatlich and Jährlich)
 - **WHEN** `find_one` resolves `Locator(prefix='item', role='TreeItem', index=2)` against that window
 - **THEN** it SHALL return the element named Overview
-- **NOTE:** Before this change it returns Reports.
 
 #### Scenario: An index past the last descendant finds nothing
 
@@ -61,4 +59,3 @@ A locator is resolved against one parent element. Its `index` SHALL select the n
 - **GIVEN** the same parent
 - **WHEN** `find_all` resolves `Locator(prefix='item', role='TreeItem')`
 - **THEN** the names SHALL be Dashboard, Overview, Metrics, Reports, Täglich, Monatlich, Jährlich, in that order
-- **NOTE:** Before this change Dashboard, Reports, Overview, Metrics, Täglich, Monatlich, Jährlich.

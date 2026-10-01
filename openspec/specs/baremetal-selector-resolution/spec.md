@@ -127,39 +127,34 @@ When a selector matches several elements, a keyword that acts on one element, `Q
 - **GIVEN** the mock, and the root set to `//control:Window[@Name="Operations Console"]`, whose tree holds the tree items Dashboard (with Overview and Metrics) and Reports (with Täglich, Monatlich and Jährlich), each named in its `item:Name` attribute
 - **WHEN** `Get Attribute Value    .//item:TreeItem[@item:Name!="Dashboard"]    item:Name` runs
 - **THEN** it SHALL return Overview
-- **NOTE:** Before this change it returns Reports, the first match of the shallower level.
 
 #### Scenario: Query only_first returns the first match in document order
 
 - **GIVEN** the same root
 - **WHEN** `Query    .//item:TreeItem[@item:Name!="Dashboard"]    only_first=${True}` runs
 - **THEN** it SHALL return the element named Overview
-- **NOTE:** Before this change Reports.
 
 #### Scenario: Query lists matches in document order
 
 - **GIVEN** the same root
 - **WHEN** `Query    .//item:TreeItem` runs
 - **THEN** the names of the returned elements SHALL be Dashboard, Overview, Metrics, Reports, Täglich, Monatlich, Jährlich, in that order
-- **NOTE:** Before this change Dashboard, Reports, Overview, Metrics, Täglich, Monatlich, Jährlich.
 
 #### Scenario: A parenthesized selector counts over all matches
 
 - **GIVEN** the same root
 - **WHEN** `Get Attribute Value    (.//item:TreeItem)[2]    item:Name    ==    Overview` runs
 - **THEN** it SHALL pass
-- **NOTE:** Before this change the selector resolves Reports.
 
 #### Scenario: A positional predicate in a step counts per parent
 
 - **GIVEN** the same root
 - **WHEN** `Query    .//item:TreeItem[2]` runs
 - **THEN** it SHALL return the elements named Metrics, Reports and Monatlich, in that order
-- **NOTE:** Before this change only Reports.
 
 #### Scenario: A position that no parent reaches matches nothing
 
 - **GIVEN** the same root and `query_settings={'timeout': 0.2}`
 - **WHEN** `Get Attribute Value    .//item:TreeItem[4]    item:Name` runs
 - **THEN** it SHALL fail with an error that says no element matched `.//item:TreeItem[4]` within timeout of 0.2 seconds
-- **NOTE:** No parent holds four tree items. Before this change the selector resolves Metrics, the fourth match overall.
+- **NOTE:** No parent holds four tree items.

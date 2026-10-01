@@ -128,7 +128,6 @@ The agent backend shows a Java window twice: once in the desktop's flat list of 
 - **GIVEN** the Swing fixture, served by the agent, with the title `<title>`
 - **WHEN** `(/control:Window[@Name="<title>"][@Technology="JavaAgent"] | /app:Application/control:Window[@Name="<title>"][@Technology="JavaAgent"])` is evaluated
 - **THEN** the result SHALL hold two nodes, with runtime ids of the form `agent/<pid>/<element id>` and `agent/app/<pid>/<element id>` for the same element id
-- **NOTE:** Before this change the result holds one node, because both carry the same runtime id.
 
 #### Scenario: Descendants carry their window's view
 

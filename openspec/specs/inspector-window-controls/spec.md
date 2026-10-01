@@ -14,7 +14,7 @@ On Wayland sessions the Inspector SHALL start with window decorations disabled â
 
 - **WHEN** the Inspector starts on a Wayland session whose compositor does not draw server-side decorations
 - **THEN** the window SHALL show no client-drawn title bar or frame
-- **NOTE** This matches today's look under niri; under GNOME/Mutter it removes the sctk-adwaita fallback bar.
+- **NOTE** This matches the look under niri; under GNOME/Mutter it removes the sctk-adwaita fallback bar.
 
 #### Scenario: Non-Wayland platforms are unchanged
 

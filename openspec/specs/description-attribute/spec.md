@@ -55,7 +55,7 @@ Every provider SHALL take the value unmodified (capability `attribute-values`). 
 - **GIVEN** a UIA element whose `FullDescription` property is empty but whose `HelpText` property is non-empty
 - **WHEN** the element's attributes are enumerated
 - **THEN** no `control:Description` attribute is present
-- *(real-provider only: verified manually/via Inspector on Windows; no automated UIA lane exists)*
+- *(real-provider only: verified manually/via Inspector on Windows)*
 
 #### Scenario: UIA attribute() fast-path and attributes() agree
 - **GIVEN** a UIA element with a non-empty `FullDescription`

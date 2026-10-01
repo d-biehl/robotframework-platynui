@@ -150,7 +150,7 @@ is the identity the compositor captured for each connection.
   the runtime
 - **THEN** the provider SHALL return nothing rather than the host process's own element
 - **NOTE** Verifiable only against the real Windows UIA provider with an own-process window
-  on screen, not the mock. This is today's behaviour on Windows and does not change.
+  on screen, not the mock.
 
 #### Scenario: An application whose process identifier equals the runtime's is still resolved
 
@@ -167,11 +167,7 @@ is the identity the compositor captured for each connection.
 - **THEN** hit-test SHALL resolve that control rather than skipping the window, and the
   result SHALL be the same one it produces for the identical window when the numbers differ
 - **NOTE** Verifiable only against a real display server with the runtime in a separate
-  process namespace, not the mock. Measured today as the opposite: with the runtime forced
-  onto the application's identifier, `element-at-point` returned *No element*, while control
-  runs at neighbouring identifiers resolved the same button. Observable end to end once the
-  provider stops re-deriving ownership from the window's reported identifier, which
-  `sidecar-deployment` requires of it.
+  process namespace, not the mock.
 
 #### Scenario: On X11, the runtime's own window is skipped where the server numbers it differently
 

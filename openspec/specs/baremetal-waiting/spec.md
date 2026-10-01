@@ -398,7 +398,7 @@ A captured element that is no longer valid SHALL also fail at once, because it c
 - **GIVEN** an element whose attribute read raises a provider error on every attempt, and `ignore_exceptions` enabled for the call
 - **WHEN** `Wait Until Attribute Value` is called for that element and attribute
 - **THEN** it SHALL fail after the timeout with `AttributeNotFoundError`, which says that the attribute of that element could not be read and ends with the last error
-- **NOTE** Verified with a unit test on a fake element. No provider can produce this today: the element interface reports a value it cannot read as a missing attribute, so a real or mock read never raises.
+- **NOTE** Verified with a unit test on a fake element. No provider can produce this: the element interface reports a value it cannot read as a missing attribute, so a real or mock read never raises.
 
 ### Requirement: Every wait polls and fails the same way
 

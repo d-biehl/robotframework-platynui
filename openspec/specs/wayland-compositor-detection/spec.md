@@ -115,7 +115,6 @@ A capability the Wayland backend switches off because the identified compositor 
 - **GIVEN** a Wayland session whose compositor is unrecognised
 - **WHEN** a screenshot or any window-manager operation is requested
 - **THEN** each SHALL fail with an unavailable error naming the capability and the compositor
-- **NOTE** Regression anchor: this already holds today and must survive the change.
 
 ### Requirement: A substituted window geometry is visible in the log
 

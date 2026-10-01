@@ -19,7 +19,7 @@ Where a platform transports a typed value as a string, the provider SHALL parse 
 - **GIVEN** an AT-SPI element whose `Accessible.Name` is `  Save  as  `
 - **WHEN** its `Name` is decided
 - **THEN** it SHALL be `  Save  as  `, unchanged
-- **NOTE** Verified on the provider's decision in isolation. Today AT-SPI trims it to `Save  as`.
+- **NOTE** Verified on the provider's decision in isolation.
 
 #### Scenario: A whitespace-only AT-SPI name is a name
 
@@ -33,7 +33,7 @@ Where a platform transports a typed value as a string, the provider SHALL parse 
 - **GIVEN** an AT-SPI application whose root object reports the `Accessible.Name` ` gedit `
 - **WHEN** its application node is created during desktop enumeration and its `Name` is read
 - **THEN** it SHALL be ` gedit `, unchanged
-- **NOTE** Verified on the provider's decision in isolation. Application nodes seed their name on a path of their own, which trims today.
+- **NOTE** Verified on the provider's decision in isolation. Application nodes seed their name on a path of their own.
 
 #### Scenario: AT-SPI native string properties are taken as reported
 
@@ -54,21 +54,21 @@ Where a platform transports a typed value as a string, the provider SHALL parse 
 - **GIVEN** an AT-SPI element whose object attributes are `toolkit` with the value `Qt`, a key of one space with the value `x`, and `tag` with an empty value
 - **WHEN** its `native:Accessible.Attributes` is mapped
 - **THEN** it SHALL carry all three entries with their keys and values as reported
-- **NOTE** Verified on the provider's mapping in isolation. Today the whitespace key is dropped.
+- **NOTE** Verified on the provider's mapping in isolation.
 
 #### Scenario: A JAB value string is parsed without trimming
 
 - **GIVEN** a Java Access Bridge element whose current value string is `50`, and one whose current value string is `n/a `
 - **WHEN** their `control:Value` and `native:Value.Current` are read
 - **THEN** the first SHALL be the number `50`, and the second SHALL be the string `n/a `, unchanged
-- **NOTE** Verified on the provider's conversion in isolation. Today the second is trimmed to `n/a`.
+- **NOTE** Verified on the provider's conversion in isolation.
 
 #### Scenario: A whitespace-only identifier shows in a one-line description
 
 - **GIVEN** an element named `Save` whose `Id` consists of two spaces
 - **WHEN** it is described in one line, as action log lines do
 - **THEN** the description SHALL end with the quoted name followed by ` #` and the two spaces
-- **NOTE** Verified on the description function in isolation. Today a whitespace-only id is left out.
+- **NOTE** Verified on the description function in isolation.
 
 #### Scenario: A whitespace-only monitor name is a name
 
@@ -90,7 +90,7 @@ The empty string SHALL be handled per attribute group:
 - **GIVEN** the Swing test application's empty text field `stage1-textfield`, served once through the Java agent and once through the Java Access Bridge
 - **WHEN** its `control:Text` is read on each backend
 - **THEN** it SHALL be present and `""` on both
-- **NOTE** Real provider only; the Java live fixture on Windows. It holds today, and the scenario guards it.
+- **NOTE** Real provider only; the Java live fixture on Windows.
 
 #### Scenario: An element without an accessible name has an empty Name
 
@@ -111,7 +111,7 @@ The empty string SHALL be handled per attribute group:
 - **GIVEN** a UIA element whose `HelpText` property is the empty string
 - **WHEN** its native attributes are enumerated and `HelpText` is looked up by name
 - **THEN** `native:HelpText` SHALL be listed with `""`, and the lookup SHALL find it
-- **NOTE** Verified on the property conversion in isolation. Today an empty BSTR is dropped.
+- **NOTE** Verified on the property conversion in isolation.
 
 #### Scenario: An empty AT-SPI native property is listed
 
@@ -125,7 +125,7 @@ The empty string SHALL be handled per attribute group:
 - **GIVEN** a Swing component whose accessible name was set to the empty string
 - **WHEN** it is described by the Java agent and mapped by the provider
 - **THEN** the payload SHALL carry `""` as its accessible name, `native:AccessibleName` SHALL be `""`, and `control:Name` SHALL be `""`
-- **NOTE** Verified on the agent's description and the provider's mapping in isolation. Today the agent drops the empty string.
+- **NOTE** Verified on the agent's description and the provider's mapping in isolation.
 
 #### Scenario: A JAB element without a value reports none
 

@@ -20,14 +20,14 @@ A provider SHALL NOT report one of these facts under a second name or namespace 
 - **GIVEN** an application node from UI Automation or the Java Access Bridge for a process whose executable is `C:\Tools\ledger.exe`
 - **WHEN** `@Name` and `@app:ProcessName` are read
 - **THEN** both SHALL be `ledger`, so that `app:Application[@Name="ledger"]` and `app:Application[@app:ProcessName="ledger"]` select the same node
-- **NOTE** Real provider only, Windows. Today both providers derive the name and `@app:ProcessName` from the executable's stem, so the two agree. An image with an extension other than `.exe` loses that extension, and JAB under limited rights carries `.exe` in both. Under this contract only `.exe` is removed, and the name follows the process name.
+- **NOTE** Real provider only, Windows. Under this contract only `.exe` is removed, and the name follows the process name.
 
 #### Scenario: A Java application served by the in-JVM agent carries its process attributes under app
 
 - **GIVEN** a Java application whose application node is built from the in-JVM agent
 - **WHEN** `@app:ProcessName` and `@ProcessName` are read on that node
 - **THEN** `@app:ProcessName` SHALL be present and `@ProcessName` SHALL be absent
-- **NOTE** Real provider only. Today the agent reports these attributes in the `control` namespace, so the `app` form finds nothing on a Java application while it works on every other provider.
+- **NOTE** Real provider only.
 
 #### Scenario: The process ID stays addressable in the control namespace
 
@@ -48,7 +48,7 @@ An application node SHALL report only the process it was created for. Once that 
 - **GIVEN** an application whose process the runtime is not permitted to query, for example a process of another user or an elevated process on Windows
 - **WHEN** its application node's attributes are listed
 - **THEN** every process attribute that could not be read SHALL be missing from the listing, and none SHALL be present with an empty string, a null, `"unknown"` or `0`
-- **NOTE** Real provider only. Today the Windows UIA provider answers `""`, a null or `"unknown"` for what it cannot read of a process it can open. For a process it cannot open, the node's name is empty, and its listing ends there, before even `ProcessId`. The JAB provider answers a null, an empty executable path, the image name with `.exe` as the process name, and `"unknown"` for an architecture its PE parser does not know.
+- **NOTE** Real provider only.
 
 #### Scenario: Listing and predicate agree for a missing attribute
 
@@ -62,7 +62,7 @@ An application node SHALL report only the process it was created for. Once that 
 - **GIVEN** an application on a platform that reports architectures, whose architecture the provider cannot determine
 - **WHEN** `@app:Architecture` is read
 - **THEN** it SHALL be absent, and SHALL NOT be the architecture of the machine the runtime runs on or the one the runtime was built for
-- **NOTE** Real provider only. Today the Windows UIA provider falls back to the machine's architecture when it can open the process but cannot read its executable's PE header, and answers `"unknown"` when it cannot open it. The JAB provider falls back to the architecture the runtime was built for. Both are wrong for a 32-bit process on 64-bit Windows.
+- **NOTE** Real provider only.
 
 #### Scenario: An application's self-description does not replace a process attribute
 
@@ -87,14 +87,14 @@ An application node SHALL report only the process it was created for. Once that 
 - **GIVEN** an element whose platform reports the process ID `0`, for example an element found at a point whose process the platform cannot name
 - **WHEN** the element is resolved and its ancestors are read
 - **THEN** no application node with the process ID `0` SHALL be built for it: the element is resolved without an application ancestor, or not at all
-- **NOTE** Real provider only. Today the Windows UIA provider caps such an element's ancestor chain with an application node for the process ID `0`, whose runtime id is `uia://app/0`. Since `snapshot-validity` that node reports itself invalid.
+- **NOTE** Real provider only.
 
 #### Scenario: A window is never looked up by process ID 0
 
 - **GIVEN** a node that carries `ProcessId = 0`, for example from a provider that does not follow this contract
 - **WHEN** a window-management operation resolves the node's window
 - **THEN** it SHALL treat the node as carrying no process ID, and SHALL NOT act on any window found by looking up the process ID `0`
-- **NOTE** Decidable per window manager with an injected node. Today the window managers on Windows and X11 accept `0` as an integer or a string, and the compositor backend also as the number `0.0`. On Windows a lookup with `0` matches any window whose process `GetWindowThreadProcessId` cannot name.
+- **NOTE** Decidable per window manager with an injected node. On Windows a lookup with `0` matches any window whose process `GetWindowThreadProcessId` cannot name.
 
 ### Requirement: Each process attribute has one value format
 
@@ -113,21 +113,21 @@ A present process attribute SHALL have exactly this form, whichever provider rep
 - **GIVEN** an application node from any provider whose start time is known
 - **WHEN** `@app:StartTime` is read
 - **THEN** it SHALL match `YYYY-MM-DDTHH:MM:SSZ` exactly, and SHALL be the platform's record of the process's creation time in UTC, to the second
-- **NOTE** Real provider per platform. Today the forms differ: Windows UIA adds milliseconds, JAB and AT-SPI stop at the second, and the Java agent reports an integer of epoch milliseconds under `control` on Java 9 or later, and no start time on Java 8.
+- **NOTE** Real provider per platform.
 
 #### Scenario: A Windows process owned by a local account names the computer as its domain
 
 - **GIVEN** an application on Windows running under a local account `user` on the computer `HOST`
 - **WHEN** `@app:UserName` is read
 - **THEN** it SHALL be `HOST\user`
-- **NOTE** Real provider only, Windows. Today the JAB provider reports the bare `user`.
+- **NOTE** Real provider only, Windows.
 
 #### Scenario: A Windows command line keeps its quoting
 
 - **GIVEN** an application on Windows started as `app.exe "C:\My Files\input.txt" --flag`
 - **WHEN** `@app:CommandLine` is read
 - **THEN** it SHALL contain `"C:\My Files\input.txt"` with its quotes, exactly as the process was started
-- **NOTE** Real provider only, Windows. Today the JAB provider rebuilds the line from its arguments and loses the quoting. The Java agent reports `sun.java.command`, without the launcher, the JVM options or the quoting.
+- **NOTE** Real provider only, Windows.
 
 #### Scenario: A 32-bit process on 64-bit Windows reports its own architecture
 
@@ -141,7 +141,7 @@ A present process attribute SHALL have exactly this form, whichever provider rep
 - **GIVEN** a Java application whose application node is built from the in-JVM agent, launched through `javaw.exe` with the main class `com.example.App`
 - **WHEN** `@app:ProcessName` and `@app:ExecutablePath` are read
 - **THEN** `@app:ProcessName` SHALL be `javaw` and `@app:ExecutablePath` SHALL be the path of that `javaw.exe`, while the main class MAY remain the node's display name
-- **NOTE** Real provider only, Windows. Today the agent reports the main class's simple name, or the jar's file name, as the process name, and `<java.home>\bin\java.exe` as the executable path. For a JVM started through `javaw.exe` that is the wrong launcher. On Java 8, whose `java.home` is the JDK's `jre` directory, it is `<jdk>\jre\bin\java.exe`, another file.
+- **NOTE** Real provider only, Windows.
 
 ### Requirement: Each platform reports the process attributes it has a source for
 
@@ -174,7 +174,7 @@ A provider SHALL report a process attribute only where its platform has a source
 - **GIVEN** an application node that carries `control:ProcessId` and `app:ProcessName`, such as the mock's "Mock Application"
 - **WHEN** `process_id` and `process_name` of its `Application` are read
 - **THEN** they SHALL return the node's process ID and process name
-- **NOTE** Verifiable against the mock once its application models process attributes. Today `process_id` reads `app:ProcessId`, which no provider reports, and always fails.
+- **NOTE** Verifiable against the mock.
 
 #### Scenario: A missing attribute gives None
 
@@ -187,4 +187,4 @@ A provider SHALL report a process attribute only where its platform has a source
 - **GIVEN** a Java application whose application node is built from the in-JVM agent
 - **WHEN** `process_name` of its `Application` is read
 - **THEN** it SHALL return the JVM process's name, for example `java` or `javaw`
-- **NOTE** Proven by composition: the agent node reports `app:ProcessName`, and `process_name` reads `app:ProcessName` and ignores `control:ProcessName`. Today it fails with `KeyError`, because the agent reports the name under `control`.
+- **NOTE** Proven by composition: the agent node reports `app:ProcessName`, and `process_name` reads `app:ProcessName` and ignores `control:ProcessName`.
