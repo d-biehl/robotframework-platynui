@@ -105,7 +105,9 @@ out-of-process, so every interactive control carries an explicit, unique
 | Checkbox / radios | `stage2-checkbox`, `stage2-radio-a`, `stage2-radio-b` |
 | Combo / slider / spinner / progress | `stage2-combo`, `stage2-slider`, `stage2-spinner`, `stage2-progress` |
 | Table panel / scroll pane / table | `table-panel`, `table-scroll`, `main-table` |
-| Table cells | content `r<row>c<col>` (100×6 grid, row 2 preselected, headers `col-<col>`) — **not** name-addressable through the bridge: the JDK aliases all JTable cells to the shared renderer, so cell names are volatile there; locate cells by row-major child position (`row*6 + col + 1` in XPath). The table deliberately does **not** fit its viewport — both scrollbars are present and most cells are off-view, which is what makes scrolled-out geometry testable. Through the in-JVM agent names are model values and stable, and cells sit beneath row nodes. |
+| Table cells | content `r<row>c<col>` (100×6 grid, row 2 preselected, headers `col-<col>`) — **not** name-addressable through the bridge: the JDK aliases all JTable cells to the shared renderer, so cell names are volatile there; locate cells by row-major child position (`row*6 + col + 1` in XPath). The table deliberately does **not** fit its viewport — both scrollbars are present and most cells are off-view, which is what makes scrolled-out geometry testable. Through the in-JVM agent a cell's name is the text its renderer displays for that very cell, and stable; its model value is `native:TableCell.ModelValue`, and cells sit beneath row nodes. |
+| Names panel / button / table | `names-panel`, `names-button`, `names-table` — the button also carries the component name `namesButton` (`setName`), the accessible description `A button with a developer name` and the visible label `Named`, so each source of a name is distinguishable |
+| Names table cells | one row: `amount` holds the `Double` `1234.5` and displays `1,234.50` (fixed `#,##0.00` format, independent of the default locale); `active` holds the `Boolean` `true` and displays a check box without text |
 
 ## Growth rules
 

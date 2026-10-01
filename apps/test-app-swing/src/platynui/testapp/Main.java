@@ -155,6 +155,7 @@ public final class Main {
         content.add(new Stage1Panel());
         content.add(new Stage2Panel());
         content.add(new TablePanel());
+        content.add(new NamesPanel());
         frame.setContentPane(content);
 
         frame.pack();
