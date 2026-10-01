@@ -195,3 +195,4 @@ The agent, `crates/java-agent` and `packages/provider-java` carry one version, a
 ## Open Questions
 
 - How much the extra text read adds to a full table walk. The live test measures it. The approach stands either way, because Swing re-renders per accessible read by design.
+  - **Measured** on 2026-10-01 by `live_agent_serves_table_cells_the_bridge_cannot` (Windows, the fixture on Java 8, one run each): a full walk of `main-table` — 701 nodes, the table with its 100 rows and 600 cells — took 87.5 ms before the change and 86.1 ms after it. The extra read does not show, because a plain-text cell's wrapper provides no `AccessibleText`: the read ends after one more renderer configuration.

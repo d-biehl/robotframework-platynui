@@ -4,7 +4,7 @@ Prerequisite: `attribute-values-as-reported` is applied. This change builds on i
 
 ## 1. Fixture
 
-- [ ] 1.1 Add `NamesPanel` to `apps/test-app-swing` and wire it into `Main` after `TablePanel`, as `swing-test-app` *Name-source coverage* and design decision 7 describe:
+- [x] 1.1 Add `NamesPanel` to `apps/test-app-swing` and wire it into `Main` after `TablePanel`, as `swing-test-app` *Name-source coverage* and design decision 7 describe:
   - a titled panel `names-panel`;
   - the button `names-button` (`setName("namesButton")`, accessible description `A button with a developer name`, visible label `Named`);
   - the read-only table `names-table`:
@@ -12,13 +12,13 @@ Prerequisite: `attribute-values-as-reported` is applied. This change builds on i
     - `active` holds the `Boolean` `true` in a column of class `Boolean.class`.
 
   Verify: `just build-test-app-swing` succeeds, and a manual `just run-test-app-swing` shows `1,234.50` and a checked check box.
-- [ ] 1.2 Document the panel in the fixture README's control table and in the class Javadoc, keeping the "fixed accessible names" convention. Verify: the README names `names-panel`, `names-button`/`namesButton` with its description, and `names-table` with its two values.
+- [x] 1.2 Document the panel in the fixture README's control table and in the class Javadoc, keeping the "fixed accessible names" convention. Verify: the README names `names-panel`, `names-button`/`namesButton` with its description, and `names-table` with its two values.
 
 ## 2. Tests first
 
 Each test in this group fails until groups 3 and 4 land.
 
-- [ ] 2.1 Write `tests/acceptance/swing/agent_names.robot`, following the `robot-test-style` skill and the BareMetal keywords of `testapp_agent.resource`. It covers the real-provider scenarios of `name-attribute`, `description-attribute`, `textcontent-pattern` and `swing-test-app` for the agent:
+- [x] 2.1 Write `tests/acceptance/swing/agent_names.robot`, following the `robot-test-style` skill and the BareMetal keywords of `testapp_agent.resource`. It covers the real-provider scenarios of `name-attribute`, `description-attribute`, `textcontent-pattern` and `swing-test-app` for the agent:
   - the names button: `@Name`, `@Id`, `@Description` and `native:ComponentName`, and that `[@Name="namesButton"]` matches nothing;
   - the layered pane: `[@Id="null.layeredPane"][@Name=""]`;
   - the `names-table` cells: `Name` and `native:TableCell.ModelValue` (number, boolean), and no `control:Text`;
@@ -29,7 +29,7 @@ Each test in this group fails until groups 3 and 4 land.
   - a second instance started with `--app-context --companion-window`, whose companion window has `Name` = `companion-window` and `native:WindowTitle`.
 
   Verify: `robotcode analyze` reports no errors for the suite.
-- [ ] 2.2 Add JUnit tests (`java/agent/src/test/java/platynui/agent/`, headless like `SwingTableRowsTest`) on the payload of `SwingElement.describe`:
+- [x] 2.2 Add JUnit tests (`java/agent/src/test/java/platynui/agent/`, headless like `SwingTableRowsTest`) on the payload of `SwingElement.describe`:
   - a `JButton` with `setName`, an accessible name and an accessible description gives `componentName`, `accessibleName` and `accessibleDescription`, and no `name` key;
   - a component with only a tool tip gives that tool tip as `accessibleDescription`;
   - a plain-text `JLabel` and `JButton` carry no `text`, and an HTML `JLabel` gets `text` from its plain `AccessibleText` (`\nHi there`);
@@ -41,7 +41,7 @@ Each test in this group fails until groups 3 and 4 land.
   - a `JList` entry `Beta` gives `accessibleName` `Beta` and no `text`, and an HTML entry gives `text` `\nAlpha`.
 
   Verify: `just test-java-agent` fails exactly on the new tests.
-- [ ] 2.3 Add Rust unit tests in `crates/provider-java/src/agent/element.rs` and `node.rs` on recorded payloads with the new fields:
+- [x] 2.3 Add Rust unit tests in `crates/provider-java/src/agent/element.rs` and `node.rs` on recorded payloads with the new fields:
   - `display_name()` returns `accessibleName` for:
     - a component carrying `componentName`;
     - a window whose accessible name differs from its title, and an untitled one;
@@ -52,7 +52,7 @@ Each test in this group fails until groups 3 and 4 land.
   - A padded `accessibleName` and `accessibleDescription` pass through unchanged.
 
   Replace the test `component_get_name_wins_over_the_accessible_name`. Verify: `just test-crate platynui-provider-java` fails exactly on the new expectations.
-- [ ] 2.4 Extend the live checks in `crates/provider-java/tests/live_fixture.rs`:
+- [x] 2.4 Extend the live checks in `crates/provider-java/tests/live_fixture.rs`:
   - agent:
     - launch the fixture with `-Duser.language=de -Duser.country=DE`;
     - assert the values of 2.1 for the names button, layered pane, `names-table` cells and headers and the stage-1 label and button;
@@ -63,18 +63,18 @@ Each test in this group fails until groups 3 and 4 land.
     - its `Description` is `A button with a developer name` through enumeration, named lookup and the description accessor.
 
   Update `named` in `crates/java-agent/tests/live_fixture.rs:625-627` to read `accessibleName`. Verify: `just check` compiles both test targets.
-- [ ] 2.5 Add a unit test in `crates/provider-atspi/src/node.rs` on the name decision, the pure function `attribute-values-as-reported` introduced: an empty `Accessible.Name`, with object attributes carrying `accessible-name`, `name`, `label` and `title`, gives `""`. Replace the expectation that pinned the fallback. Verify: `just test-crate platynui-provider-atspi` fails exactly on it.
-- [ ] 2.6 Add a unit test in `crates/provider-java-jab` on the description decision: the bridge's empty string gives none, and `  Closes the dialog  ` is kept unchanged. Verify: `just test-crate platynui-provider-java-jab` fails on it.
+- [x] 2.5 Add a unit test in `crates/provider-atspi/src/node.rs` on the name decision, the pure function `attribute-values-as-reported` introduced: an empty `Accessible.Name`, with object attributes carrying `accessible-name`, `name`, `label` and `title`, gives `""`. Replace the expectation that pinned the fallback. Verify: `just test-crate platynui-provider-atspi` fails exactly on it.
+- [x] 2.6 Add a unit test in `crates/provider-java-jab` on the description decision: the bridge's empty string gives none, and `  Closes the dialog  ` is kept unchanged. Verify: `just test-crate platynui-provider-java-jab` fails on it.
 
 ## 3. Java agent
 
-- [ ] 3.1 Make `textOf` read any `AccessibleText` (design decision 4):
+- [x] 3.1 Make `textOf` read any `AccessibleText` (design decision 4):
   - through `getTextRange(0, count)` for an `AccessibleExtendedText`;
   - otherwise through `getAtIndex(AccessibleText.CHARACTER, i)` for each index.
 
   A throwing read counts as no text interface. Verify: the label and button tests of 2.2 pass: the HTML label gets its text, and the plain-text label and button get none.
-- [ ] 3.2 In `describeComponent`, report the explicit component name as `componentName` instead of `name`. Verify: the button and tool tip tests of 2.2 pass.
-- [ ] 3.3 In `describeVirtual` and `describeColumnHeader`:
+- [x] 3.2 In `describeComponent`, report the explicit component name as `componentName` instead of `name`. Verify: the button and tool tip tests of 2.2 pass.
+- [x] 3.3 In `describeVirtual` and `describeColumnHeader`:
   - drop `name`;
   - report `text` from the item's wrapper for cells, headers and list entries, when the wrapper provides an `AccessibleText`;
   - report the typed `modelValue` for cells (design decision 5: integral → `Long`, finite floating → `Double`, `Boolean`, otherwise `String.valueOf`, null omitted).
@@ -83,22 +83,22 @@ Each test in this group fails until groups 3 and 4 land.
 
 ## 4. Providers and delivery
 
-- [ ] 4.1 In `element.rs`:
+- [x] 4.1 In `element.rs`:
   - replace `name` with `component_name` (`componentName`) and `model_value` (`modelValue`, a JSON scalar);
   - make `display_name()` return `accessible_name` or `""`;
   - make `stable_id()` read `component_name` and keep its kind gate;
   - update the doc comments.
 
   Verify: the `element.rs` tests of 2.3 pass.
-- [ ] 4.2 In `node.rs`, make `push_native` publish `ComponentName` from `component_name` only, and add `TableCell.ModelValue` with its own typed mapping, `i64` → `Integer` before `f64` → `Number`. Verify: `just test-crate platynui-provider-java` passes.
-- [ ] 4.3 In `crates/provider-atspi/src/node.rs` (design decision 8), drop the object-attribute step from the name decision, keep `pick_attr_value` for `Id`, and update the doc comment of `resolve_name`. Verify: `just test-crate platynui-provider-atspi` passes.
-- [ ] 4.4 In `crates/provider-java-jab/src/node.rs` (design decision 9):
+- [x] 4.2 In `node.rs`, make `push_native` publish `ComponentName` from `component_name` only, and add `TableCell.ModelValue` with its own typed mapping, `i64` → `Integer` before `f64` → `Number`. Verify: `just test-crate platynui-provider-java` passes.
+- [x] 4.3 In `crates/provider-atspi/src/node.rs` (design decision 8), drop the object-attribute step from the name decision, keep `pick_attr_value` for `Id`, and update the doc comment of `resolve_name`. Verify: `just test-crate platynui-provider-atspi` passes.
+- [x] 4.4 In `crates/provider-java-jab/src/node.rs` (design decision 9):
   - list `control:Description` from the bridge's description when it is not empty;
   - add a `description()` accessor that returns the same value;
   - keep `native:Description`.
 
   Verify: `just test-crate platynui-provider-java-jab` passes.
-- [ ] 4.5 Rebuild and deliver in this order:
+- [x] 4.5 Rebuild and deliver in this order:
   1. `just build-java-agent`
   2. `just install-provider-java`
   3. `just build-native`
@@ -107,7 +107,7 @@ Each test in this group fails until groups 3 and 4 land.
 
 ## 5. Docs
 
-- [ ] 5.1 Update `dev-docs/architecture.md`:
+- [x] 5.1 Update `dev-docs/architecture.md`:
   - §5.6: add rows for the Java Access Bridge (the bridge's description) and the Java agent (Swing's `getAccessibleDescription()`, which Swing derives from the tool tip when nothing else is set).
   - §6.4: after the Java `Id` sentence, state the `Name` sources:
     - AT-SPI: `Accessible.Name`, with no object-attribute fallback;
@@ -115,19 +115,19 @@ Each test in this group fails until groups 3 and 4 land.
     - the Java agent: Swing's `getAccessibleName()` for every element, with the title in `native:WindowTitle` and the cell model value in `native:TableCell.ModelValue`.
 
   Verify: both sections name every source and no fallback, consistent with §5.7 as `attribute-values-as-reported` left it.
-- [ ] 5.2 Update the statements that call a cell's name its model value:
+- [x] 5.2 Update the statements that call a cell's name its model value:
   - the `TablePanel` Javadoc;
   - the fixture README table row;
   - the `agent_table.robot` documentation;
   - the comments in `live_fixture.rs:900-947`.
 
   Verify: `rg -n "name is (the|its) model value|names are model values"` finds nothing outside `openspec/changes/archive`.
-- [ ] 5.3 Align `java-agent-tree-items` with `name-attribute`. Its design decision 1 and its `java-provider` delta must take a tree node's `Name` from the node's accessible name and its text through `TextContent`, instead of names from the model. Verify: `openspec validate java-agent-tree-items --strict` passes.
+- [x] 5.3 Align `java-agent-tree-items` with `name-attribute`. Its design decision 1 and its `java-provider` delta must take a tree node's `Name` from the node's accessible name and its text through `TextContent`, instead of names from the model. Verify: `openspec validate java-agent-tree-items --strict` passes.
 
 ## 6. Verification
 
-- [ ] 6.1 Run `just pre-commit`, then `just build-native`, because pre-commit leaves a mock build. Verify: all gates pass.
-- [ ] 6.2 Run the Windows acceptance lane:
+- [x] 6.1 Run `just pre-commit`, then `just build-native`, because pre-commit leaves a mock build. Verify: all gates pass.
+- [x] 6.2 Run the Windows acceptance lane:
   1. `just install-provider-java`
   2. `just test-acceptance-windows`, with `PYTHONIOENCODING=utf-8` set for the Robot run
 
@@ -139,4 +139,4 @@ Each test in this group fails until groups 3 and 4 land.
   - `tests/acceptance/egui/query.robot` passes its `Name`, `Id` and `Description` checks;
   - the Qt, QML and egui suites pass;
   - the runs show no WARN or ERROR.
-- [ ] 6.4 Record the full-walk timing from 2.4 in `design.md` (Open Questions). Run `openspec validate name-is-accessible-name --strict`. Verify: the validation passes and the timing is written down.
+- [x] 6.4 Record the full-walk timing from 2.4 in `design.md` (Open Questions). Run `openspec validate name-is-accessible-name --strict`. Verify: the validation passes and the timing is written down.
