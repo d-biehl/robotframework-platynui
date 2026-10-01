@@ -302,8 +302,7 @@ The mechanism that makes all of this work is invalidation at the node level: a p
 ## 6. Pattern System
 
 > **Scope of this section.** It defines the pattern contract independently of any accessibility technology: what a pattern is, who provides what, and the rules for announcing patterns. The catalog in §6.6 is the contract we design towards, so it also lists patterns that are not implemented yet; the authoritative list of what exists in code is `pattern_names` in [`crates/core/src/ui/identifiers.rs`](../crates/core/src/ui/identifiers.rs), and the attribute names live in `crates/core/src/ui/attributes.rs`. How each provider implements the patterns is described per provider in §10.
->
-> **Draft.** Points marked **Open question** are not decided yet; they are collected in §6.7.
+
 
 ### 6.1 What a pattern is
 
@@ -324,7 +323,9 @@ The system therefore stops at *describing* and at the few runtime actions. Once 
 ### 6.3 Two kinds of pattern
 
 - A **runtime pattern** is an action the provider performs: Focusable, Activatable, Minimizable, Maximizable, Restorable, Closeable, Movable, Resizable and Responsive (§6.6). A node that announces one hands out an *instance* of it on request, and the instance carries the action. The instance is what the announcement guarantees. Where the action changes a state the element has — focus, minimized, maximized — the pattern also carries that state as a required attribute, so a client can check the effect of the action.
-- A **client pattern** promises attributes, and nothing else. The interaction that goes with it — clicking a toggle, selecting an item — is carried out by the client (§6.2). A client pattern never has an instance; it is a name in the announcement plus its attributes. Every client pattern has **at least one attribute a client can always evaluate**: a required attribute, or an optional one whose absence has a defined meaning (an absent `CanSelectMultiple` means single selection). That way the announcement always promises something a client can read.
+- A **client pattern** is carried out by the client: clicking a toggle, selecting an item, clearing a field (§6.2). It never has an instance in the provider. Client patterns come in two forms:
+  - **Announced by the provider.** The provider can tell from the platform that an element has the capability, and it delivers the attributes that go with it — Toggleable with `ToggleState`, Selectable with `IsSelected`. It announces such a pattern, and the announcement is the name plus its attributes. Every announced client pattern has **at least one attribute a client can always evaluate**: a required attribute, or an optional one whose absence has a defined meaning (an absent `CanSelectMultiple` means single selection). That way the announcement always promises something a client can read. The one exception is Application (§6.6), where the announcement itself is the fact.
+  - **The client's own.** Some capabilities need nothing from the provider beyond what other patterns already deliver: clearing a field is a keyboard action on an editable text, highlighting needs only the element's rectangle, and a container of items — a list box, a row, a cell — is described from the tree and its other patterns. Such patterns are never announced and have no part in the provider; the client library decides when they apply and implements them (`python-library-design.md`).
 
 Each pattern defines **required** and **optional** attributes. Required attributes are present whenever the pattern is announced. Optional attributes are present when the platform provides them, and absent otherwise; their absence is normal, not an error.
 
@@ -340,8 +341,8 @@ The rules:
 1. **Announced means guaranteed.** A node that announces a client pattern carries all of the pattern's required attributes. A node that announces a runtime pattern hands out an instance of it. A client relies on this without checking.
 2. **Announce what the element really has.** The decision comes from what the platform reports about the element — its role, its states, its interfaces, the patterns its accessibility API offers — and is made per element, never guessed from the element's name.
 3. **Attributes without the announcement are allowed, but should be the exception.** Some technologies do not give enough information to decide whether an element implements a pattern completely. A technology may, for example, report whether an element with a text interface is editable without saying whether it is a text field or a label. A provider may then publish the attributes it can read without announcing the pattern. Such attributes guarantee nothing; they let a user write their own implementation for that element on the Python side, based on what is there.
-4. **Pattern attributes live in the `control` namespace,** whatever the namespace of the node. A table row in `item:` still reports `control:IsSelected`, so `@IsSelected` finds it like any other element.
-5. **The announcement does not change at runtime.** It describes what an element is and what it supports, not what is possible at this moment. A window that supports minimizing announces Minimizable for as long as it exists, even while the application blocks minimizing. Whether an action is possible right now is a state, and a pattern expresses it with an optional `Can…` attribute (`CanMinimize`, `CanClose`, …). An absent `Can…` attribute means the action is possible.
+4. **Pattern attributes live in the `control` namespace,** whatever the namespace of the node. A table row in `item:` still reports `control:IsSelected`, so `@IsSelected` finds it like any other element. The process attributes of Application are the one exception: apart from `ProcessId`, they live in `app:` (spec `application-process-attributes`).
+5. **The announcement does not change at runtime.** It describes what an element is and what it supports, not what is possible at this moment. A window that supports minimizing announces Minimizable for as long as it exists, even while the application blocks minimizing. Whether an action is possible right now is a state, and a pattern expresses it with an optional `Can…` attribute (`CanMinimize`, `CanClose`, …). An absent `Can…` attribute means the action is possible. The same holds for the attributes themselves: an attribute a node offers — required or optional — stays offered for as long as the node exists, and only its value changes. A provider that reports `CanMinimize` for a window keeps reporting it; it does not drop the attribute when the value would be inconvenient to read. When an element ceases to exist, as an application node does once its process has ended (spec `application-node-validity`), the node is gone, and with it its attributes.
 6. **Values are taken as the platform reports them** (§5.7). For a pattern attribute, the empty string is a value: an empty text field announces TextContent and reports `Text` = `""`.
 
 In XPath, `@SupportedPatterns` is a single string that holds the list, so a query tests for a pattern with `contains(@SupportedPatterns, "org.platynui.patterns.Toggleable")`. The client library and Robot Framework keywords receive the list as a list.
@@ -384,14 +385,14 @@ Every `control:` and `item:` node carries a small set of attributes, independent
 
 Each window action is its own pattern, so a window that can be minimized but not moved announces exactly that. A `Can…` attribute that is absent counts as true (§6.4, rule 5). Each action can still fail — the platform may refuse it, or the window may be gone — and the caller handles that.
 
-#### Client patterns
+#### Client patterns announced by providers
 
 | Pattern | The user can … | Required | Optional |
 |---|---|---|---|
-| **Element** | see it on screen and interact with it | `IsVisible`, `IsEnabled` | `Bounds`, `IsInView` |
+| **Element** | see it on screen and interact with it | `Bounds`, `IsVisible`, `IsEnabled` | `IsInView` |
 | **ActivationTarget** | point at it and click it | `ActivationPoint` | `ActivationArea`, `ActivationHint` |
 | **TextContent** | read its text | `Text` | — |
-| **Editable** | change its value — type its text, adjust its number, pick another option — unless it is read-only right now | `IsReadOnly` | `MaxLength` |
+| **Editable** | change its value — type its text, adjust its number, pick another option — unless it is read-only right now | `IsReadOnly` | for text: `MaxLength`, `IsPassword`, `IsMultiLine` |
 | **Toggleable** | switch it on and off | `ToggleState` (`On`, `Off`, `Indeterminate`) | — |
 | **Selectable** | select it within its container | `IsSelected` | — |
 | **SelectionProvider** | select items inside it | — | `CanSelectMultiple` (absent: single selection), `IsSelectionRequired` |
@@ -400,18 +401,32 @@ Each window action is its own pattern, so a window that can be minimized but not
 | **WindowState** | see the state of a window | `IsActive` | `IsTopmost`, `IsModal` |
 | **TextSelection** | select part of its text | `SelectedText`, `SelectionStart`, `SelectionEnd` | — |
 | **Scrollable** | scroll its content | `ScrollHorizontalPercent`, `ScrollVerticalPercent`, `ScrollHorizontalViewSize`, `ScrollVerticalViewSize` | `HorizontallyScrollable`, `VerticallyScrollable` |
+| **Desktop** | start every search here: the root of the tree | `Bounds`, `OsName` | `OsVersion`, `Monitors`, `DisplayCount` |
+| **Application** | address a running application and its process | — | `ProcessId`; in `app:` `ProcessName`, `ExecutablePath`, `CommandLine`, `UserName`, `StartTime`, `Architecture` |
 
-Notes on the client patterns:
+Notes on these patterns:
 
-- **Element.** `Bounds` is optional because an element that is not on screen — scrolled out of a list, on a hidden tab — has no rectangle.
+- **Element.** An element that is not visible right now — scrolled out of a list, on a hidden tab — still has its rectangle; it lies outside the visible area, which a query can compare with the desktop's `Bounds`. Sizes are never negative, so a width or a height of -1 marks `Bounds` as invalid: the element has no size, and its position carries no meaning.
 - **TextContent.** `Text` comes only from a genuine text interface of the platform, never from the accessible name (spec `textcontent-pattern`). A label or button whose platform offers no text interface has its caption in `Name` and does not announce TextContent.
-- **Editable** adds the ability to change to the patterns that carry an element's value: TextContent (`Text`), StatefulValue (`Value`), Toggleable (`ToggleState`), or the chosen option of a combo box. Which value is meant follows from those patterns: a text field is TextContent and Editable, a spin box StatefulValue and Editable. The pattern stays announced while the element is read-only; `IsReadOnly` says whether the value can be changed right now (§6.4, rule 5). Text is always entered with the keyboard (spec `text-input-policy`, whose marker rule follows this definition). `MaxLength` applies to text.
+- **Editable** adds the ability to change to the patterns that carry an element's value: TextContent (`Text`), StatefulValue (`Value`), Toggleable (`ToggleState`), or the chosen option of a combo box. Which value is meant follows from those patterns: a text field is TextContent and Editable, a spin box StatefulValue and Editable. The pattern stays announced while the element is read-only; `IsReadOnly` says whether the value can be changed right now (§6.4, rule 5). Text is always entered with the keyboard (spec `text-input-policy`, whose marker rule follows this definition). `MaxLength`, `IsPassword` and `IsMultiLine` apply when the value is text: the longest text the field accepts, whether it masks what is typed, and whether it takes more than one line — where Enter starts a new line instead of confirming.
 - **Read-only is not disabled.** A read-only combo box can still take the focus, be opened and show its options; only its value cannot be changed. A disabled one (`IsEnabled` = false, Element) takes no focus and cannot be opened. The two states are independent attributes.
 - **Toggleable.** A radio button is both Toggleable and Selectable: it is switched on by a click, and it is the selected option of its group.
 - **SelectionProvider.** `IsSelectionRequired` says that at least one item must stay selected, so the selection cannot be cleared — as in a tab list, where one tab is always active. Not every platform reports it; when it is absent, nothing is known about it. The container carries no list of its selected items. Which items are selected is found through the items themselves — `./*[@IsSelected = true()]`, or any other criterion a query adds — which is what a list would be built from anyway.
-- **Expandable** is announced by the kind of element — a tree item, a combo box, a menu item with a submenu, a collapsible group — and stays announced when there is nothing to expand at the moment (§6.4, rule 5). A tree item without children announces Expandable with `IsExpanded` = false and `CanExpand` = false; once it has children, `CanExpand` becomes true or is left out. An element that shows part of its children counts as expanded.
+- **Expandable** is announced by the kind of element — a tree item, a combo box, a menu item with a submenu, a collapsible group — and stays announced when there is nothing to expand at the moment (§6.4, rule 5). A tree item without children announces Expandable with `IsExpanded` = false and `CanExpand` = false; once it has children, `CanExpand` becomes true. An element that shows part of its children counts as expanded.
+- **Desktop** is announced by the root of the tree, which the runtime builds; it also carries the Element attributes and announces Element.
+- **Application** marks the root of an application, whatever role the platform gives that root: one technology uses an application role, another only requires the root to be registered as an application and leaves its role open. It has no required attribute, the one exception to §6.3: what a client always learns is that this node is an application. `ProcessId` is reported whenever the process can be identified, which is not always possible — an application in a container whose accessibility bus is shared with the automation host may not reveal its process to the host. Every process attribute is reported only when it was determined for that process (spec `application-process-attributes`).
+- **Tables have no pattern of their own.** Toolkits build tables in many ways and hand them to the accessibility technology in as many forms. PlatynUI presents a table as the platform does — usually a container of rows, each a container of cells — and does not reshape it into one common form. How many rows or columns a table has, and where a cell sits, a query finds out from that structure: `count(…/*)`, a position, a sibling. What a platform reports beyond that — a cell's row and column, the column headers — stays readable under `native:`.
 
-> **Open questions (§6.7):** Q6 Application and Desktop; Q7 table patterns; Q8 catalog entries without attributes.
+
+#### The client's own patterns
+
+These patterns exist only in the client library and are never announced by a provider (§6.3):
+
+| Pattern | The user can … | Applies to |
+|---|---|---|
+| **Clearable** | clear the content | an element with TextContent and Editable |
+| **Highlightable** | see the element marked on screen | an element with `Bounds`, through the platform's highlight device (§8.4) |
+| **ItemContainer** | work with the items of a container — the entries of a list box, the rows of a table, the cells of a row | a container of items, described from the tree; the base on which the client builds more specialized patterns |
 
 #### Examples
 
@@ -423,16 +438,12 @@ What an element announces depends on its platform; these combinations are typica
 - **Spin box:** Element, ActivationTarget, Focusable, StatefulValue, Editable.
 - **Slider:** Element, ActivationTarget, Focusable, StatefulValue.
 - **Top-level window:** Element, WindowState, Focusable, Activatable, Minimizable, Maximizable, Restorable, Closeable, Movable, Resizable, Responsive.
+- **Desktop:** Desktop, Element.
+- **Application node:** Application.
 
-### 6.7 Open questions (draft)
+### 6.7 Candidates
 
-These points are not decided. Each answer lands in the sections above, and this list goes away.
-
-- **Q6 — Application and Desktop.** Every process attribute is optional (spec `application-process-attributes`), so Application has no required attribute. Are Application and Desktop patterns, or kinds of node described in §5?
-- **Q7 — Tables.** A Table pattern (`RowCount`, `ColumnCount`) and a TableItem pattern (`RowIndex`, `ColumnIndex`, `RowSpan`, `ColumnSpan`), plus the link between a cell and its column header. The providers already read these values under `native:` (§10). Do indexes count from 1, like XPath positions, or from 0, like the platforms?
-- **Q8 — Catalog entries without attributes.** The previous catalog also listed Clearable (clearing is a keyboard action on an editable text), ItemContainer (client side), Highlightable (a device, §8.4), Annotatable (no cross-platform source) and DialogSurface (no platform reports a dialog result), plus the attributes `IsActivationEnabled` and `DefaultAccelerator`, which no provider publishes. They have no required attribute, so they are left out of §6.6. Drop them for good, or keep them as ideas?
-- **Q9 — Changes this draft makes to the previous catalog.** `Bounds` moves from required to optional in Element (an element out of view has no rectangle); WindowState joins the catalog as a client pattern (until now only the Python side knew it); `IsFocused` moves from a client pattern Focusable to the runtime pattern Focusable.
-- **Further candidates.** Not part of the catalog yet: `Orientation`, `SmallChange` and `LargeChange` for StatefulValue; `IsPassword` and `IsMultiLine` for editable text; a busy state; required and invalid form fields; links; the keyboard shortcut of a menu item.
+Ideas for the catalog that are not part of it yet: `Orientation`, `SmallChange` and `LargeChange` for StatefulValue; a busy state; required and invalid form fields; links; the keyboard shortcut of a menu item.
 
 ## 7. Provider Infrastructure
 
@@ -786,7 +797,7 @@ UI Automation offers each capability as a pattern of its own, and a property per
 | Element | Bounds; IsVisible; IsEnabled; IsInView | BoundingRectangle; not IsOffscreen and a non-empty rectangle; IsEnabled; not IsOffscreen |
 | ActivationTarget | ActivationPoint; ActivationArea | GetClickablePoint, else the centre of BoundingRectangle; BoundingRectangle |
 | TextContent | Text | TextPattern document range, else ValuePattern.Value |
-| Editable | IsReadOnly; MaxLength | ValuePattern.IsReadOnly, for a range RangeValuePattern.IsReadOnly; — |
+| Editable | IsReadOnly; MaxLength; IsPassword; IsMultiLine | ValuePattern.IsReadOnly, for a range RangeValuePattern.IsReadOnly; —; IsPassword; — |
 | Toggleable | ToggleState | TogglePattern.ToggleState; for a radio button, which offers SelectionItem instead, SelectionItemPattern.IsSelected |
 | Selectable | IsSelected | SelectionItemPattern.IsSelected |
 | SelectionProvider | CanSelectMultiple; IsSelectionRequired | SelectionPattern.CanSelectMultiple; SelectionPattern.IsSelectionRequired |
@@ -811,7 +822,7 @@ AT-SPI2 describes most capabilities as states of an element (checked, selected, 
 | Element | Bounds; IsVisible, IsInView; IsEnabled | Component extents, the window manager for top-level windows; state VISIBLE or SHOWING; state ENABLED or SENSITIVE |
 | ActivationTarget | ActivationPoint; ActivationArea | centre of the Component extents; Component extents |
 | TextContent | Text | Text.GetText(0, -1) |
-| Editable | IsReadOnly; MaxLength | state READ_ONLY, for text also EDITABLE; — |
+| Editable | IsReadOnly; MaxLength; IsPassword; IsMultiLine | state READ_ONLY, for text also EDITABLE; —; the password-text role; states MULTI_LINE and SINGLE_LINE |
 | Toggleable | ToggleState | states CHECKED and INDETERMINATE (PRESSED for a toggle button where a toolkit reports it so); checkable by the state CHECKABLE or by a check, radio or toggle role |
 | Selectable | IsSelected | state SELECTED, for a radio button CHECKED; selectable by the state SELECTABLE |
 | SelectionProvider | CanSelectMultiple; IsSelectionRequired | state MULTISELECTABLE on an element with the Selection interface; — |
@@ -833,7 +844,7 @@ The Java provider serves Swing and AWT on Windows through two backends: the Java
 | Element | Bounds; IsVisible; IsEnabled; IsInView | context bounds / component location and size; `visible` and `showing` / `Component.isVisible`; `enabled` / `Component.isEnabled`; `showing` / `Component.isShowing` |
 | ActivationTarget | ActivationPoint | centre of the bounds (the Access Bridge has no clickable-point call) |
 | TextContent | Text | AccessibleText (the Access Bridge reads it in chunks) / the component's text |
-| Editable | IsReadOnly; MaxLength | `editable` / `JTextComponent.isEditable`; — |
+| Editable | IsReadOnly; MaxLength; IsPassword; IsMultiLine | `editable` / `JTextComponent.isEditable`; —; the `password text` role; states `multi line` and `single line` |
 | Toggleable | ToggleState | states `checked` and `indeterminate` of check boxes, radio buttons and toggle buttons |
 | Selectable | IsSelected | state `selected`, for a radio button `checked`; agent table rows: `JTable.isRowSelected` |
 | SelectionProvider | CanSelectMultiple; IsSelectionRequired | `multiselectable` on an element with AccessibleSelection / the selection mode of the list, table or tree; — |
@@ -860,7 +871,7 @@ The AX provider is a stub. Its mapping is planned as follows:
 | Element | Bounds; IsEnabled | AXFrame; AXEnabled |
 | ActivationTarget | ActivationPoint; ActivationArea | centre of AXFrame; AXFrame |
 | TextContent | Text | AXValue |
-| Editable | IsReadOnly | whether the value attribute (AXValue) is settable |
+| Editable | IsReadOnly; IsPassword; IsMultiLine | whether the value attribute (AXValue) is settable; the secure-text-field subrole; a text area rather than a text field |
 | Toggleable | ToggleState | AXValue (0, 1, 2) |
 | Selectable | IsSelected | AXSelected |
 | SelectionProvider | CanSelectMultiple; IsSelectionRequired | AXAllowsMultipleSelection; — |
