@@ -75,15 +75,17 @@ impl MockNode {
     }
 
     /// Whether this node may be *selected* as a hit-test result. Excluded when
-    /// it explicitly reports `Control:IsVisible` (or `Control:IsInView`) as
-    /// false, so a laid-out but hidden node is never returned even if its bounds
-    /// contain the point. Mirrors the AT-SPI provider's pickability gate.
+    /// it explicitly reports `Control:IsVisible` as false, so a laid-out but
+    /// hidden node is never returned even if its bounds contain the point.
+    /// `Control:IsInView` does not exclude a node: a partly clipped node is
+    /// shown where it is not clipped. Mirrors the AT-SPI provider's
+    /// pickability gate.
     pub(crate) fn is_pickable(&self) -> bool {
         use platynui_core::ui::attribute_names::element;
-        let is_false = |name| {
-            matches!(self.attribute(Namespace::Control, name).map(|attr| attr.value()), Some(UiValue::Bool(false)))
-        };
-        !is_false(element::IS_VISIBLE) && !is_false(element::IS_IN_VIEW)
+        !matches!(
+            self.attribute(Namespace::Control, element::IS_VISIBLE).map(|attr| attr.value()),
+            Some(UiValue::Bool(false))
+        )
     }
 
     pub(crate) fn set_parent(&self, parent: &Arc<dyn UiNode>) {

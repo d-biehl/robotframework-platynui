@@ -570,6 +570,28 @@ fn hit_test_skips_hidden_node() {
 
 #[rstest]
 #[serial]
+fn hit_test_returns_visible_node_not_fully_in_view() {
+    // A partly clipped node reports IsInView = false but is shown where it is
+    // not clipped, so it stays pickable.
+    let window = with_bounds(
+        NodeSpec::new(Namespace::Control, "Window", "W", "mock://ht/window"),
+        Rect::new(0.0, 0.0, 100.0, 100.0),
+    )
+    .with_child(
+        with_bounds(
+            NodeSpec::new(Namespace::Control, "TabItem", "clipped", "mock://ht/clipped"),
+            Rect::new(90.0, 10.0, 20.0, 20.0),
+        )
+        .with_attribute((Namespace::Control, element::IS_IN_VIEW, UiValue::from(false))),
+    );
+    let provider = provider_from_roots(vec![window]);
+
+    let hit = provider.element_at_point(Point::new(95.0, 15.0)).expect("supported").expect("hit");
+    assert_eq!(hit.runtime_id().as_str(), "mock://ht/clipped", "IsInView = false does not exclude a visible node");
+}
+
+#[rstest]
+#[serial]
 fn hit_test_hidden_topmost_falls_through_to_visible_beneath() {
     // The topmost (later-declared) sibling covers the point but is hidden, so
     // the visible sibling beneath it wins instead.
