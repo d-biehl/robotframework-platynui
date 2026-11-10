@@ -21,9 +21,10 @@ pub mod pattern {
         pub const BOUNDS: &str = "Bounds";
         pub const IS_VISIBLE: &str = "IsVisible";
         pub const IS_ENABLED: &str = "IsEnabled";
-        /// Element is currently within its container's viewport (i.e. not
-        /// scrolled or clipped out of view). The positive complement to the
-        /// UIA `IsOffscreen` / AT-SPI `!Showing` flags.
+        /// Element is shown in full: no part of it is scrolled or clipped out
+        /// of view (spec `in-view-attribute`). On Windows UIA it is the
+        /// complement of `IsOffscreen`, which counts a partly visible element
+        /// as in view.
         pub const IS_IN_VIEW: &str = "IsInView";
     }
 
