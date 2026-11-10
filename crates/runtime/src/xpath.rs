@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use platynui_core::provider::ProviderError;
 use platynui_core::ui::attribute_names;
 use platynui_core::ui::identifiers::RuntimeId;
-use platynui_core::ui::{Namespace as UiNamespace, UiAttribute, UiNode, UiValue};
+use platynui_core::ui::{Evaluation, Namespace as UiNamespace, UiAttribute, UiNode, UiValue};
 use platynui_xpath::compiler;
 use platynui_xpath::engine::evaluator;
 use platynui_xpath::engine::runtime::{DynamicContextBuilder, StaticContextBuilder};
@@ -253,6 +253,8 @@ impl EvaluationStream {
     // Public API signature; borrowing the arguments instead would break callers.
     #[allow(clippy::needless_pass_by_value)]
     pub fn new(node: Option<Arc<dyn UiNode>>, xpath: String, options: EvaluateOptions) -> Result<Self, EvaluateError> {
+        let evaluation = Evaluation::new();
+        let _running = evaluation.enter();
         let context = resolve_context(node.as_ref(), &options)?;
 
         if options.invalidate_before_eval() {
@@ -271,7 +273,7 @@ impl EvaluationStream {
         let dyn_ctx = dyn_builder.build();
 
         let stream = evaluator::evaluate_stream(&compiled, &dyn_ctx)?;
-        let it = eval_stream_to_iter(stream);
+        let it = eval_stream_to_iter(stream, evaluation);
         Ok(Self { inner: Box::new(it) })
     }
 }
@@ -287,6 +289,8 @@ pub fn evaluate_iter(
     // XPath evaluation's own records exist in debug builds only (dev-docs/logging.md §12).
     #[cfg(debug_assertions)]
     tracing::debug!(xpath, cached = options.cache().is_some(), "evaluating XPath expression");
+    let evaluation = Evaluation::new();
+    let _running = evaluation.enter();
     let context = resolve_context(node.as_ref(), &options)?;
 
     if options.invalidate_before_eval() {
@@ -305,7 +309,7 @@ pub fn evaluate_iter(
     let dyn_ctx = dyn_builder.build();
 
     let stream = evaluator::evaluate_stream(&compiled, &dyn_ctx)?;
-    Ok(eval_stream_to_iter(stream))
+    Ok(eval_stream_to_iter(stream, evaluation))
 }
 
 /// Resolve the effective context node for evaluation based on input node and options.
@@ -372,23 +376,31 @@ fn build_static_context() -> &'static platynui_xpath::engine::runtime::StaticCon
 }
 
 /// Map a stream of XDM items to `EvaluationItem`s, propagating evaluation errors.
-fn eval_stream_to_iter<I>(iter: I) -> impl Iterator<Item = Result<EvaluationItem, EvaluateError>>
+/// Every item is produced with `evaluation` running on the thread.
+fn eval_stream_to_iter<I>(
+    iter: I,
+    evaluation: Evaluation,
+) -> impl Iterator<Item = Result<EvaluationItem, EvaluateError>>
 where
     I: IntoIterator<
         Item = Result<platynui_xpath::xdm::XdmItem<RuntimeXdmNode>, platynui_xpath::engine::runtime::Error>,
     >,
 {
     use platynui_xpath::xdm::XdmItem;
-    iter.into_iter().map(|res| match res {
-        Err(e) => Err(EvaluateError::XPath(e)),
-        Ok(item) => match item {
-            XdmItem::Node(node) => match node {
-                RuntimeXdmNode::Document(doc) => Ok(EvaluationItem::Node(doc.root.clone())),
-                RuntimeXdmNode::Element(elem) => Ok(EvaluationItem::Node(elem.node.clone())),
-                RuntimeXdmNode::Attribute(attr) => Ok(EvaluationItem::Attribute(attr.to_evaluated())),
+    let mut iter = iter.into_iter();
+    std::iter::from_fn(move || {
+        let _running = evaluation.enter();
+        iter.next().map(|res| match res {
+            Err(e) => Err(EvaluateError::XPath(e)),
+            Ok(item) => match item {
+                XdmItem::Node(node) => match node {
+                    RuntimeXdmNode::Document(doc) => Ok(EvaluationItem::Node(doc.root.clone())),
+                    RuntimeXdmNode::Element(elem) => Ok(EvaluationItem::Node(elem.node.clone())),
+                    RuntimeXdmNode::Attribute(attr) => Ok(EvaluationItem::Attribute(attr.to_evaluated())),
+                },
+                XdmItem::Atomic(atom) => Ok(EvaluationItem::Value(atomic_to_ui_value(&atom))),
             },
-            XdmItem::Atomic(atom) => Ok(EvaluationItem::Value(atomic_to_ui_value(&atom))),
-        },
+        })
     })
 }
 
@@ -1788,6 +1800,62 @@ mod tests {
             EvaluationItem::Value(value) => assert_eq!(value, &UiValue::Integer(1)),
             other => panic!("unexpected evaluation result: {other:?}"),
         }
+    }
+
+    /// Records the query each read of its value runs in.
+    struct QueryRecordingAttribute {
+        seen: Arc<Mutex<Vec<Option<Evaluation>>>>,
+    }
+
+    impl UiAttribute for QueryRecordingAttribute {
+        fn namespace(&self) -> UiNamespace {
+            UiNamespace::Control
+        }
+
+        fn name(&self) -> &'static str {
+            "Probe"
+        }
+
+        fn value(&self) -> UiValue {
+            self.seen.lock().unwrap().push(Evaluation::current());
+            UiValue::from(true)
+        }
+    }
+
+    #[test]
+    fn attribute_values_are_read_inside_their_own_query() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let window = Arc::new(StaticNode {
+            namespace: UiNamespace::Control,
+            role: "Window",
+            name: "Main".to_string(),
+            runtime_id: RuntimeId::from("window-1"),
+            attributes: vec![Arc::new(QueryRecordingAttribute { seen: Arc::clone(&seen) })],
+            patterns: Vec::new(),
+            children: Mutex::new(Vec::new()),
+            parent: Mutex::new(None),
+        });
+        let desktop = StaticNode::new(
+            UiNamespace::Control,
+            "desktop",
+            "Desktop",
+            "Desktop",
+            Rect::new(0.0, 0.0, 1.0, 1.0),
+            vec![],
+        );
+        StaticNode::add_child(&desktop, &window);
+        let tree = StaticNode::to_ref(&desktop);
+
+        evaluate(None, "//Window/@Probe", EvaluateOptions::new(Arc::clone(&tree))).unwrap();
+        let stream = EvaluationStream::new(None, "//Window/@Probe".to_string(), EvaluateOptions::new(tree)).unwrap();
+        stream.for_each(drop);
+
+        let seen = seen.lock().unwrap().clone();
+        assert!(!seen.is_empty() && seen.iter().all(Option::is_some), "read outside a query: {seen:?}");
+        let mut queries: Vec<_> = seen.into_iter().flatten().collect();
+        queries.dedup();
+        assert_eq!(queries.len(), 2, "each query is its own: {queries:?}");
+        assert_eq!(Evaluation::current(), None);
     }
 
     #[rstest]
