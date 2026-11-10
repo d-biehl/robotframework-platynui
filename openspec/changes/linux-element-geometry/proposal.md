@@ -31,7 +31,7 @@ The X11 backend also needs a window manager for everything window-related, becau
   - Moving and resizing work, as they already do once the window is found.
 - **Fixtures and lanes.**
   - The Qt Widgets fixture gets an MDI scenario.
-  - GTK3 and GTK4 are covered by the blueprint fixtures of a separate change, `add-gtk-test-app`, which comes first.
+  - GTK3 and GTK4 are covered by the blueprint fixtures of the separate change `add-gtk-test-app`. Its GTK 3 fixture needs this change's provider rework, so the two interleave: this change's groups 1–5, then `add-gtk-test-app`, then this change's GTK group 7.
   - An X11 lane profile runs without a window manager.
 - **Docs:** `dev-docs/platform-linux.md`, `dev-docs/platform-linux-wayland.md`, `dev-docs/architecture.md` §10, `dev-docs/testing-strategy.md`, `CONTRIBUTING.md`.
 - **Deliberately unchanged:**
@@ -59,6 +59,7 @@ Nothing here is breaking at the keyword, attribute or configuration level: `Boun
 
 - `wayland-compositor-detection`: *A substituted window geometry is visible in the log*. A node inside a window is placed relative to its window, no longer relative to its ancestors. When the window manager cannot answer, the window's substituted bounds are that origin.
 - `element-at-point`: *AT-SPI hit-test resolves window z-order and in-window z-order from distinct sources*. Without an EWMH window manager, the window level comes from the X server's stacking order of top-level windows.
+- `acceptance-lane-selection`: *Lane profiles select by excluding foreign platforms* and *Lane profiles establish their session* gain the `real-x11-bare` profile. A new requirement declares the `window-manager:required` and `window-manager:none` tags. `add-gtk-test-app` changes the first of these requirements too; the change archived second merges both deltas.
 
 ## Impact
 
@@ -75,7 +76,7 @@ Nothing here is breaking at the keyword, attribute or configuration level: `Boun
 - **Python / Robot Framework:** no library change. `packages/native` needs a rebuild (`just build-native`) because the providers change.
 - **Fixtures and tests:**
   - `apps/test-app-qt` gets an MDI scenario.
-  - The GTK3 and GTK4 acceptance scenarios run against the fixtures of `add-gtk-test-app`, a prerequisite change that is not yet proposed. Until it lands, GTK is covered by unit tests only, and this change is not archived.
+  - The GTK3 and GTK4 acceptance scenarios run against the fixtures of `add-gtk-test-app`. Until it lands, GTK is covered by unit tests only, and this change is not archived.
   - New acceptance suites for element geometry on both Linux lanes.
   - An X11 lane profile without a window manager, with its own `just` recipe and a tag for suites that need one.
   - The egui compositor lane turns green again with its existing suites.
