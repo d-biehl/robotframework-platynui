@@ -61,7 +61,7 @@ fn avg_basic(#[case] expr: &str, #[case] expected: Option<f64>) {
             };
             assert!((got - val).abs() < 1e-9, "avg mismatch: got {got} expected {val}");
         }
-        None => assert!(seq.is_empty()),
+        None => assert_eq!(seq, []),
     }
 }
 

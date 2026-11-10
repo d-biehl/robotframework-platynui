@@ -70,8 +70,8 @@ fn empty_and_unnamed_nodes() {
     // Text node has no name
     let root = elem("r").child(text("t")).build();
     let ctx = DynamicContextBuilder::new().with_context_item(root.children().next().unwrap()).build();
-    assert!(eval_string(&ctx, "name(.)").is_empty());
-    assert!(eval_string(&ctx, "local-name(.)").is_empty());
+    assert_eq!(eval_string(&ctx, "name(.)"), "");
+    assert_eq!(eval_string(&ctx, "local-name(.)"), "");
     assert_empty(&ctx, "namespace-uri(.)");
 }
 

@@ -1746,7 +1746,7 @@ mod tests {
     fn base64_encode_binary() {
         let data = [0u8, 1, 2, 3, 255, 254, 253];
         let encoded = base64_encode(&data);
-        assert!(!encoded.is_empty());
+        assert_ne!(encoded, "");
         // Verify padding
         assert!(encoded.len().is_multiple_of(4));
     }

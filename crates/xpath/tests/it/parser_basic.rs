@@ -63,7 +63,7 @@ fn sequences_and_parentheses() {
     }
     let e = parse("()");
     match e {
-        ast::Expr::Sequence(v) => assert!(v.is_empty()),
+        ast::Expr::Sequence(v) => assert_eq!(v, []),
         _ => panic!(),
     }
 }

@@ -191,7 +191,7 @@ fn path_ir_sequence_complex() {
     assert!(matches!(ops.get(idx + 1), Some(OpCode::EnsureDistinct)));
     match ops.get(idx + 2) {
         Some(OpCode::AxisStep(AxisIR::Attribute, NodeTestIR::Name(name), preds)) if name.original.local == "class" => {
-            assert!(preds.is_empty());
+            assert_eq!(preds.as_slice(), []);
         }
         other => panic!("unexpected second step: {other:?}"),
     }

@@ -157,8 +157,8 @@ fn name_local_namespace_zero_arity() {
     }
 
     let base = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("base-uri()", &ctx).unwrap();
-    assert!(base.is_empty());
+    assert_eq!(base, []);
 
     let doc_uri = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("document-uri()", &ctx).unwrap();
-    assert!(doc_uri.is_empty());
+    assert_eq!(doc_uri, []);
 }

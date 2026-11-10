@@ -67,7 +67,7 @@ fn namespace_axis_on_element(ctx: DynamicContext<N>) {
 fn namespace_axis_filters_by_name(ctx: DynamicContext<N>) {
     // From <mid>, q should be present
     let mid_seq = evaluate_expr::<N>("child::*[local-name()='mid']/namespace::q", &ctx).unwrap();
-    assert!(!mid_seq.is_empty());
+    assert_ne!(mid_seq, []);
 }
 
 #[rstest]
@@ -133,7 +133,7 @@ fn namespace_unprefixed_requires_default_static(ctx: DynamicContext<N>) {
     let static_ctx = StaticContextBuilder::new().build();
     let compiled = compile_with_context("child::mid", &static_ctx).unwrap();
     let seq = evaluate(&compiled, &ctx).unwrap();
-    assert!(seq.is_empty());
+    assert_eq!(seq, []);
 }
 
 #[rstest]

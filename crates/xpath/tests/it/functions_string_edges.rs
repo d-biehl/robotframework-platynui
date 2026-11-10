@@ -13,7 +13,7 @@ fn substring_before_empty_needle() {
     let d = dc();
     let r = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("fn:substring-before('abc','')", &d).unwrap();
     match &r[0] {
-        XdmItem::Atomic(XdmAtomicValue::String(s)) => assert!(s.is_empty()),
+        XdmItem::Atomic(XdmAtomicValue::String(s)) => assert_eq!(s, ""),
         other => panic!("expected empty String, got {other:?}"),
     }
 }
@@ -23,7 +23,7 @@ fn substring_before_not_found() {
     let d = dc();
     let r = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("fn:substring-before('abc','z')", &d).unwrap();
     match &r[0] {
-        XdmItem::Atomic(XdmAtomicValue::String(s)) => assert!(s.is_empty()),
+        XdmItem::Atomic(XdmAtomicValue::String(s)) => assert_eq!(s, ""),
         other => panic!("expected empty String, got {other:?}"),
     }
 }
@@ -56,7 +56,7 @@ fn substring_after_not_found() {
     let d = dc();
     let r = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("fn:substring-after('abc','z')", &d).unwrap();
     match &r[0] {
-        XdmItem::Atomic(XdmAtomicValue::String(s)) => assert!(s.is_empty()),
+        XdmItem::Atomic(XdmAtomicValue::String(s)) => assert_eq!(s, ""),
         other => panic!("expected empty String, got {other:?}"),
     }
 }

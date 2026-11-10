@@ -238,7 +238,7 @@ mod tests {
     #[test]
     fn os_version_string_is_non_empty() {
         let s = os_version_string();
-        assert!(!s.is_empty());
+        assert_ne!(s, "");
     }
 
     // This file only builds on Windows; provide a smoke test that exercises

@@ -201,7 +201,7 @@ mod tests {
             7,
             r#"{"protocol":1,"pid":7,"port":1,"token":"t","toolkits":[],"agentVersion":"1.0"}"#,
         );
-        assert!(read_file(&path).expect("parse").toolkits.is_empty());
+        assert_eq!(read_file(&path).expect("parse").toolkits, Vec::<String>::new());
     }
 
     #[test]

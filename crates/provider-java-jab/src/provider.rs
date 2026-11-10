@@ -916,7 +916,7 @@ mod tests {
         let parent: Arc<dyn UiNode> = Arc::new(DesktopStub(RuntimeId::from("desktop")));
         let pass = provider.enumerate(&parent);
         assert!(pass.nodes.is_empty());
-        assert!(pass.served_windows.is_empty());
+        assert_eq!(pass.served_windows, Vec::<u64>::new());
         assert!(
             matches!(&*provider.client.lock().expect("state"), ClientState::Untried),
             "kill switch must not load the DLL"

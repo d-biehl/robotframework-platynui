@@ -400,7 +400,7 @@ mod tests {
     fn unknown_keys_are_listed_and_enabled_is_always_known() {
         let map = ConfigMap::new().with("display", ":1").with("dispaly", ":2").with("enabled", false).with("zz", 1_i64);
         assert_eq!(map.unknown_keys(&["display"]), ["dispaly", "zz"]);
-        assert!(ConfigMap::new().unknown_keys(&["display"]).is_empty());
+        assert_eq!(ConfigMap::new().unknown_keys(&["display"]), Vec::<&str>::new());
     }
 
     #[test]

@@ -142,7 +142,7 @@ mod tests {
         assert!(path.exists());
 
         let data = fs::read(&path).expect("read png");
-        assert!(!data.is_empty());
+        assert_ne!(data, Vec::<u8>::new());
         let log = take_screenshot_log();
         assert_eq!(log.len(), 1);
         assert_eq!(log[0].width, 400);

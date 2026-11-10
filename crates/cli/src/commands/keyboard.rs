@@ -183,7 +183,7 @@ mod tests {
             overrides: KeyboardOverrideArgs { uniform_delay: Some(Duration::ZERO), ..Default::default() },
         };
         let output = run_type(&runtime, &args).expect("type");
-        assert!(output.is_empty());
+        assert_eq!(output, "");
         let log = entries();
         assert!(presses(&log).contains(&"Control".to_string()));
         assert!(presses(&log).contains(&"A".to_string()));
@@ -200,7 +200,7 @@ mod tests {
             overrides: KeyboardOverrideArgs { press_delay: Some(Duration::ZERO), ..Default::default() },
         };
         let output = run_press(&runtime, &args).expect("press");
-        assert!(output.is_empty());
+        assert_eq!(output, "");
         let log = entries();
         let names = presses(&log);
         assert!(names.contains(&"Shift".to_string()));
@@ -219,7 +219,7 @@ mod tests {
 
         let args = KeyboardSequenceArgs { sequence: "<Ctrl+K>".into(), overrides: KeyboardOverrideArgs::default() };
         let output = run_release(&runtime, &args).expect("release");
-        assert!(output.is_empty());
+        assert_eq!(output, "");
         let log = entries();
         assert!(log.iter().any(|entry| matches!(entry, KeyboardLogEntry::Release(name) if name == "Control")));
     }

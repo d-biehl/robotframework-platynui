@@ -638,7 +638,7 @@ mod tests {
             overrides: OverrideArgs::default(),
         };
         let output = super::run_move(&runtime, &args, false).expect("move");
-        assert!(output.is_empty());
+        assert_eq!(output, "");
         let log = take_pointer_log();
         assert!(log.iter().any(|entry| matches!(entry, PointerLogEntry::Move(point) if *point == args.point.unwrap())));
     }
@@ -654,7 +654,7 @@ mod tests {
             overrides: OverrideArgs::default(),
         };
         let output = super::run_move(&runtime, &args, false).expect("move negative");
-        assert!(output.is_empty());
+        assert_eq!(output, "");
     }
 
     #[rstest]
@@ -670,7 +670,7 @@ mod tests {
             overrides: OverrideArgs::default(),
         };
         let output = super::run_click(&runtime, &args, false).expect("click");
-        assert!(output.is_empty());
+        assert_eq!(output, "");
         let log = take_pointer_log();
         assert!(log.iter().any(|entry| matches!(entry, PointerLogEntry::Press(PointerButton::Left))));
         assert!(log.iter().any(|entry| matches!(entry, PointerLogEntry::Release(PointerButton::Left))));
@@ -690,7 +690,7 @@ mod tests {
             overrides: OverrideArgs::default(),
         };
         let output = super::run_multi_click(&runtime, &args, false).expect("multi-click");
-        assert!(output.is_empty());
+        assert_eq!(output, "");
         let log = take_pointer_log();
         let presses = log.iter().filter(|entry| matches!(entry, PointerLogEntry::Press(PointerButton::Left))).count();
         assert_eq!(presses, 3);

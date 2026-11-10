@@ -2884,7 +2884,7 @@ mod tests {
         let value = interface_set_value(ifaces);
         match value {
             UiValue::Array(arr) => {
-                assert!(!arr.is_empty());
+                assert_ne!(arr, Vec::<UiValue>::new());
             }
             other => panic!("expected UiValue::Array, got {other:?}"),
         }
@@ -2897,7 +2897,7 @@ mod tests {
         let value = state_set_value(state);
         match value {
             UiValue::Array(arr) => {
-                assert!(!arr.is_empty());
+                assert_ne!(arr, Vec::<UiValue>::new());
             }
             other => panic!("expected UiValue::Array, got {other:?}"),
         }

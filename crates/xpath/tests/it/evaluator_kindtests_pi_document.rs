@@ -22,7 +22,7 @@ fn processing_instruction_target_filter() {
     }
     // Non-matching target should yield empty
     let empty = evaluate_expr::<N>("child::processing-instruction('nope')", &ctx).unwrap();
-    assert!(empty.is_empty());
+    assert_eq!(empty, []);
 }
 
 #[rstest]
@@ -38,7 +38,7 @@ fn document_node_inner_test_matches_document_element() {
             assert!(matches!(n.kind(), platynui_xpath::model::NodeKind::Document));
             // Ensure its first child is <root>
             let ch: Vec<_> = n.children().collect();
-            assert!(!ch.is_empty());
+            assert_ne!(ch, []);
             assert_eq!(ch[0].name().unwrap().local, "root");
         }
         XdmItem::Atomic(_) => panic!("expected node"),

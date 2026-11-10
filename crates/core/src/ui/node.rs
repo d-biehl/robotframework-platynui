@@ -697,7 +697,7 @@ mod tests {
         } else {
             assert!(pattern.is_none());
             let supported = node.supported_patterns();
-            assert!(supported.is_empty());
+            assert_eq!(supported, Vec::<PatternName>::new());
             assert_eq!(supported, node.patterns.supported());
         }
     }

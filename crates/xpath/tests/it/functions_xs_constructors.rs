@@ -17,7 +17,7 @@ fn xs_string_basic_and_empty() {
     assert_eq!(out, vec![I::Atomic(A::String("abc".into()))]);
 
     let out = evaluate_expr::<N>("xs:string(())", &empty_ctx()).unwrap();
-    assert!(out.is_empty());
+    assert_eq!(out, []);
 }
 
 #[rstest]
@@ -43,7 +43,7 @@ fn xs_boolean_lexical_forms_and_empty() {
 
     // empty sequence yields empty
     let e = evaluate_expr::<N>("xs:boolean(())", &c).unwrap();
-    assert!(e.is_empty());
+    assert_eq!(e, []);
 }
 
 #[rstest]
@@ -65,7 +65,7 @@ fn xs_integer_valid_and_empty() {
 
     // empty sequence -> empty
     let e = evaluate_expr::<N>("xs:integer(())", &c).unwrap();
-    assert!(e.is_empty());
+    assert_eq!(e, []);
 }
 
 #[rstest]

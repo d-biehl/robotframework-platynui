@@ -525,7 +525,7 @@ fn xs_qname_rejects_numeric_argument() {
 #[rstest]
 fn xs_datetime_accepts_empty_sequence() {
     let result = eval_expression("xs:dateTime(())");
-    assert!(result.is_empty());
+    assert_eq!(result, []);
 }
 
 #[rstest]

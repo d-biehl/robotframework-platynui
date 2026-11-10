@@ -423,7 +423,7 @@ mod tests {
         let other = obj(":1.9", "/org/a11y/atspi/accessible/root");
         let mut other_children = Vec::new();
         registry.merge_into(&other, &mut other_children, |_| true);
-        assert!(other_children.is_empty());
+        assert_eq!(other_children, Vec::<ObjectRefOwned>::new());
     }
 
     #[test]

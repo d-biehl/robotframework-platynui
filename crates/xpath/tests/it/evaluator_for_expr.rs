@@ -16,7 +16,7 @@ fn for_simple_numeric() {
 #[rstest]
 fn for_empty_input() {
     let out = evaluate_expr::<platynui_xpath::model::simple::SimpleNode>("for $x in () return $x", &ctx()).unwrap();
-    assert!(out.is_empty());
+    assert_eq!(out, []);
 }
 
 #[rstest]

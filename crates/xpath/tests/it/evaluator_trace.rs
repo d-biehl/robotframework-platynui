@@ -53,7 +53,7 @@ fn trace_returns_sequence_unchanged() {
 fn trace_returns_empty_sequence_unchanged() {
     let c = ctx();
     let seq = evaluate_expr::<N>("trace((), 'empty-trace')", &c).unwrap();
-    assert!(seq.is_empty());
+    assert_eq!(seq, []);
 }
 
 #[rstest]
