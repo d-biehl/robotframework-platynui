@@ -6277,13 +6277,13 @@ Build-Abhängigkeit der RF-Acceptance-Jobs eingebunden.
 
 #### 11a.7.1 `apps/test-app-egui` als gemeinsame Ziel-App
 
-**Status quo:** `apps/test-app-egui/Cargo.toml` nutzt `eframe = "0.34"`
-ohne `default-features = false`. Da `eframe 0.34.1` `accesskit` als
-**Default-Feature** mitbringt (`accesskit (default) → egui-winit/accesskit`),
-ist die App **bereits accessibility-aktiv**: AT-SPI auf Linux, UIA auf
-Windows, AX auf macOS — automatisch über `accesskit_winit`. Ab
-egui 0.35+ wird das Feature laut Upstream-PR #7701 obligatorisch
-(immer enabled). Der Modul-Header (`main.rs:7`) deklariert die App
+**Status quo:** `apps/test-app-egui/Cargo.toml` nutzt `eframe = "0.37"`
+ohne `default-features = false`. `egui` selbst hängt seit 0.35 fest an
+`accesskit` (Upstream-PR #7701), und `eframe 0.37` bringt den
+Plattform-Adapter als **Default-Feature** mit (`accesskit (default) →
+egui-winit/accesskit`). Damit ist die App **accessibility-aktiv**:
+AT-SPI auf Linux, UIA auf Windows, AX auf macOS — automatisch über
+`accesskit_winit`. Der Modul-Header (`main.rs:7`) deklariert die App
 explizit als „Accessibility target for `PlatynUI` functional tests via
 `AccessKit`/AT-SPI".
 
@@ -6297,11 +6297,11 @@ Pipeline funktioniert, aber mit einer scharfen Bedingung (siehe unten).
 # 1. Build
 cargo build -p platynui-test-app-egui -p platynui-cli
 
-# 2. Precondition (Linux): AccessKit aktiviert sich nur bei aktivem
-#    Screen Reader. Siehe „Lazy-Activation-Falle" unten.
+# 2. Precondition (Linux): AccessKit aktiviert sich nur bei aktiver
+#    Accessibility. Siehe „Lazy-Activation-Falle" unten.
 gdbus call --session --dest=org.a11y.Bus --object-path=/org/a11y/bus \
     --method=org.freedesktop.DBus.Properties.Set \
-    org.a11y.Status ScreenReaderEnabled "<true>"
+    org.a11y.Status IsEnabled "<true>"
 
 # 3. App starten (detached)
 setsid nohup ./target/debug/platynui-test-app-egui \
@@ -6320,7 +6320,7 @@ disown
 kill <PID>
 gdbus call --session --dest=org.a11y.Bus --object-path=/org/a11y/bus \
     --method=org.freedesktop.DBus.Properties.Set \
-    org.a11y.Status ScreenReaderEnabled "<false>"
+    org.a11y.Status IsEnabled "<false>"
 ```
 
 **Verifizierte Fakten:**
@@ -6335,17 +6335,23 @@ gdbus call --session --dest=org.a11y.Bus --object-path=/org/a11y/bus \
 
 **Lazy-Activation-Falle (Linux — kritisch!):**
 
-`accesskit_unix 0.21` implementiert „lazy activation":
-`src/context.rs:153–180` verbindet sich mit `org.a11y.Status` und
-aktiviert den Adapter **nur wenn `ScreenReaderEnabled == true`**. Ohne
-Screen-Reader-Flag ist der Adapter zwar konstruiert (`Adapter::new` →
-`AdapterState::Inactive`), aber nicht am D-Bus-Registry gelistet — die
-App erscheint für den AT-SPI-Provider unsichtbar.
+`accesskit_unix` implementiert „lazy activation": es beobachtet
+`org.a11y.Status` und aktiviert den Adapter **nur solange
+`IsEnabled == true`** ist (`accesskit_unix 0.24`, `src/context.rs:184–185`;
+bis 0.21 war es `ScreenReaderEnabled`, das at-spi2-core 2.62 entfernt
+hat). Ohne das Flag ist der Adapter zwar konstruiert, aber nicht am
+D-Bus-Registry gelistet — die App erscheint für den AT-SPI-Provider
+unsichtbar.
 
 - Kein App-Code kann das umgehen (Design von AccessKit).
 - Betrifft alle winit/egui-Apps auf Linux, nicht nur unsere.
-- Für Tests: Setup-Hook muss `ScreenReaderEnabled=true` setzen und
-  beim Teardown zurückstellen. Siehe §11a.7.2 und §11a.7.6.
+- at-spi2-core ≥ 2.62 schaltet `IsEnabled` selbst ein, solange eine
+  assistive Technik (auch der AT-SPI-Provider) Event-Listener
+  registriert hat, und wieder aus, wenn der letzte weg ist. Ältere
+  Versionen behalten den gesetzten Wert.
+- Für Tests: Setup-Hook setzt `IsEnabled=true` und stellt es beim
+  Teardown zurück (`scripts/linux-a11y-enable.sh` /
+  `scripts/linux-a11y-restore.sh`). Siehe §11a.7.2 und §11a.7.6.
 
 **Offene Beobachtungen (nicht Phase-0-blockierend):**
 
@@ -6371,13 +6377,13 @@ App erscheint für den AT-SPI-Provider unsichtbar.
 - **Accessibility:** AT-SPI via D-Bus. `test-app-egui` mit AccessKit
   publiziert seinen Baum automatisch; `atspi`-Provider greift zu.
 - **Precondition (zwingend, siehe §11a.7.1):** Vor dem App-Start muss
-  `org.a11y.Status.ScreenReaderEnabled = true` gesetzt sein. Ohne das
+  `org.a11y.Status.IsEnabled = true` gesetzt sein. Ohne das
   Flag aktiviert `accesskit_unix` den Adapter nicht, und die App
   bleibt unsichtbar am AT-SPI-Bus. Die Fixture muss das Flag setzen
   **bevor** die App startet (Environment wird beim App-Start gelesen)
   und nach den Tests zurückstellen.
 - **CI-Setup:** D-Bus Session-Bus + at-spi-bus starten →
-  ScreenReaderEnabled=true setzen → Compositor starten → test-app-egui
+  IsEnabled=true setzen → Compositor starten → test-app-egui
   als Child starten → RF-Suite laufen lassen → Teardown in umgekehrter
   Reihenfolge.
 - **Runner:** GitHub-hosted `ubuntu-latest` reicht (Compositor ist
@@ -6440,8 +6446,8 @@ Login With Valid Credentials
   die `test-app-egui --scenario <name>` mit vorkonfiguriertem Layout
   starten.
 - **Linux-a11y-Helper:** `scripts/linux-a11y-enable.sh` und
-  `scripts/linux-a11y-restore.sh` (noch anzulegen) toggeln
-  `org.a11y.Status.ScreenReaderEnabled` via `gdbus` (siehe §11a.7.1).
+  `scripts/linux-a11y-restore.sh` toggeln
+  `org.a11y.Status.IsEnabled` via `gdbus` (siehe §11a.7.1).
   Sie müssen idempotent sein und den vorherigen Wert restaurieren
   (Read-Modify-Write-Pattern). RF-`Suite Setup`/`Suite Teardown` und
   pytest-Session-Fixtures rufen sie auf Linux auf; No-Op auf Windows/

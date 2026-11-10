@@ -3,14 +3,18 @@
 #
 # Background:
 #   accesskit_unix (used by eframe/egui via accesskit_winit) only registers
-#   its D-Bus adapter on the AT-SPI bus when org.a11y.Status.ScreenReaderEnabled
-#   is true (see accesskit_unix-0.21.0/src/context.rs:153–180). Without this,
-#   apps like apps/test-app-egui are invisible to the AT-SPI provider, even
-#   though AccessKit itself is initialized.
+#   its D-Bus adapter on the AT-SPI bus while org.a11y.Status.IsEnabled is
+#   true (accesskit_unix >= 0.22 watches IsEnabled; older releases watched
+#   ScreenReaderEnabled, which at-spi2-core 2.62 removed). Without this, apps
+#   like apps/test-app-egui are invisible to the AT-SPI provider, even though
+#   AccessKit itself is initialized.
 #
-#   This script flips that flag to true so RF acceptance suites and ad-hoc
-#   smoke tests can observe the tree. It saves the previous value to a
-#   state file so linux-a11y-restore.sh can put it back.
+#   at-spi2-core >= 2.62 also switches IsEnabled on by itself while an
+#   assistive technology (the AT-SPI provider included) has event listeners
+#   registered, and off again once the last one is gone; older launchers keep
+#   whatever was set. This script flips the flag to true so RF acceptance
+#   suites and ad-hoc smoke tests can observe the tree on either. It saves the
+#   previous value to a state file so linux-a11y-restore.sh can put it back.
 #
 # Usage:
 #   scripts/linux-a11y-enable.sh
@@ -56,7 +60,7 @@ fi
 _CURRENT_RAW=$(gdbus call --session --dest=org.a11y.Bus \
     --object-path=/org/a11y/bus \
     --method=org.freedesktop.DBus.Properties.Get \
-    org.a11y.Status ScreenReaderEnabled 2>/dev/null || echo "")
+    org.a11y.Status IsEnabled 2>/dev/null || echo "")
 
 case "$_CURRENT_RAW" in
     *"true"*)  _CURRENT="true"  ;;
@@ -71,7 +75,7 @@ esac
 # --- Save previous value (only on first invocation) --------------------------
 if [ ! -f "$_STATE_FILE" ]; then
     echo "$_CURRENT" > "$_STATE_FILE"
-    echo "linux-a11y-enable: saved previous ScreenReaderEnabled=$_CURRENT to $_STATE_FILE" >&2
+    echo "linux-a11y-enable: saved previous IsEnabled=$_CURRENT to $_STATE_FILE" >&2
 else
     _SAVED=$(cat "$_STATE_FILE" 2>/dev/null || echo "?")
     echo "linux-a11y-enable: state file already present (saved=$_SAVED), not overwriting" >&2
@@ -79,16 +83,16 @@ fi
 
 # --- Set to true (idempotent) ------------------------------------------------
 if [ "$_CURRENT" = "true" ]; then
-    echo "linux-a11y-enable: ScreenReaderEnabled already true, nothing to do" >&2
+    echo "linux-a11y-enable: IsEnabled already true, nothing to do" >&2
     exit 0
 fi
 
 if gdbus call --session --dest=org.a11y.Bus --object-path=/org/a11y/bus \
         --method=org.freedesktop.DBus.Properties.Set \
-        org.a11y.Status ScreenReaderEnabled "<true>" >/dev/null 2>&1; then
-    echo "linux-a11y-enable: ScreenReaderEnabled set to true" >&2
+        org.a11y.Status IsEnabled "<true>" >/dev/null 2>&1; then
+    echo "linux-a11y-enable: IsEnabled set to true" >&2
     exit 0
 else
-    echo "linux-a11y-enable: ERROR: failed to set ScreenReaderEnabled" >&2
+    echo "linux-a11y-enable: ERROR: failed to set IsEnabled" >&2
     exit 2
 fi

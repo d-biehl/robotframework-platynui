@@ -124,7 +124,7 @@ impl<'a, R: TreeRowData> TreeView<'a, R> {
         let mut response = TreeResponse { selected: None, toggled: None, navigate: None, page_size: 15 };
 
         // ── Stable IDs ───────────────────────────────────────────────────
-        let tree_id = ui.id().with("tree_view");
+        let tree_id = ui.scope_id().with("tree_view");
         let hovered_id = tree_id.with("hovered_row");
         let ctx_row_id = tree_id.with("ctx_row");
 

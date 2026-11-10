@@ -28,7 +28,7 @@ pub enum ResultAction {
 
 /// Stable egui id for keyboard focus in the results panel.
 pub fn focus_id() -> egui::Id {
-    egui::Id::new("inspector_results_focus")
+    egui::Id::unique("inspector_results_focus")
 }
 
 /// Render the results panel. Returns a list of actions to process.

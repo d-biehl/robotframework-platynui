@@ -34,6 +34,8 @@ See proposal.md for the motivation, and `specs/inspector-fatal-errors/spec.md` f
 
 **eframe 0.36.2** (`Cargo.lock:1198-1199`):
 
+The workspace has since moved to eframe 0.37.0 and egui-wgpu 0.37.0. Every fact in this list was re-read there and still holds. Only these line numbers moved: with wgpu the window gets its renderer at `src/native/wgpu_integration.rs:271-272` and the app creator runs at `:325-345`; with glow the window and renderer come at `src/native/glow_integration.rs:330-335` and the creator at `:406`; egui-wgpu maps the selector's failure at `src/lib.rs:233`.
+
 - `eframe::Error` (`src/lib.rs:504-531`) has `AppCreation(Box<dyn Error + Send + Sync>)` (`:506`), displayed as `app creation error: {err}` (`:578`).
 - `impl Error for Error {}` (`:533`) defines no `source()`, so the reason lives only in the displayed text.
 - The app creator runs after the renderer has its window: with wgpu at `src/native/wgpu_integration.rs:258-260`, then `:313-334`; with glow at `src/native/glow_integration.rs:342-367`. A renderer failure therefore returns from `run_native` before the creator runs. A creator that runs means that the window and the renderer exist.

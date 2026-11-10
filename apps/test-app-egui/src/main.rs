@@ -364,7 +364,7 @@ impl TestApp {
                         .with_id(&format!("scrollbox-row-{row:02}"));
                 }
             });
-        let offset = output.state.offset;
+        let offset = output.state.clamped_offset();
         ui.horizontal(|ui| {
             ui.label("Offset x:");
             ui.label(format!("{:.0}", offset.x)).with_id("scrollbox-offset-x");
@@ -513,7 +513,7 @@ fn toggle(on: &mut bool) -> impl egui::Widget + '_ {
             *on = !*on;
             response.mark_changed();
         }
-        response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *on, ""));
+        response.widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, ui.is_enabled(), *on, ""));
 
         if ui.is_rect_visible(rect) {
             let how_on = ui.ctx().animate_bool_responsive(response.id, *on);
