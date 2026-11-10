@@ -717,17 +717,14 @@ fn node_screen_bounds(node: &Arc<dyn UiNode>) -> Option<Rect> {
 /// such a node, since a shown child can live under a parent the toolkit reports
 /// as not visible.
 ///
-/// Gated on `Control:IsVisible` and, when the provider surfaces it,
-/// `Control:IsInView`. Both are excluded only when *explicitly* false: a
+/// Gated on `Control:IsVisible`, excluded only when *explicitly* false: a
 /// missing or non-boolean value is treated as visible, so a provider that does
-/// not report the attribute does not make everything unpickable. (`IsInView`'s
-/// precise meaning is still being defined; excluding on an explicit `false`
-/// keeps this correct once it diverges from `IsVisible`.)
+/// not report the attribute does not make everything unpickable.
+/// `Control:IsInView` does not gate: it is false for a partly clipped node,
+/// which is shown where it is not clipped (spec `element-at-point`).
 fn node_is_pickable(node: &Arc<dyn UiNode>) -> bool {
     use platynui_core::ui::{Namespace, UiValue, attribute_names::element};
-    let is_false =
-        |name| matches!(node.attribute(Namespace::Control, name).map(|a| a.value()), Some(UiValue::Bool(false)));
-    !is_false(element::IS_VISIBLE) && !is_false(element::IS_IN_VIEW)
+    !matches!(node.attribute(Namespace::Control, element::IS_VISIBLE).map(|a| a.value()), Some(UiValue::Bool(false)))
 }
 
 pub static ATSPI_FACTORY: AtspiFactory = AtspiFactory;

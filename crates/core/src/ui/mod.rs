@@ -1,7 +1,9 @@
 pub mod attributes;
 pub mod contract;
 pub mod describe;
+pub mod evaluation;
 pub mod identifiers;
+pub mod in_view;
 pub mod namespace;
 pub mod node;
 pub mod pattern;
@@ -12,7 +14,9 @@ pub const DESKTOP_RUNTIME_ID: &str = "platynui:Desktop";
 pub use attributes::pattern as attribute_names;
 pub use contract::{ContractViolation, testkit, validate_control_or_item};
 pub use describe::{describe, describe_parts};
+pub use evaluation::Evaluation;
 pub use identifiers::{PatternName, RuntimeId, TechnologyId, pattern_names};
+pub use in_view::VisibleArea;
 pub use namespace::{Namespace, all_namespaces, resolve_namespace};
 pub use node::{UiAttribute, UiNode, UiNodeAncestorIter, UiNodeExt};
 pub use pattern::{

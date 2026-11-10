@@ -57,7 +57,7 @@ impl MockProvider {
     /// of an earlier one — so children are probed last-first and the first hit
     /// wins. A node without bounds is treated as a transparent container: its
     /// children are still probed, but it is never itself returned. A node that
-    /// is not pickable (hidden — `IsVisible`/`IsInView` explicitly false) is
+    /// is not pickable (hidden — `IsVisible` explicitly false) is
     /// likewise never returned, though its children are still probed.
     fn hit_test_node(node: &Arc<MockNode>, point: platynui_core::types::Point) -> Option<Arc<MockNode>> {
         let bounds = node.bounds();
