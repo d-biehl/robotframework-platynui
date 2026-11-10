@@ -50,6 +50,7 @@ uv run apps/test-app-qt/main.py --auto-close 10          # self-close for CI
 uv run apps/test-app-qt/main.py --log-level info         # error|warn|info|debug
 uv run apps/test-app-qt/main.py --open-modal             # also open a modal dialog at startup
 uv run apps/test-app-qt/main.py --dialogs 1              # open only N child dialogs (avoids overlap)
+uv run apps/test-app-qt/main.py --in-view                # a scrolling tab bar and a combo box, no dialogs
 ```
 
 Each widget carries a stable identity via `accessibleName` (surfaced as `@Name`
@@ -67,7 +68,8 @@ landed inside the dialog), while every control keeps its stable name.
 Wired into the real-provider lane under
 [`tests/acceptance/qt`](../../tests/acceptance/qt) (profile `real`, tags `acceptance` + `real`):
 `bounds.robot` (the regression + correctness checks), `interaction.robot` (click
-lands in the dialog), and `modal.robot` (modal opened via `--open-modal`). The
+lands in the dialog), `modal.robot` (modal opened via `--open-modal`), and
+`in_view.robot` (`IsInView` of scrolled tabs and popup entries, via `--in-view`). The
 project interpreter + entrypoint are handed over via `PLATYNUI_TEST_APP_QT_PYTHON`
 / `PLATYNUI_TEST_APP_QT_MAIN` by `scripts/platynui-robot-session.sh` (Linux) and
 the `test-acceptance-windows` recipe (Windows); Robot Framework launches that

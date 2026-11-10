@@ -48,12 +48,14 @@ from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtGui import QAction, QContextMenuEvent, QGuiApplication
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QLabel,
     QMainWindow,
     QMenu,
     QPushButton,
+    QTabBar,
     QVBoxLayout,
     QWidget,
 )
@@ -124,7 +126,14 @@ class SampleDialog(QDialog):
 class MainWindow(QMainWindow):
     """Main window that owns the child dialogs and the geometry readout."""
 
-    def __init__(self, title: str, *, open_modal: bool = False, dialog_count: int = len(CHILD_DIALOGS)) -> None:
+    def __init__(
+        self,
+        title: str,
+        *,
+        open_modal: bool = False,
+        dialog_count: int = len(CHILD_DIALOGS),
+        in_view: bool = False,
+    ) -> None:
         super().__init__()
         _tag(self, 'main-window')
         self.setWindowTitle(title)
@@ -150,6 +159,8 @@ class MainWindow(QMainWindow):
         pick_button = QPushButton('Pick Me')
         _tag(pick_button, 'main-pick-button')
         central_layout.addWidget(pick_button)
+        if in_view:
+            self._build_in_view_widgets(central_layout)
         self.setCentralWidget(central)
 
         self._build_menus()
@@ -164,6 +175,27 @@ class MainWindow(QMainWindow):
         self._timer.timeout.connect(self._refresh_readout)
         self._timer.start(250)
         self._refresh_readout()
+
+    def _build_in_view_widgets(self, layout: QVBoxLayout) -> None:
+        """Add a tab bar too narrow for its tabs and a combo box (IsInView suite).
+
+        The tab bar shows scroll buttons, Qt's ``Scroll Left`` / ``Scroll Right``,
+        so its later tabs start scrolled out of it. Tabs and combo entries are
+        named by their text, the only accessible name Qt gives them.
+        """
+        tabs = QTabBar()
+        _tag(tabs, 'in-view-tabs')
+        tabs.setUsesScrollButtons(True)
+        tabs.setExpanding(False)
+        tabs.setElideMode(Qt.TextElideMode.ElideNone)
+        for number in range(1, 13):
+            tabs.addTab(f'in-view-tab-{number:02}')
+        tabs.setFixedWidth(320)
+        layout.addWidget(tabs)
+        combo = QComboBox()
+        _tag(combo, 'in-view-combo')
+        combo.addItems([f'in-view-entry-{number}' for number in range(1, 4)])
+        layout.addWidget(combo)
 
     def _build_menus(self) -> None:
         """Add a menu bar (File menu) and a right-click context menu.
@@ -342,6 +374,11 @@ def main(argv: list[str] | None = None) -> int:
         "clicking a dialog's widgets (e.g. on Wayland, where all windows stack at the origin).",
     )
     parser.add_argument(
+        '--in-view',
+        action='store_true',
+        help='Add a scrolling tab bar and a combo box instead of the child dialogs (IsInView acceptance suite).',
+    )
+    parser.add_argument(
         '--log-level',
         choices=['error', 'warn', 'info', 'debug'],
         default='warn',
@@ -358,7 +395,9 @@ def main(argv: list[str] | None = None) -> int:
     QApplication.setDesktopFileName(args.app_id)
 
     app = QApplication(sys.argv[:1])
-    window = MainWindow(args.title, open_modal=args.open_modal, dialog_count=args.dialogs)
+    # The child dialogs would cover the in-view widgets, so --in-view opens none.
+    dialog_count = 0 if args.in_view else args.dialogs
+    window = MainWindow(args.title, open_modal=args.open_modal, dialog_count=dialog_count, in_view=args.in_view)
     window.show()
 
     if args.auto_close > 0:
