@@ -198,12 +198,10 @@ This mirrors the Wayland matcher (`platynui_ipc.rs:326-386`). A Qt dialog whose 
   - A profile `real-x11-bare` in `robot.toml` uses it, with a recipe `just test-acceptance-x11-bare`. It is part of `just test-acceptance` on Linux and of the CI matrix, which already installs Xvfb.
   - Two tags select suites. `window-manager:required` marks tests that need minimize, maximize or restore; `real-x11-bare` excludes them. `window-manager:none` marks the suite for the bare behavior; every other profile excludes it.
 - **Qt MDI:** `apps/test-app-qt` gets an MDI scenario beside its catalog, as `testing-strategy.md` §5 allows for scenario surfaces: a `--mdi` flag that puts the catalog page into a `QMdiSubWindow` offset inside the main window. It gets its own suite.
-- **GTK 3 and GTK 4:** the fixtures come from the separate change `add-gtk-test-app`. That change's GTK 3 fixture in turn needs groups 1–5 of this one, so it is applied in between. This change needs three things from them:
+- **GTK 3 and GTK 4:** the fixtures come from the separate change `add-gtk-test-app`, which is applied first. Its GTK 3 catalog's pointer tests fail until decisions 1–5 are in, and they are committed with them. This change needs three things from the fixtures:
   - a main window with a header bar;
   - the blueprint's group with its radio buttons;
   - a modeless dialog of a different size from the main window.
-
-  The GTK acceptance tasks wait for that change. The rest does not.
 
 ## Risks / Trade-offs
 
@@ -222,9 +220,8 @@ This mirrors the Wayland matcher (`platynui_ipc.rs:326-386`). A Qt dialog whose 
 - **Native rebuild:** yes. `just build-native` after the provider and platform crates change. No Python change.
 - **Order:**
   1. the trait and both Linux platforms with their unit tests;
-  2. the provider composition with its unit tests;
-  3. the lanes: egui compositor, Qt MDI, X11 bare;
-  4. GTK acceptance once `add-gtk-test-app` has landed.
+  2. the provider composition with its unit tests, with the GTK 3 catalog's pointer tests as its first acceptance tests;
+  3. the lanes: egui compositor, Qt MDI, GTK, X11 bare.
 - **Rollback:** revert the change's commits. No state, file format or setting depends on them.
 
 ## Open Questions

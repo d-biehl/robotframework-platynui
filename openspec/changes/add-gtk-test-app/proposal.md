@@ -8,7 +8,7 @@ The fixture matrix has no GTK app, although GTK is the toolkit of most Linux des
 - GTK 4 implements AT-SPI itself.
 - They differ in their tree shapes and in what their coordinate types mean. GTK 3 answers parent-relative extents with screen values. GTK 4 sends no screen position at all.
 
-`linux-element-geometry` cannot prove its placement rules for either without a fixture: its GTK acceptance group waits for this change. The semantic keyword layer will also need GTK proxies proven against real GTK trees.
+`linux-element-geometry` cannot prove its placement rules for either without a fixture: its GTK scenarios use these fixtures as their first tests. The semantic keyword layer will also need GTK proxies proven against real GTK trees.
 
 ## What Changes
 
@@ -79,11 +79,11 @@ Contributor-facing change: `just bootstrap` and every `uv sync` on Linux now nee
   - the docs listed above.
 - **No Rust or Python library code changes, no native rebuild.**
 - **Platforms:** Linux only, on X11 and under the PlatynUI compositor, where GTK 3 and GTK 4 run natively on Wayland. GTK has no accessibility on Windows, and macOS has no acceptance lane.
-- **Depends on:**
-  - `linux-element-geometry` groups 1–5. Until its provider rework, GTK 3 elements are placed by summing positions GTK 3 reports as screen values, and every pointer test of the GTK 3 catalog misses.
-  - The GTK 4 catalog does not wait for it.
-
-  So this change is applied after those groups. `linux-element-geometry`'s GTK group 7 then runs against these fixtures.
+- **Order with `linux-element-geometry`:**
+  - This change is applied first, and both fixtures and all their suites are built here.
+  - The GTK 4 catalog passes on both lanes with today's provider, and so do the GTK 3 catalog's tests that do not use the pointer.
+  - The GTK 3 catalog's pointer tests miss until `linux-element-geometry`'s provider rework, because GTK 3 elements are placed by summing positions GTK 3 reports as screen values. They are committed with that rework, as its first failing tests.
+  - This change is archived after them.
 - **Coordination:**
   - `linux-element-geometry` also changes `acceptance-lane-selection` (its bare X11 profile and `window-manager:` tags). The change archived second merges both deltas.
   - `add-avalonia-test-app` changes the Wayland profile's session in the same spec, in a different requirement.

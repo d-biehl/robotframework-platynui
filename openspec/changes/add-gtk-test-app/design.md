@@ -146,7 +146,7 @@ Either prints one line and exits with code 2. The launcher waits for the main wi
 - **[A heavier Linux dev environment]** Every Linux contributor needs four more apt packages, and a first `uv sync` takes longer while PyGObject builds. → `just bootstrap` names the packages (decision 2), and `CONTRIBUTING.md` lists them. uv's wheel cache makes later syncs fast.
 - **[Older distributions cannot build current PyGObject]** GLib < 2.80 fails the build. → Documented as unsupported for the development environment. Pinning PyGObject < 3.51 would instead require girepository-1.0 on current systems.
 - **[GTK 4 list-model widgets expose less than the old ones]** The tree's expansion state and the drop-down's items may not surface as the blueprint needs. → Each is verified against the real tree before its test is written. A gap uses the deprecated widget or a name-based observable, and the README documents the choice (spec).
-- **[The GTK 3 catalog's pointer tests need `linux-element-geometry`]** → This change is applied after that change's groups 1–5 (proposal, Depends on). Its GTK 4 work can start earlier.
+- **[The GTK 3 catalog's pointer tests need `linux-element-geometry`]** → This change is applied first. The GTK 3 pointer tests are written and run here, stay out of this change's commits while they fail, and are committed with `linux-element-geometry`'s provider rework (proposal, Order).
 - **[CI exercises no GTK 4 popover]** While the runner's GTK is older than 4.18, menus, context menus and the drop-down run only locally. → The `ci.yml` comment and `testing-strategy.md` §2.6 say so. Moving the acceptance job to a newer runner image ends it.
 - **[GTK 3's empty window name returns elsewhere]** Dialogs with header bars could show the same effect. → Decision 4 names every GTK 3 window explicitly, and the catalog's dialog test finds dialogs by name.
 
@@ -157,6 +157,6 @@ Either prints one line and exits with code 2. The launcher waits for the main wi
 - **Order:**
   1. the environment (dependency, bootstrap check, CI packages);
   2. the GTK 4 fixture and its suites;
-  3. the GTK 3 fixture and its suites, once `linux-element-geometry` groups 1–5 have landed;
+  3. the GTK 3 fixture and its suites, with its pointer tests committed together with `linux-element-geometry`'s provider rework;
   4. the docs.
 - **Rollback:** revert the change's commits. No state depends on them. The dev dependency goes away with the next `uv sync`.
