@@ -21,9 +21,10 @@ use platynui_core::ui::attribute_names::{
     window_state as window_state_attr,
 };
 use platynui_core::ui::{
-    ActivatableAction, CloseableAction, FocusableAction, MaximizableAction, MinimizableAction, MovableAction,
-    Namespace, PatternError, PatternName, ResizableAction, ResponsiveAction, RestorableAction, RuntimeId, UiAttribute,
-    UiNode, UiNodeExt, UiPattern, UiValue, pattern_names, supported_patterns_value,
+    ActivatableAction, CloseableAction, Evaluation, FocusableAction, MaximizableAction, MinimizableAction,
+    MovableAction, Namespace, PatternError, PatternName, ResizableAction, ResponsiveAction, RestorableAction,
+    RuntimeId, UiAttribute, UiNode, UiNodeExt, UiPattern, UiValue, VisibleArea, pattern_names,
+    supported_patterns_value,
 };
 use platynui_process::{ProcessAttribute, ProcessIdentity};
 use std::collections::BTreeMap;
@@ -42,6 +43,13 @@ const NULL_PATH: &str = "/org/a11y/atspi/accessible/null";
 const ALT_NULL_PATH: &str = "/org/a11y/atspi/null";
 const ATSPI_ROOT_PATH: &str = "/org/a11y/atspi/accessible/root";
 const TECHNOLOGY: &str = "AT-SPI2";
+
+/// How far an element may extend beyond its visible area and still be in view
+/// (spec `in-view-attribute`). AT-SPI reports positions and sizes in whole
+/// pixels; a toolkit that lays out in fractions of a pixel rounds a child's box
+/// and its parent's box independently, so a child that fits its parent can be
+/// reported up to one pixel beyond it on each side.
+const REPORTED_GEOMETRY_ROUNDING: f64 = 1.0;
 
 /// Cached toolkit names keyed by D-Bus bus name (one lookup per application).
 static TOOLKIT_NAME_CACHE: LazyLock<Mutex<HashMap<String, Option<String>>>> =
@@ -88,6 +96,16 @@ pub struct AtspiNode {
     /// the `parent` `Weak`.
     parent_keepalive: Mutex<Option<Arc<dyn UiNode>>>,
     self_weak: OnceLock<Weak<dyn UiNode>>,
+    /// This node as an `AtspiNode`, handed to the children it lists as their
+    /// `area_parent`.
+    self_atspi: OnceLock<Weak<AtspiNode>>,
+    /// The parent as an `AtspiNode`, set for the children `children()` lists,
+    /// so a node reads its parent's cached `visible_area` instead of walking
+    /// its ancestors.
+    area_parent: Mutex<Option<Weak<AtspiNode>>>,
+    /// The area this node leaves visible for its descendants (see
+    /// [`AtspiNode::visible_area`]).
+    visible_area: Mutex<Option<(Evaluation, VisibleArea)>>,
     runtime_id: OnceLock<RuntimeId>,
     role: OnceLock<String>,
     namespace: OnceLock<Namespace>,
@@ -161,6 +179,9 @@ impl AtspiNode {
             parent_is_application,
             parent_keepalive: Mutex::new(None),
             self_weak: OnceLock::new(),
+            self_atspi: OnceLock::new(),
+            area_parent: Mutex::new(None),
+            visible_area: Mutex::new(None),
             runtime_id: OnceLock::new(),
             role: OnceLock::new(),
             namespace: OnceLock::new(),
@@ -172,6 +193,7 @@ impl AtspiNode {
         });
         let arc: Arc<dyn UiNode> = node.clone();
         let _ = node.self_weak.set(Arc::downgrade(&arc));
+        let _ = node.self_atspi.set(Arc::downgrade(&node));
         node
     }
 
@@ -199,6 +221,70 @@ impl AtspiNode {
     /// chain in that node.
     pub(crate) fn hold_parent(&self, parent: Arc<dyn UiNode>) {
         *self.parent_keepalive.lock().expect("parent_keepalive mutex poisoned") = Some(parent);
+    }
+
+    /// The area this node leaves visible for its descendants (spec
+    /// `in-view-attribute`): the area its parent leaves visible, narrowed by
+    /// this node's own `IsVisible` and `Bounds`. Cached for the query that
+    /// reads it, so siblings share one read of each ancestor, and read anew
+    /// outside a query and by every later one.
+    fn visible_area(&self) -> VisibleArea {
+        let evaluation = Evaluation::current();
+        let mut cached = self.visible_area.lock().expect("visible_area mutex poisoned");
+        if let (Some(evaluation), Some((cached_for, area))) = (evaluation, *cached)
+            && cached_for == evaluation
+        {
+            return area;
+        }
+        drop(cached);
+        let above = self.area_above();
+        let area = match self.self_weak.get().and_then(Weak::upgrade) {
+            Some(node) if self.is_combo_box_list() => hide_by(above, node.as_ref()),
+            Some(node) => narrow_by(above, node.as_ref()),
+            None => above,
+        };
+        if let Some(evaluation) = evaluation {
+            cached = self.visible_area.lock().expect("visible_area mutex poisoned");
+            *cached = Some((evaluation, area));
+        }
+        area
+    }
+
+    /// The area this node's parent leaves visible for it: the parent's area
+    /// when `children()` linked it, otherwise the ancestors read one by one.
+    /// A popup starts again from the desktop: of the ancestors between, only a
+    /// hidden one counts.
+    fn area_above(&self) -> VisibleArea {
+        let popup = self.is_popup();
+        let linked = self.area_parent.lock().ok().and_then(|parent| parent.as_ref().and_then(Weak::upgrade));
+        if let Some(parent) = linked.filter(|_| !popup) {
+            return parent.visible_area();
+        }
+        let mut ancestors = Vec::new();
+        let mut next = self.parent().and_then(|parent| parent.upgrade());
+        while let Some(node) = next {
+            next = node.parent().and_then(|parent| parent.upgrade());
+            ancestors.push(node);
+        }
+        ancestors.iter().rev().enumerate().fold(VisibleArea::Unbounded, |area, (depth, node)| {
+            if popup && depth > 0 { hide_by(area, node.as_ref()) } else { narrow_by(area, node.as_ref()) }
+        })
+    }
+
+    /// Whether this node is a popup: a window of its own, which toolkits may
+    /// place below the widget that opened it although it extends beyond it —
+    /// a menu below its menu bar entry, a dialog below its parent window, the
+    /// list of a combo box. The roles are those of transient popups (see
+    /// `popups.rs`).
+    fn is_popup(&self) -> bool {
+        matches!(self.role(), "PopupMenu" | "Menu" | "ToolTip" | "Window" | "Dialog") || self.is_combo_box_list()
+    }
+
+    /// Whether this node is the list of a combo box, a popup whose own bounds
+    /// Qt reports no wider than the combo box, although its entries are wider.
+    fn is_combo_box_list(&self) -> bool {
+        self.role() == "List"
+            && self.parent().and_then(|parent| parent.upgrade()).is_some_and(|parent| parent.role() == "ComboBox")
     }
 
     pub fn is_null_object(obj: &ObjectRefOwned) -> bool {
@@ -403,6 +489,7 @@ impl UiNode for AtspiNode {
         }
 
         let parent = self.self_weak.get().and_then(std::sync::Weak::upgrade);
+        let area_parent = self.self_atspi.get().cloned();
         let conn = self.conn.clone();
         let window_manager = self.window_manager.clone();
         let popups = self.popups.clone();
@@ -422,6 +509,7 @@ impl UiNode for AtspiNode {
             if let Some(parent) = &parent {
                 node.hold_parent(Arc::clone(parent));
             }
+            node.area_parent.lock().expect("area_parent mutex poisoned").clone_from(&area_parent);
             Some(node as Arc<dyn UiNode>)
         }))
     }
@@ -521,6 +609,7 @@ impl UiNode for AtspiNode {
         self.interfaces.clear();
         self.cached_name.clear();
         self.cached_child_count.clear();
+        *self.visible_area.lock().expect("visible_area mutex poisoned") = None;
     }
 }
 
@@ -1130,7 +1219,7 @@ impl AttrsIter {
     fn new(node: &AtspiNode, rid_str: String) -> Self {
         let supports_component = node.supports_component();
         let role = node.role().to_string();
-        let ctx = Arc::new(LazyNodeData::new(
+        let mut data = LazyNodeData::new(
             node.conn.clone(),
             node.obj.clone(),
             node.self_weak.get().cloned(),
@@ -1138,7 +1227,9 @@ impl AttrsIter {
             node.is_transient_popup(),
             node.window_manager.clone(),
             Arc::clone(&node.timeouts),
-        ));
+        );
+        data.node = node.self_atspi.get().cloned();
+        let ctx = Arc::new(data);
         // Standard attributes always live in the Control namespace,
         // regardless of the node's own namespace (e.g. App for
         // Application nodes).
@@ -1495,6 +1586,46 @@ impl Iterator for AttrsIter {
     }
 }
 
+/// `area` narrowed by one more ancestor, from what that ancestor reports as
+/// `Control:IsVisible` and `Control:Bounds`. Reads nothing once nothing is
+/// visible, and no bounds of a hidden ancestor.
+fn narrow_by(area: VisibleArea, node: &dyn UiNode) -> VisibleArea {
+    if area == VisibleArea::Nothing {
+        return area;
+    }
+    let visible = reported_visibility(node);
+    if visible == Some(false) {
+        return VisibleArea::Nothing;
+    }
+    let bounds = match node.attribute(Namespace::Control, element::BOUNDS).map(|attr| attr.value()) {
+        Some(UiValue::Rect(bounds)) => Some(bounds),
+        _ => None,
+    };
+    if visible == Some(true) && bounds.is_some_and(|bounds| bounds.is_empty()) {
+        debug!(
+            node = %platynui_core::ui::describe(node),
+            "visible ancestor reports empty bounds; it does not narrow the visible area",
+        );
+    }
+    area.narrow(visible, bounds)
+}
+
+/// Like [`narrow_by`] for an ancestor whose bounds do not clip: only a hidden
+/// one narrows the area, to nothing.
+fn hide_by(area: VisibleArea, node: &dyn UiNode) -> VisibleArea {
+    if area == VisibleArea::Nothing {
+        return area;
+    }
+    area.narrow(reported_visibility(node), None)
+}
+
+fn reported_visibility(node: &dyn UiNode) -> Option<bool> {
+    match node.attribute(Namespace::Control, element::IS_VISIBLE).map(|attr| attr.value()) {
+        Some(UiValue::Bool(visible)) => Some(visible),
+        _ => None,
+    }
+}
+
 /// Shared lazy-resolution context for standard attributes.
 ///
 /// D-Bus calls are deferred until first access and cached via `OnceLock`,
@@ -1505,6 +1636,9 @@ struct LazyNodeData {
     obj: ObjectRefOwned,
     /// Weak reference to the owning `UiNode`, used for window manager queries.
     owner: Option<Weak<dyn UiNode>>,
+    /// The owning node as an `AtspiNode`, for the visible area its ancestors
+    /// leave (`IsInView`).
+    node: Option<Weak<AtspiNode>>,
     /// Per-runtime window manager cloned from the owning node; `None` when no
     /// runtime-injected window manager is present, in which case
     /// window-manager-backed attributes resolve to their fallback values.
@@ -1544,6 +1678,7 @@ impl LazyNodeData {
             conn,
             obj,
             owner,
+            node: None,
             is_real_toplevel,
             is_transient_popup,
             window_manager,
@@ -1585,6 +1720,21 @@ impl LazyNodeData {
 
     fn resolve_extents(&self) -> Option<Rect> {
         *self.extents.get_or_init(|| extents::resolve_extents(self))
+    }
+
+    /// Whether the node is visible and its bounds lie fully inside the area
+    /// its ancestors leave visible (spec `in-view-attribute`). The node's own
+    /// bounds are read only when it is visible.
+    fn resolve_in_view(&self) -> bool {
+        if !self.resolve_state().is_some_and(|s| s.contains(State::Visible) || s.contains(State::Showing)) {
+            return false;
+        }
+        let Some(node) = self.node.as_ref().and_then(Weak::upgrade) else {
+            return false;
+        };
+        let area = node.area_above();
+        area != VisibleArea::Nothing
+            && self.resolve_extents().is_some_and(|bounds| area.contains(bounds, REPORTED_GEOMETRY_ROUNDING))
     }
 
     /// Ask the window manager for the popup rects of this node's process and
@@ -1807,11 +1957,7 @@ impl UiAttribute for LazyStdAttr {
                     self.ctx.resolve_state().is_some_and(|s| s.contains(State::Visible) || s.contains(State::Showing));
                 UiValue::from(visible)
             }
-            StdAttrKind::IsInView => {
-                let visible =
-                    self.ctx.resolve_state().is_some_and(|s| s.contains(State::Visible) || s.contains(State::Showing));
-                UiValue::from(visible)
-            }
+            StdAttrKind::IsInView => UiValue::from(self.ctx.resolve_in_view()),
             StdAttrKind::IsFocused => {
                 let focused = self.ctx.resolve_state().is_some_and(|s| s.contains(State::Focused));
                 UiValue::from(focused)

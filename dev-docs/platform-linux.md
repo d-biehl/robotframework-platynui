@@ -118,6 +118,8 @@ Other C0 control characters (U+0000–U+001F) have no standard keyboard equivale
 
 **Component-gated Attributes**: `Bounds`, `ActivationPoint`, `IsEnabled`, `IsVisible`, `IsInView`, `IsFocused` — only present when the AT-SPI Component interface is available.
 
+**`IsInView`** (spec `in-view-attribute`): the node is visible, no ancestor reports `IsVisible = false`, and its bounds lie fully inside its ancestors' bounds and the desktop's, allowing one pixel for AT-SPI's integer coordinates. The state alone does not tell, because toolkits keep `Showing` on scrolled-out tabs and on web content of closed dialogs. A popup (a `PopupMenu`, `Menu`, `ToolTip`, `Window` or `Dialog`, or a combo box's `List`) is judged against the desktop, not against the widget it hangs below. Content that overflows an ancestor without being clipped by it, as web boxes and Qt Quick items allow, counts as not in view. Ancestor geometry is shared between the nodes of one query and read anew by the next. Occlusion is not detected.
+
 **Native Attributes**: `Native/<Interface>.<Property>` for all AT-SPI interfaces, including `Accessible.GetAttributes` mapping.
 
 **Patterns**: `Focusable` via `grab_focus()` + AT-SPI State flags.
