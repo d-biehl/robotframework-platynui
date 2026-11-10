@@ -136,9 +136,9 @@ dbus-run-session -- bash -c '
   echo "Session DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS"
 
   # Start AT-SPI bus launcher with --launch-immediately to bypass the
-  # gsettings/IsEnabled check (no GNOME settings daemon in this session)
-  # and --a11y=1 to force accessibility on.
-  /usr/lib/at-spi-bus-launcher --launch-immediately --a11y=1 &
+  # gsettings/IsEnabled check (no GNOME settings daemon in this session).
+  # No --a11y=1: at-spi2-core 2.62 dropped that option and aborts on it.
+  /usr/lib/at-spi-bus-launcher --launch-immediately &
 
   # Wait until org.a11y.Bus is available on the session bus
   ATSPI_READY=0

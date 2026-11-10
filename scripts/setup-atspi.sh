@@ -49,8 +49,9 @@ _ATSPI_LAUNCHER_BIN="$(_resolve_atspi_bin at-spi-bus-launcher)"
 _ATSPI_REGISTRYD_BIN="$(_resolve_atspi_bin at-spi2-registryd)"
 echo "AT-SPI binaries: launcher=$_ATSPI_LAUNCHER_BIN registryd=$_ATSPI_REGISTRYD_BIN" >&2
 
-# 1) Start AT-SPI bus launcher.
-"$_ATSPI_LAUNCHER_BIN" --launch-immediately --a11y=1 &
+# 1) Start AT-SPI bus launcher. No --a11y=1: at-spi2-core 2.62 dropped that
+#    option and aborts on it.
+"$_ATSPI_LAUNCHER_BIN" --launch-immediately &
 _ATSPI_LAUNCHER_PID=$!
 
 # 2) Wait until org.a11y.Bus is available on the session bus.

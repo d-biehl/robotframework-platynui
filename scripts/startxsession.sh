@@ -212,9 +212,9 @@ A11Y_EOF
   export XDG_DATA_DIRS="$XDG_RUNTIME_DIR/at-spi-services:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 
   # Start AT-SPI bus launcher with --launch-immediately to bypass the
-  # gsettings/IsEnabled check (no GNOME settings daemon in this session)
-  # and --a11y=1 to force accessibility on.
-  "$ATSPI_LAUNCHER_BIN" --launch-immediately --a11y=1 &
+  # gsettings/IsEnabled check (no GNOME settings daemon in this session).
+  # No --a11y=1: at-spi2-core 2.62 dropped that option and aborts on it.
+  "$ATSPI_LAUNCHER_BIN" --launch-immediately &
   AT_SPI_LAUNCHER_PID=$!
 
   # Wait until org.a11y.Bus is available on the session bus
