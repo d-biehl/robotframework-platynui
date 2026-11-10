@@ -779,6 +779,11 @@ class BareMetal(OurDynamicCore):
     underneath it; the PlatynUI Inspector shows exactly what a given element exposes and is the
     source of truth.
 
+    ``@IsInView`` is one attribute whose meaning still differs between platforms. On Linux it is
+    ``True`` only while the element is shown in full, and turns ``False`` as soon as any part of it
+    is scrolled or clipped out of view. On Windows an element counts as in view while any part of it
+    is visible. Neither notices an element that another element or window covers.
+
     == Namespaces ==
 
     A role belongs to one of four namespaces, written as a prefix. ``control:`` is the default for
