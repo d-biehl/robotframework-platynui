@@ -235,6 +235,7 @@ mypy:
     uv run mypy
     uv run mypy --no-warn-unused-configs apps/test-app-qt/main.py
     uv run mypy --no-warn-unused-configs apps/test-app-qml/main.py
+    uv run mypy --no-warn-unused-configs apps/test-app-gtk3/main.py
     uv run mypy --no-warn-unused-configs apps/test-app-gtk4/main.py
     uv run mypy --no-warn-unused-configs apps/large-tree-qt/main.py apps/large-tree-qt/measure_snapshot_memory.py
 
@@ -435,10 +436,19 @@ build-win32-test-window-x86:
 run-test-app-qml *ARGS:
     uv run python apps/test-app-qml/main.py {{ ARGS }}
 
+# Positional arguments keep a quoted value, such as a title with spaces, whole.
+# Run the GTK 3 test app (Linux; PyGObject comes with `just bootstrap`)
+[linux]
+[positional-arguments]
+run-test-app-gtk3 *ARGS:
+    uv run --no-sync python apps/test-app-gtk3/main.py "$@"
+
+# Positional arguments keep a quoted value, such as a title with spaces, whole.
 # Run the GTK 4 test app (Linux; PyGObject comes with `just bootstrap`)
 [linux]
+[positional-arguments]
 run-test-app-gtk4 *ARGS:
-    uv run --no-sync python apps/test-app-gtk4/main.py {{ ARGS }}
+    uv run --no-sync python apps/test-app-gtk4/main.py "$@"
 
 # ─── Java Agent (the artifact loaded INTO a target JVM) ────────────────────────
 

@@ -84,7 +84,7 @@ See proposal.md (Why). The facts below were read at `cda12175`. **Verified** mea
 | checkbox | `Gtk.CheckButton` | `Gtk.CheckButton` |
 | group with radios | `Gtk.Frame` labelled `groupbox-basic`, `Gtk.RadioButton`s | `Gtk.Frame`, grouped `Gtk.CheckButton`s |
 | text field / area | `Gtk.Entry` / `Gtk.TextView` | same |
-| label, plain text, image | `Gtk.Label`, a non-selectable `Gtk.Label`, `Gtk.Image` | `Gtk.Label`, `Gtk.Inscription`, `Gtk.Picture` |
+| label, plain text, image | `Gtk.Label`, a non-selectable `Gtk.Label`, `Gtk.Image` | `Gtk.Label`, `Gtk.Inscription`, `Gtk.Image` |
 | combo box | `Gtk.ComboBoxText` | `Gtk.DropDown` over a `Gtk.StringList` |
 | list | `Gtk.ListBox` | `Gtk.ListBox` |
 | tree | `Gtk.TreeView` over a `Gtk.TreeStore` | `Gtk.ListView` over a `Gtk.TreeListModel` with `Gtk.TreeExpander` |
@@ -98,7 +98,7 @@ See proposal.md (Why). The facts below were read at `cda12175`. **Verified** mea
 - **GTK 4 tree fallback:** the tree's expanded state and the names of its rows are the least certain part. If the real tree does not expose them, `Gtk.TreeView` is the documented fallback (spec, *One blueprint fixture per GTK major version*).
 - **Sizes:** the main window opens at 900×700 and `dialog-modeless` at 420×300.
 
-*Why `Gtk.Inscription` for GTK 4's plain text* (source, GTK 4.8+): it is GTK 4's text widget without label semantics, which is what the blueprint's "plain static text" distinguishes from a label. This is to be verified against the real tree. A plain `Gtk.Label` is the fallback.
+*Why `Gtk.Inscription` for GTK 4's plain text* (source, GTK 4.8+): it is GTK 4's text widget without label semantics, which is what the blueprint's "plain static text" distinguishes from a label. Verified on the real tree: it still surfaces with the label role, like `label-basic`, so the tree does not tell the two apart. The README records it as a deviation.
 
 ### 4. Windows are matched by title
 

@@ -183,11 +183,13 @@ PID-namespace checks cover the deployment in which PlatynUI and the application 
 | X11 own-window decision | `just test-x11-pidns` | Needs `Xvfb`. |
 | Wayland compositor identification | `just test-wayland-pidns` | The CLI in a sibling namespace of the compositor, through `scripts/wayland-sidecar-harness.sh`. Needs `dbus-run-session` and the AT-SPI binaries. |
 
-Test app recipes (the applications the acceptance lanes drive; the Qt, QML, and Swing apps have READMEs with the details):
+Test app recipes (the applications the acceptance lanes drive; the Qt, QML, GTK, and Swing apps have READMEs with the details):
 
 | Goal | Recipe | Notes |
 |---|---|---|
 | Run the QML test app | `just run-test-app-qml` | Starts `apps/test-app-qml` on the project venv (PySide6 is a dev dependency); extra arguments go to the app. |
+| Run the GTK 3 test app | `just run-test-app-gtk3` | Linux only. Starts `apps/test-app-gtk3` on the project venv (PyGObject comes with `just bootstrap`); extra arguments go to the app, quoted values stay whole. |
+| Run the GTK 4 test app | `just run-test-app-gtk4` | Linux only. Starts `apps/test-app-gtk4` on the project venv (PyGObject comes with `just bootstrap`); extra arguments go to the app, quoted values stay whole. |
 | Build the Swing test app | `just build-test-app-swing` | Gradle wrapper; only a `java` 8+ on `PATH` is needed — the Gradle JVM, the JDK 21 compile toolchain, and the Java 8 launch runtime self-provision (network access on the first build). Writes `apps/test-app-swing/build/java-launchers.properties`, from which the lane and the live checks take the Java 8 path. |
 | Run the Swing test app | `just run-test-app-swing` | Gradle `run` on the provisioned Java 8; on Windows the Java Access Bridge is enabled for this process only (no `jabswitch`, nothing persisted). Arguments mirror the Qt and egui apps; multi-word values need the Gradle wrapper directly (see the app README). |
 | Swing runtime smoke | `just test-test-app-swing-runtimes` | Builds the app, then starts it on the provisioned Java 8 and JDK 21 with `--auto-close 3`; a failure on either runtime fails the recipe. |

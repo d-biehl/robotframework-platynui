@@ -278,6 +278,8 @@ same blueprint.
   surface. Qt Quick/QML (`apps/test-app-qml`) is the **first full blueprint instance**:
   scene-graph rendering, `Accessible` attached properties, in-scene popups — and the home
   of the catalog suite's reference implementation (`tests/acceptance/qml/catalog.robot`).
+  GTK 3 and GTK 4 (`apps/test-app-gtk3`, `apps/test-app-gtk4`, PyGObject) cover GTK 3's
+  ATK bridge and GTK 4's own AT-SPI implementation with its popovers, on Linux only.
   Planned rows: SWT, JavaFX, and later WPF, Avalonia, and native Win32. Fixtures that
   predate the blueprint conform after their per-app retrofit changes; until then their
   historic names and suites stay valid.

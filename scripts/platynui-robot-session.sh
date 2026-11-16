@@ -107,15 +107,18 @@ export QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1
 echo "Qt test app: $PLATYNUI_TEST_APP_QT_PYTHON $PLATYNUI_TEST_APP_QT_MAIN (Robot Framework launches it)" >&2
 echo "QML test app: $PLATYNUI_TEST_APP_QML_PYTHON $PLATYNUI_TEST_APP_QML_MAIN (Robot Framework launches it)" >&2
 
-# The GTK 4 fixture runs on the project venv too (PyGObject is a Linux dev
-# dependency; GTK 4 and its typelib come from the system), launched directly for
+# The GTK fixtures run on the project venv too (PyGObject is a Linux dev
+# dependency; GTK and its typelibs come from the system), launched directly for
 # the same PID reason. GTK 4 implements AT-SPI itself: GTK_A11Y=atspi keeps a
-# host-wide GTK_A11Y=none from hiding it. NO_AT_BRIDGE would keep GTK 3's ATK
-# bridge from loading.
+# host-wide GTK_A11Y=none from hiding it. GTK 3 goes through its ATK bridge,
+# which NO_AT_BRIDGE would keep from loading.
+export PLATYNUI_TEST_APP_GTK3_PYTHON="$PROJECT_DIR/.venv/bin/python"
+export PLATYNUI_TEST_APP_GTK3_MAIN="$PROJECT_DIR/apps/test-app-gtk3/main.py"
 export PLATYNUI_TEST_APP_GTK4_PYTHON="$PROJECT_DIR/.venv/bin/python"
 export PLATYNUI_TEST_APP_GTK4_MAIN="$PROJECT_DIR/apps/test-app-gtk4/main.py"
 export GTK_A11Y=atspi
 unset NO_AT_BRIDGE
+echo "GTK 3 test app: $PLATYNUI_TEST_APP_GTK3_PYTHON $PLATYNUI_TEST_APP_GTK3_MAIN (Robot Framework launches it)" >&2
 echo "GTK 4 test app: $PLATYNUI_TEST_APP_GTK4_PYTHON $PLATYNUI_TEST_APP_GTK4_MAIN (Robot Framework launches it)" >&2
 
 # Under the PlatynUI compositor, suites read the compositor's own window list

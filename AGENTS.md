@@ -22,6 +22,7 @@ PlatynUI is a cross-platform UI automation toolkit for Robot Framework, built on
 	- `packages/native` — Maturin bindings (`platynui_native._native`)
 	- `packages/cli`, `packages/inspector` — Python wrappers around the Rust binaries
 	- `packages/provider-java` — pure-data wheel carrying the Java agent JAR (no Rust; excluded from the Cargo workspace)
+	- `apps/test-app-qt`, `apps/test-app-qml`, `apps/test-app-gtk3`, `apps/test-app-gtk4` — Python fixture apps (PySide6, PyGObject; excluded from the Cargo workspace)
 
 The Python native package (`packages/native`) is a Cargo workspace member (the root `Cargo.toml` has `members = ["crates/*", "apps/*", "packages/*"]`), so the workspace-wide gates — `just check` (`clippy --workspace`) and `just test` (`nextest --workspace`) — cover it; it is only *named* `platynui_native` (underscore) to follow Python conventions rather than the crates' `platynui-` prefix. `packages/provider-java` is the exception: it holds no Rust and is `exclude`d from the Cargo workspace. Platform/provider status (which OS is real, stub, or experimental, and which backend implements each capability) is in the platform support matrix of [`dev-docs/architecture.md`](dev-docs/architecture.md#platform-support-matrix) — consult it before promising behavior.
 

@@ -52,13 +52,13 @@
   - which pointer activations inside a popover miss with today's provider, recorded for `linux-element-geometry` 5.1.
 
   Run one popover test with a lower version handed to `Require GTK Version` and confirm that the failure message names both versions and the exclude flag. Commit the fixture and `catalog.robot` without the popover tests, which stay out of this change's commits while they fail. `linux-element-geometry` adds them in its task 5.1 and commits them with its task 5.4.
-- [ ] 3.6 Write `apps/test-app-gtk4/README.md`: usage, the widget choices, every verified deviation, the popover version requirement, and the naming of popover menu items with the GTK commits that drop and restore the names, noting that real applications on GTK 4.18 to 4.24.1 expose their menu items unnamed. Add the GTK 4 row to `dev-docs/testing-strategy.md` §5 and the fixture to `AGENTS.md` where it lists fixtures. Verify that the README's usage commands run as written.
-- [ ] 3.7 Run the whole GTK 4 tree on both lanes: `just headless=true test-acceptance-x11 -X --suite '*.Gtk4'` and the same with `test-acceptance-compositor`. Verify with `robotcode results` that all committed tests pass.
+- [x] 3.6 Write `apps/test-app-gtk4/README.md`: usage, the widget choices, every verified deviation, the popover version requirement, and the naming of popover menu items with the GTK commits that drop and restore the names, noting that real applications on GTK 4.18 to 4.24.1 expose their menu items unnamed. Add the GTK 4 row to `dev-docs/testing-strategy.md` §5 and the fixture to `AGENTS.md` where it lists fixtures. Verify that the README's usage commands run as written.
+- [x] 3.7 Run the whole GTK 4 tree on both lanes: `just headless=true test-acceptance-x11 -X --suite '*.Gtk4'` and the same with `test-acceptance-compositor`. Verify with `robotcode results` that all committed tests pass.
 - [ ] 3.8 Once `linux-element-geometry` task 5.4 is done, run the whole GTK 4 tree again on both lanes, now with the popover tests. Verify with `robotcode results` that all tests pass.
 
 ## 4. GTK 3 fixture
 
-- [ ] 4.1 Write `tests/acceptance/gtk3/` first, mirroring group 3:
+- [x] 4.1 Write `tests/acceptance/gtk3/` first, mirroring group 3:
   - `__init__.robot`;
   - `resources/gtk3app.resource`;
   - `catalog.robot` with the canonical test set and no version tag;
@@ -66,16 +66,17 @@
   - `modal.robot`.
 
   Verify that discovery lists them and that the lane fails them without the fixture.
-- [ ] 4.2 Export `PLATYNUI_TEST_APP_GTK3_PYTHON`/`_MAIN` and add `just run-test-app-gtk3` and its `mypy` invocation. Verify `just run-test-app-gtk3 --help`.
-- [ ] 4.3 Write `apps/test-app-gtk3/main.py` per design decisions 3–5, with every window's ATK name set to its title. Confirm each surfaced `@Name` in the real tree before relying on it. Verify on both lanes (`just headless=true test-acceptance-x11 --suite '*.Gtk3'` and the same with `test-acceptance-compositor`) that every test not using the pointer passes, and that the pointer tests fail by missing their target, not by a fixture error. The fixture is committed with `catalog.robot` without its pointer tests; those are added in `linux-element-geometry`'s commit for its task 5.4.
-- [ ] 4.4 Write `apps/test-app-gtk3/README.md` and add the GTK 3 row to `testing-strategy.md` §5. Verify that the README's usage commands run as written.
+- [x] 4.2 Export `PLATYNUI_TEST_APP_GTK3_PYTHON`/`_MAIN` and add `just run-test-app-gtk3` and its `mypy` invocation. Verify `just run-test-app-gtk3 --help`.
+- [x] 4.3 Write `apps/test-app-gtk3/main.py` per design decisions 3–5, with every window's ATK name set to its title. Confirm each surfaced `@Name` in the real tree before relying on it. Verify on both lanes (`just headless=true test-acceptance-x11 --suite '*.Gtk3'` and the same with `test-acceptance-compositor`) that every test not using the pointer passes, and that the pointer tests fail by missing their target, not by a fixture error. The fixture is committed with `catalog.robot` without its pointer tests; those are added in `linux-element-geometry`'s commit for its task 5.4.
+- [x] 4.4 Write `apps/test-app-gtk3/README.md` and add the GTK 3 row to `testing-strategy.md` §5. Verify that the README's usage commands run as written.
 - [ ] 4.5 Once `linux-element-geometry` task 5.4 is done, run the whole GTK 3 tree on both lanes: `just headless=true test-acceptance-x11 -X --suite '*.Gtk3'` and the same with `test-acceptance-compositor`. Verify with `robotcode results` that all tests pass.
 
 ## 5. CI
 
 - [ ] 5.1 In the acceptance job of `ci.yml`:
   - install `libgtk-3-0 libgtk-4-1 gir1.2-gtk-3.0 gir1.2-gtk-4.0`;
-  - print `pkg-config --modversion gtk4` into the log;
+  - print the GTK 3 and GTK 4 versions the fixtures load into the log, through PyGObject in the project venv
+    (`pkg-config --modversion gtk4` would need `libgtk-4-dev`, which the job does not install);
   - add the GTK fixtures' logs to the failure dump.
 
   Verify on a pushed branch that the GTK suites pass in both matrix entries and that the log shows a GTK 4 of at least 4.18.
