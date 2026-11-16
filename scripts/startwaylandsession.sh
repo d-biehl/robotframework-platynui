@@ -15,6 +15,10 @@ cleanup() {
     for mnt in "$WESTON_RUNTIME_DIR"/*/; do
       mountpoint -q "$mnt" 2>/dev/null && fusermount -u "$mnt" 2>/dev/null
     done
+    # Session services may stage read-only trees here (e.g. a file manager
+    # portal backend copying its QML files as r-x directories); rm cannot
+    # unlink entries of a read-only directory, so make the tree writable first.
+    chmod -R u+w "$WESTON_RUNTIME_DIR" 2>/dev/null
     rm -rf "$WESTON_RUNTIME_DIR"
   fi
 }
