@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Defines how the X11 backend finds an application's top-level windows and operates on them, both when an EWMH window manager runs on the display and when none does, so that window geometry, activation and hit-testing do not silently depend on one.
+Defines how the X11 backend finds an application's top-level windows and popups and operates on its windows, both when an EWMH window manager runs on the display and when none does, so that window geometry, popup geometry, activation and hit-testing do not silently depend on one.
 
 ## ADDED Requirements
 
@@ -49,6 +49,35 @@ With a window manager, an application's windows SHALL be the managed client wind
 - **WHEN** its window is looked up
 - **THEN** the lookup SHALL fail with an error that names the process ID
 - **NOTE** Real provider only.
+
+### Requirement: An application's popups are listed from the X server
+
+The X11 backend SHALL answer the popup query for a process with the viewable override-redirect children of the root window that carry a popup window type (menu, drop-down menu, popup menu, combo, tooltip) and the process's `_NET_WM_PID`, topmost first, with and without a window manager. A popup window without `_NET_WM_PID` SHALL NOT be listed.
+
+#### Scenario: An open GTK 4 submenu is listed above its menu
+
+- **GIVEN** the GTK 4 fixture with its `menu-edit` menu and the nested submenu `menu-edit-more` open
+- **WHEN** an item of the submenu is clicked by locator
+- **THEN** the item SHALL report the click, which needs the submenu's window to be listed first
+- **NOTE** Real provider only, on the X11 lane with and without a window manager, with GTK 4.18 or later. The filter and the order are also unit-tested over recorded window attributes.
+
+#### Scenario: Popups of other processes and windows without a process are not listed
+
+- **GIVEN** a root window with a popup window of another process, a popup window without `_NET_WM_PID`, an override-redirect window of no popup type, and one popup window of the process
+- **WHEN** the process's popups are listed
+- **THEN** the listing SHALL contain only the process's popup window
+- **NOTE** Unit test over recorded window attributes.
+
+### Requirement: An X11 popup's surface is its window
+
+A listed popup's surface SHALL be its window's rectangle. Its visible rectangle SHALL be that rectangle without the `_GTK_FRAME_EXTENTS` insets when the window has the property, and the whole rectangle otherwise.
+
+#### Scenario: A popup window with frame extents has a smaller visible rectangle
+
+- **GIVEN** a popup window at `(200,100)` of size 210×130 whose `_GTK_FRAME_EXTENTS` are 23 left, 23 right, 21 top and 25 bottom
+- **WHEN** its process's popups are listed
+- **THEN** its surface SHALL be `(200,100,210,130)` and its visible rectangle `(223,121,164,84)`
+- **NOTE** Unit test over a recorded property; the lanes run no compositing window manager, so GTK sets no frame extents there.
 
 ### Requirement: Windows of one process are told apart without screen positions
 

@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Defines how the AT-SPI provider places a node on the desktop: relative to the node's window, read in the coordinate type the node's toolkit implements consistently, and anchored at the window's origin as the platform reports it.
+Defines how the AT-SPI provider places a node on the desktop: relative to the node's window, read in the coordinate type the node's toolkit implements consistently, and anchored at the window's origin as the platform reports it. A popup the platform shows as a surface of its own counts as such a window.
 
 ## ADDED Requirements
 
 ### Requirement: An element is placed relative to its window
 
-The bounds of a node inside a window SHALL be the window's coordinate origin plus the node's position relative to that window, in desktop coordinates. The window is the nearest ancestor that is a top-level window or a grafted transient popup. A node's bounds SHALL NOT depend on the extents its ancestors between it and its window report.
+The bounds of a node inside a window SHALL be the window's coordinate origin plus the node's position relative to that window, in desktop coordinates. The window is the nearest ancestor that is a top-level window or a popup matched to the platform's popup list (see *A popup is placed where the platform shows it*). A node's bounds SHALL NOT depend on the extents its ancestors between it and its window report.
 
 #### Scenario: A click on a nested button lands on it
 
@@ -30,6 +30,50 @@ The bounds of a node inside a window SHALL be the window's coordinate origin plu
 - **WHEN** one of its items is clicked by locator
 - **THEN** the click SHALL land on that item
 - **NOTE** Real provider only. The popup's own bounds come from the source `compositor-popup-geometry` specifies; the Qt context-menu acceptance suite covers this on both lanes.
+
+### Requirement: A popup is placed where the platform shows it
+
+A node SHALL be a popup when it is a transient popup grafted under its application or when it reports the AT-SPI popup layer, as GTK 4 popovers do. A popup matched to a listed popup of the platform (see *A popup is matched to the platform's popup by its surface*) SHALL have the listed visible rectangle as its own bounds. Its descendants SHALL be placed at the listed surface's origin plus their position relative to the popup node.
+
+#### Scenario: An item of a GTK 4 submenu is clicked where it is drawn
+
+- **GIVEN** the GTK 4 fixture with its `menu-edit` menu and the nested submenu `menu-edit-more` open
+- **WHEN** an item of the submenu is clicked by locator
+- **THEN** the item SHALL report the click through the `last-action-<ident>` label
+- **NOTE** Real provider only, on both Linux lanes, with GTK 4.18 or later (`requires:gtk-4.18`). GTK 4 measures a nested popover from the item that opened it, about 100 px from where it is drawn.
+
+#### Scenario: An item of a GTK 4 drop-down is selected where it is drawn
+
+- **GIVEN** the GTK 4 fixture's `combobox-basic` with its list open
+- **WHEN** an item of the list is clicked by locator
+- **THEN** the list SHALL close with that item selected
+- **NOTE** Real provider only, on both Linux lanes, with GTK 4.18 or later.
+
+#### Scenario: A popup with a shadow is matched by its surface
+
+- **GIVEN** a node on the popup layer of size 204×128, and a listed popup of the same process whose visible rectangle is `(265,179,158,82)` on a surface `(242,158,204,128)`
+- **WHEN** the bounds of the node and of a descendant 23 px right of and 21 px below the node are read
+- **THEN** the node's bounds SHALL be `(265,179,158,82)`
+- **AND** the descendant SHALL start at `(265,179)`
+- **NOTE** Unit test with geometry sources that answer directly; the numbers are a measured GTK 4 submenu under the PlatynUI compositor.
+
+### Requirement: A popup is matched to the platform's popup by its surface
+
+A popup's geometry SHALL come from the platform's popup list for its process. The popup SHALL be matched by its own size against the size of each listed popup's surface, and the first match in the list SHALL win: the most recently opened or topmost popup. A popup that matches no listed popup SHALL be placed like any other node of its window.
+
+#### Scenario: Popups of equal size resolve to the first one listed
+
+- **GIVEN** two listed popups of one process with surfaces of the same size, and one node on the popup layer of that size
+- **WHEN** the node's bounds are read
+- **THEN** they SHALL come from the popup listed first
+- **NOTE** Unit test.
+
+#### Scenario: A popup the platform does not list keeps its window placement
+
+- **GIVEN** a node on the popup layer whose size matches no listed popup of its process, or a platform without a popup list
+- **WHEN** its bounds are read
+- **THEN** it SHALL be placed relative to its top-level window like any other node
+- **NOTE** Unit test.
 
 ### Requirement: A toolkit is read in the coordinate type it implements consistently
 

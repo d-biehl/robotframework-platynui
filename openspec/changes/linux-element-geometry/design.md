@@ -58,6 +58,16 @@ Measured on 2026-11-10 with GTK 3.24.52, GTK 4.24.1, Qt 5.15.19, Qt 6.11.2 and A
 | Qt 5.15 MDI | ❌ | ❌ | ✅ |
 | egui 0.37, compositor | ❌ | ✅ | ✅ |
 
+**GTK 4 popovers** (measured on 2026-11-16 with GTK 4.24.1 and the `add-gtk-test-app` fixture, on both lanes).
+
+- A popover hangs in the tree under the widget that opened it, not under the application: a menu-bar menu under its menu-bar item, a nested submenu under the item that opens it, a drop-down list under its combo box. A context menu is one popover; its submenus slide inside it. Nested popovers come from menu bars.
+- It reports the popup layer (`Component.GetLayer`). In the fixture, the popovers are the only nodes that do, besides the windows, which report the window layer. Its role is `Menu` for a popover menu and `ListBox` for a drop-down.
+- Its size equals its platform popup surface:
+  - **X11:** an override-redirect window of type `_NET_WM_WINDOW_TYPE_MENU` carrying the process's `_NET_WM_PID`, of exactly the node's size (165×108 and 162×82).
+  - **Compositor:** the xdg_popup surface includes GTK's shadow, which the rectangle `list_popups` reports excludes. A 207×156 node had a 161×110 rectangle, a 204×128 node a 158×82 one, with an inset of `(23,21)`. The popover's first child, its content, does not match either: 158×78 against 158×82 for the nested submenu.
+- Its position is wrong, in `WINDOW` and `PARENT` alike, because GTK measures it from the widget that opened it without its own placement. A nested submenu's first item was reported at `(130,58)` and drawn at `(234,144)`. First-level popovers were off by a few pixels on X11 and by about 20 under the compositor.
+- Positions *inside* a popover are right. The popup's origin plus (item `WINDOW` − popover `WINDOW`) clicked both items of the nested submenu on both lanes.
+
 The probe scripts and logs are not in the repository. Each measurement is repeated as an acceptance scenario of this change.
 
 ## Goals / Non-Goals
@@ -74,7 +84,6 @@ The probe scripts and logs are not in the repository. Each measurement is repeat
 - Non-EWMH reparenting window managers. Their root children are frames, so the lookup without a window manager finds nothing there, and the existing substitution path applies.
 - Generic Wayland compositors without global positions.
 - Toolkit bugs that make a coordinate type wrong for a subset of nodes:
-  - GTK 4 popovers before 4.18;
   - Qt < 6.5 popups the compositor moved;
   - offscreen GTK 3 widgets.
 
@@ -85,7 +94,7 @@ The probe scripts and logs are not in the repository. Each measurement is repeat
 
 ### 1. A node is placed relative to its window, never by summing its ancestors
 
-A node's *reference window* is its nearest ancestor that is a real top-level window or a grafted transient popup, the same predicates as today (`node.rs:284-295`). Its bounds are the reference window's origin plus its own offset inside that window. The offset comes from one `GetExtents` call on the node itself, plus the reference window's own extents, which are cached on the window node. The parent-chain step (`resolve_extents_via_parent_chain`) goes.
+A node's *reference window* is its nearest ancestor that is a real top-level window or a popup (decision 5). A real top-level keeps today's predicate (`node.rs:284-295`). Its bounds are the reference window's origin plus its own offset inside that window. The offset comes from one `GetExtents` call on the node itself, plus the reference window's own extents, which are cached on the window node. The parent-chain step (`resolve_extents_via_parent_chain`) goes.
 
 - *Why:* every failure in the proposal comes from the chain. Toolkits that answer `PARENT` with `SCREEN` multiply positions, and a container without a box ends the chain. The window is the only reference all toolkits agree on, and it is what Orca uses (`ax_component.py`, `WINDOW` throughout) and what the AT-SPI successor drafts keep (`devel-docs/new-protocol.rst`:66-72).
 - *Rejected:*
@@ -153,9 +162,32 @@ The provider picks the origin for a toolkit. GTK 4 counts from its border box, s
 
 - **Keep the hint and correct inside the platform.** It splits toolkit knowledge across crates and already produced the GTK 3 mismatch: the shadow correction is GTK 4-only, but the GTK 3 position includes the shadow.
 
-### 5. Grafted popups and substitutes are reference windows like any other
+### 5. Popups and substitutes are reference windows like any other
 
-A grafted transient popup is its items' reference window. Its origin is its own bounds: on Wayland the compositor's popup rectangle (unchanged), on X11 its `SCREEN` extents. When the window manager cannot answer for a top-level, the substitute (the window's `SCREEN` extents, logged once as today, `extents.rs:116-150`) is the reference window's bounds and origin. Re-basing then gives every element its raw `SCREEN` value, which is what the substitution requirement promises: a best effort, covered by the window's warning.
+A *popup* is a node the platform shows as a surface of its own. Two kinds are recognized:
+
+- a grafted transient popup, by today's predicate (`node.rs:284-295`): Qt's context menus;
+- a node that reports the popup layer (`Component.GetLayer`): GTK 4's popovers, which stay in the tree under the widget that opened them.
+
+A popup is its descendants' reference window. Its geometry comes from the platform's popup list for its process, `WindowManager::popups(pid)`. The list gives each popup's visible rectangle and its surface rectangle, the two facts decision 4 gives for a window, most recently opened or topmost first.
+
+- **PlatynUI compositor:** `list_popups` adds the popup surface's origin and size to the placed rectangle it reports today. The difference is the shadow GTK draws around a popover. Qt popups have none, so both rectangles are the same.
+- **X11:** the viewable override-redirect windows of a popup type (menu, drop-down, combo, tooltip) whose `_NET_WM_PID` is the process's, topmost first. They are the windows the hit-test's popup pass already finds (`window_manager.rs:586-623`), and they are root children with and without a window manager. The window is the surface. The visible rectangle subtracts `_GTK_FRAME_EXTENTS`, as for a top-level (decision 4). A popup window without `_NET_WM_PID` cannot be attributed to a process and is not listed.
+
+Rules:
+
+- A popup node is matched by its own size against the surface sizes, within 2 px as today. On a tie, the first one listed wins.
+- A matched popup's own `Bounds` are the visible rectangle. Its descendants are placed at the surface origin plus their offset from the popup node, read in their toolkit's coordinate type (decision 2).
+- When nothing matches, the node is placed like any other node of its window, as today. This covers a toolkit whose popup layer marks no surface of its own and a platform without the query. On X11 it keeps Qt's context menus at their `SCREEN` extents when their window carries no `_NET_WM_PID`, and those are right on X11.
+- **Hit-test:** a hit inside a popup wins over every hit outside it, and a hit inside a popup wins over one in the popup it was opened from. Grafted popups already win this way (`lib.rs:533-577`). The smallest box alone is not enough, because a label beneath a menu item can be smaller than the item.
+
+When the window manager cannot answer for a top-level, the substitute (the window's `SCREEN` extents, logged once as today, `extents.rs:116-150`) is the reference window's bounds and origin. Re-basing then gives every element its raw `SCREEN` value, which is what the substitution requirement promises: a best effort, covered by the window's warning.
+
+- *Why the surface size:* the popover node is the surface. The visible rectangle excludes GTK's shadow, and the popover's content node matches neither rectangle (Context).
+- *Rejected:*
+  - **Recognize popovers by role.** GTK 4 gives them `Menu` and `ListBox`, and other popovers carry other roles.
+  - **Pair popovers with the platform's popups by order.** A tooltip is a popup too and shifts the pairing.
+  - **Correct GTK's offsets.** For a nested popover they miss its whole placement, about 100 px measured. Nothing in the tree tells how far.
 
 ### 6. X11 decides its window mode once per runtime
 
@@ -198,17 +230,21 @@ This mirrors the Wayland matcher (`platynui_ipc.rs:326-386`). A Qt dialog whose 
   - A profile `real-x11-bare` in `robot.toml` uses it, with a recipe `just test-acceptance-x11-bare`. It is part of `just test-acceptance` on Linux and of the CI matrix, which already installs Xvfb.
   - Two tags select suites. `window-manager:required` marks tests that need minimize, maximize or restore; `real-x11-bare` excludes them. `window-manager:none` marks the suite for the bare behavior; every other profile excludes it.
 - **Qt MDI:** `apps/test-app-qt` gets an MDI scenario beside its catalog, as `testing-strategy.md` §5 allows for scenario surfaces: a `--mdi` flag that puts the catalog page into a `QMdiSubWindow` offset inside the main window. It gets its own suite.
-- **GTK 3 and GTK 4:** the fixtures come from the separate change `add-gtk-test-app`, which is applied first. Its GTK 3 catalog's pointer tests fail until decisions 1–5 are in, and they are committed with them. This change needs three things from the fixtures:
+- **GTK 3 and GTK 4:** the fixtures come from the separate change `add-gtk-test-app`, which is applied first. Its GTK 3 catalog's pointer tests and its GTK 4 popover tests fail until decisions 1–5 are in, and they are committed with them. This change needs four things from the fixtures:
   - a main window with a header bar;
   - the blueprint's group with its radio buttons;
-  - a modeless dialog of a different size from the main window.
+  - a modeless dialog of a different size from the main window;
+  - in GTK 4, a menu bar with a nested submenu and a drop-down, the blueprint's menu and combo box.
 
 ## Risks / Trade-offs
 
 - **[GTK 4 offsets drift by CSS border and padding]** The source suggests that `WINDOW` sums border boxes while the transform targets content boxes (research, `gtkwidget.c`:4279-4288). The measured button click landed, but a small control inside a padded parent could be off by a few pixels. → A task measures a label inside a padded button. A drift becomes a documented toolkit limitation, not a correction in PlatynUI.
 - **[`_GTK_FRAME_EXTENTS` on X11 is not measured]** The lanes run icewm without compositing, so GTK draws no shadow there. → It is implemented from the GTK source, unit-tested on a recorded property, and named as unverified in the platform doc until a compositing X11 run confirms it.
 - **[Qt with client-side decorations]** Qt's coordinates start inside its own decorations (qtwayland 6.8, comment at 918-923). The compositor reports `ssd` for Qt on the lanes (measured), so the surface origin is right there. Under a compositor that forces client-side decorations, Qt elements would be off by the title bar. → Out of scope (generic compositors). The Wayland doc states the assumption.
-- **[Toolkit limitations stay wrong]** GTK 4 popovers before 4.18, Qt < 6.5 popups that the compositor moved, and Java's ATK wrapper (`-1` for unowned frames). → They are listed in `platform-linux-wayland.md` as limitations. The default-plus-guard rule keeps the rest right.
+- **[Toolkit limitations stay wrong]** Qt < 6.5 popups that the compositor moved, and Java's ATK wrapper (`-1` for unowned frames). → They are listed in `platform-linux-wayland.md` as limitations. The default-plus-guard rule keeps the rest right.
+- **[A popover's surface size under the compositor is inferred]** On X11 the popover node and its window are the same size (measured). Under the compositor only the visible rectangle was measured, and the surface size follows from it and GTK's shadow inset. → The compositor task asserts it on a GTK 4 popover before the provider relies on it. If it does not hold, the match falls back to today's path and the GTK 4 popover tests show it.
+- **[GTK 4 before 4.18 is not measured]** Before 4.18 GTK also misses the popover's offset from its parent (GTK commit 3b68c1ea). The new rule does not need that offset, but whether those versions report the popup layer is unknown. CI is not affected, because its runner is Ubuntu 26.04 with GTK 4.22, but developers on Ubuntu 24.04 run GTK 4.14. → `add-gtk-test-app`'s `requires:gtk-4.18` tag stays until an older GTK is measured (Open Questions).
+- **[Popup windows without `_NET_WM_PID` on X11]** Some toolkits leave the property off menus (comment at `window_manager.rs:585`). → They are not listed and keep the existing path. For Qt that path is correct on X11.
 - **[Activation without a window manager races the map]** → It waits until the window is viewable (decision 7). The acceptance suite activates a window that was unmapped.
 - **[Merge with `x11-atspi-healthy-run-warnings`]** Both changes edit `find_xid_for_pid` and the bundle factory. → The second to land rebases. That change's debug records for a failed lookup also apply to the bare candidate list.
 - **[`add-avalonia-test-app` popups on X11]** A `PopupRoot` that is a top-level `Frame` but not a managed window still takes the main window's bounds when the main window is the process's only candidate. Its items are now placed by their own `SCREEN` extents on X11 (decision 3), so their clicks land even then. → That change's risk entry is updated when it is applied.
@@ -219,7 +255,7 @@ This mirrors the Wayland matcher (`platynui_ipc.rs:326-386`). A Qt dialog whose 
 - **Behavioral, not additive.** Element bounds change for the toolkits listed in the proposal, GTK 3 windows' own bounds change under the compositor, and X11 without a window manager gains behavior. No keyword, attribute name or configuration key changes.
 - **Native rebuild:** yes. `just build-native` after the provider and platform crates change. No Python change.
 - **Order:**
-  1. the trait and both Linux platforms with their unit tests;
+  1. the trait and both Linux platforms with their unit tests, including the popup list;
   2. the provider composition with its unit tests, with the GTK 3 catalog's pointer tests as its first acceptance tests;
   3. the lanes: egui compositor, Qt MDI, GTK, X11 bare.
 - **Rollback:** revert the change's commits. No state, file format or setting depends on them.
@@ -227,3 +263,4 @@ This mirrors the Wayland matcher (`platynui_ipc.rs:326-386`). A Qt dialog whose 
 ## Open Questions
 
 - **How large is the GTK 4 drift (first risk)?** Measuring it decides only whether the platform doc lists a limitation. The rule stays the same.
+- **Do GTK 4 versions before 4.18 report the popup layer for popovers?** If they do, decision 5 places their popovers too, and `add-gtk-test-app` can drop `requires:gtk-4.18`. Measuring needs a GTK 4.14 environment, such as an Ubuntu 24.04 container. It changes no decision of this change.
