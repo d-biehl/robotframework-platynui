@@ -8,6 +8,8 @@ Thanks for helping build PlatynUI! This guide describes how to get set up, our c
 - [cargo-nextest](https://nexte.st): Test runner behind `just test`, `just test-crate`, and the other Rust test recipes. Install with `cargo install cargo-nextest --locked` or `cargo binstall cargo-nextest`.
 - Windows: the MSVC build tools (Visual Studio or its Build Tools with the C++ workload). The Windows acceptance lane also needs their x86 libraries and the `i686-pc-windows-msvc` target (§8).
 - Linux: the system packages the CI jobs install ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)); the acceptance job lists what the X11 and compositor lanes need on top.
+  - `just bootstrap` builds PyGObject, the bindings of the GTK test apps, from source, because PyPI has no Linux wheels for it. That needs a C compiler, `pkg-config`, girepository-2.0 and cairo headers, on Debian/Ubuntu `sudo apt install libgirepository-2.0-dev libcairo2-dev pkg-config gcc`. `just bootstrap` checks them first and names what is missing. girepository-2.0 comes with GLib 2.80, so distributions with an older GLib, such as Ubuntu 22.04 or Debian 12, cannot set up the environment.
+  - The GTK test apps also need GTK 3, GTK 4 and their introspection data at run time, on Debian/Ubuntu `sudo apt install libgtk-3-0 libgtk-4-1 gir1.2-gtk-3.0 gir1.2-gtk-4.0`.
 - Python: 3.12+ and uv >= 0.11.7. Do not use pip directly in this repo.
 - Java, only for the Java agent, the Swing test app, and the Windows acceptance lane: any `java` 8 or newer on `PATH`. The Gradle wrappers provision the rest themselves, which needs network access on the first build. `just build-native` needs no JDK.
 - [just](https://github.com/casey/just): Task runner for common dev workflows. Install with `cargo install just`, `brew install just`, `winget install Casey.Just`, `scoop install just`, or your system package manager (`pacman -S just`, `apt install just`, etc.).
@@ -22,7 +24,7 @@ Set up the environment:
 just bootstrap
 ```
 
-This creates `.venv`, or brings it up to date, with an exact `uv sync`: the dev tools (ruff, mypy, pytest, maturin, pre-commit, RobotCode with Robot Framework, PySide6 for the Qt test apps) and the third-party dependencies of every workspace package, but none of the workspace packages themselves. Build what you need next: `just build-native` for the real desktop (the test recipes build their own `mock-provider` variant) and, for Java work, `just install-provider-java`. Because the sync is exact, a later `just bootstrap` removes those builds again — and every push runs one through the `pre-push` hook. [Run PlatynUI from a source checkout](#run-platynui-from-a-source-checkout) lists everything that undoes this setup.
+This creates `.venv`, or brings it up to date, with an exact `uv sync`: the dev tools (ruff, mypy, pytest, maturin, pre-commit, RobotCode with Robot Framework, PySide6 for the Qt test apps, and on Linux PyGObject for the GTK test apps) and the third-party dependencies of every workspace package, but none of the workspace packages themselves. Build what you need next: `just build-native` for the real desktop (the test recipes build their own `mock-provider` variant) and, for Java work, `just install-provider-java`. Because the sync is exact, a later `just bootstrap` removes those builds again — and every push runs one through the `pre-push` hook. [Run PlatynUI from a source checkout](#run-platynui-from-a-source-checkout) lists everything that undoes this setup.
 
 ## 2) Project layout (quick orientation)
 

@@ -145,10 +145,13 @@ behavior under test.
 **Platform scoping is selection, never a runtime skip.** A suite (or single test) that can
 only run on one platform declares that with a tag — `platform:x11`, `platform:wayland`,
 `platform:windows` — via `Test Tags` (suite-wide, inherited from an `__init__.robot` by
-all child suites) or `[Tags]` (per test). No platform tag means the suite runs on **every**
+all child suites) or `[Tags]` (per test). A suite that needs Linux but runs in either Linux
+session, such as the GTK fixtures' suites, carries
+`platform:linux`. No platform tag means the suite runs on **every**
 lane. Each lane then selects through its `robot.toml` profile, which inherits `real`
 (selecting `acceptance` AND `real`) and *excludes the foreign platforms' tags* —
-`real-x11`, `real-wayland`, `real-windows` — so untagged suites always stay in. The profile is
+`real-x11`, `real-wayland`, `real-windows` — so untagged suites always stay in;
+`platform:linux` is foreign only to `real-windows`. The profile is
 the whole entry point: on Linux it also carries the `wrapper` command prefix that establishes
 its session, so selecting `real-wayland` selects both the compositor session and the suites that
 belong in it — from the shell, from `just`, and from the editor alike. (`real-windows` needs no
@@ -165,6 +168,19 @@ Two rules follow, and they are strict:
   setup: fail with an actionable message naming the `just` recipe that provisions it (see
   `Require Swing Prerequisites` in `tests/acceptance/swing/resources/testapp.resource`
   as the model).
+
+**A minimum toolkit version is selection too.** A test that needs at least a given toolkit
+release carries `requires:<toolkit>-<version>` — today `requires:gtk-4.18` on the GTK 4
+fixture's tests that open a popover (every menu, the context menu and the drop-down),
+because older GTK 4 releases leave a popover's offset out of their accessible tree and
+PlatynUI's popover placement is not verified there. No profile excludes the tag, and CI
+runs these tests, so its runner image has to ship a toolkit at least that new. A machine
+with an older toolkit, such as Ubuntu 24.04 with GTK 4.14, passes
+`--exclude requires:gtk-4.18`. A test selected on an older toolkit anyway fails at its
+setup with the installed version, the required one and the tag to exclude. It never
+skips: the installed
+version differs between machines on the same lane, so a skip there would be exactly the
+environment probing banned above.
 
 The one sanctioned skip in the acceptance lanes is the fixture blueprint's **documented
 technology limitation** (§5.1): a catalog test a technology's bridge provably

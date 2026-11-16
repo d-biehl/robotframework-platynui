@@ -69,8 +69,38 @@ default:
 # ─── Bootstrap ──────────────────────────────────────────────────────────────────
 
 # Bootstrap the full development environment
-bootstrap:
+bootstrap: _check-pygobject-build-deps
     uv sync --dev --all-packages --all-groups --all-extras --no-install-workspace
+
+# PyGObject (the GTK test apps' bindings) has no Linux wheels, so `uv sync` builds
+# it from source. Check its build dependencies first, so a missing one is named
+# here instead of failing deep inside the meson log of the build.
+[linux]
+_check-pygobject-build-deps:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    missing=()
+    command -v cc >/dev/null || missing+=("a C compiler (gcc)")
+    if ! command -v pkg-config >/dev/null; then
+        missing+=("pkg-config")
+    else
+        pkg-config --exists girepository-2.0 || missing+=("girepository-2.0 >= GLib 2.80 (libgirepository-2.0-dev)")
+        pkg-config --exists cairo || missing+=("cairo (libcairo2-dev)")
+    fi
+    if (( ${#missing[@]} )); then
+        list=$(printf '%s, ' "${missing[@]}")
+        echo "PyGObject is built from source on Linux and needs: ${list%, }." >&2
+        echo "On Debian/Ubuntu: sudo apt install libgirepository-2.0-dev libcairo2-dev pkg-config gcc" >&2
+        exit 1
+    fi
+
+[windows]
+_check-pygobject-build-deps:
+    @Write-Output "PyGObject is Linux-only; nothing to check."
+
+[macos]
+_check-pygobject-build-deps:
+    @echo "PyGObject is Linux-only; nothing to check."
 
 # ─── Build ──────────────────────────────────────────────────────────────────────
 
@@ -205,6 +235,7 @@ mypy:
     uv run mypy
     uv run mypy --no-warn-unused-configs apps/test-app-qt/main.py
     uv run mypy --no-warn-unused-configs apps/test-app-qml/main.py
+    uv run mypy --no-warn-unused-configs apps/test-app-gtk4/main.py
     uv run mypy --no-warn-unused-configs apps/large-tree-qt/main.py apps/large-tree-qt/measure_snapshot_memory.py
 
 # Run all checks (format, clippy, ruff, mypy)
@@ -403,6 +434,11 @@ build-win32-test-window-x86:
 # dependency, installed by `uv sync`). Extra args are forwarded to the app.
 run-test-app-qml *ARGS:
     uv run python apps/test-app-qml/main.py {{ ARGS }}
+
+# Run the GTK 4 test app (Linux; PyGObject comes with `just bootstrap`)
+[linux]
+run-test-app-gtk4 *ARGS:
+    uv run --no-sync python apps/test-app-gtk4/main.py {{ ARGS }}
 
 # ─── Java Agent (the artifact loaded INTO a target JVM) ────────────────────────
 

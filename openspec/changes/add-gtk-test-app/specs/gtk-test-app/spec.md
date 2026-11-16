@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Defines the GTK 3 and GTK 4 fixture apps: blueprint-conforming catalogs built from each version's standard widgets, the window shape that geometry tests rely on, how the lanes start them, and the GTK 4 version below which popovers are not placed correctly.
+Defines the GTK 3 and GTK 4 fixture apps: blueprint-conforming catalogs built from each version's standard widgets, the window shape that geometry tests rely on, how the lanes start them, the GTK 4 version its popover tests require, and the names of GTK 4's popover menu items.
 
 ## ADDED Requirements
 
@@ -141,25 +141,43 @@ The GTK suites SHALL carry `platform:linux` and run on the X11 lane and under th
 
 ### Requirement: GTK 4 popover tests require GTK 4.18
 
-Tests of the GTK 4 fixture that open a popover, which covers every menu, the context menu and the drop-down, SHALL carry `requires:gtk-4.18`, because GTK 4 places popovers correctly only from 4.18 on. When such a test is selected on an older GTK 4, its setup SHALL fail with the installed version and the tag to exclude.
+Tests of the GTK 4 fixture that open a popover, which covers every menu, the context menu and the drop-down, SHALL carry `requires:gtk-4.18`, because before 4.18 GTK 4 misses a popover's offset in its accessible tree and PlatynUI's placement of popovers is not verified there. When such a test is selected on an older GTK 4, its setup SHALL fail with the installed version and the tag to exclude.
 
 #### Scenario: A menu test runs on a current GTK 4
 
 - **GIVEN** GTK 4.18 or later
 - **WHEN** the GTK 4 catalog's menu-bar test runs
 - **THEN** activating `menu-file-new` makes `last-action-menu-file-new` resolvable
-- **NOTE** Real provider only, both Linux lanes, on a machine with GTK ≥ 4.18.
+- **NOTE** Real provider only, both Linux lanes, on a machine with GTK ≥ 4.18. Passes once `linux-element-geometry` places popovers where the platform shows them.
 
 #### Scenario: A menu test on an older GTK 4 fails with guidance
 
 - **GIVEN** GTK 4.14
 - **WHEN** a test tagged `requires:gtk-4.18` is selected
 - **THEN** it fails at its setup with a message naming GTK 4.14, the required 4.18 and `--exclude requires:gtk-4.18`
-- **NOTE** Verified once at implementation by a CI run that does not exclude the tag (Ubuntu 24.04 ships GTK 4.14); the regular CI run excludes it.
+- **NOTE** Verified at implementation with a lower version handed to the version check, because no lane machine runs GTK 4.14; Ubuntu 24.04 ships it.
 
-#### Scenario: CI excludes the tag while its GTK 4 is older
+#### Scenario: CI runs the popover tests
 
-- **GIVEN** a CI runner image whose GTK 4 is older than 4.18
+- **GIVEN** the CI runner image, Ubuntu 26.04 with GTK 4.22
 - **WHEN** the acceptance job runs a Linux lane
-- **THEN** no test tagged `requires:gtk-4.18` is selected, and every other GTK test runs
+- **THEN** the tests tagged `requires:gtk-4.18` are selected and run with the other GTK tests
 - **NOTE** Checked in the CI run's results.
+
+### Requirement: The GTK 4 fixture names its popover menu items
+
+The GTK 4 fixture SHALL give every menu-bar and context-menu item its label as its accessible name, the items of submenus included, and the context menu's popover the name `context-menu`. The catalog SHALL find each item by its canonical `@Name` below the named menu it belongs to, also on GTK 4.18 to 4.24.1, which leave the items unnamed.
+
+#### Scenario: A submenu item is found by its name
+
+- **GIVEN** GTK 4.24.1 and the GTK 4 fixture with `menu-edit` open and its submenu `menu-edit-more` open
+- **WHEN** `menu-edit-sub-one` is looked up by `@Name` below `menu-edit` and `menu-edit-more`
+- **THEN** it SHALL be found
+- **NOTE** Real provider only, both Linux lanes; the catalog's submenu test, whose locators resolve before each click.
+
+#### Scenario: A context-submenu item is found by its name
+
+- **GIVEN** GTK 4.24.1 and the GTK 4 fixture with its context menu open and the submenu `ctx-more` slid in
+- **WHEN** `ctx-sub-alpha` is looked up by `@Name` below `context-menu`
+- **THEN** it SHALL be found
+- **NOTE** Real provider only, both Linux lanes; the catalog's context-submenu test.

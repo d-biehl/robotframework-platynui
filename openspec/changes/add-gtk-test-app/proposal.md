@@ -33,12 +33,15 @@ The fixture matrix has no GTK app, although GTK is the toolkit of most Linux des
   - A fixture that cannot start because PyGObject or a GTK typelib is missing fails the suite with the package that fixes it.
 - **A Linux-only platform tag.** The GTK suites carry `platform:linux`, which the Windows lane excludes and both Linux lanes keep. The tag vocabulary had no way to say "both Linux lanes, not Windows".
 - **A tag for a minimum toolkit version.**
-  - GTK 4 places popovers correctly only from 4.18 on (GTK commit 3b68c1ea), and every GTK 4 menu, context menu and drop-down is a popover.
+  - Every GTK 4 menu, context menu and drop-down is a popover. Before 4.18 GTK misses a popover's offset from its parent (GTK commit 3b68c1ea), and whether `linux-element-geometry` can place popovers there is not measured.
   - Tests that open one carry `requires:gtk-4.18`. A run on an older GTK 4 that still selects them fails at their setup with the installed version and the tag to exclude.
-  - CI excludes the tag while its runner image ships an older GTK 4 (Ubuntu 24.04 ships 4.14). Local runs on a current GTK keep the tests.
+  - CI keeps the tests: its runner image is Ubuntu 26.04, which ships GTK 4.22. The tag protects development machines with an older GTK 4, such as Ubuntu 24.04 with 4.14.
+- **Popover menu items named by the fixture.**
+  - GTK 4.18 to 4.24.1 exposes popover menu items without accessible names (fixed in GTK commit fa085fe1 for 4.25, backported as 361abc89 for 4.24.2).
+  - The GTK 4 fixture names every menu and context-menu item by its label each time its popover opens, so the catalog finds every item by its canonical name, as with every other fixture.
 - **CI.**
   - The Linux jobs that sync the environment install the PyGObject build dependencies.
-  - The acceptance job also installs the GTK runtime and typelibs, and excludes `requires:gtk-4.18`.
+  - The acceptance job also installs the GTK runtime and typelibs.
   - The failure log dump includes the GTK fixtures' logs.
 - **Docs:**
   - `dev-docs/testing-strategy.md` §5 (the matrix rows) and §2.6 (`platform:linux`, `requires:`);
@@ -57,7 +60,7 @@ Contributor-facing change: `just bootstrap` and every `uv sync` on Linux now nee
   - the header bar and dialog geometry other changes rely on;
   - the PyGObject environment and its failure message;
   - the Linux lanes;
-  - the GTK 4 popover version requirement.
+  - the GTK 4 popover version requirement and the names of popover menu items.
 
 ### Modified Capabilities
 
@@ -78,11 +81,11 @@ Contributor-facing change: `just bootstrap` and every `uv sync` on Linux now nee
   - `.github/workflows/ci.yml`;
   - the docs listed above.
 - **No Rust or Python library code changes, no native rebuild.**
-- **Platforms:** Linux only, on X11 and under the PlatynUI compositor, where GTK 3 and GTK 4 run natively on Wayland. GTK has no accessibility on Windows, and macOS has no acceptance lane.
+- **Platforms:** Linux only, on X11 and under the PlatynUI compositor, where GTK 3 and GTK 4 run natively on Wayland. GTK on Windows and macOS is out of scope: GTK 3 has no accessibility there, and GTK 4 only through its AccessKit backend, which GTK builds without by default.
 - **Order with `linux-element-geometry`:**
   - This change is applied first, and both fixtures and all their suites are built here.
-  - The GTK 4 catalog passes on both lanes with today's provider, and so do the GTK 3 catalog's tests that do not use the pointer.
-  - The GTK 3 catalog's pointer tests miss until `linux-element-geometry`'s provider rework, because GTK 3 elements are placed by summing positions GTK 3 reports as screen values. They are committed with that rework, as its first failing tests.
+  - The GTK 4 catalog's tests that open no popover pass on both lanes with today's provider, and so do the GTK 3 catalog's tests that do not use the pointer.
+  - The GTK 3 catalog's pointer tests miss until `linux-element-geometry`'s provider rework, because GTK 3 elements are placed by summing positions GTK 3 reports as screen values. The GTK 4 popover tests miss for the same reason: GTK 4 reports popover positions measured from the widget that opened them. Both are committed with that rework, as its first failing tests.
   - This change is archived after them.
 - **Coordination:**
   - `linux-element-geometry` also changes `acceptance-lane-selection` (its bare X11 profile and `window-manager:` tags). The change archived second merges both deltas.

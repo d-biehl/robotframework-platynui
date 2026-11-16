@@ -28,11 +28,15 @@ See proposal.md (Why). The facts below were read at `cda12175`. **Verified** mea
 
 **GTK 4 deprecations in 4.10** (source: GTK 4 release notes): `GtkTreeView`, `GtkComboBox`/`GtkComboBoxText`, `GtkDialog`, `GtkTreeStore`/`GtkListStore` and others. Their replacements are list models with `GtkListView`/`GtkColumnView` and `GtkTreeListModel`, `GtkDropDown`, and plain `GtkWindow`s with `modal` and `transient-for`.
 
-**GTK 4 popovers** (source, `linux-element-geometry` research):
+**GTK 4 popovers** (verified with GTK 4.24.1 and this fixture on 2026-11-10 and 2026-11-16, unless marked source):
 
-- Before 4.18, a popover's position relative to its parent widget is missing from its accessible bounds (GTK commit 3b68c1ea, MR !8181).
-- GTK 4 menu bars, context menus (`GtkPopoverMenu`) and `GtkDropDown` all open popovers.
-- `ubuntu-latest` is the CI runner (`.github/workflows/ci.yml:257`) and is Ubuntu 24.04 with GTK 4.14 (assumed from the runner image's package versions; task 6.1 records the real one).
+- GTK 4 menu bars, context menus (`GtkPopoverMenu`) and `GtkDropDown` all open popovers. A popover hangs in the tree under the widget that opened it: a menu-bar menu under its menu-bar item, a nested submenu under the item that opens it, a drop-down list under its combo box. A context menu hangs under the widget it is parented to. There is no window node for a popover; the application's children are its windows only.
+- A context menu is one popover. Its submenus slide inside it. Nested popovers come from menu bars.
+- **Names:** from 4.18 to 4.24.1 a popover menu item has no accessible name. Its label carries the presentation role, and GTK's label code skips the name for that role (source: `gtklabel.c` from 4.18). GTK fixed it in commit fa085fe1 (MR !10510, in 4.25.0) and backported it as 361abc89 for 4.24.2, which is not released yet. The label is not on the tree either, so nothing below the item carries its text. Before 4.18 the items are named. Drop-down rows are named by the fixture's list factory and are not affected.
+- **Naming an item:** an item is a model button (CSS name `modelbutton`) with its label as its `text` property, and a `LABEL` set on it names it. Set while the popover is built, the name lasts only on items without an action, those that open a submenu. Set when the popover maps, it lasts on every item. The back item at the top of a slid-in context submenu is a model button too, with the submenu's label as its text.
+- **Placement:** GTK reports a popover's position measured from the widget that opened it, without its own placement. A nested submenu item was reported about 100 px from where it was drawn, first-level popovers a few pixels to about 20 px off. Before 4.18 the offset from the parent is missing too (source: GTK commit 3b68c1ea, MR !8181). `linux-element-geometry` places popovers from the platform's popup windows instead, recognized by the popup layer GTK 4 reports for them. Whether GTK before 4.18 reports that layer is not measured.
+- **PyGObject:** `Gdk.Rectangle(x=…, y=…)` ignores its arguments (a deprecation warning says so), so a context menu pointed at such a rectangle opens at its parent's origin. The fields are set one by one.
+- `ubuntu-latest` is the CI runner of the acceptance job (`.github/workflows/ci.yml:261`). The CI run of 2026-11-10 ran it on the image `ubuntu-26.04` (verified in the job log), and Ubuntu 26.04 ships GTK 4.22 (source: Ubuntu package archive; task 5.1 prints the installed version). Ubuntu 24.04 ships GTK 4.14, so developers on it run an older GTK 4 than CI.
 
 ## Goals / Non-Goals
 
@@ -44,7 +48,7 @@ See proposal.md (Why). The facts below were read at `cda12175`. **Verified** mea
 **Non-Goals:**
 
 - The extended tier's table, the custom-controls chapter, and libadwaita widgets.
-- GTK on Windows or macOS. Neither GTK 3 nor GTK 4 exposes an accessibility tree to UIA or AX.
+- GTK on Windows or macOS. GTK 3 exposes no accessibility tree there, and GTK 4 only through its AccessKit backend, which GTK builds without by default.
 - GTK 4's AccessKit backend (`GTK_A11Y=accesskit`), which is off by default.
 - Any PlatynUI provider change. Defects the fixtures reveal go to the provider changes that own them, `linux-element-geometry` first.
 
@@ -90,7 +94,7 @@ See proposal.md (Why). The facts below were read at `cda12175`. **Verified** mea
 
 - **Names, GTK 3:** set through the widget's ATK object (`get_accessible().set_name`), for windows too. That covers the empty name a header bar produced (Context).
 - **Names, GTK 4:** set through `Gtk.Accessible.update_property` with `LABEL`.
-- **Menu items, GTK 4:** a `Gio.Menu` item gets its accessible name from its label. Its label is therefore the canonical name, and its action reports the last action.
+- **Menu items, GTK 4:** a `Gio.Menu` item's label is its canonical name, and its action reports the last action under that name. GTK names the item after its label except from 4.18 to 4.24.1 (Context), so the fixture names every item itself (decision 9).
 - **GTK 4 tree fallback:** the tree's expanded state and the names of its rows are the least certain part. If the real tree does not expose them, `Gtk.TreeView` is the documented fallback (spec, *One blueprint fixture per GTK major version*).
 - **Sizes:** the main window opens at 900×700 and `dialog-modeless` at 420×300.
 
@@ -124,14 +128,14 @@ Either prints one line and exits with code 2. The launcher waits for the main wi
   - `real-windows` excludes it, and both Linux profiles keep it.
   - Both GTK suite trees carry it suite-wide in `__init__.robot`.
 - **`requires:gtk-4.18`:**
-  - It marks every GTK 4 test that opens a popover: the menu bar, submenu, context-menu, context-submenu and combo-box tests of the catalog.
+  - It marks every GTK 4 test that opens a popover: the menu bar, submenu, context-menu, context-submenu and combo-box tests of the catalog. Below 4.18, GTK misses the popover's offset, and whether `linux-element-geometry` can place its popovers there is not measured (Context).
   - The GTK 4 launcher resource gets a test setup, `Require GTK Version`. It reads `native:Application.Version` from the pinned application node and compares it with the version in the test's `requires:gtk-*` tag. A lower version fails with the installed version, the required one and `--exclude requires:gtk-4.18`.
-  - CI passes `--exclude requires:gtk-4.18` to the Linux lane recipes while the runner image is older. A comment in `ci.yml` says when to drop the flag.
+  - CI runs the tagged tests, because its GTK 4 is newer than 4.18 (Context). The tag serves development machines with an older GTK 4.
 
 *Rejected:*
 
 - **A documented skip.** `acceptance-lane-selection` allows a skip only for a limitation that holds on every machine of a lane. This one depends on the installed GTK.
-- **Leaving the tests out until CI has a newer GTK.** Local runs on current distributions would lose coverage that works there.
+- **No tag, because CI is new enough.** A developer on Ubuntu 24.04 would see the popover tests fail without being told why.
 
 ### 8. Session and lane wiring
 
@@ -141,13 +145,34 @@ Either prints one line and exits with code 2. The launcher waits for the main wi
 - `justfile` gets `run-test-app-gtk3` and `run-test-app-gtk4`.
 - CI installs the PyGObject build dependencies in every Linux job that syncs the environment. The acceptance job also installs `libgtk-3-0`, `libgtk-4-1`, `gir1.2-gtk-3.0` and `gir1.2-gtk-4.0`.
 
+### 9. The fixture names its popover menu items
+
+On GTK 4.18 to 4.24.1 a popover menu item has no accessible name (Context). The fixture gives every menu-bar and context-menu item its label as its `LABEL`, the name GTK computes itself on the other releases. The catalog then finds every item by `@Name`, as in every other fixture, through the named menu it belongs to: `menu-file` → `menu-file-new`, `menu-edit` → `menu-edit-more` → `menu-edit-sub-one`, and `context-menu` → `ctx-copy`. A submenu's popover hangs below the item that opens it, so the path follows the menu as the user opens it. A context submenu slides into its popover, so its items are found below `context-menu` too.
+
+- The fixture finds the items as the model buttons below each popover and names each one by its `text`.
+- It names the context menu's popover `context-menu`, the blueprint's name for it.
+- It names them each time a popover maps, because a name set while the popover is built does not last on items with an action (Context).
+- The back item of a slid-in context submenu carries the submenu's name, `ctx-more`. The first page leaves the tree while the submenu is shown, so the name stays unique.
+
+On a GTK with the fix the step changes nothing. The README names the GTK commits and says that real applications on 4.18 to 4.24.1 expose their menu items unnamed.
+
+*Rejected:*
+
+- **Finding items by their position inside the open popover.** It works, but the locators get long and depend on GTK's tree shape: where a popover hangs, and the back item of a slid-in submenu. The catalog would also need an exception from the blueprint's name-only locators.
+- **A provider fallback that names an item from its label.** The label is not on the tree, and the gap is GTK's to fix, not PlatynUI's.
+- **Custom item widgets in the menu (`custom` attribute) to carry names.** They are not the menu items users automate.
+- **Requiring GTK 4.24.2.** It is not released, and 4.18 to 4.24.1 is what current distributions ship.
+
 ## Risks / Trade-offs
 
 - **[A heavier Linux dev environment]** Every Linux contributor needs four more apt packages, and a first `uv sync` takes longer while PyGObject builds. → `just bootstrap` names the packages (decision 2), and `CONTRIBUTING.md` lists them. uv's wheel cache makes later syncs fast.
 - **[Older distributions cannot build current PyGObject]** GLib < 2.80 fails the build. → Documented as unsupported for the development environment. Pinning PyGObject < 3.51 would instead require girepository-1.0 on current systems.
 - **[GTK 4 list-model widgets expose less than the old ones]** The tree's expansion state and the drop-down's items may not surface as the blueprint needs. → Each is verified against the real tree before its test is written. A gap uses the deprecated widget or a name-based observable, and the README documents the choice (spec).
 - **[The GTK 3 catalog's pointer tests need `linux-element-geometry`]** → This change is applied first. The GTK 3 pointer tests are written and run here, stay out of this change's commits while they fail, and are committed with `linux-element-geometry`'s provider rework (proposal, Order).
-- **[CI exercises no GTK 4 popover]** While the runner's GTK is older than 4.18, menus, context menus and the drop-down run only locally. → The `ci.yml` comment and `testing-strategy.md` §2.6 say so. Moving the acceptance job to a newer runner image ends it.
+- **[The GTK 4 popover tests need `linux-element-geometry`]** GTK 4 reports popover positions wrongly (Context), so pointer actions inside a popover miss until that change places popovers from the platform. Some first-level clicks land by chance. → The popover tests are written and run here, stay out of this change's commits, and are committed with `linux-element-geometry`'s provider rework, like the GTK 3 pointer tests.
+- **[The fixture hides GTK's naming defect]** The catalog does not show that real applications on GTK 4.18 to 4.24.1 expose unnamed menu items. → The README says so. The provider stays unchanged, so PlatynUI reports such applications as they are.
+- **[The naming relies on GTK internals]** The model button's CSS name and `text` property are not public API. → If a release changes them, the items lose their names again and the menu tests fail at their locators, not silently.
+- **[`ubuntu-latest` moves again]** A future runner image could ship a GTK whose popovers behave differently. → Task 5.1 prints the installed GTK 4 version into the log, so a change is visible next to a failing popover test.
 - **[GTK 3's empty window name returns elsewhere]** Dialogs with header bars could show the same effect. → Decision 4 names every GTK 3 window explicitly, and the catalog's dialog test finds dialogs by name.
 
 ## Migration Plan
@@ -156,7 +181,7 @@ Either prints one line and exits with code 2. The launcher waits for the main wi
 - **Native rebuild:** none.
 - **Order:**
   1. the environment (dependency, bootstrap check, CI packages);
-  2. the GTK 4 fixture and its suites;
+  2. the GTK 4 fixture and its suites, with its popover tests committed together with `linux-element-geometry`'s provider rework;
   3. the GTK 3 fixture and its suites, with its pointer tests committed together with `linux-element-geometry`'s provider rework;
   4. the docs.
 - **Rollback:** revert the change's commits. No state depends on them. The dev dependency goes away with the next `uv sync`.

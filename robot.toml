@@ -2,7 +2,7 @@ paths = "tests"
 # log-level = "TRACE"
 
 # ---------------------------------------------------------------------------
-# Tags encode three ORTHOGONAL dimensions; profiles select by combining them:
+# Tags encode four ORTHOGONAL dimensions; profiles select by combining them:
 #
 #   Test level:        `acceptance` — drives a fixture app end-to-end through
 #                      real providers (tests/acceptance/*). Other levels (e.g.
@@ -15,9 +15,19 @@ paths = "tests"
 #                      built-in mock tree instead of the real platform provider.
 #                      Pair the build with the tag/profile (CI: a job per lane).
 #   Platform binding:  `platform:x11` / `platform:wayland` / `platform:windows`
-#                      on platform-bound suites/tests. No platform tag = runs on
-#                      every lane. Each lane profile below selects by EXCLUDING
-#                      the foreign platforms' tags, so untagged suites stay in.
+#                      on platform-bound suites/tests, and `platform:linux` for
+#                      what needs Linux but either Linux session (the GTK
+#                      fixtures). No platform tag = runs on every lane. Each lane
+#                      profile below selects by EXCLUDING the foreign platforms'
+#                      tags, so untagged suites stay in; `platform:linux` is
+#                      foreign only to `real-windows`.
+#   Toolkit version:   `requires:<toolkit>-<version>` (e.g. `requires:gtk-4.18`)
+#                      on tests that need at least that toolkit release. No
+#                      profile excludes them: a run on an older toolkit passes
+#                      `--exclude requires:<toolkit>-<version>` (CI does, while
+#                      its runner is older), and a test selected anyway fails at
+#                      its setup naming both versions — it never skips, because
+#                      the installed version differs between machines.
 #
 # Environment fitness is decided here, by selection — never by runtime
 # `Skip If` guards inside a suite (see dev-docs/testing-strategy.md).
@@ -70,9 +80,9 @@ excludes = ["platform:x11", "platform:windows"]
 wrapper = ["scripts/startcompositor.sh", "--", "scripts/platynui-robot-session.sh"]
 
 [profiles.real-windows]
-description = "Real lane on the Windows desktop (excludes x11/wayland-only suites)"
+description = "Real lane on the Windows desktop (excludes x11/wayland/linux-only suites)"
 inherits = ["real"]
-excludes = ["platform:x11", "platform:wayland"]
+excludes = ["platform:x11", "platform:wayland", "platform:linux"]
 
 # Mock lane: drive the PlatynUI.BareMetal library against the built-in mock tree.
 # Deterministic, needs no display, runs on any OS. REQUIRES the mock-provider
