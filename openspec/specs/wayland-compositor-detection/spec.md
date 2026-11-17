@@ -124,7 +124,7 @@ The warning SHALL NOT flood the log. It SHALL be emitted at most once per top-le
 
 This requirement and *A gated capability reports unavailable instead of success* answer different questions and do not conflict. A gated capability is an action — highlight, screenshot, a window operation — and reporting success for it would claim an effect that did not happen, so it reports unavailable. Reading a window's bounds is a read that has a best-effort answer: on X11 the toolkit's geometry is in real screen coordinates, while on Wayland it is relative to the window itself and therefore off by the window's position. Bounds therefore keep the best-effort value and say in the log that it is one; gated actions do not pretend to have acted. On Wayland the warning is what makes the substituted value diagnosable at all. The window manager's own call still fails by name as *An identified PlatynUI session is not silently downgraded* requires; this requirement governs what the consumer of that failure does with a window's bounds.
 
-Nodes whose geometry does not come from the window manager are unaffected: a node inside a window SHALL be placed relative to its ancestors and SHALL NOT be warned about separately — its window's warning covers it — and a transient popup SHALL use the geometry source specified for popups.
+Nodes whose geometry does not come from the window manager are unaffected: a node inside a window SHALL be placed relative to its window, with the window's substituted bounds as the origin while the window manager cannot answer, and SHALL NOT be warned about separately — its window's warning covers it — and a transient popup SHALL use the geometry source specified for popups.
 
 #### Scenario: A top-level window whose window manager is unusable keeps its fallback bounds and is reported
 
@@ -153,8 +153,8 @@ Nodes whose geometry does not come from the window manager are unaffected: a nod
 
 - **GIVEN** a control inside a window, and a transient popup surfaced in the tree
 - **WHEN** their bounds are read while the window manager is unusable
-- **THEN** each SHALL keep reporting the geometry its own source provides, and neither SHALL produce a substitution warning of its own
-- **NOTE** Real provider only. The rule is about the window's position on screen, which only the window manager knows; ancestor-relative placement and popup geometry are answers in their own right, not substitutes.
+- **THEN** the control SHALL be placed at its window-relative position from the window's substituted bounds, the popup SHALL keep the geometry its own source provides, and neither SHALL produce a substitution warning of its own
+- **NOTE** Real provider only. The rule is about the window's position on screen, which only the window manager knows; the window-relative position and popup geometry are answers in their own right, not substitutes.
 
 ### Requirement: The compositor identification and its basis are recorded
 

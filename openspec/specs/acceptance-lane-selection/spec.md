@@ -23,12 +23,34 @@ Acceptance suites and tests SHALL declare platform-bound behavior via the tag vo
 - **WHEN** the egui acceptance suites run on their matching lane
 - **THEN** no test or suite setup evaluates `XDG_SESSION_TYPE` (or any equivalent environment probe) to skip
 
+### Requirement: Window-manager requirements are declared as tags
+
+A test that needs operations only a window manager provides, such as minimizing, maximizing or restoring a window, SHALL carry `window-manager:required`. A test of the behavior without a window manager SHALL carry `window-manager:none`. Lane profiles SHALL select by these tags; a suite SHALL NOT probe for a window manager at runtime.
+
+#### Scenario: A test that minimizes a window is not run without a window manager
+
+- **GIVEN** a test tagged `window-manager:required`
+- **WHEN** the bare X11 lane runs
+- **THEN** the test is not selected, and the report contains no trace of it
+- **NOTE** Discovery with the `real-x11-bare` profile shows it.
+
+#### Scenario: The behavior without a window manager runs only there
+
+- **GIVEN** a test tagged `window-manager:none`
+- **WHEN** the X11, Wayland and Windows lanes each run
+- **THEN** the test is not selected on any of them
+- **NOTE** Discovery with each profile shows it.
+
 ### Requirement: Lane profiles select by excluding foreign platforms
-`robot.toml` SHALL define lane profiles `real-x11`, `real-wayland`, and `real-windows` that inherit the `real` profile and exclude the *other* platforms' tags, so untagged suites always remain selected. The plain `real` profile SHALL remain the runnable parent that selects every acceptance suite. Profiles SHALL select *within* the suite tree and SHALL NOT reshape it: no profile may narrow `paths`, because a narrower root directory renames the root suite and shifts every longname with the profile — which breaks any caller that resolved a longname without it, an editor test tree above all.
+`robot.toml` SHALL define lane profiles `real-x11`, `real-x11-bare`, `real-wayland`, and `real-windows` that inherit the `real` profile and exclude the *other* platforms' tags, so untagged suites always remain selected. `real-x11-bare` is the X11 lane without a window manager: it excludes the same platform tags as `real-x11` and also `window-manager:required`; every other profile excludes `window-manager:none`. The plain `real` profile SHALL remain the runnable parent that selects every acceptance suite. Profiles SHALL select *within* the suite tree and SHALL NOT reshape it: no profile may narrow `paths`, because a narrower root directory renames the root suite and shifts every longname with the profile — which breaks any caller that resolved a longname without it, an editor test tree above all.
 
 #### Scenario: Lane profile filters exactly the foreign platform tags
 - **WHEN** `robotcode --profile real-x11 discover tests` runs
 - **THEN** every suite/test tagged `platform:wayland` or `platform:windows` is absent, and every untagged or `platform:x11`-tagged one is present
+
+#### Scenario: The bare X11 lane leaves out what needs a window manager
+- **WHEN** `robotcode --profile real-x11-bare discover tests` runs
+- **THEN** every suite/test tagged `window-manager:required`, `platform:wayland` or `platform:windows` is absent, every `window-manager:none`-tagged one is present, and `robotcode --profile real-x11 discover tests` lists no `window-manager:none`-tagged test
 
 #### Scenario: Dead suites are discoverable, not hidden
 - **GIVEN** a suite whose platform tag no lane includes (e.g. a typo like `platform:x12`)
@@ -40,7 +62,7 @@ Acceptance suites and tests SHALL declare platform-bound behavior via the tag vo
 - **THEN** it carries the identical longname in all three, so a longname taken from one selection selects that test under any other
 
 ### Requirement: Lane profiles establish their session
-The lane profile SHALL be the entry point of an acceptance run: selecting it SHALL select both the suites (via the platform-tag excludes) and the session they need. Each Linux lane profile in `robot.toml` (`real-x11`, `real-wayland`) SHALL therefore carry a `wrapper` command prefix that establishes its session, and RobotCode SHALL execute the run through it. `scripts/platynui-robot-session.sh` SHALL be the tail of that wrapper chain: it prepares the environment (accessibility bus, fixture builds, fixture hand-over variables) and executes the RobotCode command line appended to it in the foreground with stdio passed through and its exit code propagated. It SHALL NOT choose a profile itself and SHALL NOT be invoked directly. The Windows acceptance recipe, which establishes no isolated session, SHALL keep defaulting to `real-windows`.
+The lane profile SHALL be the entry point of an acceptance run: selecting it SHALL select both the suites (via the platform-tag excludes) and the session they need. Each Linux lane profile in `robot.toml` (`real-x11`, `real-x11-bare`, `real-wayland`) SHALL therefore carry a `wrapper` command prefix that establishes its session — for `real-x11-bare` an X11 session in which no window manager runs — and RobotCode SHALL execute the run through it. `scripts/platynui-robot-session.sh` SHALL be the tail of that wrapper chain: it prepares the environment (accessibility bus, fixture builds, fixture hand-over variables) and executes the RobotCode command line appended to it in the foreground with stdio passed through and its exit code propagated. It SHALL NOT choose a profile itself and SHALL NOT be invoked directly. The Windows acceptance recipe, which establishes no isolated session, SHALL keep defaulting to `real-windows`.
 
 #### Scenario: Selecting the lane profile establishes its session
 - **GIVEN** the project root as the working directory
