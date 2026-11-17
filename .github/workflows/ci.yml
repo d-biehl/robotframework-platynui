@@ -361,6 +361,17 @@ jobs:
             echo
           done
 
+      # The console shows only which test failed. log.html also records where each
+      # pointer action landed and what the providers logged during the test.
+      - name: Upload Robot Framework results on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: acceptance-results-${{ matrix.backend }}
+          path: results/
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: RF test summary
         if: always()
         continue-on-error: true
