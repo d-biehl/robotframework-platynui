@@ -21,7 +21,7 @@ PlatynUI tests GTK on Linux, on X11 and natively on Wayland.
   `sudo apt install libgirepository-2.0-dev libcairo2-dev pkg-config gcc`.
   girepository-2.0 comes with GLib 2.80, so a distribution with an older GLib cannot build
   it.
-- **GTK 4 and its introspection data** at run time, on Debian/Ubuntu
+- **GTK 4.18 or later and its introspection data** at run time, on Debian/Ubuntu
   `sudo apt install libgtk-4-1 gir1.2-gtk-4.0`.
 
 A missing prerequisite stops the app before any window opens, with one line naming what is
@@ -103,7 +103,7 @@ suites address controls by `@Name` alone.
   its launch title and the dialogs are titled with their canonical names. Both are `Frame`
   nodes. The application node is named after the program, `main.py`.
 - **Version on the tree:** the application node reports GTK's version
-  (`native:Application.Version`). The suites' `Require GTK Version` test setup reads it.
+  (`native:Application.Version`).
 - **Duplicated names:** a button's, check box's or radio button's inner label carries the
   control's name too, and the drop-down's inner toggle button repeats `combobox-basic`.
   A name query's first match is the control itself, which comes first in document order.
@@ -137,8 +137,7 @@ Locators therefore go through the named menu, as the user opens it:
 **Menu item names.** From GTK 4.18 to 4.24.1 a popover menu item has no accessible name.
 Its label is built with the presentation role, and GTK's label code skips the name for
 that role, so nothing below the item carries its text either. GTK fixed it in commit
-`fa085fe1` (MR !10510, GTK 4.25.0) and backported it as `361abc89` for 4.24.2. Before 4.18
-the items are named.
+`fa085fe1` (MR !10510, GTK 4.25.0) and backported it as `361abc89` for 4.24.2.
 
 The fixture names every item by its label itself, each time its popover opens: an item is
 a model button (CSS name `modelbutton`) with its label as its `text`, and a `LABEL` set
@@ -152,12 +151,6 @@ The drop-down's rows are named by the fixture's list factory, through each row's
 accessible label, as a real application names them. Its button shows the selection in a
 presentational label, so a closed drop-down keeps no element named like the selected
 item.
-
-**Version requirement.** The tests that open a popover carry `requires:gtk-4.18`. Older GTK
-4 releases leave a popover's offset from its parent out of their accessible tree. On a
-machine with an older GTK 4, such as Ubuntu 24.04 with GTK 4.14, run the suites with
-`--exclude requires:gtk-4.18`; a tagged test selected anyway fails at its setup, naming
-the installed and the required version.
 
 **Placement.** GTK 4 reports a popover's position measured from the widget that opened it,
 without the popover's own placement: a nested submenu item was reported about 100 px from

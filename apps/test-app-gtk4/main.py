@@ -19,10 +19,9 @@ What other suites rely on beyond the catalog:
   their parent.
 - ``groupbox-basic`` holds ``radio-first`` and ``radio-second``.
 
-Every menu, the context menu and the drop-down is a popover. Older GTK 4 releases leave a
-popover's offset out of their accessible tree, so the suites tag the tests that open one
-``requires:gtk-4.18``. GTK 4.18 to 4.24.1 also exposes popover menu items without names,
-so the fixture names each item by its label itself.
+It needs GTK 4.18 or later. Every menu, the context menu and the drop-down is a popover.
+GTK 4.18 to 4.24.1 exposes popover menu items without names, so the fixture names each
+item by its label itself.
 
 Usage
 -----

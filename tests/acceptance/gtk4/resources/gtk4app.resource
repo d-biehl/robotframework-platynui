@@ -60,25 +60,3 @@ Launch GTK4 Test App
 Terminate GTK4 Instance
     [Documentation]    Suite Teardown: terminate the instance started by Launch GTK4 Test App.
     Run Keyword And Ignore Error    Terminate Process    ${GTK4_APP_HANDLE}
-
-Require GTK Version For Tagged Tests
-    [Documentation]    Test Setup: a test tagged ``requires:gtk-<version>`` fails here when the
-    ...    fixture runs on an older GTK 4, naming both versions and the tag to exclude. It never
-    ...    skips — the installed GTK differs between machines on the same lane (see
-    ...    dev-docs/testing-strategy.md §2.6).
-    FOR    ${tag}    IN    @{TEST TAGS}
-        IF    $tag.startswith("requires:gtk-")
-            Require GTK Version    ${{ $tag.removeprefix("requires:gtk-") }}
-        END
-    END
-
-Require GTK Version
-    [Documentation]    Fail unless the fixture's GTK is at least ``required`` (``major.minor``).
-    ...    ``installed`` defaults to the version the fixture's application node reports.
-    [Arguments]    ${required}    ${installed}=${None}
-    IF    $installed is None
-        ${installed}=    BM.Get Attribute Value    .    native:Application.Version
-    END
-    IF    ${{ tuple(int(p) for p in $installed.split(".")[:2]) < tuple(int(p) for p in $required.split(".")[:2]) }}
-        Fail    GTK ${installed} is older than the required GTK ${required}. Run with --exclude requires:gtk-${required} on this machine.
-    END

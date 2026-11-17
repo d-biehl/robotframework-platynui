@@ -23,7 +23,7 @@ The fixture matrix has no GTK app, although GTK is the toolkit of most Linux des
 - **PyGObject in the project environment.**
   - `PyGObject` joins the dev dependency group with a Linux-only marker.
   - `uv sync` builds it from source, because PyPI ships no Linux wheels. Every Linux development machine and every Linux CI job that syncs the environment therefore needs its build dependencies: a C compiler, `pkg-config`, `libgirepository-2.0-dev` (GLib ≥ 2.80) and `libcairo2-dev`.
-  - Running the fixtures also needs GTK 3, GTK 4 and their introspection data (`gir1.2-gtk-3.0`, `gir1.2-gtk-4.0`).
+  - Running the fixtures also needs GTK 3, GTK 4.18 or later, and their introspection data (`gir1.2-gtk-3.0`, `gir1.2-gtk-4.0`).
   - Windows and macOS do not install it.
 - **Lane wiring on both Linux lanes.**
   - `tests/acceptance/gtk3/` and `tests/acceptance/gtk4/` each hold:
@@ -32,10 +32,7 @@ The fixture matrix has no GTK app, although GTK is the toolkit of most Linux des
   - `scripts/platynui-robot-session.sh` hands the fixtures over as `PLATYNUI_TEST_APP_GTK3_PYTHON`/`_MAIN` and `PLATYNUI_TEST_APP_GTK4_PYTHON`/`_MAIN`. The suites launch the venv interpreter directly, so `@ProcessId` pins the fixture's own process.
   - A fixture that cannot start because PyGObject or a GTK typelib is missing fails the suite with the package that fixes it.
 - **A Linux-only platform tag.** The GTK suites carry `platform:linux`, which the Windows lane excludes and both Linux lanes keep. The tag vocabulary had no way to say "both Linux lanes, not Windows".
-- **A tag for a minimum toolkit version.**
-  - Every GTK 4 menu, context menu and drop-down is a popover. Before 4.18 GTK misses a popover's offset from its parent (GTK commit 3b68c1ea), and whether `linux-element-geometry` can place popovers there is not measured.
-  - Tests that open one carry `requires:gtk-4.18`. A run on an older GTK 4 that still selects them fails at their setup with the installed version and the tag to exclude.
-  - CI keeps the tests: its runner image is Ubuntu 26.04, which ships GTK 4.22. The tag protects development machines with an older GTK 4, such as Ubuntu 24.04 with 4.14.
+- **GTK 4.18 or later.** The GTK 4 fixture supports no older release, so its suites need no version tag or version check. CI's runner image, Ubuntu 26.04, ships GTK 4.22.
 - **Popover menu items named by the fixture.**
   - GTK 4.18 to 4.24.1 exposes popover menu items without accessible names (fixed in GTK commit fa085fe1 for 4.25, backported as 361abc89 for 4.24.2).
   - The GTK 4 fixture names every menu and context-menu item by its label each time its popover opens, so the catalog finds every item by its canonical name, as with every other fixture.
@@ -44,7 +41,7 @@ The fixture matrix has no GTK app, although GTK is the toolkit of most Linux des
   - The acceptance job also installs the GTK runtime and typelibs.
   - The failure log dump includes the GTK fixtures' logs.
 - **Docs:**
-  - `dev-docs/testing-strategy.md` §5 (the matrix rows) and §2.6 (`platform:linux`, `requires:`);
+  - `dev-docs/testing-strategy.md` §5 (the matrix rows) and §2.6 (`platform:linux`);
   - `CONTRIBUTING.md` (prerequisites, recipes);
   - each fixture's README with its verified deviations;
   - `AGENTS.md` where it lists the fixtures.
@@ -60,12 +57,12 @@ Contributor-facing change: `just bootstrap` and every `uv sync` on Linux now nee
   - the header bar and dialog geometry other changes rely on;
   - the PyGObject environment and its failure message;
   - the Linux lanes;
-  - the GTK 4 popover version requirement and the names of popover menu items.
+  - the supported GTK 4 versions and the names of popover menu items.
 
 ### Modified Capabilities
 
 - `acceptance-lane-selection`:
-  - *Platform requirements are declared as tags* gains `platform:linux`, and a new requirement covers toolkit version tags (`requires:<toolkit>-<version>`);
+  - *Platform requirements are declared as tags* gains `platform:linux`;
   - *Lane profiles select by excluding foreign platforms* makes `real-windows` exclude `platform:linux`.
 
 ## Impact

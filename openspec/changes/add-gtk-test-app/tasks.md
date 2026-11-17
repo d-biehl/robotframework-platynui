@@ -10,8 +10,8 @@
 
 ## 2. Selection
 
-- [x] 2.1 In `robot.toml`, add `platform:linux` to `real-windows`' excludes and describe `platform:linux` and the `requires:<toolkit>-<version>` tags in the tag-dimension comment. Verify `uv run --no-sync robotcode --profile real-windows discover tests` lists the same tests as before.
-- [x] 2.2 `dev-docs/testing-strategy.md` §2.6: `platform:linux`, and `requires:` tags as selection (excluded where the version is missing; a selected test fails at setup). Verify the section names both tags and says that CI runs `requires:gtk-4.18` while a machine with an older GTK 4, such as Ubuntu 24.04, excludes it. Written first with the assumption that CI excludes the tag; the runner turned out to be Ubuntu 26.04 (design.md, Context).
+- [x] 2.1 In `robot.toml`, add `platform:linux` to `real-windows`' excludes and describe `platform:linux` in the tag-dimension comment. Verify `uv run --no-sync robotcode --profile real-windows discover tests` lists the same tests as before.
+- [x] 2.2 `dev-docs/testing-strategy.md` §2.6: `platform:linux`. Verify the section names the tag.
 
 ## 3. GTK 4 fixture
 
@@ -20,8 +20,7 @@
   - `resources/gtk4app.resource` modelled on `qmlapp.resource`:
     - launch by venv interpreter, pin by `@ProcessId`, wait by title;
     - fail with the fixture log when the process exits first;
-    - the `Require GTK Version` setup for tests tagged `requires:gtk-*`.
-  - `catalog.robot` with the blueprint's canonical test set. Its menu, submenu, context-menu, context-submenu and combo-box tests are tagged `requires:gtk-4.18`.
+  - `catalog.robot` with the blueprint's canonical test set.
   - Tests from the `gtk-test-app` spec:
     - the main window found by `--title`;
     - `--bogus` failing fast;
@@ -46,13 +45,13 @@
   ```
 
   and the same with `test-acceptance-compositor`. Also run the fixture once by hand with `GI_TYPELIB_PATH` set to an empty directory and record the message.
-- [x] 3.4 Add the remaining core-tier controls and the slider, progress bar and tab control per design decision 3, with the modeless dialog at 420×300 and the modal dialog. Before each test is relied on, confirm each surfaced `@Name` in the real tree with the Inspector or `Get Attribute Value`. Use the deprecated widget or a name-based observable only where the current widget does not expose what the test needs, and note it for the README. Verify every test of `catalog.robot` and `modal.robot` not tagged `requires:gtk-4.18` passes on both lanes.
+- [x] 3.4 Add the remaining core-tier controls and the slider, progress bar and tab control per design decision 3, with the modeless dialog at 420×300 and the modal dialog. Before each test is relied on, confirm each surfaced `@Name` in the real tree with the Inspector or `Get Attribute Value`. Use the deprecated widget or a name-based observable only where the current widget does not expose what the test needs, and note it for the README. Verify every test of `catalog.robot` and `modal.robot` that opens no popover passes on both lanes.
 - [x] 3.5 Add the menu bar, context menu and drop-down from `Gio.Menu`/`Gtk.StringList`, and name every menu and context-menu item by its label each time its popover opens (design decision 9). Verify on both lanes, on the host's GTK 4.24.1:
   - every popover opens, and each of its items is found by its canonical `@Name`, submenus included;
   - which pointer activations inside a popover miss with today's provider, recorded for `linux-element-geometry` 5.1.
 
-  Run one popover test with a lower version handed to `Require GTK Version` and confirm that the failure message names both versions and the exclude flag. Commit the fixture and `catalog.robot` without the popover tests, which stay out of this change's commits while they fail. `linux-element-geometry` adds them in its task 5.1 and commits them with its task 5.4.
-- [x] 3.6 Write `apps/test-app-gtk4/README.md`: usage, the widget choices, every verified deviation, the popover version requirement, and the naming of popover menu items with the GTK commits that drop and restore the names, noting that real applications on GTK 4.18 to 4.24.1 expose their menu items unnamed. Add the GTK 4 row to `dev-docs/testing-strategy.md` §5 and the fixture to `AGENTS.md` where it lists fixtures. Verify that the README's usage commands run as written.
+  Commit the fixture and `catalog.robot` without the popover tests, which stay out of this change's commits while they fail. `linux-element-geometry` adds them in its task 5.1 and commits them with its task 5.4.
+- [x] 3.6 Write `apps/test-app-gtk4/README.md`: usage, the widget choices, every verified deviation, the supported GTK 4 versions, and the naming of popover menu items with the GTK commits that drop and restore the names, noting that real applications on GTK 4.18 to 4.24.1 expose their menu items unnamed. Add the GTK 4 row to `dev-docs/testing-strategy.md` §5 and the fixture to `AGENTS.md` where it lists fixtures. Verify that the README's usage commands run as written.
 - [x] 3.7 Run the whole GTK 4 tree on both lanes: `just headless=true test-acceptance-x11 -X --suite '*.Gtk4'` and the same with `test-acceptance-compositor`. Verify with `robotcode results` that all committed tests pass.
 - [ ] 3.8 Once `linux-element-geometry` task 5.4 is done, run the whole GTK 4 tree again on both lanes, now with the popover tests. Verify with `robotcode results` that all tests pass.
 
@@ -61,7 +60,7 @@
 - [x] 4.1 Write `tests/acceptance/gtk3/` first, mirroring group 3:
   - `__init__.robot`;
   - `resources/gtk3app.resource`;
-  - `catalog.robot` with the canonical test set and no version tag;
+  - `catalog.robot` with the canonical test set;
   - the `gtk-test-app` spec tests;
   - `modal.robot`.
 
@@ -80,7 +79,7 @@
   - add the GTK fixtures' logs to the failure dump.
 
   Verify on a pushed branch that the GTK suites pass in both matrix entries and that the log shows a GTK 4 of at least 4.18.
-- [ ] 5.2 After `linux-element-geometry` task 5.4, verify in a CI run that the tests tagged `requires:gtk-4.18` were selected and passed in both matrix entries (spec *CI runs the popover tests*).
+- [ ] 5.2 After `linux-element-geometry` task 5.4, verify in a CI run that the GTK 4 popover tests passed in both matrix entries (spec *CI runs a supported GTK 4*).
 
 ## 6. Integration (after 3.8 and 4.5)
 

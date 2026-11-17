@@ -34,9 +34,9 @@ See proposal.md (Why). The facts below were read at `cda12175`. **Verified** mea
 - A context menu is one popover. Its submenus slide inside it. Nested popovers come from menu bars.
 - **Names:** from 4.18 to 4.24.1 a popover menu item has no accessible name. Its label carries the presentation role, and GTK's label code skips the name for that role (source: `gtklabel.c` from 4.18). GTK fixed it in commit fa085fe1 (MR !10510, in 4.25.0) and backported it as 361abc89 for 4.24.2, which is not released yet. The label is not on the tree either, so nothing below the item carries its text. Before 4.18 the items are named. Drop-down rows are named by the fixture's list factory and are not affected.
 - **Naming an item:** an item is a model button (CSS name `modelbutton`) with its label as its `text` property, and a `LABEL` set on it names it. Set while the popover is built, the name lasts only on items without an action, those that open a submenu. Set when the popover maps, it lasts on every item. The back item at the top of a slid-in context submenu is a model button too, with the submenu's label as its text.
-- **Placement:** GTK reports a popover's position measured from the widget that opened it, without its own placement. A nested submenu item was reported about 100 px from where it was drawn, first-level popovers a few pixels to about 20 px off. Before 4.18 the offset from the parent is missing too (source: GTK commit 3b68c1ea, MR !8181). `linux-element-geometry` places popovers from the platform's popup windows instead, recognized by the popup layer GTK 4 reports for them. Whether GTK before 4.18 reports that layer is not measured.
+- **Placement:** GTK reports a popover's position measured from the widget that opened it, without its own placement. A nested submenu item was reported about 100 px from where it was drawn, first-level popovers a few pixels to about 20 px off. `linux-element-geometry` places popovers from the platform's popup windows instead, recognized by the popup layer GTK 4 reports for them.
 - **PyGObject:** `Gdk.Rectangle(x=…, y=…)` ignores its arguments (a deprecation warning says so), so a context menu pointed at such a rectangle opens at its parent's origin. The fields are set one by one.
-- `ubuntu-latest` is the CI runner of the acceptance job (`.github/workflows/ci.yml:261`). The CI run of 2026-11-10 ran it on the image `ubuntu-26.04` (verified in the job log), and Ubuntu 26.04 ships GTK 4.22 (source: Ubuntu package archive; task 5.1 prints the installed version). Ubuntu 24.04 ships GTK 4.14, so developers on it run an older GTK 4 than CI.
+- `ubuntu-latest` is the CI runner of the acceptance job (`.github/workflows/ci.yml:261`). The CI run of 2026-11-10 ran it on the image `ubuntu-26.04` (verified in the job log), and Ubuntu 26.04 ships GTK 4.22 (source: Ubuntu package archive; task 5.1 prints the installed version). Ubuntu 24.04 ships GTK 4.14, which the GTK 4 fixture does not support (decision 7).
 
 ## Goals / Non-Goals
 
@@ -121,21 +121,17 @@ Either prints one line and exits with code 2. The launcher waits for the main wi
 
 - **`pygobject-stubs`.** It generates stubs for one GTK version per installation, and the venv serves both.
 
-### 7. Selection: `platform:linux` and `requires:gtk-4.18`
+### 7. Selection: `platform:linux`, and GTK 4.18 as a prerequisite
 
 - **`platform:linux`:**
   - It joins the tag vocabulary.
   - `real-windows` excludes it, and both Linux profiles keep it.
   - Both GTK suite trees carry it suite-wide in `__init__.robot`.
-- **`requires:gtk-4.18`:**
-  - It marks every GTK 4 test that opens a popover: the menu bar, submenu, context-menu, context-submenu and combo-box tests of the catalog. Below 4.18, GTK misses the popover's offset, and whether `linux-element-geometry` can place its popovers there is not measured (Context).
-  - The GTK 4 launcher resource gets a test setup, `Require GTK Version`. It reads `native:Application.Version` from the pinned application node and compares it with the version in the test's `requires:gtk-*` tag. A lower version fails with the installed version, the required one and `--exclude requires:gtk-4.18`.
-  - CI runs the tagged tests, because its GTK 4 is newer than 4.18 (Context). The tag serves development machines with an older GTK 4.
+- **GTK 4.18 or later:** the GTK 4 fixture supports no older release. Its suites carry no version tag and check no version; the fixture's README and `CONTRIBUTING.md` name the prerequisite. CI's GTK 4 is newer (Context), and task 5.1 prints it into the log.
 
 *Rejected:*
 
-- **A documented skip.** `acceptance-lane-selection` allows a skip only for a limitation that holds on every machine of a lane. This one depends on the installed GTK.
-- **No tag, because CI is new enough.** A developer on Ubuntu 24.04 would see the popover tests fail without being told why.
+- **A version tag with a setup check (`requires:gtk-4.18`).** Older GTK 4 releases are not supported, so the tag and the check would serve no machine PlatynUI targets.
 
 ### 8. Session and lane wiring
 

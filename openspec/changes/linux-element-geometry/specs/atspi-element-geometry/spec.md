@@ -40,7 +40,7 @@ A node SHALL be a popup when it is a transient popup grafted under its applicati
 - **GIVEN** the GTK 4 fixture with its `menu-edit` menu and the nested submenu `menu-edit-more` open
 - **WHEN** an item of the submenu is clicked by locator
 - **THEN** the item SHALL report the click through the `last-action-<ident>` label
-- **NOTE** Real provider only, on both Linux lanes, with GTK 4.18 or later (`requires:gtk-4.18`). GTK 4 measures a nested popover from the item that opened it, about 100 px from where it is drawn.
+- **NOTE** Real provider only, on both Linux lanes, with GTK 4.18 or later. GTK 4 measures a nested popover from the item that opened it, about 100 px from where it is drawn.
 
 #### Scenario: An item of a GTK 4 drop-down is selected where it is drawn
 

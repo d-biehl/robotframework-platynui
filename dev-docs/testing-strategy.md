@@ -169,19 +169,6 @@ Two rules follow, and they are strict:
   `Require Swing Prerequisites` in `tests/acceptance/swing/resources/testapp.resource`
   as the model).
 
-**A minimum toolkit version is selection too.** A test that needs at least a given toolkit
-release carries `requires:<toolkit>-<version>` — today `requires:gtk-4.18` on the GTK 4
-fixture's tests that open a popover (every menu, the context menu and the drop-down),
-because older GTK 4 releases leave a popover's offset out of their accessible tree and
-PlatynUI's popover placement is not verified there. No profile excludes the tag, and CI
-runs these tests, so its runner image has to ship a toolkit at least that new. A machine
-with an older toolkit, such as Ubuntu 24.04 with GTK 4.14, passes
-`--exclude requires:gtk-4.18`. A test selected on an older toolkit anyway fails at its
-setup with the installed version, the required one and the tag to exclude. It never
-skips: the installed
-version differs between machines on the same lane, so a skip there would be exactly the
-environment probing banned above.
-
 The one sanctioned skip in the acceptance lanes is the fixture blueprint's **documented
 technology limitation** (§5.1): a catalog test a technology's bridge provably
 cannot satisfy is skipped in that technology's onboarding suite with a message naming the

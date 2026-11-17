@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Defines the GTK 3 and GTK 4 fixture apps: blueprint-conforming catalogs built from each version's standard widgets, the window shape that geometry tests rely on, how the lanes start them, the GTK 4 version its popover tests require, and the names of GTK 4's popover menu items.
+Defines the GTK 3 and GTK 4 fixture apps: blueprint-conforming catalogs built from each version's standard widgets, the window shape that geometry tests rely on, how the lanes start them, the GTK 4 versions it supports, and the names of GTK 4's popover menu items.
 
 ## ADDED Requirements
 
@@ -139,30 +139,23 @@ The GTK suites SHALL carry `platform:linux` and run on the X11 lane and under th
 - **THEN** it is listed as a Wayland client with the fixture's process ID
 - **NOTE** Real provider only, compositor lane.
 
-### Requirement: GTK 4 popover tests require GTK 4.18
+### Requirement: The GTK 4 fixture supports GTK 4.18 and later
 
-Tests of the GTK 4 fixture that open a popover, which covers every menu, the context menu and the drop-down, SHALL carry `requires:gtk-4.18`, because before 4.18 GTK 4 misses a popover's offset in its accessible tree and PlatynUI's placement of popovers is not verified there. When such a test is selected on an older GTK 4, its setup SHALL fail with the installed version and the tag to exclude.
+The GTK 4 fixture and its suites SHALL target GTK 4.18 or later, and the CI runner SHALL provide such a GTK 4. Older GTK 4 releases are not supported.
 
-#### Scenario: A menu test runs on a current GTK 4
+#### Scenario: A menu test runs on a supported GTK 4
 
 - **GIVEN** GTK 4.18 or later
 - **WHEN** the GTK 4 catalog's menu-bar test runs
 - **THEN** activating `menu-file-new` makes `last-action-menu-file-new` resolvable
-- **NOTE** Real provider only, both Linux lanes, on a machine with GTK ≥ 4.18. Passes once `linux-element-geometry` places popovers where the platform shows them.
+- **NOTE** Real provider only, both Linux lanes. Passes once `linux-element-geometry` places popovers where the platform shows them.
 
-#### Scenario: A menu test on an older GTK 4 fails with guidance
+#### Scenario: CI runs a supported GTK 4
 
-- **GIVEN** GTK 4.14
-- **WHEN** a test tagged `requires:gtk-4.18` is selected
-- **THEN** it fails at its setup with a message naming GTK 4.14, the required 4.18 and `--exclude requires:gtk-4.18`
-- **NOTE** Verified at implementation with a lower version handed to the version check, because no lane machine runs GTK 4.14; Ubuntu 24.04 ships it.
-
-#### Scenario: CI runs the popover tests
-
-- **GIVEN** the CI runner image, Ubuntu 26.04 with GTK 4.22
+- **GIVEN** the CI runner image
 - **WHEN** the acceptance job runs a Linux lane
-- **THEN** the tests tagged `requires:gtk-4.18` are selected and run with the other GTK tests
-- **NOTE** Checked in the CI run's results.
+- **THEN** its log shows GTK 4.18 or later, and the GTK 4 popover tests run with the other GTK tests
+- **NOTE** Checked in the CI run's log and results.
 
 ### Requirement: The GTK 4 fixture names its popover menu items
 

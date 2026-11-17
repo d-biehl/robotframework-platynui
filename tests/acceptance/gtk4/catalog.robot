@@ -8,8 +8,6 @@ Documentation       Blueprint catalog acceptance for the GTK 4 fixture (the cano
 ...                 Menu, context-menu and drop-down items exist on the tree only while their
 ...                 popover is open, and collapsed tree children appear only after expansion.
 ...                 Activations report through the always-visible ``last-action-<ident>`` label.
-...                 Every test that opens a popover carries ``requires:gtk-4.18``; the Test Setup
-...                 fails it on an older GTK 4.
 ...
 ...                 Test order matters for the click-counter test (the counter is cumulative per
 ...                 instance), so it runs before anything else clicks button-basic.
@@ -18,7 +16,6 @@ Resource            resources/gtk4app.resource
 
 Suite Setup         Launch GTK4 Test App
 Suite Teardown      Terminate GTK4 Instance
-Test Setup          Require GTK Version For Tagged Tests
 
 
 *** Variables ***

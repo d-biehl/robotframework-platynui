@@ -70,7 +70,7 @@
   - Add to each GTK fixture's `geometry.robot`, which GTK 4 has since 3.1 and GTK 3 gets here:
     - `radio-first` inside `groupbox-basic` clicked by locator, on both lanes (spec *A click on a nested button lands on it*);
     - on the compositor lane (tag `platform:wayland`), the main window's `Bounds` equal the visible geometry `platynui-wayland-compositor-ctl list-windows` reports for it (specs *A GTK 3 window with a header bar reports its visible frame* and *A GTK 4 window with a header bar places its elements from its visible frame*);
-    - in GTK 4 only (`requires:gtk-4.18`), with the submenu `menu-edit-more` open, `BM.Get Element At Point` at the center of a submenu item's `Bounds` returns that item or a descendant (spec *A point inside a GTK 4 submenu resolves to its item*).
+    - in GTK 4 only, with the submenu `menu-edit-more` open, `BM.Get Element At Point` at the center of a submenu item's `Bounds` returns that item or a descendant (spec *A point inside a GTK 4 submenu resolves to its item*).
 
   Verify that the GTK 3 tests and the GTK 4 submenu tests fail on both lanes.
 - [ ] 5.2 Rework the unit tests in `crates/provider-atspi/src/extents.rs` first, against a reshaped `ExtentSources` test double that answers per node: its reference window's bounds, surface origin and `SCREEN` extents, its own `SCREEN` and `WINDOW` extents, the toolkit hint and the platform's screen-coordinates property. One test per `atspi-element-geometry` scenario that names a unit test:
@@ -133,5 +133,5 @@
 ## Workflow follow-up
 
 - Archive after `add-gtk-test-app` task 4.5 has passed.
-- `add-gtk-test-app` keeps its GTK 4 popover tests out of its commits while they fail, as it does with the GTK 3 pointer tests. Its reason for `requires:gtk-4.18` becomes the unmeasured popup layer of older GTK 4 (design.md, Risks and Open Questions).
+- `add-gtk-test-app` keeps its GTK 4 popover tests out of its commits while they fail, as it does with the GTK 3 pointer tests.
 - When `add-avalonia-test-app` is applied, update its risk entry on X11 popups (design.md, Risks).
