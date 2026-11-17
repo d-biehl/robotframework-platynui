@@ -154,9 +154,12 @@ item.
 
 **Placement.** GTK 4 reports a popover's position measured from the widget that opened it,
 without the popover's own placement: a nested submenu item was reported about 100 px from
-where it was drawn. Pointer actions inside a popover therefore miss with today's AT-SPI
-provider, and the popover tests stay out of the committed suite until the change
-`linux-element-geometry` places popovers where the platform shows them.
+where it was drawn. PlatynUI recognizes a popover by the popup layer GTK 4 reports for it
+and places it, and its items, from the popup the platform lists for it
+([`dev-docs/platform-linux.md`](../../dev-docs/platform-linux.md) §2, *Element geometry*).
+A child of a padded widget, such as a button's inner label, still reports its parent's
+origin: GTK 4 sums CSS border boxes while it draws in content boxes
+([`dev-docs/platform-linux-wayland.md`](../../dev-docs/platform-linux-wayland.md) §3).
 
 **PyGObject:** `Gdk.Rectangle(x=…, y=…)` ignores its arguments, so the context menu's
 target rectangle is filled field by field.

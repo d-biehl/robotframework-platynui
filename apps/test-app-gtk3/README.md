@@ -124,12 +124,13 @@ suites address controls by `@Name` alone, through the named container they belon
 - **Image:** `image-basic` surfaces with the icon role.
 
 **Geometry.** GTK 3 reports screen coordinates where AT-SPI asks for coordinates relative
-to the parent. The AT-SPI provider adds each element's parent-relative extents to its
-parent's bounds, so every ancestor's position is counted again: on X11 `radio-first`
-reports a `y` of 931 inside a window 758 px high. The screen extents themselves are right
-on X11, and a click there lands. Pointer actions by locator therefore miss with today's
-provider, and the catalog's pointer tests stay out of the committed suite until the change
-`linux-element-geometry` places elements from their window instead.
+to the parent, so a sum over an element's ancestors counts each of their positions again:
+added up that way, `radio-first` on X11 lands at a `y` of 931 inside a window 758 px high.
+The screen extents themselves are right on X11. Under the compositor they count from the
+window's surface, and a menu's items report no usable screen position at all. PlatynUI
+therefore places a GTK 3 element relative to its window, read in screen coordinates, and a
+menu and its items from the popup window the platform lists for the menu
+([`dev-docs/platform-linux.md`](../../dev-docs/platform-linux.md) §2, *Element geometry*).
 
 ## Acceptance lane
 
