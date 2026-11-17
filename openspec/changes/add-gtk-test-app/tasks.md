@@ -78,8 +78,8 @@
     (`pkg-config --modversion gtk4` would need `libgtk-4-dev`, which the job does not install);
   - add the GTK fixtures' logs to the failure dump.
 
-  Verify on a pushed branch that the GTK suites pass in both matrix entries and that the log shows a GTK 4 of at least 4.18.
-- [ ] 5.2 After `linux-element-geometry` task 5.4, verify in a CI run that the GTK 4 popover tests passed in both matrix entries (spec *CI runs a supported GTK 4*).
+  Verify on a pushed branch that the GTK suites pass in every matrix entry (`x11`, `x11-bare`, `compositor`) and that the log shows a GTK 4 of at least 4.18.
+- [ ] 5.2 After `linux-element-geometry` task 5.4, verify in a CI run that the GTK 4 popover tests passed in every matrix entry (spec *CI runs a supported GTK 4*).
 
 ## 6. Integration (after 3.8 and 4.5)
 
