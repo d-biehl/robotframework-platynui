@@ -65,7 +65,6 @@ packages/**/*.dSYM/
 # cibuildwheel artifacts
 wheelhouse/
 
-.agents
 skills-lock.json
 
 # Claude Code per-developer local settings (permissions etc.); shared settings
