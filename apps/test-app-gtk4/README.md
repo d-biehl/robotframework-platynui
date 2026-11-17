@@ -80,8 +80,8 @@ Every name is set through `Gtk.Accessible`'s `LABEL` property. A button or a dro
 names itself through a labelled-by relation to its inner label, which wins over `LABEL`,
 so the fixture resets that relation first.
 
-Activating a menu item or a dialog button reports its ident through the last-action label;
-no control changes its own name. A double-click on a tree row expands or collapses it, the
+Activating a menu item or a dialog button, or selecting a radio button, reports its ident
+through the last-action label; no control changes its own name. A double-click on a tree row expands or collapses it, the
 expansion gesture the catalog uses for every toolkit.
 
 Beyond the catalog, other suites rely on three things:

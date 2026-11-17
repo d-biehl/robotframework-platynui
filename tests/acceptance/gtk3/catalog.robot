@@ -8,7 +8,12 @@ Documentation       Blueprint catalog acceptance for the GTK 3 fixture (the cano
 ...                 Menu-bar items are on the tree while their menu is closed. The context menu is
 ...                 on it only while open, in a popup window of its own, and collapsed tree children
 ...                 appear only after expansion. Activations report through the always-visible
-...                 ``last-action-<ident>`` label.
+...                 ``last-action-<ident>`` label. Every test that opens a menu presses Escape twice
+...                 in its teardown (a submenu and its menu take one each), so a menu a failed test
+...                 left open cannot swallow the next test's first click.
+...
+...                 Test order matters for the click-counter test (the counter is cumulative per
+...                 instance), so it runs before anything else clicks button-basic.
 
 Resource            resources/gtk3app.resource
 
@@ -40,9 +45,59 @@ Core Catalog Controls Are Enumerable
         BM.Wait Until Exists    .//*[@Name="${name}"]
     END
 
+Clicking The Catalog Button Updates The Click Counter
+    BM.Wait Until Exists    .//*[@Name="status-label-clicks-0"]
+    BM.Pointer Click    .//*[@Name="button-basic"]
+    BM.Wait Until Exists    .//*[@Name="status-label-clicks-1"]
+    BM.Pointer Click    .//*[@Name="button-basic"]
+    BM.Wait Until Exists    .//*[@Name="status-label-clicks-2"]
+
+Activating A Menu Bar Item Updates The Last Action
+    BM.Pointer Click    .//*[@Name="menu-file"]
+    BM.Pointer Click    .//*[@Name="menu-file"]//*[@Name="menu-file-new"]
+    BM.Wait Until Exists    .//*[@Name="last-action-menu-file-new"]
+    [Teardown]    Run Keyword And Ignore Error    BM.Keyboard Type    ${None}    <Escape><Escape>
+
+Activating A Menu Bar Submenu Item Updates The Last Action
+    BM.Pointer Click    .//*[@Name="menu-edit"]
+    BM.Pointer Click    .//*[@Name="menu-edit"]//*[@Name="menu-edit-more"]
+    BM.Pointer Click    .//*[@Name="menu-edit"]//*[@Name="menu-edit-more"]//*[@Name="menu-edit-sub-one"]
+    BM.Wait Until Exists    .//*[@Name="last-action-menu-edit-sub-one"]
+    [Teardown]    Run Keyword And Ignore Error    BM.Keyboard Type    ${None}    <Escape><Escape>
+
+Activating A Context Menu Item Updates The Last Action
+    BM.Pointer Click    .//*[@Name="label-basic"]    button=right
+    BM.Pointer Click    .//*[@Name="context-menu"]//*[@Name="ctx-copy"]
+    BM.Wait Until Exists    .//*[@Name="last-action-ctx-copy"]
+    [Teardown]    Run Keyword And Ignore Error    BM.Keyboard Type    ${None}    <Escape><Escape>
+
+Activating A Context Submenu Item Updates The Last Action
+    BM.Pointer Click    .//*[@Name="label-basic"]    button=right
+    BM.Pointer Click    .//*[@Name="context-menu"]//*[@Name="ctx-more"]
+    BM.Pointer Click    .//*[@Name="context-menu"]//*[@Name="ctx-more"]//*[@Name="ctx-sub-alpha"]
+    BM.Wait Until Exists    .//*[@Name="last-action-ctx-sub-alpha"]
+    [Teardown]    Run Keyword And Ignore Error    BM.Keyboard Type    ${None}    <Escape><Escape>
+
 Opening The Combo Box Reveals Its Items
     [Documentation]    A documented limitation of GTK 3, see apps/test-app-gtk3/README.md.
     Skip    GTK 3 keeps combo items on the tree while closed; no common attribute shows the open list (apps/test-app-gtk3/README.md)
+
+Expanding Tree Nodes Reveals Descendants
+    [Documentation]    Double-click expands a collapsed row (the cross-toolkit expansion gesture),
+    ...    revealing child and grandchild — proving all three catalog tree levels.
+    BM.Wait Until Gone    .//*[@Name="tree-basic"]//*[@Name="tree-node-a-1"]
+    BM.Pointer Multi Click    .//*[@Name="tree-basic"]//*[@Name="tree-node-a"]
+    BM.Wait Until Exists    .//*[@Name="tree-basic"]//*[@Name="tree-node-a-1"]
+    BM.Wait Until Gone    .//*[@Name="tree-basic"]//*[@Name="tree-node-a-1-i"]
+    BM.Pointer Multi Click    .//*[@Name="tree-basic"]//*[@Name="tree-node-a-1"]
+    BM.Wait Until Exists    .//*[@Name="tree-basic"]//*[@Name="tree-node-a-1-i"]
+
+Clicking The Modeless Dialog Button Lands Inside The Dialog
+    [Documentation]    ``last-action-dialog-modeless-button`` only appears if the pointer action
+    ...    really landed inside the dialog — the bounds-correctness observable of the blueprint.
+    BM.Wait Until Gone    .//*[@Name="last-action-dialog-modeless-button"]
+    BM.Pointer Click    .//*[@Name="dialog-modeless"]//*[@Name="dialog-modeless-button"]
+    BM.Wait Until Exists    .//*[@Name="last-action-dialog-modeless-button"]
 
 The Main Window Is Found By Its Launch Title
     ${windows}=    BM.Query    .//(Frame|Window)[@Name="PlatynUI GTK3 TestApp"]

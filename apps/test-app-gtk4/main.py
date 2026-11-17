@@ -157,6 +157,10 @@ class Catalog:
         self.clicks += 1
         labelled(self.status, f'status-label-clicks-{self.clicks}')
 
+    def on_radio_toggled(self, radio: Any) -> None:
+        if radio.get_active():
+            self.report(radio.get_label())
+
     # --- menus (Gio.Menu models; each item is named by its label, see name_menu_items) ---
 
     def install_actions(self) -> None:
@@ -324,8 +328,9 @@ class Catalog:
         first = name(Gtk.CheckButton(label='radio-first', active=True), 'radio-first')
         second = name(Gtk.CheckButton(label='radio-second'), 'radio-second')
         second.set_group(first)
-        radios.append(first)
-        radios.append(second)
+        for radio in (first, second):
+            radio.connect('toggled', self.on_radio_toggled)
+            radios.append(radio)
         group.set_child(radios)
         column.append(group)
 

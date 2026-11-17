@@ -7,9 +7,10 @@ Documentation       Regression for the window-bounds bug where child dialogs par
 ...                 name against the X11 window title. The dialogs deliberately have
 ...                 accessibleName ("child-dialog-N") != windowTitle ("Dialog N"), so the match failed
 ...                 and the code fell back to the first candidate — the main window — handing every
-...                 dialog the main window's 900x640 bounds. The fix correlates the node's AT-SPI screen
-...                 extents with each candidate's geometry instead. That divergence is the regression
-...                 condition — it must not be "fixed" in the app.
+...                 dialog the main window's 900x640 bounds. The lookup now tells the candidates apart by
+...                 title, then by a size only one of them has, then by position (dev-docs/
+...                 platform-linux.md §3). That divergence is the regression condition — it must not be
+...                 "fixed" in the app.
 ...
 ...                 The tests read only PlatynUI ``@Bounds``, so they are decisive on X11, the Wayland
 ...                 compositor, and Windows alike: each dialog must report its own (small, distinct)
@@ -65,6 +66,14 @@ Child Dialog Bounds Are Their Own Not The Main Window's
     # its global position and the compositor stacks all windows at the origin), and there is no
     # provider-independent ground truth to compare it against. Wrong-window selection — the actual
     # regression — is caught by the size and distinctness checks, which need only @Bounds.
+
+On X11 Screen Extents Are The Bounds
+    [Documentation]    On X11 Qt reports real screen coordinates, so a button's Bounds are the screen
+    ...    extents its toolkit reports, unchanged.
+    [Tags]    platform:x11
+    ${bounds}=    BM.Get Attribute Value    .//*[@Name="main-pick-button"]    Bounds
+    ${screen}=    BM.Get Attribute Value    .//*[@Name="main-pick-button"]    native:Component.Extents.Screen
+    Should Be Equal    ${bounds}    ${screen}
 
 Child Dialogs Have Distinct Bounds
     [Documentation]    Guards against a regression where every dialog resolves to the SAME window (each

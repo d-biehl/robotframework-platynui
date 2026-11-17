@@ -128,6 +128,10 @@ class Catalog:
         self.clicks += 1
         labelled(self.status, f'status-label-clicks-{self.clicks}')
 
+    def on_radio_toggled(self, radio: Any) -> None:
+        if radio.get_active():
+            self.report(radio.get_label())
+
     # --- menus (Gtk.Menu widgets; an item's label is its canonical name) -------------------
 
     def menu(self, items: MenuSpec) -> Any:
@@ -230,8 +234,9 @@ class Catalog:
         radios = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin_start=8, margin_end=8)
         first = name(Gtk.RadioButton.new_with_label_from_widget(None, 'radio-first'), 'radio-first')
         second = name(Gtk.RadioButton.new_with_label_from_widget(first, 'radio-second'), 'radio-second')
-        radios.pack_start(first, False, False, 0)
-        radios.pack_start(second, False, False, 0)
+        for radio in (first, second):
+            radio.connect('toggled', self.on_radio_toggled)
+            radios.pack_start(radio, False, False, 0)
         group.add(radios)
         column.pack_start(group, False, False, 0)
 

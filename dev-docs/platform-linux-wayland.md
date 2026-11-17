@@ -69,12 +69,29 @@ The following traits from `platynui-core` must be implemented (see [crates/core/
 - Process identification via PID
 
 ### What doesn't work
-- **`Component::GetExtents(SCREEN)`** returns `(0, 0)` for window-relative-to-screen — Wayland clients don't know their absolute screen position.
-- **`Component::GetExtents(WINDOW)`** still works (position relative to the window's own origin).
+- **`Component::GetExtents(SCREEN)`** carries no desktop position — Wayland clients don't know where their window is. Each toolkit fills in something of its own: GTK 4 reports `(0,0)` for everything, Qt pins every window to its output's top-left, AccessKit reports the client-area origin as `(0,0)`, and GTK 3 counts from its surface.
+- **`Component::GetExtents(WINDOW)`** still works (position relative to the window's own origin), but what "the window" is differs per toolkit.
 - **`Component::GetPosition`** same limitation as `GetExtents`.
 - **`Component::ScrollTo`** and **`Component::GrabFocus`** work at toolkit level.
 
-**Impact on PlatynUI:** The `WindowManager::window_bounds()` and `WindowManager::move_to()` / `resize()` methods cannot use AT-SPI data for screen-absolute coordinates under Wayland. The `ActivationPoint` calculation in the runtime must fall back to window-relative coordinates plus compositor-provided window position (if available via foreign-toplevel protocols).
+**Impact on PlatynUI:** an element's desktop position can only come from the compositor, which knows where each window and popup is. The AT-SPI provider therefore places every element from its window's origin, as [`platform-linux.md`](platform-linux.md) §2 describes, and the compositor is the source of that origin.
+
+### How elements are placed under the PlatynUI compositor
+
+The compositor reports two facts per window. The **visible bounds** are the window as the user sees it: for a client-side-decorated window (GTK's header-bar windows) its buffer origin plus the shadow inset GTK draws, with the window geometry's size; for a server-side-decorated window (Qt, egui on the lanes) its client area. They are the window's `Bounds`. The **surface origin** is where the window's buffer lies on the desktop, the point toolkits count surface-relative positions from. GTK 4 elements count from the visible frame, every other toolkit's from the surface origin.
+
+The platform states that toolkit screen coordinates are not desktop coordinates here, so the provider re-bases them: the window's origin plus the element's offset from its window's own screen position. That keeps a Qt window right on a second output, where Qt pins it to that output's top-left rather than `(0,0)`.
+
+Popups are listed by the compositor (`list_popups`) with their placed, visible rectangle and their whole surface, which for GTK includes the shadow around a popover. A popup node is matched to that list by its size — the surface first, then the visible rectangle — and its items are placed from it. GTK 4 measures a popover from the widget that opened it, without the popover's own placement, so without the compositor's list a nested submenu would be about 100 px off; GTK 3 reports no usable screen position for a menu's items at all.
+
+**Toolkit limitations** the rule cannot fix:
+
+- **Qt before 6.5** reports popups the compositor moved at the position Qt asked for.
+- **Qt with client-side decorations** counts from inside its own decorations. The lanes run Qt with server-side decorations, so its surface origin is its client area there; under a compositor that forces client-side decorations, Qt elements would be off by the title bar.
+- **Java's ATK wrapper** reports `-1` for frames it does not own.
+- **GTK 4's offsets** sum CSS border boxes while GTK draws in content boxes. A child of a padded widget reports its parent's origin: the label inside a button reported the button's own top-left with the size of the button's content box, off by the button's padding and border — 17 px across and 5 px down for a default button (measured with GTK 4.24.1, on X11 and under the compositor alike). A click on such a child still lands in its parent.
+
+On X11, GTK's `_GTK_FRAME_EXTENTS` (the shadow inset under a compositing window manager) is subtracted from a window's and a popup's visible rectangle. The lanes run icewm, which does not composite, so this is unit-tested over a recorded property but not yet seen on a lane.
 
 ### Broader Wayland Accessibility Landscape
 
@@ -315,22 +332,7 @@ The key insight: **we don't need to know the window's screen position to click o
 
 4. **`move_to()` / `resize()`** — return `PlatformError::CapabilityUnavailable` with clear details
 
-**Implementation in the runtime:**
-
-The `ActivationPoint` resolution in [`crates/runtime/src/xpath.rs`](../crates/runtime/src/xpath.rs) already reads the element's `Bounds` attribute. Under Wayland, the `provider-atspi` crate would provide `Bounds` from `GetExtents(WINDOW)` instead of `GetExtents(SCREEN)`:
-
-```rust
-// In provider-atspi, when running under Wayland:
-// - Use GetExtents(WINDOW) for Bounds attribute → window-relative coords
-// - Store the coordinate type so the runtime knows it's relative
-//
-// In the runtime pointer logic:
-// - If Bounds are window-relative, use PointOrigin::Bounds with the window's
-//   screen position (from compositor IPC) or fall back to the focused
-//   window position
-```
-
-The `PointOrigin::Bounds(Rect)` already supports this pattern — the `Rect` serves as the coordinate origin. Under Wayland, this Rect would be `Rect::new(window_x, window_y, 0.0, 0.0)` (where `window_x/y` comes from compositor IPC or is `(0, 0)` as fallback on Mutter).
+**Relation to the provider:** the AT-SPI provider never reports window-relative `Bounds`. It places every element from its window's origin (§3, *How elements are placed under the PlatynUI compositor*), and only a compositor that reports window geometry provides that origin. On Mutter it is unknown, so a focus-based strategy would have to take the window's position from one of the sources above and hand it to the platform's window manager; the provider's rule stays the same.
 
 ### 6.6. Recommendation
 
@@ -801,7 +803,7 @@ This compositor is already usable for development and will become the primary de
 6. **Mutter protocol gap:** Mutter/GNOME still does not implement `ext-image-copy-capture`, `ext-foreign-toplevel-list`, or layer-shell protocols. Portal-based fallbacks remain the only option for GNOME. Monitor whether GNOME 50+ adds any of these.
 7. **Newton project status:** The Newton Wayland-native accessibility project (§3) has had no public updates since Jun 2024. The draft Wayland accessibility protocol is not accepted into wayland-protocols. Monitor whether this project continues and whether it could eventually replace AT-SPI for Wayland-native apps.
 8. ~~**Custom test compositor scope:**~~ Resolved: Implemented as standalone binary (`apps/wayland-compositor`) with companion control CLI (`apps/wayland-compositor-ctl`). Supports headless, Winit, and DRM backends. ~15K LoC, Smithay-based, with EIS, XWayland, and full protocol support.
-9. **AT-SPI `GetExtents` coordinate mode switching:** The `provider-atspi` crate currently uses `GetExtents(SCREEN)`. Under Wayland, it should use `GetExtents(WINDOW)` and combine with window position from compositor IPC (or `(0, 0)` fallback). This requires detecting Wayland vs X11 inside the provider — see §13 for the proposed detection algorithm.
+9. ~~**AT-SPI `GetExtents` coordinate mode switching:**~~ Resolved without detecting Wayland in the provider: the platform states whether toolkit screen coordinates are desktop coordinates, and the provider places every element from its window's origin in the coordinate type its toolkit implements consistently (§3, [`platform-linux.md`](platform-linux.md) §2).
 
 ---
 

@@ -1,5 +1,7 @@
 use crate::identity::PeerIdentity;
-use atspi_common::{Action as AtspiAction, CoordType, Interface, InterfaceSet, ObjectRefOwned, Role, State, StateSet};
+use atspi_common::{
+    Action as AtspiAction, CoordType, Interface, InterfaceSet, Layer, ObjectRefOwned, Role, State, StateSet,
+};
 use atspi_connection::AccessibilityConnection;
 use atspi_proxies::accessible::AccessibleProxy;
 use atspi_proxies::action::ActionProxy;
@@ -14,7 +16,7 @@ use atspi_proxies::table::TableProxy;
 use atspi_proxies::table_cell::TableCellProxy;
 use atspi_proxies::text::TextProxy;
 use atspi_proxies::value::ValueProxy;
-use platynui_core::platform::{WindowId, WindowState};
+use platynui_core::platform::{PopupGeometry, WindowGeometry, WindowId, WindowState};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::attribute_names::{
     activation_target, application, common, element, focusable, maximizable, minimizable, text_content,
@@ -34,7 +36,9 @@ use zbus::proxy::CacheProperties;
 
 use crate::clearable_cell::ClearableCell;
 use crate::error::AtspiError;
-use crate::extents::{self, ExtentSources, InjectedWindowManager, Substitutions, TopLevelKey, WindowManagerFailure};
+use crate::extents::{
+    self, ExtentSources, InjectedWindowManager, Reference, Substitutions, TopLevelKey, WindowManagerFailure,
+};
 use crate::popups::{PopupRegistry, popup_is_live};
 use crate::timeout::{AppTimeouts, TIMEOUT_CALL, block_on_timeout_call, block_on_timeout_unlatched};
 
@@ -97,6 +101,9 @@ pub struct AtspiNode {
     pub(crate) cached_name: ClearableCell<String>,
     /// Cached child count (from AT-SPI `ChildCount` property).
     pub(crate) cached_child_count: ClearableCell<Option<i32>>,
+    /// Whether the node reports the AT-SPI popup layer (see
+    /// [`AtspiNode::is_on_popup_layer`]).
+    on_popup_layer: ClearableCell<bool>,
     /// Registry of event-discovered transient popups (see `popups.rs`),
     /// consulted during [`UiNode::children`] to graft popups under their owner.
     /// `None` when popup surfacing is disabled; propagated to every descendant
@@ -168,6 +175,7 @@ impl AtspiNode {
             interfaces: ClearableCell::new(),
             cached_name: ClearableCell::new(),
             cached_child_count: ClearableCell::new(),
+            on_popup_layer: ClearableCell::new(),
             process_identity: Arc::new(OnceLock::new()),
         });
         let arc: Arc<dyn UiNode> = node.clone();
@@ -292,6 +300,43 @@ impl AtspiNode {
     /// manager's popup-geometry query instead of toolkit extents.
     fn is_transient_popup(&self) -> bool {
         self.parent_is_application && matches!(self.role(), "PopupMenu" | "Menu" | "ToolTip")
+    }
+
+    /// Whether this node reports the AT-SPI popup layer, as GTK 4's popovers
+    /// do: a popup that stays in the tree under the widget that opened it. Read
+    /// once and kept until the node is invalidated.
+    fn is_on_popup_layer(&self) -> bool {
+        self.on_popup_layer.get_or_init(|| {
+            self.supports_component()
+                && component_proxy(&self.conn, &self.obj)
+                    .and_then(|proxy| self.call("Component.GetLayer", proxy.get_layer()))
+                    .and_then(std::result::Result::ok)
+                    .is_some_and(|layer| layer == Layer::Popup)
+        })
+    }
+
+    /// The geometry sources of this node, as its attributes read them.
+    fn extent_sources(&self) -> LazyNodeData {
+        LazyNodeData::new(
+            self.conn.clone(),
+            self.obj.clone(),
+            self.self_weak.get().cloned(),
+            self.is_window_surface(),
+            self.is_transient_popup(),
+            self.window_manager.clone(),
+            Arc::clone(&self.timeouts),
+        )
+    }
+
+    /// What this node's descendants are placed from (see [`extents`]).
+    pub(crate) fn placement_reference(&self) -> Option<Reference> {
+        extents::resolve_reference(&self.extent_sources())
+    }
+
+    /// How many popups this node is drawn in. The hit-test prefers a hit in a
+    /// deeper popup over one beneath it.
+    pub(crate) fn popup_depth(&self) -> u32 {
+        self.placement_reference().map_or(0, |reference| reference.popup_depth)
     }
 
     /// What the bus daemon told us about the process owning this node's bus
@@ -521,6 +566,11 @@ impl UiNode for AtspiNode {
         self.interfaces.clear();
         self.cached_name.clear();
         self.cached_child_count.clear();
+        self.on_popup_layer.clear();
+    }
+
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        Some(self)
     }
 }
 
@@ -1584,17 +1634,27 @@ impl LazyNodeData {
     }
 
     fn resolve_extents(&self) -> Option<Rect> {
-        *self.extents.get_or_init(|| extents::resolve_extents(self))
+        *self.extents.get_or_init(|| extents::resolve_bounds(self))
     }
 
-    /// Ask the window manager for the popup rects of this node's process and
-    /// pick the one matching the given AT-SPI-reported size. `None` when the
-    /// backend has no popup query, reports no popups, or nothing matches.
-    fn resolve_popup_bounds_via_window_manager(&self, size: (f64, f64)) -> Option<Rect> {
-        let wm = self.window_manager.as_ref()?;
-        let pid = self.resolve_process_id()?;
-        let popups: Vec<Rect> = wm.popups(pid).ok()?.into_iter().map(|popup| popup.bounds).collect();
-        crate::popups::match_popup_rect(&popups, size)
+    /// The node these attributes belong to, as the provider built it.
+    fn with_node<R>(&self, f: impl FnOnce(&AtspiNode) -> R) -> Option<R> {
+        let node = self.owner.as_ref()?.upgrade()?;
+        Some(f(node.as_any()?.downcast_ref::<AtspiNode>()?))
+    }
+
+    fn on_popup_layer(&self) -> bool {
+        self.with_node(AtspiNode::is_on_popup_layer).unwrap_or(false)
+    }
+
+    /// The node's extents in the given coordinate type, as its toolkit reports
+    /// them.
+    fn extents_in(&self, coord_type: CoordType) -> Option<Rect> {
+        component_proxy(&self.conn, &self.obj).and_then(|proxy| {
+            self.call("Component.GetExtents", proxy.get_extents(coord_type))
+                .and_then(std::result::Result::ok)
+                .map(|(x, y, w, h)| Rect::new(f64::from(x), f64::from(y), f64::from(w), f64::from(h)))
+        })
     }
 
     /// Unix PID of the application owning this node's bus name (the number
@@ -1603,34 +1663,6 @@ impl LazyNodeData {
     fn resolve_process_id(&self) -> Option<u32> {
         let bus_name = self.obj.name_as_str()?;
         crate::identity::peer_of(self.conn.connection(), bus_name).number
-    }
-
-    /// Compute absolute screen extents by adding our parent-relative
-    /// position to the parent's absolute bounds.  The parent's bounds are
-    /// resolved through its own `Bounds` attribute, which recurses through
-    /// the same logic — terminating at the real top-level (step 1 above).
-    fn resolve_extents_via_parent_chain(&self) -> Option<Rect> {
-        let owner = self.owner.as_ref()?.upgrade()?;
-        let parent = owner.parent_arc()?;
-
-        // An application-level node has no meaningful on-screen geometry.
-        // We should never reach here for a real top-level (those are handled
-        // by step 1), but defend against unexpected tree shapes.
-        if parent.namespace() == Namespace::App {
-            return None;
-        }
-
-        let proxy = component_proxy(&self.conn, &self.obj)?;
-        let (x, y, w, h) = self
-            .call("Component.GetExtents", proxy.get_extents(CoordType::Parent))
-            .and_then(std::result::Result::ok)?;
-
-        let parent_bounds_attr = parent.attribute(Namespace::Control, element::BOUNDS)?;
-        let UiValue::Rect(parent_bounds) = parent_bounds_attr.value() else {
-            return None;
-        };
-
-        Some(Rect::new(parent_bounds.x() + f64::from(x), parent_bounds.y() + f64::from(y), f64::from(w), f64::from(h)))
     }
 
     /// Resolve the window manager and window ID for this node.
@@ -1642,7 +1674,6 @@ impl LazyNodeData {
     }
 
     /// Resolve the toolkit identifier for the application owning this node.
-    #[expect(dead_code, reason = "read by the placement of linux-element-geometry task 5.3")]
     fn resolve_toolkit(&self) -> Option<String> {
         resolve_toolkit_name(&self.conn, &self.timeouts, &self.obj)
     }
@@ -1679,21 +1710,21 @@ impl LazyNodeData {
 
 impl ExtentSources for LazyNodeData {
     /// Whether this node is a real platform top-level window (direct child of
-    /// an application-level node). See
+    /// an application-level node, and not a popup). See
     /// [`AtspiNode::is_window_surface`] for the rationale.
     fn is_real_toplevel(&self) -> bool {
-        self.is_real_toplevel
+        self.is_real_toplevel && !self.on_popup_layer()
     }
 
-    fn is_transient_popup(&self) -> bool {
-        self.is_transient_popup
+    fn is_popup(&self) -> bool {
+        self.is_transient_popup || self.on_popup_layer()
     }
 
-    /// Ask the registered window manager for the bounds of this window.
-    fn window_manager_bounds(&self) -> Option<Result<Rect, WindowManagerFailure>> {
+    /// Ask the registered window manager for the geometry of this window.
+    fn window_manager_geometry(&self) -> Option<Result<WindowGeometry, WindowManagerFailure>> {
         let node = self.owner.as_ref()?.upgrade()?;
         let wm = self.window_manager.as_ref()?;
-        Some(extents::window_manager_bounds(&**wm, node.as_ref()))
+        Some(extents::window_manager_geometry(&**wm, node.as_ref()))
     }
 
     fn substitutions(&self) -> Option<(&Substitutions, TopLevelKey)> {
@@ -1709,20 +1740,42 @@ impl ExtentSources for LazyNodeData {
         }
     }
 
-    fn parent_chain_extents(&self) -> Option<Rect> {
-        self.resolve_extents_via_parent_chain()
-    }
-
     fn screen_extents(&self) -> Option<Rect> {
-        component_proxy(&self.conn, &self.obj).and_then(|proxy| {
-            self.call("Component.GetExtents", proxy.get_extents(CoordType::Screen))
-                .and_then(std::result::Result::ok)
-                .map(|(x, y, w, h)| Rect::new(f64::from(x), f64::from(y), f64::from(w), f64::from(h)))
-        })
+        self.extents_in(CoordType::Screen)
     }
 
-    fn popup_bounds(&self, size: (f64, f64)) -> Option<Rect> {
-        self.resolve_popup_bounds_via_window_manager(size)
+    fn window_extents(&self) -> Option<Rect> {
+        self.extents_in(CoordType::Window)
+    }
+
+    fn toolkit(&self) -> Option<String> {
+        self.resolve_toolkit()
+    }
+
+    fn screen_is_desktop(&self) -> bool {
+        self.window_manager.as_ref().is_none_or(|wm| wm.toolkit_screen_coordinates_are_desktop())
+    }
+
+    fn popups(&self) -> Option<Vec<PopupGeometry>> {
+        let wm = self.window_manager.as_ref()?;
+        wm.popups(self.resolve_process_id()?).ok()
+    }
+
+    fn ancestor_reference(&self) -> Option<Reference> {
+        let node = self.owner.as_ref()?.upgrade()?;
+        let parent = node.parent_arc()?;
+        parent.as_any()?.downcast_ref::<AtspiNode>()?.placement_reference()
+    }
+
+    fn child_popup(&self, popups: &[PopupGeometry], parent_depth: u32) -> Option<Reference> {
+        let node = self.owner.as_ref()?.upgrade()?;
+        node.children().find_map(|child| {
+            let child = child.as_any()?.downcast_ref::<AtspiNode>()?;
+            if !child.is_on_popup_layer() {
+                return None;
+            }
+            extents::listed_popup_reference(&child.extent_sources(), popups, parent_depth)
+        })
     }
 }
 

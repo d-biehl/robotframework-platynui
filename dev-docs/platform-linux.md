@@ -122,6 +122,67 @@ Other C0 control characters (U+0000–U+001F) have no standard keyboard equivale
 
 **Patterns**: `Focusable` via `grab_focus()` + AT-SPI State flags.
 
+### Element geometry
+
+An element's `Bounds` say where it is drawn on the desktop. AT-SPI offers three coordinate
+types for an element's extents — `SCREEN`, `WINDOW` and `PARENT` — and toolkits implement
+them differently, so the provider does not trust any one of them everywhere. It places every
+element **relative to its window**, never by adding up its ancestors:
+
+- The element's *reference window* is its nearest ancestor that is a real top-level window, or
+  a popup the platform shows as a surface of its own (below).
+- The platform says where that window is on the desktop. The element adds its own position
+  relative to the window.
+
+For example, a radio button inside a group inside a GTK 3 window on X11 reports its real screen
+position, and that is its `Bounds`. Its ancestors' positions play no part: GTK 3 answers the
+`PARENT` coordinates AT-SPI asks for with screen coordinates, so a sum over the ancestors would
+count each of their positions again.
+
+**Which coordinate type.** The position relative to the window is read in screen coordinates,
+with two exceptions:
+
+- GTK 4 reports `(0,0)` as every screen position, by design, so GTK 4 is read in window
+  coordinates.
+- A node whose screen position equals its window's while its window position does not is read in
+  window coordinates too. That is the mark of a toolkit PlatynUI does not know that reports no
+  screen positions either.
+
+`PARENT` coordinates are never used, and a rectangle without size, or at `G_MININT`, which GTK 3
+reports for widgets it does not show, is no geometry: the node has no bounds of its own, and its
+descendants are placed all the same.
+
+**Screen coordinates on the desktop.** Whether a toolkit's screen coordinates are desktop
+coordinates is the platform's to say. On X11 with a window manager they are, and a node's screen
+extents are its `Bounds` as they are. Where they are not — under the PlatynUI compositor, and on X11
+without a window manager (§3) — they are re-based: the window's origin plus the node's offset from
+its window's own screen position. The provider itself knows nothing about the windowing system.
+
+**Two origins of a window.** A window manager reports a window's *visible bounds*, which its node
+reports as `Bounds`, and its *surface origin*, the point a toolkit measures surface-relative
+positions from. They differ for a window that draws its own shadow. Elements count from the origin
+their toolkit measures from: GTK 4 from its visible frame, every other toolkit from the surface.
+
+**Popups.** A popup is a transient popup grafted under its application (Qt's context menus) or a
+node on the AT-SPI popup layer (GTK 4's popovers, GTK 3's menus). The platform lists the popups of a
+process with their visible rectangles and surfaces, and a popup node is matched to that list by its
+own size: against each popup's surface first, then its visible rectangle. A GTK 4 popover's node is
+its surface, shadow included; GTK 3's menu node is the visible menu. A matched popup's `Bounds` are
+the visible rectangle, and its descendants count from the rectangle it matched. GTK 3 lists a menu's
+items beside the menu's node, below the item that opened the menu, so that item hands the menu on
+to its children. A popup the platform does not list is placed like any other node of its window. The
+hit-test prefers a hit inside a popup over anything beneath it, and a hit in a submenu over one in
+the menu that opened it.
+
+What the toolkits report, read from their source and measured on both Linux lanes:
+
+| Toolkit | `SCREEN` | `WINDOW` | Read in |
+|---|---|---|---|
+| GTK 4 | always `(0,0)` | relative to the window's border box, header bar included, shadow excluded; a child of a padded widget reports its parent's origin ([`platform-linux-wayland.md`](platform-linux-wayland.md) §3) | `WINDOW` |
+| GTK 3 | X11: root coordinates, the toplevel including the window manager's frame. Wayland: relative to the surface, shadow included; a popup's items count from nowhere | relative to its own top-level surface; a menu counts as one | `SCREEN` |
+| Qt ≥ 6.5 | X11: the client area. Wayland: pinned to the output's top-left | relative to the nearest window, an MDI subwindow counting as one | `SCREEN` |
+| AccessKit (egui) | the client-area origin plus the element's offset; `(0,0)` as origin on Wayland, and on X11 without a window manager it may keep the origin the window opened at | relative to the client area | `SCREEN` |
+
 ### Process Identity and PID Namespaces
 
 The normal deployment runs everything in one PID namespace: the runtime, the application under test, the display server and the accessibility bus daemon all see the same process table, and a process ID means the same process to each of them. Nothing in this section changes anything there. It explains why the provider still handles process IDs with care, and what happens in the one special deployment where that care matters: PlatynUI running as a **sidecar** in a PID namespace of its own.

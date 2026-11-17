@@ -780,7 +780,7 @@ AT-SPI2 describes most capabilities as states of an element (checked, selected, 
 | BringIntoViewable | bring into view; IsInView | Component.ScrollTo (at-spi2-core 2.28 and later; whether a toolkit implements it, only the call's result tells); state VISIBLE or SHOWING |
 | window runtime patterns | the window actions; IsMinimized, IsMaximized | window manager |
 | Responsive | accepts input? | states SENSITIVE and SHOWING |
-| Element | Bounds; IsVisible, IsInView; IsEnabled | Component extents, the window manager for top-level windows; state VISIBLE or SHOWING; state ENABLED or SENSITIVE |
+| Element | Bounds; IsVisible, IsInView; IsEnabled | the window's origin from the window manager, or a popup's from the platform's popup list, plus the Component extents relative to that window ([`platform-linux.md`](platform-linux.md) §2); state VISIBLE or SHOWING; state ENABLED or SENSITIVE |
 | ActivationTarget | ActivationPoint; ActivationArea | centre of the Component extents; Component extents |
 | TextContent | Text | Text.GetText(0, -1) |
 | Editable | IsReadOnly; MaxLength; IsPassword; IsMultiLine | state READ_ONLY, for text also EDITABLE; —; the password-text role; states MULTI_LINE and SINGLE_LINE |

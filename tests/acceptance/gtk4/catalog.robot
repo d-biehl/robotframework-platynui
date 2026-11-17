@@ -8,6 +8,9 @@ Documentation       Blueprint catalog acceptance for the GTK 4 fixture (the cano
 ...                 Menu, context-menu and drop-down items exist on the tree only while their
 ...                 popover is open, and collapsed tree children appear only after expansion.
 ...                 Activations report through the always-visible ``last-action-<ident>`` label.
+...                 Every test that opens a popover presses Escape twice in its teardown (a
+...                 submenu and its menu take one each), so a popover a failed test left open
+...                 cannot swallow the next test's first click.
 ...
 ...                 Test order matters for the click-counter test (the counter is cumulative per
 ...                 instance), so it runs before anything else clicks button-basic.
@@ -48,6 +51,41 @@ Clicking The Catalog Button Updates The Click Counter
     BM.Wait Until Exists    .//*[@Name="status-label-clicks-1"]
     BM.Pointer Click    .//*[@Name="button-basic"]
     BM.Wait Until Exists    .//*[@Name="status-label-clicks-2"]
+
+Activating A Menu Bar Item Updates The Last Action
+    BM.Pointer Click    .//*[@Name="menu-file"]
+    BM.Pointer Click    .//*[@Name="menu-file"]//*[@Name="menu-file-new"]
+    BM.Wait Until Exists    .//*[@Name="last-action-menu-file-new"]
+    [Teardown]    Run Keyword And Ignore Error    BM.Keyboard Type    ${None}    <Escape><Escape>
+
+Activating A Menu Bar Submenu Item Updates The Last Action
+    BM.Pointer Click    .//*[@Name="menu-edit"]
+    BM.Pointer Click    .//*[@Name="menu-edit"]//*[@Name="menu-edit-more"]
+    BM.Pointer Click    .//*[@Name="menu-edit"]//*[@Name="menu-edit-more"]//*[@Name="menu-edit-sub-one"]
+    BM.Wait Until Exists    .//*[@Name="last-action-menu-edit-sub-one"]
+    [Teardown]    Run Keyword And Ignore Error    BM.Keyboard Type    ${None}    <Escape><Escape>
+
+Activating A Context Menu Item Updates The Last Action
+    BM.Pointer Click    .//*[@Name="label-basic"]    button=right
+    BM.Pointer Click    .//*[@Name="context-menu"]//*[@Name="ctx-copy"]
+    BM.Wait Until Exists    .//*[@Name="last-action-ctx-copy"]
+    [Teardown]    Run Keyword And Ignore Error    BM.Keyboard Type    ${None}    <Escape><Escape>
+
+Activating A Context Submenu Item Updates The Last Action
+    BM.Pointer Click    .//*[@Name="label-basic"]    button=right
+    BM.Pointer Click    .//*[@Name="context-menu"]//*[@Name="ctx-more"]
+    BM.Pointer Click    .//*[@Name="context-menu"]//*[@Name="ctx-sub-alpha"]
+    BM.Wait Until Exists    .//*[@Name="last-action-ctx-sub-alpha"]
+    [Teardown]    Run Keyword And Ignore Error    BM.Keyboard Type    ${None}    <Escape><Escape>
+
+Opening The Combo Box Reveals Its Items
+    [Documentation]    Combo items exist only while the popover is open; selecting one closes it.
+    BM.Wait Until Gone    .//*[@Name="combobox-basic"]//*[@Name="combo-item-2"]
+    BM.Pointer Click    .//*[@Name="combobox-basic"]
+    BM.Wait Until Exists    .//*[@Name="combobox-basic"]//*[@Name="combo-item-2"]
+    BM.Pointer Click    .//*[@Name="combobox-basic"]//*[@Name="combo-item-2"]
+    BM.Wait Until Gone    .//*[@Name="combobox-basic"]//*[@Name="combo-item-2"]
+    [Teardown]    Run Keyword And Ignore Error    BM.Keyboard Type    ${None}    <Escape><Escape>
 
 Expanding Tree Nodes Reveals Descendants
     [Documentation]    Double-click expands a collapsed row (the cross-toolkit expansion gesture),

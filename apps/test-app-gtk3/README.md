@@ -79,8 +79,8 @@ Every name is set on the widget's ATK object (`get_accessible().set_name`), wind
 included. A `Gtk.Label` has no input window of its own, so `label-basic` sits in a
 `Gtk.EventBox`, which receives the secondary click.
 
-Activating a menu item or a dialog button reports its ident through the last-action label;
-no control changes its own name. A double-click on a tree row expands or collapses it, the
+Activating a menu item or a dialog button, or selecting a radio button, reports its ident
+through the last-action label; no control changes its own name. A double-click on a tree row expands or collapses it, the
 expansion gesture the catalog uses for every toolkit.
 
 Beyond the catalog, other suites rely on three things:

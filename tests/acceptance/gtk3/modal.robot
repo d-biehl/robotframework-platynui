@@ -14,3 +14,10 @@ Modal Dialog Is Present Without Interaction
     BM.Wait Until Exists    .//*[@Name="dialog-modal"]
     BM.Wait Until Exists    .//*[@Name="dialog-modal-label"]
     BM.Wait Until Exists    .//*[@Name="dialog-modal-button"]
+
+Clicking The Modal Dialog Button Lands Inside The Dialog
+    [Documentation]    The modal dialog's button reports through the last-action label of the
+    ...    main window — the pointer action landed inside the dialog, not the window below.
+    BM.Wait Until Gone    .//*[@Name="last-action-dialog-modal-button"]
+    BM.Pointer Click    .//*[@Name="dialog-modal"]//*[@Name="dialog-modal-button"]
+    BM.Wait Until Exists    .//*[@Name="last-action-dialog-modal-button"]
