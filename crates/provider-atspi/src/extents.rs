@@ -55,7 +55,7 @@ impl Deref for InjectedWindowManager {
 /// A window-manager call that could not answer for a top-level window.
 #[derive(Debug)]
 pub(crate) struct WindowManagerFailure {
-    /// The call that failed: `resolve_window` or `bounds`.
+    /// The call that failed: `resolve_window` or `geometry`.
     call: &'static str,
     /// The window, when the lookup got that far.
     window: Option<WindowId>,
@@ -63,20 +63,18 @@ pub(crate) struct WindowManagerFailure {
 }
 
 /// Ask the window manager for a top-level's bounds: look up its window, then
-/// read that window's bounds. The toolkit hint is resolved only once the
-/// window is found.
+/// read that window's geometry.
 pub(crate) fn window_manager_bounds(
     window_manager: &dyn WindowManager,
     node: &dyn UiNode,
-    toolkit: impl FnOnce() -> Option<String>,
 ) -> Result<Rect, WindowManagerFailure> {
     let window = window_manager.resolve_window(node).map_err(|error| WindowManagerFailure {
         call: "resolve_window",
         window: None,
         error,
     })?;
-    window_manager.bounds(window, toolkit().as_deref()).map_err(|error| WindowManagerFailure {
-        call: "bounds",
+    window_manager.geometry(window).map(|geometry| geometry.bounds).map_err(|error| WindowManagerFailure {
+        call: "geometry",
         window: Some(window),
         error,
     })
@@ -240,6 +238,7 @@ fn toolkit_extents(node: &impl ExtentSources) -> Option<Rect> {
 mod tests {
     use super::*;
     use crate::test_log::{at_level, logged, warnings};
+    use platynui_core::platform::WindowGeometry;
     use platynui_core::types::{Point, Size};
     use platynui_core::ui::{Namespace, PatternName, RuntimeId, UiAttribute};
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -297,10 +296,10 @@ mod tests {
                 _ => Ok(WindowId::new(0x2a)),
             }
         }
-        fn bounds(&self, _id: WindowId, _toolkit_hint: Option<&str>) -> Result<Rect, PlatformError> {
+        fn geometry(&self, _id: WindowId) -> Result<WindowGeometry, PlatformError> {
             match *self.failing.lock().unwrap() {
                 Failing::Bounds => Err(Self::error()),
-                _ => Ok(wm_rect()),
+                _ => Ok(WindowGeometry::from_bounds(wm_rect())),
             }
         }
         fn is_active(&self, _id: WindowId) -> Result<bool, PlatformError> {
@@ -400,7 +399,7 @@ mod tests {
             matches!(self.kind, Kind::Popup)
         }
         fn window_manager_bounds(&self) -> Option<Result<Rect, WindowManagerFailure>> {
-            Some(window_manager_bounds(&*self.window_manager, &StubNode, || Some("egui".into())))
+            Some(window_manager_bounds(&*self.window_manager, &StubNode))
         }
         fn substitutions(&self) -> Option<(&Substitutions, TopLevelKey)> {
             let key = TopLevelKey { bus_name: ":1.42".into(), path: self.path.into() };

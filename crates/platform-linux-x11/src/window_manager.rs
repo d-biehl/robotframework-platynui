@@ -11,7 +11,9 @@
 //! per-instance.
 
 use crate::x11util::X11Connection;
-use platynui_core::platform::{PlatformError, WindowHit, WindowId, WindowManager, WindowState, WindowVisualState};
+use platynui_core::platform::{
+    PlatformError, WindowGeometry, WindowHit, WindowId, WindowManager, WindowState, WindowVisualState,
+};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::{Namespace, UiNode};
 use std::sync::Arc;
@@ -698,8 +700,8 @@ impl WindowManager for X11EwmhWindowManager {
         Ok(WindowId::new(u64::from(xid)))
     }
 
-    fn bounds(&self, id: WindowId, _toolkit_hint: Option<&str>) -> Result<Rect, PlatformError> {
-        client_rect(&self.conn, xid_of(id))
+    fn geometry(&self, id: WindowId) -> Result<WindowGeometry, PlatformError> {
+        client_rect(&self.conn, xid_of(id)).map(WindowGeometry::from_bounds)
     }
 
     fn window_at_point(&self, point: Point) -> Result<Option<WindowHit>, PlatformError> {

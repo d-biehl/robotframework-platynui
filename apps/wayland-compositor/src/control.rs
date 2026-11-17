@@ -14,7 +14,8 @@
 //! - `{"command": "status"}` → compositor status (version, uptime, backend, windows, outputs)
 //! - `{"command": "list_windows"}` → list all mapped and minimized windows with state info
 //! - `{"command": "list_popups"}` → currently mapped `xdg_popups` with **global** rectangles
-//!   (`popups: [{parent_window_id, pid, x, y, width, height}]`; empty array when none)
+//!   (`popups: [{parent_window_id, pid, x, y, width, height, surface_x, surface_y,
+//!   surface_width, surface_height}]`; empty array when none)
 //! - `{"command": "get_modifiers"}` → current seat keyboard modifier state (`ctrl`, `alt`, `shift`, `logo`)
 //! - `{"command": "get_window", "id": <n>}` → get details of a specific window by index
 //! - `{"command": "get_window", "app_id": "..."}` → get window by `app_id` (exact match)
@@ -50,6 +51,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use smithay::backend::input::{AxisSource, ButtonState, KeyState};
 use smithay::desktop::space::SpaceElement;
+use smithay::desktop::utils::bbox_from_surface_tree;
 use smithay::desktop::{PopupManager, Window};
 use smithay::input::keyboard::{FilterResult, xkb};
 use smithay::input::pointer::{AxisFrame, MotionEvent};
@@ -168,11 +170,14 @@ struct WindowInfo {
 
 /// Popup information returned by `list_popups`.
 ///
-/// `x`/`y` are **global** logical coordinates of the popup's visible geometry
-/// (its xdg geometry rect placed on screen). Popups draw no server-side
-/// decorations and their geometry excludes any client shadow, so no offset
-/// applies. Popups have no title or id of their own; consumers correlate via
-/// the parent toplevel's `parent_window_id`/`pid` (and the rect itself).
+/// `x`/`y`/`width`/`height` are the **global** logical rectangle of the popup's
+/// visible geometry (its xdg geometry rect placed on screen), which excludes a
+/// shadow the client draws around it. `surface_*` is the popup's whole
+/// surface: a client that draws a shadow sets its window geometry inset inside
+/// a larger buffer, so the surface starts above and left of the placed
+/// rectangle; without a shadow both rectangles coincide. Popups have no title
+/// or id of their own; consumers correlate via the parent toplevel's
+/// `parent_window_id`/`pid` and the rectangles.
 #[derive(Serialize)]
 struct PopupInfo {
     parent_window_id: u64,
@@ -181,6 +186,10 @@ struct PopupInfo {
     y: i32,
     width: i32,
     height: i32,
+    surface_x: i32,
+    surface_y: i32,
+    surface_width: i32,
+    surface_height: i32,
 }
 
 /// Minimized window information.
@@ -1275,17 +1284,44 @@ fn list_popups(state: &State) -> Vec<PopupInfo> {
             if placed.size.w <= 0 || placed.size.h <= 0 {
                 continue;
             }
-            popups.push(PopupInfo {
-                parent_window_id: window_stable_id(window),
-                pid: window_pid(window),
-                x: root_loc.x + location.x,
-                y: root_loc.y + location.y,
-                width: placed.size.w,
-                height: placed.size.h,
-            });
+            // The buffer starts the client's window-geometry inset above and
+            // left of the placed rectangle (smithay renders a popup's surface
+            // at its offset minus `PopupKind::geometry().loc`), and spans the
+            // surface tree's bounding box.
+            let buffer = bbox_from_surface_tree(popup.wl_surface(), (0, 0));
+            popups.push(popup_entry(
+                window_stable_id(window),
+                window_pid(window),
+                Rectangle::new(root_loc + location, placed.size),
+                popup.geometry().loc - buffer.loc,
+                buffer.size,
+            ));
         }
     }
     popups
+}
+
+/// A popup's entry: its placed rectangle, and its surface, which starts
+/// `inset` above and left of it with the buffer's size.
+fn popup_entry(
+    parent_window_id: u64,
+    pid: Option<u32>,
+    placed: Rectangle<i32, Logical>,
+    inset: Point<i32, Logical>,
+    buffer: Size<i32, Logical>,
+) -> PopupInfo {
+    PopupInfo {
+        parent_window_id,
+        pid,
+        x: placed.loc.x,
+        y: placed.loc.y,
+        width: placed.size.w,
+        height: placed.size.h,
+        surface_x: placed.loc.x - inset.x,
+        surface_y: placed.loc.y - inset.y,
+        surface_width: buffer.w,
+        surface_height: buffer.h,
+    }
 }
 
 /// List minimized windows as typed structs.
@@ -1815,7 +1851,45 @@ mod tests {
     }
 
     fn popup_info(pid: Option<u32>) -> PopupInfo {
-        PopupInfo { parent_window_id: 0x1234_5678, pid, x: 41, y: 61, width: 100, height: 80 }
+        popup_entry(
+            0x1234_5678,
+            pid,
+            Rectangle::new((41, 61).into(), (100, 80).into()),
+            Point::default(),
+            (100, 80).into(),
+        )
+    }
+
+    /// A GTK 4 submenu as measured under this compositor: the client sets its
+    /// window geometry inset by its shadow inside a larger buffer.
+    #[test]
+    fn a_popup_with_a_client_side_shadow_lists_its_surface_around_its_placed_rectangle() {
+        let entry = popup_entry(
+            1,
+            Some(4242),
+            Rectangle::new((265, 179).into(), (158, 82).into()),
+            (23, 21).into(),
+            (204, 128).into(),
+        );
+        assert_eq!((entry.x, entry.y, entry.width, entry.height), (265, 179, 158, 82));
+        assert_eq!((entry.surface_x, entry.surface_y, entry.surface_width, entry.surface_height), (242, 158, 204, 128));
+    }
+
+    /// A Qt context menu sets no window geometry inset: its buffer is its
+    /// placed rectangle.
+    #[test]
+    fn a_popup_without_a_shadow_has_one_rectangle() {
+        let entry = popup_entry(
+            1,
+            None,
+            Rectangle::new((300, 200).into(), (180, 240).into()),
+            Point::default(),
+            (180, 240).into(),
+        );
+        assert_eq!(
+            (entry.surface_x, entry.surface_y, entry.surface_width, entry.surface_height),
+            (entry.x, entry.y, entry.width, entry.height)
+        );
     }
 
     fn minimized_window_info(pid: Option<u32>) -> MinimizedWindowInfo {

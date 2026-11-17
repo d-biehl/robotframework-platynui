@@ -17,7 +17,7 @@
 // Win32 FFI module: nearly every call it makes is `unsafe` by signature.
 #![allow(unsafe_code)]
 
-use platynui_core::platform::{PlatformError, WindowId, WindowManager, WindowState, WindowVisualState};
+use platynui_core::platform::{PlatformError, WindowGeometry, WindowId, WindowManager, WindowState, WindowVisualState};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::{Namespace, UiNode, UiValue};
 use tracing::debug;
@@ -180,17 +180,17 @@ impl WindowManager for Win32WindowManager {
         })
     }
 
-    fn bounds(&self, id: WindowId, _toolkit_hint: Option<&str>) -> Result<Rect, PlatformError> {
+    fn geometry(&self, id: WindowId) -> Result<WindowGeometry, PlatformError> {
         let hwnd = hwnd_from_id(id);
         let mut rect = RECT::default();
         unsafe { GetWindowRect(hwnd, &raw mut rect) }
             .map_err(|e| PlatformError::OperationFailed { operation: "GetWindowRect", details: Some(e.to_string()) })?;
-        Ok(Rect::new(
+        Ok(WindowGeometry::from_bounds(Rect::new(
             f64::from(rect.left),
             f64::from(rect.top),
             f64::from(rect.right - rect.left),
             f64::from(rect.bottom - rect.top),
-        ))
+        )))
     }
 
     fn is_active(&self, id: WindowId) -> Result<bool, PlatformError> {

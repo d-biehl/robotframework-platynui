@@ -2,20 +2,20 @@
 
 ## 1. Window-manager contract
 
-- [ ] 1.1 Write the core unit tests first (`crates/core/src/platform/window_manager.rs` tests): the default `geometry` of a window manager without a separate surface origin has `surface_origin == bounds.origin`, the default for "toolkit screen coordinates are desktop coordinates" is `true`, and the default popup query stays unavailable while a popup record carries a visible and a surface rectangle. Verify they fail to compile against the old trait.
-- [ ] 1.2 Replace `WindowManager::bounds(id, toolkit_hint)` with `geometry(id)` returning the visible bounds and the surface origin, add the screen-coordinates property with its default, and change `popups(pid)` to return each popup's visible and surface rectangle (design decisions 3, 4 and 5). Update the core stub and the platform mock window manager. Verify `just test-crate platynui-core` and `just test-crate platynui-platform-mock` pass.
-- [ ] 1.3 Move the JAB provider (`crates/provider-java-jab/src/node.rs:1037`) and the Wayland facade (`crates/platform-linux-wayland/src/window_manager/mod.rs:51`) to `geometry(id).bounds`. Verify `just clippy-windows` and `just check` pass.
+- [x] 1.1 Write the core unit tests first (`crates/core/src/platform/window_manager.rs` tests): the default `geometry` of a window manager without a separate surface origin has `surface_origin == bounds.origin`, the default for "toolkit screen coordinates are desktop coordinates" is `true`, and the default popup query stays unavailable while a popup record carries a visible and a surface rectangle. Verify they fail to compile against the old trait.
+- [x] 1.2 Replace `WindowManager::bounds(id, toolkit_hint)` with `geometry(id)` returning the visible bounds and the surface origin, add the screen-coordinates property with its default, and change `popups(pid)` to return each popup's visible and surface rectangle (design decisions 3, 4 and 5). Update the core stub and the platform mock window manager. Verify `just test-crate platynui-core` and `just test-crate platynui-platform-mock` pass.
+- [x] 1.3 Move the JAB provider (`crates/provider-java-jab/src/node.rs:1037`) and the Wayland facade (`crates/platform-linux-wayland/src/window_manager/mod.rs:51`) to `geometry(id).bounds`. Verify `just clippy-windows` and `just check` pass.
 
 ## 2. PlatynUI compositor geometry
 
-- [ ] 2.1 Add unit tests in `platynui_ipc.rs` built from the recorded `list_windows` records in design.md (GTK 3 and GTK 4 with header bar, `csd`; Qt and egui, `ssd`). The visible bounds are `content + geometry offset` with `content_width/height` for every `csd` window. The surface origin is `content_x/y`. `window_at_point` returns the same visible bounds. Toolkit screen coordinates are not desktop coordinates. Verify the tests fail first.
-- [ ] 2.2 Implement `geometry` and the property for the IPC backend: drop the GTK 4 gate from `csd_shadow_offset` and keep the opaque-region refinement. Verify `just test-crate platynui-platform-linux-wayland` passes.
-- [ ] 2.3 Write the popup tests first:
+- [x] 2.1 Add unit tests in `platynui_ipc.rs` built from the recorded `list_windows` records in design.md (GTK 3 and GTK 4 with header bar, `csd`; Qt and egui, `ssd`). The visible bounds are `content + geometry offset` with `content_width/height` for every `csd` window. The surface origin is `content_x/y`. `window_at_point` returns the same visible bounds. Toolkit screen coordinates are not desktop coordinates. Verify the tests fail first.
+- [x] 2.2 Implement `geometry` and the property for the IPC backend: drop the GTK 4 gate from `csd_shadow_offset` and keep the opaque-region refinement. Verify `just test-crate platynui-platform-linux-wayland` passes.
+- [x] 2.3 Write the popup tests first:
   - in `apps/wayland-compositor/src/control.rs`, a listed popup carries its surface origin and size beside its placed rectangle (specs *A popup with a client-side shadow lists its surface around its placed rectangle* and *A popup without a shadow has one rectangle*);
   - in `platynui_ipc.rs`, `popups` decodes both rectangles from a recorded `list_popups` response.
 
   Verify they fail first.
-- [ ] 2.4 Implement the surface in `list_popups`: the popup's buffer origin (its placed location minus its own window-geometry offset) and its buffer size. Decode it in `popups`. Then open the GTK 4 fixture's nested submenu under the compositor and compare the listed surface size with the popover node's size. Record the result for 5.3, because it is the assumption in design.md, Risks. Verify `just test-crate platynui-wayland-compositor` and `just test-crate platynui-platform-linux-wayland` pass.
+- [x] 2.4 Implement the surface in `list_popups`: the popup's buffer origin (its placed location minus its own window-geometry offset) and its buffer size. Decode it in `popups`. Then open the GTK 4 fixture's nested submenu under the compositor and compare the listed surface size with the popover node's size. Record the result for 5.3, because it is the assumption in design.md, Risks. Verify `just test-crate platynui-wayland-compositor` and `just test-crate platynui-platform-linux-wayland` pass.
 
 ## 3. X11 geometry and window choice
 

@@ -1593,7 +1593,7 @@ impl LazyNodeData {
     fn resolve_popup_bounds_via_window_manager(&self, size: (f64, f64)) -> Option<Rect> {
         let wm = self.window_manager.as_ref()?;
         let pid = self.resolve_process_id()?;
-        let popups = wm.popups(pid).ok()?;
+        let popups: Vec<Rect> = wm.popups(pid).ok()?.into_iter().map(|popup| popup.bounds).collect();
         crate::popups::match_popup_rect(&popups, size)
     }
 
@@ -1642,6 +1642,7 @@ impl LazyNodeData {
     }
 
     /// Resolve the toolkit identifier for the application owning this node.
+    #[expect(dead_code, reason = "read by the placement of linux-element-geometry task 5.3")]
     fn resolve_toolkit(&self) -> Option<String> {
         resolve_toolkit_name(&self.conn, &self.timeouts, &self.obj)
     }
@@ -1692,7 +1693,7 @@ impl ExtentSources for LazyNodeData {
     fn window_manager_bounds(&self) -> Option<Result<Rect, WindowManagerFailure>> {
         let node = self.owner.as_ref()?.upgrade()?;
         let wm = self.window_manager.as_ref()?;
-        Some(extents::window_manager_bounds(&**wm, node.as_ref(), || self.resolve_toolkit()))
+        Some(extents::window_manager_bounds(&**wm, node.as_ref()))
     }
 
     fn substitutions(&self) -> Option<(&Substitutions, TopLevelKey)> {
