@@ -14,10 +14,14 @@ All references are to `main` at `4165ce0` and were read in the source unless mar
 - `UiNodeData.namespace_cache` (`tree_data.rs:129`) is filled by `preload_namespace` (`tree_data.rs:168-171`) and cleared by `refresh` (`tree_data.rs:370`), but nothing reads it.
 - The test-only `MockNode` (`tree_data.rs:525-572`) has a fixed namespace (`Control`), role (`"Mock"`) and name (= id). `async_tasks` tests use it too (`async_tasks.rs:456-466`).
 - No unit test and no acceptance suite under `tests/acceptance/egui/` checks the tree or result label text.
+- `UiNode::namespace()` is resolved at most once per node and then cached by every real provider:
+  - AT-SPI, JAB and the Java agent resolve namespace and role in the same cached step that `role()` already triggers (`crates/provider-atspi/src/node.rs:323-331`, `crates/provider-java-jab/src/node.rs:353-357`, `crates/provider-java/src/agent/node.rs:235-239`).
+  - Windows UIA caches it in a `OnceLock` (`crates/provider-windows-uia/src/node.rs:356-365`). Nodes created from a UIA cache request get it prefilled together with the control type (`node.rs:227-238`); any other node pays one or two property reads on the first call.
+  - Tree rows already call it in `preload_row_caches` before `preload_label`. A node from an XPath search has usually been read during evaluation, because an element name test such as `//Button` or `//item:ListItem` compares the namespace. So the label adds at most one cached call per node.
 
 **Assumed:**
 
-- `UiNode::namespace()` is a cheap, cached property on every provider. `preload_row_caches` already calls it for every row, so calling it once more from `format_node_label` adds no new kind of provider access, at most a repeated cheap call.
+- None.
 
 ## Goals / Non-Goals
 
@@ -37,7 +41,7 @@ All references are to `main` at `4165ce0` and were read in the source unless mar
 
 ### D1: A role helper next to `xpath_attribute_name`
 
-Add `pub fn xpath_role_name(namespace: Namespace, role: &str) -> String` in `tree_data.rs`, directly below `xpath_attribute_name`. It returns `role` when `namespace.is_default()` and `"{namespace}:{role}"` otherwise. It takes `Namespace` instead of `&str` because the caller has a `Namespace` from `UiNode::namespace()` and `is_default()` states the rule directly.
+Add a private `fn xpath_role_name(namespace: Namespace, role: &str) -> String` in `tree_data.rs`, directly below `xpath_attribute_name`. It returns `role` when `namespace.is_default()` and `"{namespace}:{role}"` otherwise. It takes `Namespace` instead of `&str` because the caller has a `Namespace` from `UiNode::namespace()` and `is_default()` states the rule directly. It stays private because only `format_node_label` uses it; `xpath_attribute_name` is `pub` only because the attributes view imports it (`apps/inspector/src/view/attributes.rs:12`).
 
 Alternative rejected: generalizing `xpath_attribute_name` to cover roles. The two rules happen to match today, but they have different reasons (attributes: unprefixed attributes are in no namespace; elements: `control` is the default element namespace). Keeping two named helpers keeps each one's doc comment accurate.
 
@@ -55,7 +59,7 @@ Reading the namespace from `namespace_cache` inside `preload_label` would avoid 
 
 ### D5: Testing posture
 
-Model-layer unit tests in `tree_data.rs`, one per spec scenario except the XPath name test scenario. `MockNode` gains a constructor that sets namespace, role and name; `MockNode::new(id)` keeps `Control` / `"Mock"` / name = id, so existing callers in `tree_data.rs` and `async_tasks.rs` stay unchanged. Because `role()` returns `&'static str`, the role field is a `&'static str`. No acceptance test: the change is pure string formatting, which the unit tests cover completely. That the shown role works as an XPath name test depends on the XPath engine, so it is checked manually against a real provider.
+Model-layer unit tests in `tree_data.rs`, one per spec scenario. `MockNode` gains a constructor that sets namespace, role and name; `MockNode::new(id)` keeps `Control` / `"Mock"` / name = id, so existing callers in `tree_data.rs` and `async_tasks.rs` stay unchanged. Because `role()` returns `&'static str`, the role field is a `&'static str`. No acceptance test: the change is pure string formatting, which the unit tests cover completely. That the shown role works as an XPath name test is not a requirement of this capability: which nodes `//item:ListItem` matches is decided by the XPath engine and already required by the `menu-item-namespace` spec ("SHALL still be matched by `//item:ListItem`"). Task 4.3 checks the whole flow once by hand against a real provider.
 
 ## Risks / Trade-offs
 

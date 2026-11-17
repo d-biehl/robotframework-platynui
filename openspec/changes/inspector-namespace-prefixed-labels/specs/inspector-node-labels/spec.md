@@ -42,13 +42,6 @@ The Inspector SHALL label a node with its role written the way an XPath name tes
 - **WHEN** the Inspector builds its label
 - **THEN** the label SHALL be `item:ListItem "Line 1 Line 2"`
 
-#### Scenario: Qualified role works as an XPath name test
-
-- **GIVEN** a node in the `item` namespace shown in the Inspector tree as `item:ListItem "Item 1"`
-- **WHEN** the user evaluates `//item:ListItem[@Name="Item 1"]` in the Inspector's XPath search
-- **THEN** the result list SHALL contain that node
-- **NOTE** Verified manually against a real provider with an application that exposes list items. The XPath engine's default element namespace is outside this change; the unit tests cover the label format only.
-
 ### Requirement: XPath result nodes carry the same label as the tree
 
 A node returned by an XPath search SHALL be labelled in the result list exactly as the same node is labelled in the UI tree.
