@@ -37,6 +37,9 @@ Usage
 
     # Auto-close after 10s (for CI):
     uv run apps/test-app-qt/main.py --auto-close 10
+
+    # MDI scenario: the central page inside a QMdiSubWindow offset in the main window:
+    uv run apps/test-app-qt/main.py --mdi
 """
 
 import argparse
@@ -50,8 +53,11 @@ from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QDialogButtonBox,
+    QGroupBox,
     QLabel,
     QMainWindow,
+    QMdiArea,
+    QMdiSubWindow,
     QMenu,
     QPushButton,
     QVBoxLayout,
@@ -124,7 +130,9 @@ class SampleDialog(QDialog):
 class MainWindow(QMainWindow):
     """Main window that owns the child dialogs and the geometry readout."""
 
-    def __init__(self, title: str, *, open_modal: bool = False, dialog_count: int = len(CHILD_DIALOGS)) -> None:
+    def __init__(
+        self, title: str, *, open_modal: bool = False, dialog_count: int = len(CHILD_DIALOGS), mdi: bool = False
+    ) -> None:
         super().__init__()
         _tag(self, 'main-window')
         self.setWindowTitle(title)
@@ -150,7 +158,10 @@ class MainWindow(QMainWindow):
         pick_button = QPushButton('Pick Me')
         _tag(pick_button, 'main-pick-button')
         central_layout.addWidget(pick_button)
-        self.setCentralWidget(central)
+        if mdi:
+            self.setCentralWidget(self._mdi_area(central, central_layout))
+        else:
+            self.setCentralWidget(central)
 
         self._build_menus()
         self._build_readout()
@@ -164,6 +175,33 @@ class MainWindow(QMainWindow):
         self._timer.timeout.connect(self._refresh_readout)
         self._timer.start(250)
         self._refresh_readout()
+
+    def _mdi_area(self, page: QWidget, layout: QVBoxLayout) -> QMdiArea:
+        """The MDI scenario: the central *page* inside a ``QMdiSubWindow`` offset in the main window.
+
+        Qt's AT-SPI bridge measures window coordinates from the nearest window, and an MDI
+        subwindow counts as one, while its screen coordinates count from the real window. A
+        button inside a group in the subwindow reports ``mdi-button`` through the last-action
+        label, so a test can tell whether a click by locator lands on it.
+        """
+        group = QGroupBox('mdi-group')
+        _tag(group, 'mdi-group')
+        group_layout = QVBoxLayout(group)
+        button = QPushButton('MDI Button')
+        _tag(button, 'mdi-button')
+        button.clicked.connect(lambda: self._report_action('mdi-button'))
+        group_layout.addWidget(button)
+        layout.addWidget(group)
+
+        area = QMdiArea()
+        _tag(area, 'mdi-area')
+        subwindow = QMdiSubWindow()
+        _tag(subwindow, 'mdi-subwindow')
+        subwindow.setWindowTitle('mdi-subwindow')
+        subwindow.setWidget(page)
+        area.addSubWindow(subwindow)
+        subwindow.setGeometry(120, 80, 520, 360)
+        return area
 
     def _build_menus(self) -> None:
         """Add a menu bar (File menu) and a right-click context menu.
@@ -342,6 +380,11 @@ def main(argv: list[str] | None = None) -> int:
         "clicking a dialog's widgets (e.g. on Wayland, where all windows stack at the origin).",
     )
     parser.add_argument(
+        '--mdi',
+        action='store_true',
+        help='Put the central page into a QMdiSubWindow offset inside the main window (MDI scenario).',
+    )
+    parser.add_argument(
         '--log-level',
         choices=['error', 'warn', 'info', 'debug'],
         default='warn',
@@ -358,7 +401,7 @@ def main(argv: list[str] | None = None) -> int:
     QApplication.setDesktopFileName(args.app_id)
 
     app = QApplication(sys.argv[:1])
-    window = MainWindow(args.title, open_modal=args.open_modal, dialog_count=args.dialogs)
+    window = MainWindow(args.title, open_modal=args.open_modal, dialog_count=args.dialogs, mdi=args.mdi)
     window.show()
 
     if args.auto_close > 0:

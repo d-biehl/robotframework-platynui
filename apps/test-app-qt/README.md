@@ -13,7 +13,7 @@ separate venv — the app runs on the project's own interpreter.
 
 ## Current purpose: reproduce Qt dialog window-bounds bugs
 
-There is **no `QMdiArea`**. The app simply creates several `QDialog` instances
+By default there is **no `QMdiArea`** (the MDI scenario below adds one). The app simply creates several `QDialog` instances
 **parented to the main window** (`QDialog(main_window)`) and shows them at known
 positions inside it — the pattern the affected real app uses. Three modeless
 child dialogs open at startup (`--dialogs N` limits how many); `--open-modal`
@@ -28,7 +28,7 @@ Each window's `geometry()` is its **client rect in global screen coordinates**
 The point of interest: a parented `QDialog` is a top-level native window, but
 where Qt's AT-SPI bridge hangs it in the accessible tree (under the main window
 vs. directly under the Application) decides whether PlatynUI resolves its bounds
-via the window manager or by summing parent-relative offsets up the tree. The
+via the window manager or places it as an element of the main window. The
 Inspector shows which happens.
 
 > **X11 only.** Qt only knows a window's absolute position under X11. Under
@@ -50,7 +50,20 @@ uv run apps/test-app-qt/main.py --auto-close 10          # self-close for CI
 uv run apps/test-app-qt/main.py --log-level info         # error|warn|info|debug
 uv run apps/test-app-qt/main.py --open-modal             # also open a modal dialog at startup
 uv run apps/test-app-qt/main.py --dialogs 1              # open only N child dialogs (avoids overlap)
+uv run apps/test-app-qt/main.py --mdi                    # the central page in an MDI subwindow (below)
 ```
+
+## MDI scenario (`--mdi`)
+
+With `--mdi` the main window's central page sits in a `QMdiSubWindow`
+(`mdi-subwindow`), offset inside a `QMdiArea`, and gains a group (`mdi-group`)
+with a button (`mdi-button`) whose click reports `last-action-mdi-button`. Qt's
+AT-SPI bridge measures window coordinates from the nearest window, and an MDI
+subwindow counts as one, while its screen coordinates count from the real
+window. PlatynUI therefore places Qt elements by their screen coordinates; the
+scenario shows that a click by locator still lands inside the subwindow.
+`tests/acceptance/qt/mdi.robot` drives it with `--dialogs 0`, so no child dialog
+covers the subwindow.
 
 Each widget carries a stable identity via `accessibleName` (surfaced as `@Name`
 on the AT-SPI / UIA tree — verified against the running app; `@Id` is a compound
@@ -67,7 +80,7 @@ landed inside the dialog), while every control keeps its stable name.
 Wired into the real-provider lane under
 [`tests/acceptance/qt`](../../tests/acceptance/qt) (profile `real`, tags `acceptance` + `real`):
 `bounds.robot` (the regression + correctness checks), `interaction.robot` (click
-lands in the dialog), and `modal.robot` (modal opened via `--open-modal`). The
+lands in the dialog), `modal.robot` (modal opened via `--open-modal`) and `mdi.robot` (the MDI scenario). The
 project interpreter + entrypoint are handed over via `PLATYNUI_TEST_APP_QT_PYTHON`
 / `PLATYNUI_TEST_APP_QT_MAIN` by `scripts/platynui-robot-session.sh` (Linux) and
 the `test-acceptance-windows` recipe (Windows); Robot Framework launches that

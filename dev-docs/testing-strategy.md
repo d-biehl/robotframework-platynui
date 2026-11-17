@@ -263,7 +263,8 @@ same blueprint.
 - **Blueprint conformance.** Fixture apps implement the fixture blueprint defined in §5.1
   below: a tiered control catalog under canonical names, name-based action observables, a
   common CLI contract, and onboarding to the catalog acceptance suite.
-  Scenario-specific surfaces (e.g. the Qt Widgets dialog-bounds reproduction) live beside
+  Scenario-specific surfaces (e.g. the Qt Widgets dialog-bounds reproduction and its MDI
+  scenario, `--mdi`) live beside
   the catalog, not inside it.
 - **Current matrix.** egui (`apps/test-app-egui`) — Rust/AccessKit — stays the
   **lightweight smoke target**: it renders its own widgets and exposes a flatter tree with
