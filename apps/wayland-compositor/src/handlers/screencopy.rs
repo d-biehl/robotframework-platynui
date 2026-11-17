@@ -808,8 +808,7 @@ fn perform_cursor_capture(
                     states
                         .data_map
                         .get::<CursorImageSurfaceData>()
-                        .map(|d| d.lock().expect("mutex poisoned").hotspot)
-                        .unwrap_or_default()
+                        .map_or_default(|d| d.lock().expect("mutex poisoned").hotspot)
                 });
 
                 match render_cursor_surface_to_pixels(state, &surface, expected_size) {

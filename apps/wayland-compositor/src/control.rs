@@ -906,7 +906,7 @@ fn build_status_response(state: &State) -> serde_json::Value {
         .enumerate()
         .map(|(i, o)| {
             let mode = o.current_mode().unwrap_or(smithay::output::Mode { size: (0, 0).into(), refresh: 0 });
-            let loc = state.space.output_geometry(o).map(|g| g.loc).unwrap_or_default();
+            let loc = state.space.output_geometry(o).map_or_default(|g| g.loc);
             OutputInfo {
                 index: i,
                 name: o.name(),
@@ -1278,8 +1278,7 @@ fn list_popups(state: &State) -> Vec<PopupInfo> {
                 states
                     .data_map
                     .get::<XdgPopupSurfaceData>()
-                    .map(|attrs| attrs.lock().expect("xdg popup attributes poisoned").current.geometry)
-                    .unwrap_or_default()
+                    .map_or_default(|attrs| attrs.lock().expect("xdg popup attributes poisoned").current.geometry)
             });
             if placed.size.w <= 0 || placed.size.h <= 0 {
                 continue;
