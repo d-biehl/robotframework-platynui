@@ -19,8 +19,6 @@ resolver = "3"
 
 [workspace.package]
 version = "0.13.0-dev.2"
-description = "Cross-platform UI automation toolkit for Robot Framework with XPath-based element selection"
-readme = "README.md"
 keywords = [
     "robotframework",
     "gui",
@@ -31,7 +29,6 @@ keywords = [
 ]
 categories = ["development-tools", "testing"]
 edition = "2024"
-homepage = "https://github.com/imbus/robotframework-PlatynUI"
 documentation = "https://github.com/imbus/robotframework-PlatynUI"
 repository = "https://github.com/imbus/robotframework-PlatynUI"
 authors = ["Daniel Biehl <daniel.biehl@imbus.de>"]
