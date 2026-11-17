@@ -41,14 +41,7 @@ impl SearchResultItem {
     pub fn from_evaluation_item(item: &EvaluationItem) -> Self {
         match item {
             EvaluationItem::Node(node) => {
-                let name = node.name();
-                let escaped = escape_control_chars(&name);
-                let label = if escaped.is_empty() {
-                    node.role().to_string()
-                } else {
-                    format!("{} \"{}\"", node.role(), escaped)
-                };
-                Self::Node { label, node: Arc::clone(node) }
+                Self::Node { label: format_node_label(node.as_ref()), node: Arc::clone(node) }
             }
             EvaluationItem::Attribute(attr) => {
                 let (val_str, _) = format_ui_value(&attr.value);
@@ -387,10 +380,13 @@ impl UiNodeData {
     }
 }
 
+/// Display label for a node in the tree and in the `XPath` result list:
+/// the XPath-qualified role, followed by the quoted, escaped name if any.
 fn format_node_label(node: &dyn UiNode) -> String {
+    let role = xpath_role_name(node.namespace(), node.role());
     let name_str = node.name();
     let escaped = escape_control_chars(&name_str);
-    if escaped.is_empty() { node.role().to_string() } else { format!("{} \"{}\"", node.role(), escaped) }
+    if escaped.is_empty() { role } else { format!("{role} \"{escaped}\"") }
 }
 
 fn log_child_load_timing(stage: &'static str, child_count: usize, elapsed: Duration) {
@@ -409,6 +405,16 @@ fn log_child_load_timing(stage: &'static str, child_count: usize, elapsed: Durat
 /// prefix so what the user sees and copies works when pasted into a query.
 pub fn xpath_attribute_name(namespace: &str, name: &str) -> String {
     if namespace == Namespace::Control.as_str() { name.to_string() } else { format!("{namespace}:{name}") }
+}
+
+/// XPath-conformant rendering of a node's role.
+///
+/// `control` is the default element namespace in `PlatynUI` `XPath`: `//Button`
+/// matches control nodes, while roles in any other namespace only match with
+/// their prefix (`//item:ListItem`). Labels show the role this way so what the
+/// user sees works as an element name test in a query.
+fn xpath_role_name(namespace: Namespace, role: &str) -> String {
+    if namespace.is_default() { role.to_string() } else { format!("{}:{role}", namespace.as_str()) }
 }
 
 fn collect_display_attributes(node: &dyn UiNode) -> Vec<DisplayAttribute> {
@@ -528,13 +534,27 @@ pub(crate) mod test_mock {
 
     pub(crate) struct MockNode {
         rid: RuntimeId,
+        namespace: Namespace,
+        role: &'static str,
         name: String,
         parent: Mutex<Option<Weak<dyn UiNode>>>,
     }
 
     impl MockNode {
+        /// A `control:Mock` node whose name equals its runtime id.
         pub(crate) fn new(id: &str) -> Arc<Self> {
-            Arc::new(Self { rid: RuntimeId::from(id), name: id.to_string(), parent: Mutex::new(None) })
+            Self::with_role(id, Namespace::Control, "Mock", id)
+        }
+
+        /// A node with an explicit namespace, role and name.
+        pub(crate) fn with_role(id: &str, namespace: Namespace, role: &'static str, name: &str) -> Arc<Self> {
+            Arc::new(Self {
+                rid: RuntimeId::from(id),
+                namespace,
+                role,
+                name: name.to_string(),
+                parent: Mutex::new(None),
+            })
         }
 
         pub(crate) fn set_parent(&self, parent: &Arc<dyn UiNode>) {
@@ -544,10 +564,10 @@ pub(crate) mod test_mock {
 
     impl UiNode for MockNode {
         fn namespace(&self) -> Namespace {
-            Namespace::Control
+            self.namespace
         }
         fn role(&self) -> &'static str {
-            "Mock"
+            self.role
         }
         fn name(&self) -> String {
             self.name.clone()
@@ -573,9 +593,10 @@ pub(crate) mod test_mock {
 
 #[cfg(test)]
 mod tests {
-    use super::UiNodeData;
     use super::test_mock::MockNode;
-    use platynui_core::ui::UiNode;
+    use super::{SearchResultItem, UiNodeData};
+    use platynui_core::ui::{Namespace, UiNode};
+    use platynui_runtime::EvaluationItem;
     use std::sync::Arc;
 
     #[test]
@@ -613,5 +634,54 @@ mod tests {
         let root = Arc::new(UiNodeData::new(MockNode::new("root") as Arc<dyn UiNode>));
         root.graft_chain(&[]);
         assert!(root.cached_children().is_none());
+    }
+
+    /// The label a tree row shows for a node, built through the row cache.
+    fn tree_label(namespace: Namespace, role: &'static str, name: &str) -> String {
+        let data = UiNodeData::new(MockNode::with_role("node", namespace, role, name) as Arc<dyn UiNode>);
+        data.preload_label();
+        data.cached_label().expect("label cached after preload")
+    }
+
+    #[test]
+    fn item_node_label_carries_the_item_prefix() {
+        assert_eq!(tree_label(Namespace::Item, "ListItem", "Item 1"), r#"item:ListItem "Item 1""#);
+    }
+
+    #[test]
+    fn control_node_label_has_no_prefix() {
+        assert_eq!(tree_label(Namespace::Control, "Button", "OK"), r#"Button "OK""#);
+    }
+
+    #[test]
+    fn app_node_label_carries_the_app_prefix() {
+        assert_eq!(tree_label(Namespace::App, "Application", "MyApp"), r#"app:Application "MyApp""#);
+    }
+
+    #[test]
+    fn native_node_label_carries_the_native_prefix() {
+        assert_eq!(tree_label(Namespace::Native, "Widget", "Custom"), r#"native:Widget "Custom""#);
+    }
+
+    #[test]
+    fn unnamed_node_label_is_the_qualified_role_alone() {
+        assert_eq!(tree_label(Namespace::Item, "TableRow", ""), "item:TableRow");
+    }
+
+    #[test]
+    fn node_label_escapes_control_characters_in_the_name() {
+        assert_eq!(tree_label(Namespace::Item, "ListItem", "Line 1\nLine 2"), r#"item:ListItem "Line 1 Line 2""#);
+    }
+
+    #[test]
+    fn search_result_node_label_equals_the_tree_label() {
+        let node = MockNode::with_role("node", Namespace::Item, "ListItem", "Item 1") as Arc<dyn UiNode>;
+        let tree = UiNodeData::new(Arc::clone(&node));
+        tree.preload_label();
+
+        let result = SearchResultItem::from_evaluation_item(&EvaluationItem::Node(node));
+
+        assert_eq!(result.display_label(), r#"item:ListItem "Item 1""#);
+        assert_eq!(Some(result.display_label().to_string()), tree.cached_label());
     }
 }
