@@ -344,8 +344,12 @@ jobs:
 
       # CI=true (set by GitHub Actions) makes `headless` default to true, so the
       # compositor uses its headless backend and X11 runs under Xvfb — no flag needed.
+      # log.html records debug messages (keyword action lines, native provider records)
+      # while the console and the report stay at INFO. It is uploaded when the lane fails.
       - name: Run acceptance lane (${{ matrix.backend }}, headless)
-        run: just test-acceptance-${{ matrix.backend }}
+        env:
+          PLATYNUI_LOG_LEVEL: debug
+        run: just test-acceptance-${{ matrix.backend }} --loglevel DEBUG:INFO
 
       - name: Dump test app logs on failure
         if: failure()
