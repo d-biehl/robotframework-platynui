@@ -12,18 +12,20 @@
 
 use crate::x11util::X11Connection;
 use platynui_core::platform::{
-    PlatformError, WindowGeometry, WindowHit, WindowId, WindowManager, WindowState, WindowVisualState,
+    PlatformError, PopupGeometry, WindowGeometry, WindowHit, WindowId, WindowManager, WindowState, WindowVisualState,
 };
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::{Namespace, UiNode};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 use tracing::{debug, info, trace, warn};
 use x11rb::connection::Connection;
 use x11rb::protocol::res::{ClientIdMask, ClientIdSpec, ClientIdValue, ConnectionExt as _};
 use x11rb::protocol::xproto::{
-    Atom, AtomEnum, ClientMessageEvent, ConfigureWindowAux, ConnectionExt, EventMask, MapState, Window,
+    Atom, AtomEnum, ClientMessageEvent, ConfigureWindowAux, ConnectionExt, EventMask, InputFocus, MapState, StackMode,
+    Window,
 };
 use x11rb::rust_connection::RustConnection;
 
@@ -47,6 +49,9 @@ struct EwmhAtoms {
     net_supported: Atom,
     net_wm_name: Atom,
     utf8_string: Atom,
+    gtk_frame_extents: Atom,
+    wm_protocols: Atom,
+    wm_delete_window: Atom,
 }
 
 static ATOMS: OnceLock<Mutex<EwmhAtoms>> = OnceLock::new();
@@ -89,6 +94,9 @@ fn atoms(x11: &X11Connection) -> Result<std::sync::MutexGuard<'static, EwmhAtoms
         net_supported: intern(conn, b"_NET_SUPPORTED")?,
         net_wm_name: intern(conn, b"_NET_WM_NAME")?,
         utf8_string: intern(conn, b"UTF8_STRING")?,
+        gtk_frame_extents: intern(conn, b"_GTK_FRAME_EXTENTS")?,
+        wm_protocols: intern(conn, b"WM_PROTOCOLS")?,
+        wm_delete_window: intern(conn, b"WM_DELETE_WINDOW")?,
     };
     let _ = ATOMS.set(Mutex::new(a));
     ATOMS
@@ -157,109 +165,332 @@ fn get_window_name(conn: &RustConnection, win: Window, atoms: &EwmhAtoms) -> Opt
     None
 }
 
-/// Find X11 windows belonging to the given PID.  When multiple candidates
-/// exist (e.g. a main window plus dialogs, all sharing one process), correlate
-/// the node's AT-SPI screen extents with each candidate's client rect
-/// (`node_extents`), falling back to matching the accessible `name` against
-/// `_NET_WM_NAME`.
+/// Find the X11 window of the given PID that the node stands for.
 ///
-/// Geometry is the primary key on purpose: the accessible name and the window
-/// title frequently diverge (e.g. a Qt dialog whose `accessibleName` differs
-/// from its `windowTitle`), which defeats name matching. When neither key
-/// disambiguates, this returns an error rather than guessing a candidate —
-/// silently picking the wrong window yields another window's bounds (typically
-/// the main window's), which is worse than an explicit failure.
+/// A process with one window has it. With several (a main window and its
+/// dialogs), [`choose_window`] decides from what the node tells about its
+/// window.
 fn find_xid_for_pid(
     x11: &X11Connection,
     pid: u32,
-    window_name: Option<&str>,
-    node_extents: Option<Rect>,
+    node: &WindowHints,
+    mode: WindowMode,
 ) -> Result<Window, PlatformError> {
     let atoms = atoms(x11)?;
-    let client_list = get_client_list(&x11.conn, x11.root, atoms.net_client_list)?;
+    let windows: Vec<Window> = match mode {
+        WindowMode::Managed => get_client_list(&x11.conn, x11.root, atoms.net_client_list)?
+            .into_iter()
+            .filter(|&win| get_window_pid(&x11.conn, win, atoms.net_wm_pid) == Some(pid))
+            .collect(),
+        WindowMode::Bare => {
+            application_windows(&root_windows(x11, atoms.net_wm_pid)?, pid).iter().map(|window| window.xid).collect()
+        }
+    };
 
-    let mut candidates: Vec<Window> = Vec::new();
-    for &win in &client_list {
-        if let Some(win_pid) = get_window_pid(&x11.conn, win, atoms.net_wm_pid)
-            && win_pid == pid
-        {
-            candidates.push(win);
+    let mut candidates = Vec::new();
+    for win in windows {
+        let Ok(rect) = visible_window_rect(x11, win, atoms.gtk_frame_extents) else { continue };
+        candidates.push(CandidateWindow { xid: win, title: get_window_name(&x11.conn, win, &atoms), rect });
+    }
+
+    if candidates.is_empty() {
+        warn!(pid, "no X11 window found for PID");
+        return Err(PlatformError::OperationFailed {
+            operation: "resolve X11 window by PID",
+            details: Some(format!("no window found for PID {pid}")),
+        });
+    }
+    let xid = choose_window(&candidates, node, pid).inspect_err(|_| {
+        warn!(pid, count = candidates.len(), "could not tell the windows of a PID apart");
+    })?;
+    debug!(pid, xid, candidates = candidates.len(), "resolved XID for PID");
+    Ok(xid)
+}
+
+/// A window of the node's process, as the lookup sees it.
+#[derive(Clone, Debug)]
+struct CandidateWindow {
+    xid: Window,
+    /// `_NET_WM_NAME`, or `WM_NAME` when the window has none.
+    title: Option<String>,
+    /// The visible window ([`visible_rect`]).
+    rect: Rect,
+}
+
+/// What the node tells about its window.
+#[derive(Clone, Debug, Default)]
+struct WindowHints {
+    /// The node's accessible name, which toolkits set to the window title.
+    name: Option<String>,
+    /// The window's size as its toolkit reports it.
+    size: Option<Size>,
+    /// The window's screen position as its toolkit reports it; `None` when
+    /// the toolkit reports none, which GTK 4 does by reporting `(0,0)`.
+    position: Option<Point>,
+}
+
+/// How far, summed over both dimensions, a candidate's size or position may
+/// lie from the node's to count as the same window. Toolkits that include the
+/// window manager's frame in their window's extents (GTK 3 on X11) stay
+/// within it; windows the lookup must tell apart differ by more.
+const WINDOW_MATCH_TOLERANCE: f64 = 64.0;
+
+/// Choose the node's window among the windows of its process: by the exact
+/// title first, then by a size only one candidate has, and among candidates of
+/// equal size by the screen position the toolkit reports. Fails, naming the
+/// number of candidates, when none of these singles out one window — taking
+/// another window's geometry is worse than an explicit failure.
+fn choose_window(candidates: &[CandidateWindow], node: &WindowHints, pid: u32) -> Result<Window, PlatformError> {
+    if let [only] = candidates {
+        return Ok(only.xid);
+    }
+    let mut pool: Vec<&CandidateWindow> = candidates.iter().collect();
+
+    if let Some(name) = node.name.as_deref() {
+        let titled: Vec<&CandidateWindow> = pool.iter().copied().filter(|c| c.title.as_deref() == Some(name)).collect();
+        if let [only] = titled.as_slice() {
+            return Ok(only.xid);
+        }
+        if !titled.is_empty() {
+            pool = titled;
         }
     }
 
-    match candidates.len() {
-        0 => {
-            warn!(pid, "no X11 window found for PID");
-            Err(PlatformError::OperationFailed {
-                operation: "resolve X11 window by PID",
-                details: Some(format!("no window found for PID {pid}")),
+    if let Some(size) = node.size {
+        let sized: Vec<&CandidateWindow> = pool
+            .iter()
+            .copied()
+            .filter(|c| {
+                (c.rect.width() - size.width()).abs() + (c.rect.height() - size.height()).abs()
+                    <= WINDOW_MATCH_TOLERANCE
             })
+            .collect();
+        if let [only] = sized.as_slice() {
+            return Ok(only.xid);
         }
-        1 => {
-            debug!(pid, xid = candidates[0], "resolved XID for PID");
-            Ok(candidates[0])
+        if !sized.is_empty() {
+            pool = sized;
         }
-        _ => {
-            // Primary: correlate the node's AT-SPI screen extents with the
-            // candidates' client rects. Robust even when names diverge.
-            if let Some(target) = node_extents
-                && let Some(xid) = best_geometry_match(x11, &candidates, target)
-            {
-                debug!(pid, xid, "resolved XID by geometry match");
-                return Ok(xid);
-            }
+    }
 
-            // Secondary: match the accessible name against _NET_WM_NAME.
-            if let Some(name) = window_name
-                && !name.is_empty()
-                && let Some(xid) = best_name_match(&x11.conn, &candidates, name, &atoms)
-            {
-                debug!(pid, xid, name, "resolved XID by name match");
-                return Ok(xid);
-            }
-
-            warn!(pid, count = candidates.len(), "could not disambiguate window for PID (no geometry or name match)");
-            Err(PlatformError::OperationFailed {
-                operation: "disambiguate X11 window for PID",
-                details: Some(format!(
-                    "{} candidate windows for PID {pid}, none matched by geometry or name",
-                    candidates.len()
-                )),
-            })
+    if let Some(position) = node.position {
+        let distance = |c: &CandidateWindow| (c.rect.x() - position.x()).abs() + (c.rect.y() - position.y()).abs();
+        if let Some(closest) = pool.iter().copied().min_by(|a, b| distance(a).total_cmp(&distance(b)))
+            && distance(closest) <= WINDOW_MATCH_TOLERANCE
+        {
+            return Ok(closest.xid);
         }
+    }
+
+    Err(PlatformError::OperationFailed {
+        operation: "disambiguate X11 window for PID",
+        details: Some(format!(
+            "{} candidate windows for PID {pid}, none singled out by title, size or screen position",
+            candidates.len()
+        )),
+    })
+}
+
+/// Whether a window manager manages the display, decided once when the
+/// runtime connects ([`window_mode`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindowMode {
+    /// An EWMH window manager runs: windows are found and operated through it.
+    Managed,
+    /// No window manager runs: windows are found and operated through the X
+    /// server directly.
+    Bare,
+}
+
+/// The window mode from the window-manager check: managed when an EWMH window
+/// manager answered, bare when the check found none. A check that could not be
+/// made keeps the window-manager path.
+pub(crate) fn window_mode(check: &Result<bool, PlatformError>) -> WindowMode {
+    match check {
+        Ok(false) => WindowMode::Bare,
+        Ok(true) | Err(_) => WindowMode::Managed,
     }
 }
 
-/// Maximum summed absolute difference (in pixels, over x/y/w/h) between a
-/// candidate's client rect and the node's AT-SPI screen extents for the two to
-/// be considered the same window. On X11 both describe the client area, so a
-/// match is near-exact; the tolerance only absorbs rounding / off-by-a-pixel
-/// and guards against selecting an unrelated window.
-const GEOMETRY_MATCH_TOLERANCE: f64 = 64.0;
+/// Whether a toolkit's screen coordinates are desktop coordinates in a window
+/// mode. A window manager tells a client where its window went after another
+/// client moved it (the synthetic `ConfigureNotify` ICCCM requires); without
+/// one, a toolkit may keep counting from where its window opened.
+fn screen_coordinates_are_desktop(mode: WindowMode) -> bool {
+    mode == WindowMode::Managed
+}
 
-/// Pick the candidate whose client rect is closest to `target` (the node's
-/// AT-SPI screen extents), provided the closest is within
-/// [`GEOMETRY_MATCH_TOLERANCE`]. Returns `None` if no candidate is close enough.
-fn best_geometry_match(x11: &X11Connection, candidates: &[Window], target: Rect) -> Option<Window> {
-    let mut best: Option<Window> = None;
-    let mut best_dist = f64::MAX;
-    for &win in candidates {
-        let Ok(rect) = client_rect(x11, win) else { continue };
-        let dist = (rect.x() - target.x()).abs()
-            + (rect.y() - target.y()).abs()
-            + (rect.width() - target.width()).abs()
-            + (rect.height() - target.height()).abs();
-        if dist < best_dist {
-            best_dist = dist;
-            best = Some(win);
-        }
+/// A child of the root window, as the window lookup without a window manager
+/// sees it.
+#[derive(Clone, Copy, Debug)]
+struct RootWindow {
+    xid: Window,
+    viewable: bool,
+    override_redirect: bool,
+    /// Its `_NET_WM_PID`.
+    pid: Option<u32>,
+}
+
+/// Whether a root child is an application's top-level window: viewable, not
+/// override-redirect (which menus and tooltips are), and carrying a process
+/// ID, which toolkits set themselves.
+fn is_top_level(window: &RootWindow) -> bool {
+    window.viewable && !window.override_redirect && window.pid.is_some()
+}
+
+/// The windows of process `pid` among the root's children, without a window
+/// manager.
+fn application_windows(children: &[RootWindow], pid: u32) -> Vec<RootWindow> {
+    children.iter().filter(|window| is_top_level(window) && window.pid == Some(pid)).copied().collect()
+}
+
+/// The root's children (bottom to top) with what the lookup without a window
+/// manager needs of them.
+fn root_windows(x11: &X11Connection, pid_atom: Atom) -> Result<Vec<RootWindow>, PlatformError> {
+    let tree = x11
+        .conn
+        .query_tree(x11.root)
+        .map_err(|e| PlatformError::OperationFailed { operation: "x11 query_tree", details: Some(e.to_string()) })?
+        .reply()
+        .map_err(|e| PlatformError::OperationFailed {
+            operation: "x11 query_tree reply",
+            details: Some(e.to_string()),
+        })?;
+    Ok(tree
+        .children
+        .iter()
+        .filter_map(|&xid| {
+            let attrs = x11.conn.get_window_attributes(xid).ok()?.reply().ok()?;
+            Some(RootWindow {
+                xid,
+                viewable: attrs.map_state == MapState::VIEWABLE,
+                override_redirect: attrs.override_redirect,
+                pid: get_window_pid(&x11.conn, xid, pid_atom),
+            })
+        })
+        .collect())
+}
+
+/// The input focus `None`: no window has it.
+const FOCUS_NONE: Window = 0;
+/// The input focus `PointerRoot`: it follows the pointer's root window.
+const FOCUS_POINTER_ROOT: Window = 1;
+
+/// The root child that holds the input focus: the focused window itself, or
+/// the ancestor of it whose parent is the root. `None` when the focus is
+/// `None`, `PointerRoot` or the root, or when the walk loses the tree.
+fn focused_top_level(focus: Window, root: Window, parent_of: impl Fn(Window) -> Option<Window>) -> Option<Window> {
+    if focus == FOCUS_NONE || focus == FOCUS_POINTER_ROOT || focus == root {
+        return None;
     }
-    if best_dist <= GEOMETRY_MATCH_TOLERANCE { best } else { None }
+    let mut current = focus;
+    loop {
+        let parent = parent_of(current)?;
+        if parent == root {
+            return Some(current);
+        }
+        current = parent;
+    }
+}
+
+/// How activation raises `window` among the top-level windows, which the X
+/// server lists bottom to top: `None` when it is the topmost already,
+/// otherwise the sibling to place it directly above — the topmost other one.
+/// Raising it above that sibling rather than above every root child keeps the
+/// override-redirect popups stacked above the windows, an open menu of the
+/// window's own process among them.
+fn raise_above(top_levels: &[Window], window: Window) -> Option<Window> {
+    let topmost = *top_levels.last()?;
+    (topmost != window).then_some(topmost)
+}
+
+/// Whether a window can be asked to close: its `WM_PROTOCOLS` list
+/// `WM_DELETE_WINDOW`.
+fn check_delete_protocol(protocols: &[Atom], wm_delete_window: Atom) -> Result<(), PlatformError> {
+    if protocols.contains(&wm_delete_window) {
+        Ok(())
+    } else {
+        Err(PlatformError::OperationFailed {
+            operation: "close X11 window",
+            details: Some("the window does not list WM_DELETE_WINDOW in its WM_PROTOCOLS".into()),
+        })
+    }
+}
+
+/// The error for a window manager's own operation on a display without one.
+fn needs_window_manager(capability: &'static str) -> PlatformError {
+    PlatformError::CapabilityUnavailable { capability, details: Some("no window manager runs on the display".into()) }
+}
+
+/// How long activation waits for a window it mapped to become viewable; the
+/// input focus can only go to a viewable window.
+const MAP_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// The `_GTK_FRAME_EXTENTS` of a window: the insets of the shadow GTK draws
+/// around a client-side-decorated window under a compositing window manager.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FrameExtents {
+    left: u32,
+    right: u32,
+    top: u32,
+    bottom: u32,
+}
+
+/// A window's visible rectangle: its client rectangle without the frame
+/// extents, when it has any.
+fn visible_rect(client: Rect, extents: Option<FrameExtents>) -> Rect {
+    let Some(e) = extents else { return client };
+    Rect::new(
+        client.x() + f64::from(e.left),
+        client.y() + f64::from(e.top),
+        client.width() - f64::from(e.left + e.right),
+        client.height() - f64::from(e.top + e.bottom),
+    )
+}
+
+/// Read a window's `_GTK_FRAME_EXTENTS` (four cardinals: left, right, top,
+/// bottom). `None` when the window has no such property.
+fn read_frame_extents(conn: &RustConnection, win: Window, atom: Atom) -> Option<FrameExtents> {
+    let reply = conn.get_property(false, win, atom, AtomEnum::CARDINAL, 0, 4).ok()?.reply().ok()?;
+    let mut values = reply.value32()?;
+    Some(FrameExtents { left: values.next()?, right: values.next()?, top: values.next()?, bottom: values.next()? })
+}
+
+/// A child of the root window, as the popup listing sees it.
+#[derive(Clone, Copy, Debug)]
+struct RootChild {
+    viewable: bool,
+    override_redirect: bool,
+    /// Whether its `_NET_WM_WINDOW_TYPE` marks a menu, combo or tooltip.
+    popup_type: bool,
+    /// Its `_NET_WM_PID`.
+    pid: Option<u32>,
+    client: Rect,
+    frame_extents: Option<FrameExtents>,
+}
+
+/// The popups of process `pid` among the root's children, which the X server
+/// lists bottom to top: the viewable override-redirect windows of a popup type
+/// that carry the process's `_NET_WM_PID`, topmost first. A popup's surface is
+/// its window; its visible rectangle leaves out GTK's shadow
+/// (`_GTK_FRAME_EXTENTS`).
+fn popups_of(children: &[RootChild], pid: u32) -> Vec<PopupGeometry> {
+    children
+        .iter()
+        .rev()
+        .filter(|c| c.viewable && c.override_redirect && c.popup_type && c.pid == Some(pid))
+        .map(|c| PopupGeometry { bounds: visible_rect(c.client, c.frame_extents), surface: c.client })
+        .collect()
+}
+
+/// A window's visible rectangle ([`visible_rect`]) on the screen.
+fn visible_window_rect(x11: &X11Connection, win: Window, frame_extents_atom: Atom) -> Result<Rect, PlatformError> {
+    Ok(visible_rect(client_rect(x11, win)?, read_frame_extents(&x11.conn, win, frame_extents_atom)))
 }
 
 /// Compute a window's client rect: screen position of its client origin
 /// (`translate_coordinates`) plus its client size (`get_geometry`). Shared by
-/// [`X11EwmhWindowManager::bounds`] and [`best_geometry_match`].
+/// [`visible_window_rect`] and the window hit-test.
 fn client_rect(x11: &X11Connection, xid: Window) -> Result<Rect, PlatformError> {
     let geom = x11
         .conn
@@ -318,33 +549,6 @@ fn decode_window_state(net_states: &[Atom], iconic: bool, atoms: &EwmhAtoms) -> 
     WindowState { visual, topmost: has(atoms.net_wm_state_above) }
 }
 
-/// Find the candidate whose `_NET_WM_NAME` best matches the AT-SPI name.
-fn best_name_match(
-    conn: &RustConnection,
-    candidates: &[Window],
-    target_name: &str,
-    atoms: &EwmhAtoms,
-) -> Option<Window> {
-    // Exact match first.
-    for &win in candidates {
-        if let Some(wm_name) = get_window_name(conn, win, atoms)
-            && wm_name == target_name
-        {
-            return Some(win);
-        }
-    }
-    // Substring / contains match (window titles often include extra text
-    // like " — Application Name").
-    for &win in candidates {
-        if let Some(wm_name) = get_window_name(conn, win, atoms)
-            && (wm_name.contains(target_name) || target_name.contains(&wm_name))
-        {
-            return Some(win);
-        }
-    }
-    None
-}
-
 // ---------------------------------------------------------------------------
 //  EWMH client messages
 // ---------------------------------------------------------------------------
@@ -393,20 +597,23 @@ fn extract_pid(node: &dyn UiNode) -> Option<u32> {
     }
 }
 
-/// Read the node's AT-SPI screen extents via the raw `Component.Extents.Screen`
-/// native attribute. This query goes straight to the accessibility provider and
-/// does **not** route through this window manager, so it is safe to call from
-/// [`X11EwmhWindowManager::resolve_window`] without recursing.
-///
-/// Returns `None` when the extents are unavailable or degenerate (zero-sized) —
-/// e.g. on Wayland, where AT-SPI reports `0,0,0,0` — so geometry matching is
-/// simply skipped and name matching takes over.
-fn extract_screen_extents(node: &dyn UiNode) -> Option<Rect> {
-    let attr = node.attribute(Namespace::Native, "Component.Extents.Screen")?;
-    match attr.value() {
-        platynui_core::ui::UiValue::Rect(rect) if rect.width() > 0.0 && rect.height() > 0.0 => Some(rect),
+/// What the node tells about its window ([`WindowHints`]): its name, and the
+/// size and screen position its toolkit reports. The extents are read through
+/// the raw `Component.Extents.*` native attributes, which go straight to the
+/// accessibility provider and do **not** route through this window manager,
+/// so this is safe to call from [`X11EwmhWindowManager::resolve_window`]
+/// without recursing. A toolkit without screen extents (GTK 4 reports `(0,0)`
+/// and may report no size there) still gives its size in window coordinates.
+fn window_hints(node: &dyn UiNode) -> WindowHints {
+    let extents = |name: &str| match node.attribute(Namespace::Native, name).map(|attr| attr.value()) {
+        Some(platynui_core::ui::UiValue::Rect(rect)) if rect.width() > 0.0 && rect.height() > 0.0 => Some(rect),
         _ => None,
-    }
+    };
+    let screen = extents("Component.Extents.Screen");
+    let size = screen.or_else(|| extents("Component.Extents.Window")).map(|rect| rect.size());
+    let position = screen.map(|rect| rect.position()).filter(|p| p.x() != 0.0 || p.y() != 0.0);
+    let name = node.name();
+    WindowHints { name: (!name.is_empty()).then_some(name), size, position }
 }
 
 /// Try to read `control:ProcessId` from a single node. Only a positive number
@@ -573,13 +780,115 @@ impl OwnershipCell {
 
 pub struct X11EwmhWindowManager {
     conn: Arc<X11Connection>,
+    /// Whether a window manager manages the display, decided when the runtime
+    /// connected.
+    mode: WindowMode,
     /// The X server's view of this connection's process, for the own-window check.
     ownership: OwnershipCell,
 }
 
 impl X11EwmhWindowManager {
-    pub fn new(conn: Arc<X11Connection>) -> Self {
-        Self { conn, ownership: OwnershipCell::default() }
+    pub fn new(conn: Arc<X11Connection>, mode: WindowMode) -> Self {
+        Self { conn, mode, ownership: OwnershipCell::default() }
+    }
+
+    /// Frontmost top-level window covering `point` on a display without a
+    /// window manager: the root's children top to bottom, with the lookup's
+    /// filter and the own-window check of [`Self::managed_window_at`].
+    fn bare_window_at(&self, point: Point, ours: ServerView, own_pid: u32) -> Option<WindowHit> {
+        let (pid_atom, frame_extents_atom) = {
+            let atoms = atoms(&self.conn).ok()?;
+            (atoms.net_wm_pid, atoms.gtk_frame_extents)
+        };
+        let windows = root_windows(&self.conn, pid_atom).ok()?;
+        for window in windows.iter().rev().filter(|window| is_top_level(window)) {
+            let Ok(rect) = visible_window_rect(&self.conn, window.xid, frame_extents_atom) else { continue };
+            if !rect.contains(point) {
+                continue;
+            }
+            if skips_as_own(ours, own_pid, window.pid, || query_client_view(&self.conn.conn, window.xid)) {
+                continue;
+            }
+            return Some(WindowHit { id: WindowId::new(u64::from(window.xid)), pid: window.pid, bounds: rect });
+        }
+        debug!(
+            ?point,
+            root_children = windows.len(),
+            top_levels = windows.iter().filter(|w| is_top_level(w)).count(),
+            "no top-level window at the point"
+        );
+        None
+    }
+
+    /// Activate a window without a window manager: map it if it is unmapped
+    /// and wait until it is viewable, raise it above its siblings and give it
+    /// the input focus.
+    fn activate_bare(&self, xid: Window) -> Result<(), PlatformError> {
+        let conn = &self.conn.conn;
+        let viewable = || {
+            conn.get_window_attributes(xid)
+                .ok()
+                .and_then(|cookie| cookie.reply().ok())
+                .is_some_and(|attrs| attrs.map_state == MapState::VIEWABLE)
+        };
+        if !viewable() {
+            debug!(xid, "activate without a window manager: map the window");
+            conn.map_window(xid).map_err(|e| PlatformError::OperationFailed {
+                operation: "x11 map_window",
+                details: Some(e.to_string()),
+            })?;
+            flush(conn)?;
+            let deadline = Instant::now() + MAP_TIMEOUT;
+            while !viewable() {
+                if Instant::now() >= deadline {
+                    return Err(PlatformError::OperationFailed {
+                        operation: "activate X11 window",
+                        details: Some(format!("the window did not become viewable within {MAP_TIMEOUT:?}")),
+                    });
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+        let pid_atom = atoms(&self.conn)?.net_wm_pid;
+        let top_levels: Vec<Window> =
+            root_windows(&self.conn, pid_atom)?.iter().filter(|window| is_top_level(window)).map(|w| w.xid).collect();
+        if let Some(sibling) = raise_above(&top_levels, xid) {
+            conn.configure_window(xid, &ConfigureWindowAux::new().sibling(sibling).stack_mode(StackMode::ABOVE))
+                .map_err(|e| PlatformError::OperationFailed {
+                    operation: "x11 configure_window (raise)",
+                    details: Some(e.to_string()),
+                })?;
+        }
+        // Giving the focus to a window that holds it already would take it away
+        // from the menu it has open.
+        if !self.is_active(WindowId::new(u64::from(xid)))? {
+            conn.set_input_focus(InputFocus::PARENT, xid, x11rb::CURRENT_TIME).map_err(|e| {
+                PlatformError::OperationFailed { operation: "x11 set_input_focus", details: Some(e.to_string()) }
+            })?;
+        }
+        flush(conn)
+    }
+
+    /// Ask a window to close through its `WM_DELETE_WINDOW` protocol.
+    fn close_bare(&self, xid: Window) -> Result<(), PlatformError> {
+        let (wm_protocols, wm_delete_window) = {
+            let atoms = atoms(&self.conn)?;
+            (atoms.wm_protocols, atoms.wm_delete_window)
+        };
+        let conn = &self.conn.conn;
+        let protocols: Vec<Atom> = conn
+            .get_property(false, xid, wm_protocols, AtomEnum::ATOM, 0, 32)
+            .ok()
+            .and_then(|cookie| cookie.reply().ok())
+            .and_then(|reply| reply.value32().map(Iterator::collect))
+            .unwrap_or_default();
+        check_delete_protocol(&protocols, wm_delete_window)?;
+        let event = ClientMessageEvent::new(32, xid, wm_protocols, [wm_delete_window, x11rb::CURRENT_TIME, 0, 0, 0]);
+        conn.send_event(false, xid, EventMask::NO_EVENT, event).map_err(|e| PlatformError::OperationFailed {
+            operation: "x11 send_event",
+            details: Some(e.to_string()),
+        })?;
+        flush(conn)
     }
 
     /// Topmost viewable override-redirect *popup* (menu/combo/tooltip) covering
@@ -662,8 +971,9 @@ impl X11EwmhWindowManager {
         own_pid: u32,
     ) -> Option<WindowHit> {
         let stacking = get_client_list(&self.conn.conn, self.conn.root, stacking_atom).ok()?;
+        let frame_extents_atom = atoms(&self.conn).ok()?.gtk_frame_extents;
         for &win in stacking.iter().rev() {
-            let Ok(rect) = client_rect(&self.conn, win) else { continue };
+            let Ok(rect) = visible_window_rect(&self.conn, win, frame_extents_atom) else { continue };
             if !rect.contains(point) {
                 continue;
             }
@@ -685,23 +995,23 @@ impl WindowManager for X11EwmhWindowManager {
     fn resolve_window(&self, node: &dyn UiNode) -> Result<WindowId, PlatformError> {
         let pid = extract_pid(node)
             .ok_or(PlatformError::OperationFailed { operation: "extract PID from UiNode", details: None })?;
-
-        // Primary disambiguation key when multiple windows share the PID: the
-        // node's AT-SPI screen extents. This is a raw Component query that does
-        // NOT go through this window manager, so it is recursion-safe here.
-        let node_extents = extract_screen_extents(node);
-
-        // Secondary key: the node's accessible name, matched against _NET_WM_NAME.
-        let node_name = node.name();
-        let name_hint = if node_name.is_empty() { None } else { Some(node_name.as_str()) };
-
-        let xid = find_xid_for_pid(&self.conn, pid, name_hint, node_extents)?;
+        let xid = find_xid_for_pid(&self.conn, pid, &window_hints(node), self.mode)?;
         trace!(pid, xid, "resolved WindowId");
         Ok(WindowId::new(u64::from(xid)))
     }
 
+    fn toolkit_screen_coordinates_are_desktop(&self) -> bool {
+        screen_coordinates_are_desktop(self.mode)
+    }
+
+    /// The surface is the client window; its visible part leaves out the
+    /// shadow GTK draws inside it under a compositing window manager
+    /// (`_GTK_FRAME_EXTENTS`).
     fn geometry(&self, id: WindowId) -> Result<WindowGeometry, PlatformError> {
-        client_rect(&self.conn, xid_of(id)).map(WindowGeometry::from_bounds)
+        let xid = xid_of(id);
+        let client = client_rect(&self.conn, xid)?;
+        let frame_extents = read_frame_extents(&self.conn.conn, xid, atoms(&self.conn)?.gtk_frame_extents);
+        Ok(WindowGeometry { bounds: visible_rect(client, frame_extents), surface_origin: client.position() })
     }
 
     fn window_at_point(&self, point: Point) -> Result<Option<WindowHit>, PlatformError> {
@@ -712,8 +1022,12 @@ impl WindowManager for X11EwmhWindowManager {
         let own_pid = std::process::id();
         let ours = self.ownership.get_or_decide(own_pid, &self.conn.display, || query_own_view(&self.conn.conn));
 
-        // Managed (WM-reparented) window at the point, from EWMH stacking.
-        let managed = self.managed_window_at(point, stacking_atom, pid_atom, ours, own_pid);
+        // The frontmost top-level window at the point: from EWMH stacking, or
+        // from the root's own stacking order without a window manager.
+        let managed = match self.mode {
+            WindowMode::Managed => self.managed_window_at(point, stacking_atom, pid_atom, ours, own_pid),
+            WindowMode::Bare => self.bare_window_at(point, ours, own_pid),
+        };
 
         // Override-redirect popups (menus, combo dropdowns, tooltips) bypass the
         // window manager and are absent from `_NET_CLIENT_LIST_STACKING`, yet
@@ -733,8 +1047,68 @@ impl WindowManager for X11EwmhWindowManager {
         Ok(managed)
     }
 
+    /// The process's popup windows from the root's children. Popups are
+    /// override-redirect windows, so the X server lists them with and without
+    /// a window manager.
+    fn popups(&self, pid: u32) -> Result<Vec<PopupGeometry>, PlatformError> {
+        let (pid_atom, frame_extents_atom) = {
+            let atoms = atoms(&self.conn)?;
+            (atoms.net_wm_pid, atoms.gtk_frame_extents)
+        };
+        let conn = &self.conn.conn;
+        let tree = conn
+            .query_tree(self.conn.root)
+            .map_err(|e| PlatformError::OperationFailed { operation: "x11 query_tree", details: Some(e.to_string()) })?
+            .reply()
+            .map_err(|e| PlatformError::OperationFailed {
+                operation: "x11 query_tree reply",
+                details: Some(e.to_string()),
+            })?;
+        let type_atom = intern(conn, b"_NET_WM_WINDOW_TYPE")?;
+        let mut children = Vec::new();
+        for &win in &tree.children {
+            let Some(attrs) = conn.get_window_attributes(win).ok().and_then(|cookie| cookie.reply().ok()) else {
+                continue;
+            };
+            // Only override-redirect windows can be popups; reading the rest
+            // of every managed frame would cost a round trip each.
+            if attrs.map_state != MapState::VIEWABLE || !attrs.override_redirect {
+                continue;
+            }
+            let Ok(client) = client_rect(&self.conn, win) else { continue };
+            children.push(RootChild {
+                viewable: true,
+                override_redirect: true,
+                popup_type: self.is_popup_type(win, type_atom),
+                pid: get_window_pid(conn, win, pid_atom),
+                client,
+                frame_extents: read_frame_extents(conn, win, frame_extents_atom),
+            });
+        }
+        Ok(popups_of(&children, pid))
+    }
+
     fn is_active(&self, id: WindowId) -> Result<bool, PlatformError> {
         let xid = xid_of(id);
+        if self.mode == WindowMode::Bare {
+            // Without a window manager, a window is active while it holds the
+            // input focus, or one of its descendants does.
+            let conn = &self.conn.conn;
+            let focus = conn
+                .get_input_focus()
+                .map_err(|e| PlatformError::OperationFailed {
+                    operation: "x11 get_input_focus",
+                    details: Some(e.to_string()),
+                })?
+                .reply()
+                .map_err(|e| PlatformError::OperationFailed {
+                    operation: "x11 get_input_focus reply",
+                    details: Some(e.to_string()),
+                })?
+                .focus;
+            let parent_of = |win| conn.query_tree(win).ok()?.reply().ok().map(|tree| tree.parent);
+            return Ok(focused_top_level(focus, self.conn.root, parent_of) == Some(xid));
+        }
         let atoms = atoms(&self.conn)?;
         let x11 = &self.conn;
         let reply = x11
@@ -754,12 +1128,20 @@ impl WindowManager for X11EwmhWindowManager {
     }
 
     fn state(&self, id: WindowId) -> Result<WindowState, PlatformError> {
+        if self.mode == WindowMode::Bare {
+            // Nothing minimizes, maximizes or keeps a window on top without a
+            // window manager.
+            return Ok(WindowState { visual: WindowVisualState::Normal, topmost: false });
+        }
         let atoms = atoms(&self.conn)?;
         read_window_state(&self.conn, xid_of(id), &atoms)
     }
 
     fn activate(&self, id: WindowId) -> Result<(), PlatformError> {
         let xid = xid_of(id);
+        if self.mode == WindowMode::Bare {
+            return self.activate_bare(xid);
+        }
         debug!(xid, "EWMH activate");
         let atoms = atoms(&self.conn)?;
         let x11 = &self.conn;
@@ -780,6 +1162,9 @@ impl WindowManager for X11EwmhWindowManager {
 
     fn close(&self, id: WindowId) -> Result<(), PlatformError> {
         let xid = xid_of(id);
+        if self.mode == WindowMode::Bare {
+            return self.close_bare(xid);
+        }
         debug!(xid, "EWMH close");
         let atoms = atoms(&self.conn)?;
         let x11 = &self.conn;
@@ -788,6 +1173,9 @@ impl WindowManager for X11EwmhWindowManager {
     }
 
     fn minimize(&self, id: WindowId) -> Result<(), PlatformError> {
+        if self.mode == WindowMode::Bare {
+            return Err(needs_window_manager("minimize"));
+        }
         let xid = xid_of(id);
         debug!(xid, "EWMH minimize (iconify)");
         let x11 = &self.conn;
@@ -798,6 +1186,9 @@ impl WindowManager for X11EwmhWindowManager {
     }
 
     fn maximize(&self, id: WindowId) -> Result<(), PlatformError> {
+        if self.mode == WindowMode::Bare {
+            return Err(needs_window_manager("maximize"));
+        }
         let xid = xid_of(id);
         debug!(xid, "EWMH maximize");
         let atoms = atoms(&self.conn)?;
@@ -820,6 +1211,9 @@ impl WindowManager for X11EwmhWindowManager {
     }
 
     fn restore(&self, id: WindowId) -> Result<(), PlatformError> {
+        if self.mode == WindowMode::Bare {
+            return Err(needs_window_manager("restore"));
+        }
         let xid = xid_of(id);
         debug!(xid, "EWMH restore");
         let atoms = atoms(&self.conn)?;
@@ -1043,6 +1437,236 @@ mod tests {
         }
     }
 
+    mod window_choice {
+        use super::super::{CandidateWindow, FrameExtents, WindowHints, choose_window, visible_rect};
+        use platynui_core::types::{Point, Rect, Size};
+
+        fn candidate(xid: u32, title: &str, rect: Rect) -> CandidateWindow {
+            CandidateWindow { xid, title: Some(title.into()), rect }
+        }
+
+        fn hints(name: &str, size: Option<Size>, position: Option<Point>) -> WindowHints {
+            WindowHints { name: (!name.is_empty()).then(|| name.into()), size, position }
+        }
+
+        /// A GTK 4 main window and its modeless dialog, as on the X11 lane.
+        fn gtk4_windows() -> Vec<CandidateWindow> {
+            vec![
+                candidate(0x40_0001, "PlatynUI GTK4 TestApp", Rect::new(0.0, 0.0, 900.0, 760.0)),
+                candidate(0x40_0002, "dialog-modeless", Rect::new(905.0, 24.0, 420.0, 300.0)),
+            ]
+        }
+
+        #[test]
+        fn frame_extents_are_taken_off_the_client_rectangle() {
+            let extents = FrameExtents { left: 23, right: 23, top: 21, bottom: 25 };
+            assert_eq!(
+                visible_rect(Rect::new(200.0, 100.0, 210.0, 130.0), Some(extents)),
+                Rect::new(223.0, 121.0, 164.0, 84.0)
+            );
+        }
+
+        #[test]
+        fn without_frame_extents_the_client_rectangle_is_visible() {
+            let client = Rect::new(200.0, 100.0, 210.0, 130.0);
+            assert_eq!(visible_rect(client, None), client);
+        }
+
+        #[test]
+        fn the_exact_title_decides_first() {
+            // The node's size points at the main window; its title wins.
+            let node = hints("dialog-modeless", Some(Size::new(900.0, 760.0)), None);
+            assert_eq!(choose_window(&gtk4_windows(), &node, 4242).unwrap(), 0x40_0002);
+        }
+
+        #[test]
+        fn a_title_that_only_contains_the_name_does_not_count() {
+            let windows = vec![
+                candidate(1, "Catalog - Extra", Rect::new(0.0, 0.0, 640.0, 480.0)),
+                candidate(2, "Other", Rect::new(700.0, 0.0, 300.0, 200.0)),
+            ];
+            let node = hints("Catalog", Some(Size::new(300.0, 200.0)), None);
+            assert_eq!(choose_window(&windows, &node, 4242).unwrap(), 2);
+        }
+
+        #[test]
+        fn two_gtk4_windows_of_one_process_are_resolved_by_size() {
+            // GTK 4 reports (0,0) as every screen position and names nothing
+            // the lookup can match here; the sizes differ.
+            let windows = gtk4_windows();
+            assert_eq!(
+                choose_window(&windows, &hints("", Some(Size::new(420.0, 300.0)), None), 4242).unwrap(),
+                0x40_0002
+            );
+            assert_eq!(
+                choose_window(&windows, &hints("", Some(Size::new(900.0, 760.0)), None), 4242).unwrap(),
+                0x40_0001
+            );
+        }
+
+        #[test]
+        fn equal_sizes_are_resolved_by_the_screen_position_the_toolkit_reports() {
+            let windows = vec![
+                candidate(1, "Untitled", Rect::new(10.0, 10.0, 420.0, 300.0)),
+                candidate(2, "Untitled", Rect::new(500.0, 10.0, 420.0, 300.0)),
+            ];
+            let node = hints("Document", Some(Size::new(420.0, 300.0)), Some(Point::new(500.0, 10.0)));
+            assert_eq!(choose_window(&windows, &node, 4242).unwrap(), 2);
+        }
+
+        #[test]
+        fn two_indistinguishable_windows_fail_the_lookup() {
+            // Equal title and size, and no screen position: a window at the
+            // origin must not be taken for the node.
+            let windows = vec![
+                candidate(1, "Untitled", Rect::new(0.0, 0.0, 420.0, 300.0)),
+                candidate(2, "Untitled", Rect::new(500.0, 10.0, 420.0, 300.0)),
+            ];
+            let node = hints("Untitled", Some(Size::new(420.0, 300.0)), None);
+            let error = choose_window(&windows, &node, 4242).unwrap_err().to_string();
+            assert!(error.contains("2 candidate windows"), "{error}");
+        }
+    }
+
+    mod popup_list {
+        use super::super::{FrameExtents, RootChild, popups_of};
+        use platynui_core::platform::PopupGeometry;
+        use platynui_core::types::Rect;
+
+        /// A viewable override-redirect root child, as a menu window is.
+        fn child(pid: Option<u32>, popup_type: bool, client: Rect) -> RootChild {
+            RootChild { viewable: true, override_redirect: true, popup_type, pid, client, frame_extents: None }
+        }
+
+        #[test]
+        fn popups_of_other_processes_and_windows_without_a_process_are_not_listed() {
+            let ours = Rect::new(10.0, 10.0, 100.0, 50.0);
+            // Bottom to top, as the X server lists the root's children.
+            let children = vec![
+                child(Some(7), true, Rect::new(0.0, 0.0, 80.0, 40.0)),
+                child(None, true, Rect::new(0.0, 0.0, 80.0, 40.0)),
+                child(Some(4242), false, Rect::new(0.0, 0.0, 80.0, 40.0)),
+                RootChild { viewable: false, ..child(Some(4242), true, Rect::new(0.0, 0.0, 80.0, 40.0)) },
+                RootChild { override_redirect: false, ..child(Some(4242), true, Rect::new(0.0, 0.0, 900.0, 700.0)) },
+                child(Some(4242), true, ours),
+            ];
+            assert_eq!(popups_of(&children, 4242), vec![PopupGeometry::from_bounds(ours)]);
+        }
+
+        #[test]
+        fn popups_are_listed_topmost_first() {
+            let menu = Rect::new(90.0, 40.0, 165.0, 108.0);
+            let submenu = Rect::new(250.0, 120.0, 162.0, 82.0);
+            let children = vec![child(Some(4242), true, menu), child(Some(4242), true, submenu)];
+            assert_eq!(
+                popups_of(&children, 4242),
+                vec![PopupGeometry::from_bounds(submenu), PopupGeometry::from_bounds(menu)]
+            );
+        }
+
+        #[test]
+        fn a_popup_window_with_frame_extents_has_a_smaller_visible_rectangle() {
+            let client = Rect::new(200.0, 100.0, 210.0, 130.0);
+            let shadowed = RootChild {
+                frame_extents: Some(FrameExtents { left: 23, right: 23, top: 21, bottom: 25 }),
+                ..child(Some(4242), true, client)
+            };
+            assert_eq!(
+                popups_of(&[shadowed], 4242),
+                vec![PopupGeometry { bounds: Rect::new(223.0, 121.0, 164.0, 84.0), surface: client }]
+            );
+        }
+    }
+
+    mod bare_mode {
+        use super::super::{
+            RootWindow, WindowMode, application_windows, check_delete_protocol, focused_top_level, raise_above,
+            screen_coordinates_are_desktop, window_mode,
+        };
+        use platynui_core::platform::PlatformError;
+
+        const ROOT: u32 = 0x100;
+
+        fn window(xid: u32, pid: Option<u32>, viewable: bool, override_redirect: bool) -> RootWindow {
+            RootWindow { xid, viewable, override_redirect, pid }
+        }
+
+        #[test]
+        fn a_runtime_created_after_a_window_manager_started_uses_it() {
+            assert_eq!(window_mode(&Ok(false)), WindowMode::Bare);
+            assert_eq!(window_mode(&Ok(true)), WindowMode::Managed);
+        }
+
+        /// Without a window manager a client is not told where its window was
+        /// moved, so its screen positions may count from where it opened.
+        #[test]
+        fn screen_coordinates_are_desktop_coordinates_only_with_a_window_manager() {
+            assert!(screen_coordinates_are_desktop(WindowMode::Managed));
+            assert!(!screen_coordinates_are_desktop(WindowMode::Bare));
+        }
+
+        #[test]
+        fn a_check_that_cannot_answer_keeps_the_window_manager_path() {
+            let failed =
+                Err(PlatformError::OperationFailed { operation: "read _NET_SUPPORTING_WM_CHECK", details: None });
+            assert_eq!(window_mode(&failed), WindowMode::Managed);
+        }
+
+        #[test]
+        fn a_popup_is_not_taken_for_the_applications_window() {
+            let children = vec![
+                window(1, Some(7), true, false),     // another process
+                window(2, Some(4242), false, false), // unmapped
+                window(3, Some(4242), true, true),   // its open menu
+                window(4, None, true, false),        // no _NET_WM_PID
+                window(5, Some(4242), true, false),  // its window
+            ];
+            let found: Vec<u32> = application_windows(&children, 4242).iter().map(|c| c.xid).collect();
+            assert_eq!(found, vec![5]);
+        }
+
+        /// A tree of root → 0x10 → 0x11 → 0x12 and root → 0x20.
+        fn parent_of(window: u32) -> Option<u32> {
+            match window {
+                0x10 | 0x20 => Some(ROOT),
+                0x11 => Some(0x10),
+                0x12 => Some(0x11),
+                _ => None,
+            }
+        }
+
+        #[test]
+        fn focus_inside_a_window_makes_it_active() {
+            assert_eq!(focused_top_level(0x12, ROOT, parent_of), Some(0x10));
+            assert_eq!(focused_top_level(0x20, ROOT, parent_of), Some(0x20));
+        }
+
+        #[test]
+        fn no_focused_window_means_no_active_window() {
+            // PointerRoot (1), None (0) and the root itself focus no window.
+            for focus in [1, 0, ROOT] {
+                assert_eq!(focused_top_level(focus, ROOT, parent_of), None, "focus {focus:#x}");
+            }
+        }
+
+        /// The top-level windows bottom to top; override-redirect popups above
+        /// them are not among them and stay above the raised window.
+        #[test]
+        fn activation_raises_a_window_just_above_the_topmost_other_one() {
+            assert_eq!(raise_above(&[0x10, 0x20, 0x30], 0x10), Some(0x30));
+            assert_eq!(raise_above(&[0x10, 0x20, 0x30], 0x30), None, "the topmost window stays where it is");
+            assert_eq!(raise_above(&[], 0x10), None);
+        }
+
+        #[test]
+        fn a_window_without_the_delete_protocol_fails_by_name() {
+            const WM_DELETE_WINDOW: u32 = 0x55;
+            assert!(check_delete_protocol(&[0x51, WM_DELETE_WINDOW], WM_DELETE_WINDOW).is_ok());
+            let error = check_delete_protocol(&[0x51], WM_DELETE_WINDOW).unwrap_err().to_string();
+            assert!(error.contains("WM_DELETE_WINDOW"), "{error}");
+        }
+    }
+
     fn test_atoms() -> EwmhAtoms {
         EwmhAtoms {
             net_client_list: 1,
@@ -1060,6 +1684,9 @@ mod tests {
             net_supported: 13,
             net_wm_name: 14,
             utf8_string: 15,
+            gtk_frame_extents: 16,
+            wm_protocols: 17,
+            wm_delete_window: 18,
         }
     }
 

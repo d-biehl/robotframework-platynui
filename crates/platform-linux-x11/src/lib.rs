@@ -103,11 +103,13 @@ pub fn create_x11_bundle(
     }
 
     // --- EWMH window manager (optional, graceful degradation) ---
-    match crate::window_manager::check_ewmh_wm_support(&conn) {
+    let window_manager_check = crate::window_manager::check_ewmh_wm_support(&conn);
+    match &window_manager_check {
         Ok(true) => debug!("EWMH window manager support confirmed"),
         Ok(false) => warn!("EWMH window manager not detected — window management operations may be limited"),
         Err(e) => warn!("EWMH WM detection failed: {e}"),
     }
+    let window_mode = crate::window_manager::window_mode(&window_manager_check);
 
     // Build the six devices sharing the one connection; highlight owns its own
     // overlay thread (with a separate connection) bound to the same display.
@@ -116,7 +118,7 @@ pub fn create_x11_bundle(
         keyboard: Arc::new(crate::keyboard::LinuxKeyboardDevice::new(conn.clone())) as Arc<dyn KeyboardDevice>,
         screenshot: Arc::new(crate::screenshot::LinuxScreenshot::new(conn.clone())) as Arc<dyn ScreenshotProvider>,
         highlight: Arc::new(crate::highlight::LinuxHighlightProvider::new(disp.clone())) as Arc<dyn HighlightProvider>,
-        window_manager: Arc::new(crate::window_manager::X11EwmhWindowManager::new(conn.clone()))
+        window_manager: Arc::new(crate::window_manager::X11EwmhWindowManager::new(conn.clone(), window_mode))
             as Arc<dyn WindowManager>,
         desktop_info: Arc::new(crate::desktop::LinuxDesktopInfo::new(conn.clone())) as Arc<dyn DesktopInfoProvider>,
         java_classifier: None,

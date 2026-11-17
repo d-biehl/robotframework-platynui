@@ -4,7 +4,8 @@ Documentation       Real-lane proof of the window activation contract and the wi
 ...                 or implicitly before a Pointer Click — brings a minimized window back to the state it
 ...                 was minimized from and never un-maximizes it; @IsMinimized, @IsMaximized and
 ...                 @IsTopmost report the window manager's view of the window. Runs under the Wayland
-...                 compositor and X11/Xephyr.
+...                 compositor and X11/Xephyr; it needs a window manager (``window-manager:required``),
+...                 so the X11 lane without one leaves it out.
 ...
 ...                 Window operations land asynchronously (the window manager or compositor applies
 ...                 them, then the client commits the new state), so a state change is awaited with
@@ -19,7 +20,7 @@ Suite Setup         Launch Both Instances
 Suite Teardown      Terminate Both Instances
 Test Setup          Restore Both Windows
 
-Test Tags           real
+Test Tags           real    window-manager:required
 
 
 *** Variables ***

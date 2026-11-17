@@ -157,6 +157,14 @@ its session, so selecting `real-wayland` selects both the compositor session and
 belong in it — from the shell, from `just`, and from the editor alike. (`real-windows` needs no
 session; the Windows recipe passes it directly.)
 
+**A window manager is a requirement of its own.** The X11 lane also runs without one: profile
+`real-x11-bare` brings up the same X11 session but starts no window manager, because a display
+nobody manages is a setup PlatynUI supports ([platform-linux.md](platform-linux.md) §3). Most
+suites run there unchanged. A test that needs what only a window manager does — minimizing,
+maximizing or restoring a window — carries `window-manager:required`, which `real-x11-bare`
+excludes. The suite that proves the behavior without a window manager carries
+`window-manager:none`, which every other lane profile excludes, so it runs on the bare lane alone.
+
 Two rules follow, and they are strict:
 
 - **Never probe the environment to skip.** A `Skip If` on session type or OS hides a
@@ -204,7 +212,9 @@ The RF tag vocabulary and the `robot.toml` profiles that select by it:
 |---|---|---|
 | `mock` | needs the mock-provider build | `mock` |
 | `real` | needs the non-mock build + a real session | `real` (everything) and the lane profiles below |
-| `platform:x11` / `platform:wayland` / `platform:windows` | additionally bound to one platform; **no platform tag = every lane** | `real-x11` / `real-wayland` / `real-windows` — each inherits `real` and excludes the *other* platforms' tags |
+| `platform:x11` / `platform:wayland` / `platform:windows` | additionally bound to one platform; **no platform tag = every lane** | `real-x11` and `real-x11-bare` / `real-wayland` / `real-windows` — each inherits `real` and excludes the *other* platforms' tags |
+| `window-manager:required` | needs a window manager's own operations (minimize, maximize, restore) | every lane profile except `real-x11-bare` |
+| `window-manager:none` | proves the behavior on a display without a window manager | `real-x11-bare` only |
 
 The lane entry points choose the profile (§2.6); running the plain `real` profile selects
 everything and is meant for discovery/dry-runs — on a concrete machine, foreign-platform

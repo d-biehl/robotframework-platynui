@@ -379,9 +379,10 @@ test-all: test test-python
 
 # The compositor lane runs first; like any `just` dependency chain, a failing lane stops
 # the run, so the X11 lane only runs once the compositor lane has passed.
-# Run the egui acceptance lane on this OS (Linux: compositor + X11). Honors headless.
+# Run the egui acceptance lane on this OS (Linux: compositor, X11, and X11 without a
+# window manager). Honors headless.
 [linux]
-test-acceptance: test-acceptance-compositor test-acceptance-x11
+test-acceptance: test-acceptance-compositor test-acceptance-x11 test-acceptance-x11-bare
 
 # Run the egui acceptance lane on this OS (Windows: the real desktop).
 [windows]
@@ -399,6 +400,11 @@ test-acceptance-compositor *ARGS: build-native
 [linux]
 test-acceptance-x11 *ARGS: build-native
     {{ if headless == "true" { "PLATYNUI_BACKEND=headless " } else { "" } }}uv run robotcode --profile real-x11 run {{ ARGS }}
+
+# Run the acceptance lane under an isolated X11 session in which no window manager runs.
+[linux]
+test-acceptance-x11-bare *ARGS: build-native
+    {{ if headless == "true" { "PLATYNUI_BACKEND=headless " } else { "" } }}uv run robotcode --profile real-x11-bare run {{ ARGS }}
 
 # Run the acceptance lane on the native Windows desktop (UIA + Java providers).
 # No isolated session — the suites launch the apps on the real desktop. Builds

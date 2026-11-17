@@ -262,7 +262,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        backend: [x11, compositor]
+        backend: [x11, x11-bare, compositor]
     env:
       # egui renders via Mesa's software rasteriser (runners have no GPU).
       LIBGL_ALWAYS_SOFTWARE: "1"

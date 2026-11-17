@@ -8,16 +8,19 @@ set -u
 #       when a DISPLAY is present, else headless. Shares the --backend vocabulary
 #       with startcompositor.sh (winit/xephyr are accepted as aliases for nested).
 #   --dpi <n>     Xephyr DPI (nested backend only; default: unset).
+#   --no-window-manager   Start no window manager (icewm): the X server alone
+#       manages the session's windows, as on a display nobody manages.
 # Session command: everything after `--` is run inside the session, with the
 # window manager started in the background. With no `--`, the script keeps its
 # original behaviour and execs the interactive window manager.
 #
 #   scripts/startxsession.sh                                 # interactive session (window manager)
 #   scripts/startxsession.sh --backend headless -- <command>  # run <command> inside a windowless session
+#   scripts/startxsession.sh --no-window-manager -- <command> # run <command> without a window manager
 #
-# The acceptance lane does not call this directly: the `real-x11` profile in
-# robot.toml uses it as its `wrapper`, so `uv run robotcode --profile real-x11 run`
-# brings the session up itself.
+# The acceptance lanes do not call this directly: the `real-x11` and
+# `real-x11-bare` profiles in robot.toml use it as their `wrapper`, so
+# `uv run robotcode --profile real-x11 run` brings the session up itself.
 #
 # Environment variables:
 #   PLATYNUI_BACKEND   Override backend (default: auto-detect), same as startcompositor.sh.
@@ -31,6 +34,7 @@ platynui_lane_scope "$0" "$@"
 
 SESSION_CMD=()
 DPI=""
+WINDOW_MANAGER=1
 BACKEND="${PLATYNUI_BACKEND:-}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -39,6 +43,7 @@ while [[ $# -gt 0 ]]; do
     --backend=*) BACKEND="${1#--backend=}"; shift ;;
     --dpi) DPI="$2"; shift 2 ;;
     --dpi=*) DPI="${1#--dpi=}"; shift ;;
+    --no-window-manager) WINDOW_MANAGER=0; shift ;;
     *) shift ;;
   esac
 done
@@ -54,6 +59,12 @@ case "$BACKEND" in
   *) echo "ERROR: unknown --backend '$BACKEND' (use auto|nested|headless)" >&2; exit 1 ;;
 esac
 echo "X11 session backend: $BACKEND" >&2
+if [ "$WINDOW_MANAGER" = 1 ]; then
+  echo "X11 window manager: icewm" >&2
+else
+  echo "X11 window manager: none" >&2
+fi
+export PLATYNUI_X11_WINDOW_MANAGER="$WINDOW_MANAGER"
 # Serialize the session command and pass it to the inner session shell via an
 # exported variable (avoids fragile quote-breakout inside the bash -c body).
 PLATYNUI_ROBOT_SESSION_CMD=""
@@ -281,20 +292,30 @@ A11Y_EOF
   setxkbmap de
 
   if [ -n "${PLATYNUI_ROBOT_SESSION_CMD:-}" ]; then
-    # Run the window manager in the background, then the session command in the
-    # foreground; tear the WM down when the command exits so the outer trap can
-    # clean up Xephyr and the runtime dir. The whole session closes once the
-    # session command (e.g. the robot run) returns.
-    icewm-session &
-    WM_PID=$!
-    sleep 1
+    # Run the window manager (unless the session has none) in the background,
+    # then the session command in the foreground; tear the WM down when the
+    # command exits so the outer trap can clean up Xephyr and the runtime dir.
+    # The whole session closes once the session command (e.g. the robot run)
+    # returns.
+    WM_PID=""
+    if [ "$PLATYNUI_X11_WINDOW_MANAGER" = 1 ]; then
+      icewm-session &
+      WM_PID=$!
+      sleep 1
+    fi
     eval "$PLATYNUI_ROBOT_SESSION_CMD"
     SESSION_EXIT=$?
-    kill "$WM_PID" 2>/dev/null
+    [ -n "$WM_PID" ] && kill "$WM_PID" 2>/dev/null
     exit $SESSION_EXIT
   fi
 
-  # exec openbox-session
-  # exec startplasma-x11
-  exec icewm-session
+  if [ "$PLATYNUI_X11_WINDOW_MANAGER" = 1 ]; then
+    # exec openbox-session
+    # exec startplasma-x11
+    exec icewm-session
+  fi
+  # Without a window manager the interactive session lasts as long as its X
+  # server.
+  echo "No window manager: the session ends when the X server exits."
+  exec tail --pid='"$XSERVER_PID"' -f /dev/null
 '
