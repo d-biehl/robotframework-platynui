@@ -99,7 +99,7 @@ When a process has several windows, the lookup SHALL choose by window title firs
 
 ### Requirement: Without a window manager, activation raises the window and focuses it
 
-Activating a window without a window manager SHALL map it if it is unmapped, raise it above its siblings and give it the input focus. It SHALL NOT move or resize the window.
+Activating a window without a window manager SHALL map it if it is unmapped, raise it above the other top-level windows and give it the input focus. The override-redirect popups SHALL stay above it, so that activating a window keeps its own open menu usable. It SHALL NOT move or resize the window.
 
 #### Scenario: A background window comes to the front
 

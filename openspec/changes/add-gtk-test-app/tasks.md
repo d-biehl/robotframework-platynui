@@ -53,7 +53,7 @@
   Commit the fixture and `catalog.robot` without the popover tests, which stay out of this change's commits while they fail. `linux-element-geometry` adds them in its task 5.1 and commits them with its task 5.4.
 - [x] 3.6 Write `apps/test-app-gtk4/README.md`: usage, the widget choices, every verified deviation, the supported GTK 4 versions, and the naming of popover menu items with the GTK commits that drop and restore the names, noting that real applications on GTK 4.18 to 4.24.1 expose their menu items unnamed. Add the GTK 4 row to `dev-docs/testing-strategy.md` §5 and the fixture to `AGENTS.md` where it lists fixtures. Verify that the README's usage commands run as written.
 - [x] 3.7 Run the whole GTK 4 tree on both lanes: `just headless=true test-acceptance-x11 -X --suite '*.Gtk4'` and the same with `test-acceptance-compositor`. Verify with `robotcode results` that all committed tests pass.
-- [ ] 3.8 Once `linux-element-geometry` task 5.4 is done, run the whole GTK 4 tree again on both lanes, now with the popover tests. Verify with `robotcode results` that all tests pass.
+- [x] 3.8 Once `linux-element-geometry` task 5.4 is done, run the whole GTK 4 tree again on both lanes, now with the popover tests. Verify with `robotcode results` that all tests pass.
 
 ## 4. GTK 3 fixture
 
@@ -68,7 +68,7 @@
 - [x] 4.2 Export `PLATYNUI_TEST_APP_GTK3_PYTHON`/`_MAIN` and add `just run-test-app-gtk3` and its `mypy` invocation. Verify `just run-test-app-gtk3 --help`.
 - [x] 4.3 Write `apps/test-app-gtk3/main.py` per design decisions 3–5, with every window's ATK name set to its title. Confirm each surfaced `@Name` in the real tree before relying on it. Verify on both lanes (`just headless=true test-acceptance-x11 --suite '*.Gtk3'` and the same with `test-acceptance-compositor`) that every test not using the pointer passes, and that the pointer tests fail by missing their target, not by a fixture error. The fixture is committed with `catalog.robot` without its pointer tests; those are added in `linux-element-geometry`'s commit for its task 5.4.
 - [x] 4.4 Write `apps/test-app-gtk3/README.md` and add the GTK 3 row to `testing-strategy.md` §5. Verify that the README's usage commands run as written.
-- [ ] 4.5 Once `linux-element-geometry` task 5.4 is done, run the whole GTK 3 tree on both lanes: `just headless=true test-acceptance-x11 -X --suite '*.Gtk3'` and the same with `test-acceptance-compositor`. Verify with `robotcode results` that all tests pass.
+- [x] 4.5 Once `linux-element-geometry` task 5.4 is done, run the whole GTK 3 tree on both lanes: `just headless=true test-acceptance-x11 -X --suite '*.Gtk3'` and the same with `test-acceptance-compositor`. Verify with `robotcode results` that all tests pass.
 
 ## 5. CI
 
@@ -83,7 +83,7 @@
 
 ## 6. Integration (after 3.8 and 4.5)
 
-- [ ] 6.1 Run:
+- [x] 6.1 Run:
   - `just check`;
   - `uv run --no-sync robotcode --profile real-windows discover tests`, to confirm no GTK suite there;
   - both Linux lanes in full: `just headless=true test-acceptance-x11 -X` and `just headless=true test-acceptance-compositor -X`.

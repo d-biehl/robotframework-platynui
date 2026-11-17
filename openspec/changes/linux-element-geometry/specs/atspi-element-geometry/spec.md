@@ -59,7 +59,15 @@ A node SHALL be a popup when it is a transient popup grafted under its applicati
 
 ### Requirement: A popup is matched to the platform's popup by its surface
 
-A popup's geometry SHALL come from the platform's popup list for its process. The popup SHALL be matched by its own size against the size of each listed popup's surface, and the first match in the list SHALL win: the most recently opened or topmost popup. A popup that matches no listed popup SHALL be placed like any other node of its window.
+A popup's geometry SHALL come from the platform's popup list for its process. The popup SHALL be matched by its own size against each listed popup's surface, or else its visible rectangle, and the first match in the list SHALL win: the most recently opened or topmost popup. Its descendants SHALL count from the origin of the rectangle it matched. A popup that matches no listed popup SHALL be placed like any other node of its window.
+
+#### Scenario: A GTK 3 menu is matched by its visible size
+
+- **GIVEN** a GTK 3 menu node on the popup layer of size 177×93, and a listed popup of its process whose visible rectangle is `(34,105,177,93)` on a surface `(28,100,189,105)`
+- **WHEN** the node's bounds are read
+- **THEN** they SHALL be `(34,105,177,93)`, and its descendants SHALL count from `(34,105)`
+- **NOTE** Unit test with geometry sources that answer directly; the numbers are a measured GTK 3 menu under the PlatynUI compositor.
+
 
 #### Scenario: Popups of equal size resolve to the first one listed
 
@@ -74,6 +82,17 @@ A popup's geometry SHALL come from the platform's popup list for its process. Th
 - **WHEN** its bounds are read
 - **THEN** it SHALL be placed relative to its top-level window like any other node
 - **NOTE** Unit test.
+
+### Requirement: A popup listed beside its items places them
+
+A popup that matches no listed popup SHALL place its children from a listed popup among those children, when there is one. GTK 3 lists a menu's items, and the node of the menu itself, below the item that opened the menu.
+
+#### Scenario: A GTK 3 menu places the items listed beside it
+
+- **GIVEN** the GTK 3 fixture under the PlatynUI compositor with its `menu-file` menu open, whose items GTK 3 lists below `menu-file` beside the menu's own node
+- **WHEN** `menu-file-new` is clicked by locator
+- **THEN** the item SHALL report the click through the `last-action-<ident>` label
+- **NOTE** Real provider only (GTK3 fixture's catalog, compositor lane); the reference handed from `menu-file` to its items is also unit-tested.
 
 ### Requirement: A toolkit is read in the coordinate type it implements consistently
 
@@ -116,7 +135,7 @@ The position relative to the window SHALL come from the toolkit's screen coordin
 
 ### Requirement: Screen coordinates are re-based where they are window-relative
 
-Where the platform states that toolkit screen coordinates are desktop coordinates, as on X11, a node's screen extents SHALL be used as its bounds. Elsewhere, such as under the PlatynUI compositor, a node's position SHALL be its window's surface origin plus the difference between the node's screen position and its window's screen position.
+Where the platform states that toolkit screen coordinates are desktop coordinates, as on X11 with a window manager, a node's screen extents SHALL be used as its bounds. Elsewhere, such as under the PlatynUI compositor or on X11 without a window manager, a node's position SHALL be its window's surface origin plus the difference between the node's screen position and its window's screen position.
 
 #### Scenario: A Qt window under the compositor is not placed at the screen corner
 
@@ -132,9 +151,16 @@ Where the platform states that toolkit screen coordinates are desktop coordinate
 - **THEN** the node SHALL be placed at the window's surface origin plus `(40,60)`
 - **NOTE** Unit test; the lanes have one output.
 
+#### Scenario: An element of a window moved without a window manager is placed where it is drawn
+
+- **GIVEN** the egui fixture on an X11 display without a window manager, whose window another client moved away from where it opened, so that its toolkit's screen positions still count from the old origin
+- **WHEN** a button inside it is clicked by locator
+- **THEN** the click SHALL land on the button
+- **NOTE** Real provider only, X11 lane without a window manager; the egui auto-activate suite and the activation test of the bare-mode suite move windows before they click.
+
 #### Scenario: On X11 screen extents are the bounds
 
-- **GIVEN** a Qt Widgets window on the X11 lane
+- **GIVEN** a Qt Widgets window on the X11 lane with a window manager
 - **WHEN** the bounds of a button inside it are read
 - **THEN** they SHALL equal the button's screen extents (`native:Component.Extents.Screen`)
 - **NOTE** Real provider only (X11 lane).
