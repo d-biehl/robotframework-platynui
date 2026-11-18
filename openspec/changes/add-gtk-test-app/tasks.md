@@ -54,6 +54,7 @@
 - [x] 3.6 Write `apps/test-app-gtk4/README.md`: usage, the widget choices, every verified deviation, the supported GTK 4 versions, and the naming of popover menu items with the GTK commits that drop and restore the names, noting that real applications on GTK 4.18 to 4.24.1 expose their menu items unnamed. Add the GTK 4 row to `dev-docs/testing-strategy.md` §5 and the fixture to `AGENTS.md` where it lists fixtures. Verify that the README's usage commands run as written.
 - [x] 3.7 Run the whole GTK 4 tree on both lanes: `just headless=true test-acceptance-x11 -X --suite '*.Gtk4'` and the same with `test-acceptance-compositor`. Verify with `robotcode results` that all committed tests pass.
 - [x] 3.8 Once `linux-element-geometry` task 5.4 is done, run the whole GTK 4 tree again on both lanes, now with the popover tests. Verify with `robotcode results` that all tests pass.
+- [x] 3.9 Run the catalog's menu-bar submenu test on an instance of its own: give `Launch GTK4 Test App` a `scope` argument and start the instance in the test's `[Setup]`, terminating it in its teardown (design, Risks: the stray menu after a submenu activation). Document the GTK behavior in the README. Verify the whole GTK 4 tree on both lanes with GTK 4.22.4 and 4.24.1 under GTK's default settings (an empty `XDG_CONFIG_HOME`), and with a desktop's own settings.
 
 ## 4. GTK 3 fixture
 
@@ -69,6 +70,7 @@
 - [x] 4.3 Write `apps/test-app-gtk3/main.py` per design decisions 3–5, with every window's ATK name set to its title. Confirm each surfaced `@Name` in the real tree before relying on it. Verify on both lanes (`just headless=true test-acceptance-x11 --suite '*.Gtk3'` and the same with `test-acceptance-compositor`) that every test not using the pointer passes, and that the pointer tests fail by missing their target, not by a fixture error. The fixture is committed with `catalog.robot` without its pointer tests; those are added in `linux-element-geometry`'s commit for its task 5.4.
 - [x] 4.4 Write `apps/test-app-gtk3/README.md` and add the GTK 3 row to `testing-strategy.md` §5. Verify that the README's usage commands run as written.
 - [x] 4.5 Once `linux-element-geometry` task 5.4 is done, run the whole GTK 3 tree on both lanes: `just headless=true test-acceptance-x11 -X --suite '*.Gtk3'` and the same with `test-acceptance-compositor`. Verify with `robotcode results` that all tests pass.
+- [x] 4.6 End every GTK 3 menu test with `Close The Open Menus`, which embeds a screenshot of the screen in the log when the test failed before it presses Escape twice (design, Risks: the CI-only miss of `menu-file-new`). Verify with a deliberately failing menu test that its log carries the screenshot and that a passing test's teardown takes none.
 
 ## 5. CI
 

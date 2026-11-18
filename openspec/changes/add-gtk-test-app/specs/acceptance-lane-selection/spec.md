@@ -25,11 +25,15 @@ Acceptance suites and tests SHALL declare platform-bound behavior via the tag vo
 - **THEN** no test or suite setup evaluates `XDG_SESSION_TYPE` (or any equivalent environment probe) to skip
 
 ### Requirement: Lane profiles select by excluding foreign platforms
-`robot.toml` SHALL define lane profiles `real-x11`, `real-wayland`, and `real-windows` that inherit the `real` profile and exclude the *other* platforms' tags, so untagged suites always remain selected. `platform:linux` is foreign only to `real-windows`. The plain `real` profile SHALL remain the runnable parent that selects every acceptance suite. Profiles SHALL select *within* the suite tree and SHALL NOT reshape it: no profile may narrow `paths`, because a narrower root directory renames the root suite and shifts every longname with the profile — which breaks any caller that resolved a longname without it, an editor test tree above all.
+`robot.toml` SHALL define lane profiles `real-x11`, `real-x11-bare`, `real-wayland`, and `real-windows` that inherit the `real` profile and exclude the *other* platforms' tags, so untagged suites always remain selected. `platform:linux` is foreign only to `real-windows`. `real-x11-bare` is the X11 lane without a window manager: it excludes the same platform tags as `real-x11` and also `window-manager:required`; every other profile excludes `window-manager:none`. The plain `real` profile SHALL remain the runnable parent that selects every acceptance suite. Profiles SHALL select *within* the suite tree and SHALL NOT reshape it: no profile may narrow `paths`, because a narrower root directory renames the root suite and shifts every longname with the profile — which breaks any caller that resolved a longname without it, an editor test tree above all.
 
 #### Scenario: Lane profile filters exactly the foreign platform tags
 - **WHEN** `robotcode --profile real-x11 discover tests` runs
 - **THEN** every suite/test tagged `platform:wayland` or `platform:windows` is absent, and every untagged, `platform:x11`- or `platform:linux`-tagged one is present
+
+#### Scenario: The bare X11 lane leaves out what needs a window manager
+- **WHEN** `robotcode --profile real-x11-bare discover tests` runs
+- **THEN** every suite/test tagged `window-manager:required`, `platform:wayland` or `platform:windows` is absent, every `window-manager:none`- or `platform:linux`-tagged one is present, and `robotcode --profile real-x11 discover tests` lists no `window-manager:none`-tagged test
 
 #### Scenario: Dead suites are discoverable, not hidden
 - **GIVEN** a suite whose platform tag no lane includes (e.g. a typo like `platform:x12`)
