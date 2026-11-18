@@ -20,4 +20,4 @@
 
 - [ ] 4.1 `openspec validate inspector-namespace-prefixed-labels`
 - [ ] 4.2 `just test-crate platynui-inspector` and `just check`
-- [ ] 4.3 Manual check against a real provider: start the Inspector with an application that exposes list or table items, confirm prefixed labels in the tree and the result list, and that `//item:ListItem[@Name="…"]` copied from a label finds the node
+- [x] 4.3 Manual check against a real provider: start the Inspector with an application that exposes list or table items, confirm prefixed labels in the tree and the result list, and that `//item:ListItem[@Name="…"]` copied from a label finds the node
