@@ -30,7 +30,7 @@ fn namespace_uri_on_elements_and_attributes() {
 
     // Unprefixed attribute has no namespace
     let a = evaluate_expr::<N>("namespace-uri(/*/@id)", &ctx).unwrap();
-    assert!(a.is_empty());
+    assert_eq!(a, []);
 
     // Prefixed attribute inherits prefix namespace
     let pa = evaluate_expr::<N>("namespace-uri(/*/@*[local-name()='aid'])", &ctx).unwrap();
@@ -50,10 +50,10 @@ fn namespace_uri_on_pi_and_namespace_nodes() {
     let ctx = DynamicContextBuilder::<N>::default().with_context_item(d.clone()).build();
     // Processing-instruction has no QName -> empty sequence
     let pi_ns = evaluate_expr::<N>("namespace-uri(//processing-instruction())", &ctx).unwrap();
-    assert!(pi_ns.is_empty());
+    assert_eq!(pi_ns, []);
     // Text node has no QName -> empty sequence
     let empty = evaluate_expr::<N>("namespace-uri(/*/text())", &ctx).unwrap();
-    assert!(empty.is_empty());
+    assert_eq!(empty, []);
 }
 
 #[rstest]

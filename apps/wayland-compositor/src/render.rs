@@ -315,8 +315,7 @@ pub fn collect_render_elements(
                         states
                             .data_map
                             .get::<CursorImageSurfaceData>()
-                            .map(|d| d.lock().expect("mutex poisoned").hotspot)
-                            .unwrap_or_default()
+                            .map_or_default(|d| d.lock().expect("mutex poisoned").hotspot)
                     });
 
                     #[allow(clippy::cast_possible_truncation)]

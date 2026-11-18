@@ -2,8 +2,10 @@
 
 mod platynui_ipc;
 
-use platynui_core::platform::{PlatformError, WindowHit, WindowId, WindowManager, WindowState};
-use platynui_core::types::{Point, Rect, Size};
+use platynui_core::platform::{
+    PlatformError, PopupGeometry, WindowGeometry, WindowHit, WindowId, WindowManager, WindowState,
+};
+use platynui_core::types::{Point, Size};
 use platynui_core::ui::UiNode;
 
 use crate::capabilities::{CompositorType, unsupported_compositor};
@@ -11,11 +13,11 @@ use crate::capabilities::{CompositorType, unsupported_compositor};
 trait CompositorBackend: Send + Sync {
     fn name(&self) -> &'static str;
     fn resolve_window(&self, node: &dyn UiNode) -> Result<WindowId, PlatformError>;
-    fn bounds(&self, id: WindowId, toolkit_hint: Option<&str>) -> Result<Rect, PlatformError>;
+    fn geometry(&self, id: WindowId) -> Result<WindowGeometry, PlatformError>;
     fn window_at_point(&self, _point: Point) -> Result<Option<WindowHit>, PlatformError> {
         Err(PlatformError::CapabilityUnavailable { capability: "window_at_point", details: None })
     }
-    fn popups(&self, _pid: u32) -> Result<Vec<Rect>, PlatformError> {
+    fn popups(&self, _pid: u32) -> Result<Vec<PopupGeometry>, PlatformError> {
         Err(PlatformError::CapabilityUnavailable { capability: "popups", details: None })
     }
     fn is_active(&self, id: WindowId) -> Result<bool, PlatformError>;
@@ -47,8 +49,14 @@ impl WindowManager for WaylandWindowManager {
         backend()?.resolve_window(node)
     }
 
-    fn bounds(&self, id: WindowId, toolkit_hint: Option<&str>) -> Result<Rect, PlatformError> {
-        backend()?.bounds(id, toolkit_hint)
+    fn geometry(&self, id: WindowId) -> Result<WindowGeometry, PlatformError> {
+        backend()?.geometry(id)
+    }
+
+    /// A Wayland client does not know where its window is, so its toolkit
+    /// reports screen positions relative to a point of its own choosing.
+    fn toolkit_screen_coordinates_are_desktop(&self) -> bool {
+        false
     }
 
     fn is_active(&self, id: WindowId) -> Result<bool, PlatformError> {
@@ -91,7 +99,7 @@ impl WindowManager for WaylandWindowManager {
         backend()?.window_at_point(point)
     }
 
-    fn popups(&self, pid: u32) -> Result<Vec<Rect>, PlatformError> {
+    fn popups(&self, pid: u32) -> Result<Vec<PopupGeometry>, PlatformError> {
         backend()?.popups(pid)
     }
 }
@@ -117,7 +125,7 @@ mod tests {
     fn every_operation_fails_without_a_detected_compositor() {
         let wm = WaylandWindowManager;
         let id = WindowId::new(1);
-        assert!(wm.bounds(id, None).is_err());
+        assert!(wm.geometry(id).is_err());
         assert!(wm.is_active(id).is_err());
         assert!(wm.state(id).is_err());
         assert!(wm.activate(id).is_err());
@@ -129,5 +137,12 @@ mod tests {
         assert!(wm.resize(id, Size::new(10.0, 10.0)).is_err());
         assert!(wm.window_at_point(Point::new(0.0, 0.0)).is_err());
         assert!(wm.popups(1).is_err());
+    }
+
+    /// A Wayland client does not know where its window is, so its toolkit's
+    /// screen coordinates are never desktop coordinates.
+    #[test]
+    fn toolkit_screen_coordinates_are_not_desktop_coordinates() {
+        assert!(!WaylandWindowManager.toolkit_screen_coordinates_are_desktop());
     }
 }

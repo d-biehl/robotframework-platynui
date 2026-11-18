@@ -53,7 +53,7 @@ use std::time::{Duration, Instant};
 use platynui_core::platform::WindowManager;
 use platynui_core::types::Point;
 use platynui_platform_linux_x11::X11Connection;
-use platynui_platform_linux_x11::window_manager::X11EwmhWindowManager;
+use platynui_platform_linux_x11::window_manager::{WindowMode, X11EwmhWindowManager};
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _, CreateWindowAux, PropMode, Window, WindowClass};
 use x11rb::rust_connection::RustConnection;
@@ -130,7 +130,10 @@ fn harness_probe() {
         .with_ansi(false)
         .with_max_level(tracing::Level::INFO)
         .try_init();
-    let wm = X11EwmhWindowManager::new(X11Connection::connect(Some(&display)).expect("the probe reaches the display"));
+    let wm = X11EwmhWindowManager::new(
+        X11Connection::connect(Some(&display)).expect("the probe reaches the display"),
+        WindowMode::Managed,
+    );
     let mut hit = None;
     for _ in 0..HITS {
         hit = wm.window_at_point(Point::new(POINT.0, POINT.1)).expect("the hit-test does not fail");
@@ -316,7 +319,10 @@ fn hit_test_over_own_window(display: &str) -> ((Option<u64>, Option<u64>), Strin
         .with_max_level(tracing::Level::INFO)
         .finish();
     let resolved = tracing::subscriber::with_default(subscriber, || {
-        let wm = X11EwmhWindowManager::new(X11Connection::connect(Some(display)).expect("reach the display"));
+        let wm = X11EwmhWindowManager::new(
+            X11Connection::connect(Some(display)).expect("reach the display"),
+            WindowMode::Managed,
+        );
         let mut resolved = None;
         for _ in 0..HITS {
             resolved = wm.window_at_point(Point::new(POINT.0, POINT.1)).expect("the hit-test does not fail");

@@ -15,9 +15,12 @@ paths = "tests"
 #                      built-in mock tree instead of the real platform provider.
 #                      Pair the build with the tag/profile (CI: a job per lane).
 #   Platform binding:  `platform:x11` / `platform:wayland` / `platform:windows`
-#                      on platform-bound suites/tests. No platform tag = runs on
-#                      every lane. Each lane profile below selects by EXCLUDING
-#                      the foreign platforms' tags, so untagged suites stay in.
+#                      on platform-bound suites/tests, and `platform:linux` for
+#                      what needs Linux but either Linux session (the GTK
+#                      fixtures). No platform tag = runs on every lane. Each lane
+#                      profile below selects by EXCLUDING the foreign platforms'
+#                      tags, so untagged suites stay in; `platform:linux` is
+#                      foreign only to `real-windows`.
 #
 # Environment fitness is decided here, by selection — never by runtime
 # `Skip If` guards inside a suite (see dev-docs/testing-strategy.md).
@@ -53,7 +56,7 @@ includes = ["acceptanceANDreal"]
 [profiles.real-x11]
 description = "Real lane on an X11 session (excludes wayland/windows-only suites)"
 inherits = ["real"]
-excludes = ["platform:wayland", "platform:windows"]
+excludes = ["platform:wayland", "platform:windows", "window-manager:none"]
 # RobotCode runs the test execution through this command prefix and appends its
 # own command line to it (`wrapper`, RobotCode >= 2.7). The session scripts bring
 # up the isolated display + AT-SPI stack, platynui-robot-session.sh builds the
@@ -63,16 +66,29 @@ excludes = ["platform:wayland", "platform:windows"]
 # stays with the scripts (`PLATYNUI_BACKEND=headless` for CI/no display).
 wrapper = ["scripts/startxsession.sh", "--", "scripts/platynui-robot-session.sh"]
 
+# The X11 lane without a window manager: the same session as `real-x11`, but no
+# window manager runs, so the X11 backend answers from the X server alone.
+# Tests that need a window manager's own operations (minimize, maximize,
+# restore) carry `window-manager:required` and are left out here; the suite for
+# the behavior without one carries `window-manager:none`, which every other
+# lane profile excludes. Each profile lists its own `excludes`, which replace
+# the inherited ones.
+[profiles.real-x11-bare]
+description = "Real lane on an X11 session without a window manager (excludes wayland/windows-only and window-manager-bound suites)"
+inherits = ["real"]
+excludes = ["platform:wayland", "platform:windows", "window-manager:required"]
+wrapper = ["scripts/startxsession.sh", "--no-window-manager", "--", "scripts/platynui-robot-session.sh"]
+
 [profiles.real-wayland]
 description = "Real lane on a Wayland session (excludes x11/windows-only suites)"
 inherits = ["real"]
-excludes = ["platform:x11", "platform:windows"]
+excludes = ["platform:x11", "platform:windows", "window-manager:none"]
 wrapper = ["scripts/startcompositor.sh", "--", "scripts/platynui-robot-session.sh"]
 
 [profiles.real-windows]
-description = "Real lane on the Windows desktop (excludes x11/wayland-only suites)"
+description = "Real lane on the Windows desktop (excludes x11/wayland/linux-only suites)"
 inherits = ["real"]
-excludes = ["platform:x11", "platform:wayland"]
+excludes = ["platform:x11", "platform:wayland", "platform:linux", "window-manager:none"]
 
 # Mock lane: drive the PlatynUI.BareMetal library against the built-in mock tree.
 # Deterministic, needs no display, runs on any OS. REQUIRES the mock-provider

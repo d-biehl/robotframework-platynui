@@ -469,7 +469,7 @@ define_id!(TechnologyId, core_rs::ui::identifiers::TechnologyId, "accessibility 
 /// Exposes the common namespace constants and behaves like an immutable string
 /// for comparisons and repr output.
 #[pyclass(name = "Namespace", module = "platynui_native.core", frozen, from_py_object)]
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct PyNamespace {
     inner: core_rs::ui::namespace::Namespace,
 }

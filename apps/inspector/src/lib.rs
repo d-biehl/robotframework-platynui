@@ -614,11 +614,42 @@ enum AppCommand {
 }
 
 impl InspectorApp {
-    fn apply_system_fonts(ctx: &egui::Context) {
-        // Use the OS-resolved UI font as the default egui font family.
-        // If detection fails on a platform, egui keeps its own defaults.
-        let _ = egui_system_fonts::set_auto(ctx, egui_system_fonts::FontStyle::Sans);
+    /// Makes the OS UI font the primary proportional face, so the Inspector reads
+    /// like a native app: Segoe UI on Windows, the system font on macOS, the
+    /// fontconfig `system-ui` match on Linux. egui's built-in fonts stay behind it,
+    /// and eframe's system font fallback still fills in glyphs neither has (CJK,
+    /// emoji, …). Without a match egui keeps its own defaults.
+    fn install_system_ui_font(ctx: &egui::Context) {
+        let mut collection =
+            fontique::Collection::new(fontique::CollectionOptions { shared: false, system_fonts: true });
+        let mut source_cache = fontique::SourceCache::new(fontique::SourceCacheOptions::default());
+        let mut query = collection.query(&mut source_cache);
+        query.set_families([fontique::QueryFamily::Generic(fontique::GenericFamily::SystemUi)]);
+        let mut found = None;
+        query.matches_with(|font| {
+            found = Some(font.clone());
+            fontique::QueryStatus::Stop
+        });
+        drop(query);
 
+        let Some(font) = found else {
+            tracing::debug!("no system UI font found, keeping egui's built-in fonts");
+            return;
+        };
+        let family = collection.family_name(font.family.0).unwrap_or("unknown").to_owned();
+        tracing::debug!(%family, "using the system UI font as the primary face");
+        let (blob, _) = font.blob.into_raw_parts();
+        ctx.add_font(egui::epaint::text::FontInsert {
+            name: format!("system-ui:{family}"),
+            data: egui::FontData::from_blob(blob, font.index),
+            families: vec![egui::epaint::text::InsertFontFamily {
+                family: egui::FontFamily::Proportional,
+                priority: egui::epaint::text::FontPriority::Highest,
+            }],
+        });
+    }
+
+    fn apply_system_text_scale(ctx: &egui::Context) {
         // Honor Windows accessibility text scaling when available.
         if let Some(scale_factor) = system_text_scale_factor() {
             ctx.set_zoom_factor(scale_factor);
@@ -634,7 +665,8 @@ impl InspectorApp {
         cc: &eframe::CreationContext<'_>,
     ) -> Self {
         let ctx = &cc.egui_ctx;
-        Self::apply_system_fonts(ctx);
+        Self::install_system_ui_font(ctx);
+        Self::apply_system_text_scale(ctx);
         // Image loaders (incl. the SVG loader) back the toolbar's embedded icons.
         egui_extras::install_image_loaders(ctx);
 
@@ -718,12 +750,12 @@ impl InspectorApp {
         ctx.request_repaint();
     }
 
-    fn maybe_refresh_system_fonts(&mut self, ctx: &egui::Context) {
+    fn maybe_refresh_text_scale(&mut self, ctx: &egui::Context) {
         let pixels_per_point = ctx.pixels_per_point();
         let dpi_changed = (pixels_per_point - self.last_pixels_per_point).abs() > f32::EPSILON;
 
         if dpi_changed {
-            Self::apply_system_fonts(ctx);
+            Self::apply_system_text_scale(ctx);
             self.last_pixels_per_point = pixels_per_point;
         }
     }
@@ -819,7 +851,7 @@ impl eframe::App for InspectorApp {
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.plugin_or_default::<egui_async::EguiAsyncPlugin>();
-        self.maybe_refresh_system_fonts(ctx);
+        self.maybe_refresh_text_scale(ctx);
         self.apply_system_scheme(ctx);
 
         for command in Self::collect_shortcut_commands(ctx) {

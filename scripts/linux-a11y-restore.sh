@@ -1,9 +1,9 @@
 #!/bin/bash
-# linux-a11y-restore.sh — Restore AT-SPI ScreenReaderEnabled to its prior value.
+# linux-a11y-restore.sh — Restore AT-SPI IsEnabled to its prior value.
 #
 # Pairs with linux-a11y-enable.sh. Reads the saved previous state from
 # $XDG_RUNTIME_DIR/platynui-a11y-prev-state (or /tmp fallback) and writes
-# it back to org.a11y.Status.ScreenReaderEnabled, then removes the state
+# it back to org.a11y.Status.IsEnabled, then removes the state
 # file so the next enable cycle re-saves freshly.
 #
 # Usage: invoked from RF Suite Teardown / pytest session-finalizer.
@@ -52,11 +52,11 @@ fi
 
 if gdbus call --session --dest=org.a11y.Bus --object-path=/org/a11y/bus \
         --method=org.freedesktop.DBus.Properties.Set \
-        org.a11y.Status ScreenReaderEnabled "<$_PREV>" >/dev/null 2>&1; then
-    echo "linux-a11y-restore: ScreenReaderEnabled restored to $_PREV" >&2
+        org.a11y.Status IsEnabled "<$_PREV>" >/dev/null 2>&1; then
+    echo "linux-a11y-restore: IsEnabled restored to $_PREV" >&2
     rm -f "$_STATE_FILE"
     exit 0
 else
-    echo "linux-a11y-restore: ERROR: failed to set ScreenReaderEnabled to $_PREV" >&2
+    echo "linux-a11y-restore: ERROR: failed to set IsEnabled to $_PREV" >&2
     exit 2
 fi

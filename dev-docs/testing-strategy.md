@@ -145,14 +145,25 @@ behavior under test.
 **Platform scoping is selection, never a runtime skip.** A suite (or single test) that can
 only run on one platform declares that with a tag — `platform:x11`, `platform:wayland`,
 `platform:windows` — via `Test Tags` (suite-wide, inherited from an `__init__.robot` by
-all child suites) or `[Tags]` (per test). No platform tag means the suite runs on **every**
+all child suites) or `[Tags]` (per test). A suite that needs Linux but runs in either Linux
+session, such as the GTK fixtures' suites, carries
+`platform:linux`. No platform tag means the suite runs on **every**
 lane. Each lane then selects through its `robot.toml` profile, which inherits `real`
 (selecting `acceptance` AND `real`) and *excludes the foreign platforms' tags* —
-`real-x11`, `real-wayland`, `real-windows` — so untagged suites always stay in. The profile is
+`real-x11`, `real-wayland`, `real-windows` — so untagged suites always stay in;
+`platform:linux` is foreign only to `real-windows`. The profile is
 the whole entry point: on Linux it also carries the `wrapper` command prefix that establishes
 its session, so selecting `real-wayland` selects both the compositor session and the suites that
 belong in it — from the shell, from `just`, and from the editor alike. (`real-windows` needs no
 session; the Windows recipe passes it directly.)
+
+**A window manager is a requirement of its own.** The X11 lane also runs without one: profile
+`real-x11-bare` brings up the same X11 session but starts no window manager, because a display
+nobody manages is a setup PlatynUI supports ([platform-linux.md](platform-linux.md) §3). Most
+suites run there unchanged. A test that needs what only a window manager does — minimizing,
+maximizing or restoring a window — carries `window-manager:required`, which `real-x11-bare`
+excludes. The suite that proves the behavior without a window manager carries
+`window-manager:none`, which every other lane profile excludes, so it runs on the bare lane alone.
 
 Two rules follow, and they are strict:
 
@@ -201,7 +212,9 @@ The RF tag vocabulary and the `robot.toml` profiles that select by it:
 |---|---|---|
 | `mock` | needs the mock-provider build | `mock` |
 | `real` | needs the non-mock build + a real session | `real` (everything) and the lane profiles below |
-| `platform:x11` / `platform:wayland` / `platform:windows` | additionally bound to one platform; **no platform tag = every lane** | `real-x11` / `real-wayland` / `real-windows` — each inherits `real` and excludes the *other* platforms' tags |
+| `platform:x11` / `platform:wayland` / `platform:windows` | additionally bound to one platform; **no platform tag = every lane** | `real-x11` and `real-x11-bare` / `real-wayland` / `real-windows` — each inherits `real` and excludes the *other* platforms' tags |
+| `window-manager:required` | needs a window manager's own operations (minimize, maximize, restore) | every lane profile except `real-x11-bare` |
+| `window-manager:none` | proves the behavior on a display without a window manager | `real-x11-bare` only |
 
 The lane entry points choose the profile (§2.6); running the plain `real` profile selects
 everything and is meant for discovery/dry-runs — on a concrete machine, foreign-platform
@@ -250,7 +263,8 @@ same blueprint.
 - **Blueprint conformance.** Fixture apps implement the fixture blueprint defined in §5.1
   below: a tiered control catalog under canonical names, name-based action observables, a
   common CLI contract, and onboarding to the catalog acceptance suite.
-  Scenario-specific surfaces (e.g. the Qt Widgets dialog-bounds reproduction) live beside
+  Scenario-specific surfaces (e.g. the Qt Widgets dialog-bounds reproduction and its MDI
+  scenario, `--mdi`) live beside
   the catalog, not inside it.
 - **Current matrix.** egui (`apps/test-app-egui`) — Rust/AccessKit — stays the
   **lightweight smoke target**: it renders its own widgets and exposes a flatter tree with
@@ -262,6 +276,8 @@ same blueprint.
   surface. Qt Quick/QML (`apps/test-app-qml`) is the **first full blueprint instance**:
   scene-graph rendering, `Accessible` attached properties, in-scene popups — and the home
   of the catalog suite's reference implementation (`tests/acceptance/qml/catalog.robot`).
+  GTK 3 and GTK 4 (`apps/test-app-gtk3`, `apps/test-app-gtk4`, PyGObject) cover GTK 3's
+  ATK bridge and GTK 4's own AT-SPI implementation with its popovers, on Linux only.
   Planned rows: SWT, JavaFX, and later WPF, Avalonia, and native Win32. Fixtures that
   predate the blueprint conform after their per-app retrofit changes; until then their
   historic names and suites stay valid.

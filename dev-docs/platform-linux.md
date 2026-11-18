@@ -122,6 +122,67 @@ Other C0 control characters (U+0000–U+001F) have no standard keyboard equivale
 
 **Patterns**: `Focusable` via `grab_focus()` + AT-SPI State flags.
 
+### Element geometry
+
+An element's `Bounds` say where it is drawn on the desktop. AT-SPI offers three coordinate
+types for an element's extents — `SCREEN`, `WINDOW` and `PARENT` — and toolkits implement
+them differently, so the provider does not trust any one of them everywhere. It places every
+element **relative to its window**, never by adding up its ancestors:
+
+- The element's *reference window* is its nearest ancestor that is a real top-level window, or
+  a popup the platform shows as a surface of its own (below).
+- The platform says where that window is on the desktop. The element adds its own position
+  relative to the window.
+
+For example, a radio button inside a group inside a GTK 3 window on X11 reports its real screen
+position, and that is its `Bounds`. Its ancestors' positions play no part: GTK 3 answers the
+`PARENT` coordinates AT-SPI asks for with screen coordinates, so a sum over the ancestors would
+count each of their positions again.
+
+**Which coordinate type.** The position relative to the window is read in screen coordinates,
+with two exceptions:
+
+- GTK 4 reports `(0,0)` as every screen position, by design, so GTK 4 is read in window
+  coordinates.
+- A node whose screen position equals its window's while its window position does not is read in
+  window coordinates too. That is the mark of a toolkit PlatynUI does not know that reports no
+  screen positions either.
+
+`PARENT` coordinates are never used, and a rectangle without size, or at `G_MININT`, which GTK 3
+reports for widgets it does not show, is no geometry: the node has no bounds of its own, and its
+descendants are placed all the same.
+
+**Screen coordinates on the desktop.** Whether a toolkit's screen coordinates are desktop
+coordinates is the platform's to say. On X11 with a window manager they are, and a node's screen
+extents are its `Bounds` as they are. Where they are not — under the PlatynUI compositor, and on X11
+without a window manager (§3) — they are re-based: the window's origin plus the node's offset from
+its window's own screen position. The provider itself knows nothing about the windowing system.
+
+**Two origins of a window.** A window manager reports a window's *visible bounds*, which its node
+reports as `Bounds`, and its *surface origin*, the point a toolkit measures surface-relative
+positions from. They differ for a window that draws its own shadow. Elements count from the origin
+their toolkit measures from: GTK 4 from its visible frame, every other toolkit from the surface.
+
+**Popups.** A popup is a transient popup grafted under its application (Qt's context menus) or a
+node on the AT-SPI popup layer (GTK 4's popovers, GTK 3's menus). The platform lists the popups of a
+process with their visible rectangles and surfaces, and a popup node is matched to that list by its
+own size: against each popup's surface first, then its visible rectangle. A GTK 4 popover's node is
+its surface, shadow included; GTK 3's menu node is the visible menu. A matched popup's `Bounds` are
+the visible rectangle, and its descendants count from the rectangle it matched. GTK 3 lists a menu's
+items beside the menu's node, below the item that opened the menu, so that item hands the menu on
+to its children. A popup the platform does not list is placed like any other node of its window. The
+hit-test prefers a hit inside a popup over anything beneath it, and a hit in a submenu over one in
+the menu that opened it.
+
+What the toolkits report, read from their source and measured on both Linux lanes:
+
+| Toolkit | `SCREEN` | `WINDOW` | Read in |
+|---|---|---|---|
+| GTK 4 | always `(0,0)` | relative to the window's border box, header bar included, shadow excluded; a child of a padded widget reports its parent's origin ([`platform-linux-wayland.md`](platform-linux-wayland.md) §3) | `WINDOW` |
+| GTK 3 | X11: root coordinates, the toplevel including the window manager's frame. Wayland: relative to the surface, shadow included; a popup's items count from nowhere | relative to its own top-level surface; a menu counts as one | `SCREEN` |
+| Qt ≥ 6.5 | X11: the client area. Wayland: pinned to the output's top-left | relative to the nearest window, an MDI subwindow counting as one | `SCREEN` |
+| AccessKit (egui) | the client-area origin plus the element's offset; `(0,0)` as origin on Wayland, and on X11 without a window manager it may keep the origin the window opened at | relative to the client area | `SCREEN` |
+
 ### Process Identity and PID Namespaces
 
 The normal deployment runs everything in one PID namespace: the runtime, the application under test, the display server and the accessibility bus daemon all see the same process table, and a process ID means the same process to each of them. Nothing in this section changes anything there. It explains why the provider still handles process IDs with care, and what happens in the one special deployment where that care matters: PlatynUI running as a **sidecar** in a PID namespace of its own.
@@ -194,7 +255,95 @@ The harness has hard prerequisites: unprivileged user namespaces, control over t
 
 ## 3. WindowManager (EWMH)
 
-- XID resolution: `_NET_CLIENT_LIST` + `_NET_WM_PID` matching with `_NET_WM_NAME` fallback for multi-window PIDs.
+### Two window modes
+
+An X11 display may or may not have a window manager. A desktop session has one; a kiosk, a
+container or a bare CI X server often does not, and PlatynUI supports both. The X11 window
+manager therefore works in one of two modes, and it decides which one **once, when the runtime
+connects to the display**:
+
+- **Managed mode.** An EWMH window manager answers the `_NET_SUPPORTING_WM_CHECK` handshake: the
+  root window names a child window, and that child names itself back. The runtime then finds and
+  operates windows through the window manager — its client list, its stacking order and the EWMH
+  client messages.
+- **Bare mode.** Nothing answers the handshake. There are no frames, no client list and no EWMH
+  properties on the root, so the runtime works with the X server's own window tree instead.
+
+A check that cannot be made at all (an X error) keeps the managed path. Because the decision is
+made per runtime, a window manager started after one runtime connected is used by the next one,
+and a run never flips between modes halfway.
+
+Non-EWMH reparenting window managers stay out of both modes. They put each client into a frame of
+their own, so the root's children are frames that carry no `_NET_WM_PID`: bare mode finds no
+window there, and the provider falls back to the toolkit's geometry with its substitution warning.
+
+### Finding an application's windows
+
+The candidates for a process are:
+
+- in managed mode, the windows of `_NET_CLIENT_LIST` whose `_NET_WM_PID` is the process's;
+- in bare mode, the root's children that are viewable, not override-redirect and carry the
+  process's `_NET_WM_PID`. Override-redirect leaves out the process's menus and tooltips, which
+  are root children too; toolkits set `_NET_WM_PID` themselves, so a window without it cannot be
+  attributed and is not a candidate.
+
+One candidate is the window. With several — a main window and its dialogs — the lookup decides in
+this order, so that it never needs a screen position the toolkit does not report:
+
+1. the exact title (`_NET_WM_NAME`, else `WM_NAME`) against the node's accessible name;
+2. a size only one candidate has, within 64 px summed over both dimensions, which also absorbs the
+   window manager's frame that GTK 3 counts into its window's extents;
+3. among candidates of equal size, the screen position the toolkit reports — but only when it
+   reports one: GTK 4 gives `(0,0)` for every window, which says nothing;
+4. otherwise the lookup fails with an error that names the number of candidates. Taking another
+   window's geometry would be worse than the failure.
+
+For example, the GTK 4 fixture's main window and its modeless dialog belong to one process, and
+GTK 4 reports neither window's position; their sizes tell them apart.
+
+### Geometry
+
+A window has two places on the desktop, and the platform reports both: its **visible bounds**,
+which its node reports as `Bounds`, and its **surface origin**, the point toolkits measure
+surface-relative positions from. The surface is the client window. Its visible part is the client
+rectangle without `_GTK_FRAME_EXTENTS` when the window has that property: GTK sets it for the
+shadow it draws around a client-side-decorated window under a compositing window manager. The lanes
+run icewm, which does not composite, so the subtraction is unit-tested over a recorded property but
+not yet seen on a lane.
+
+Whether a toolkit's screen coordinates are desktop coordinates depends on the mode. With a window
+manager they are: it tells a client where its window went after another client moved it, through
+the synthetic `ConfigureNotify` ICCCM requires. Without one nobody does, and a toolkit may keep
+counting from where its window opened — egui did, measured after a move to `(310,210)`. The
+platform therefore answers "no" in bare mode, and the provider re-bases screen positions on the
+window's real origin.
+
+Popups are listed for the provider from the root's children in both modes: the viewable
+override-redirect windows of a popup type (menu, drop-down, combo, tooltip) that carry the
+process's `_NET_WM_PID`, topmost first. A popup's surface is its window; its visible rectangle again
+leaves out `_GTK_FRAME_EXTENTS`. A popup window without `_NET_WM_PID` is not listed, and the
+provider then places it like any other node of its window.
+
+### What bare mode can and cannot do
+
+Without a window manager the X server performs what it can itself, and the operations only a
+window manager provides fail by name instead of pretending:
+
+- **Active window:** a window is active while it holds the X server's input focus, or a window
+  inside it does. A focus of `None`, `PointerRoot` or the root makes no window active.
+- **Activation:** maps the window if it is unmapped and waits until it is viewable, then raises it
+  above its siblings and gives it the input focus. It never moves or resizes the window.
+- **Hit-test:** walks the root's children from top to bottom with the candidates' filter and the
+  own-window check below; the popup pass is the same as in managed mode.
+- **Close:** sends `WM_DELETE_WINDOW` through `WM_PROTOCOLS` when the window lists that protocol,
+  and otherwise fails naming it. It never destroys the window or disconnects its client.
+- **Minimize, maximize, restore:** fail as an unavailable capability, naming the operation and
+  that no window manager runs on the display.
+- **State:** a window reads as normal and not topmost.
+- **Move and resize:** work, because the X server performs them.
+
+### Managed mode
+
 - EWMH actions: `_NET_ACTIVE_WINDOW`, `_NET_CLOSE_WINDOW`.
 - Window state: read from the client window's `_NET_WM_STATE`. `_NET_WM_STATE_HIDDEN` (or ICCCM `WM_STATE` = Iconic) means minimized and wins over everything else, since an iconified window keeps its maximized atoms; both `_NET_WM_STATE_MAXIMIZED_VERT` and `_HORZ` mean maximized; `_NET_WM_STATE_ABOVE` means kept on top. A window that no longer exists fails the property read, so the query reports an error instead of a state.
 - `activate()`: EWMH does not require a window manager to de-iconify on `_NET_ACTIVE_WINDOW`, so an iconified window is first mapped (ICCCM §4.1.4, the client-side way out of Iconic state). The window manager handles the resulting MapRequest and leaves `_NET_WM_STATE` alone, so a window minimized while maximized comes back maximized. `_NET_ACTIVE_WINDOW` follows as before.

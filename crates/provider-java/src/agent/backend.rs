@@ -579,7 +579,7 @@ mod tests {
     #[test]
     fn process_id_0_is_never_offered_the_agent() {
         let backend = AgentBackend::from_config(None, None);
-        assert!(backend.consider_attaching(&[0]).is_empty());
+        assert_eq!(backend.consider_attaching(&[0]), Vec::<u32>::new());
         assert!(backend.attach_attempts.lock().expect("attach log").is_empty(), "no attempt is recorded for pid 0");
     }
 
@@ -759,14 +759,14 @@ mod tests {
         let desktop: Arc<dyn UiNode> = Arc::new(DesktopStub(RuntimeId::from("desktop")));
         let pass = backend.enumerate(&desktop);
         assert!(pass.nodes.is_empty());
-        assert!(pass.served_windows.is_empty());
+        assert_eq!(pass.served_windows, Vec::<u64>::new());
         assert!(matches!(
             backend.element_at_point(Point::new(1.0, 1.0)),
             Err(ProviderError::UnsupportedOperation { .. })
         ));
         // And it must not attach either: the kill switch means "not this channel",
         // not "this channel without the tree".
-        assert!(backend.consider_attaching(&[4242]).is_empty());
+        assert_eq!(backend.consider_attaching(&[4242]), Vec::<u32>::new());
         assert!(backend.attach_attempts.lock().expect("log").is_empty());
     }
 }

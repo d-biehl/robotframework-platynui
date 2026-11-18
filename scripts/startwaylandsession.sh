@@ -15,6 +15,10 @@ cleanup() {
     for mnt in "$WESTON_RUNTIME_DIR"/*/; do
       mountpoint -q "$mnt" 2>/dev/null && fusermount -u "$mnt" 2>/dev/null
     done
+    # Session services may stage read-only trees here (e.g. a file manager
+    # portal backend copying its QML files as r-x directories); rm cannot
+    # unlink entries of a read-only directory, so make the tree writable first.
+    chmod -R u+w "$WESTON_RUNTIME_DIR" 2>/dev/null
     rm -rf "$WESTON_RUNTIME_DIR"
   fi
 }
@@ -136,9 +140,9 @@ dbus-run-session -- bash -c '
   echo "Session DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS"
 
   # Start AT-SPI bus launcher with --launch-immediately to bypass the
-  # gsettings/IsEnabled check (no GNOME settings daemon in this session)
-  # and --a11y=1 to force accessibility on.
-  /usr/lib/at-spi-bus-launcher --launch-immediately --a11y=1 &
+  # gsettings/IsEnabled check (no GNOME settings daemon in this session).
+  # No --a11y=1: at-spi2-core 2.62 dropped that option and aborts on it.
+  /usr/lib/at-spi-bus-launcher --launch-immediately &
 
   # Wait until org.a11y.Bus is available on the session bus
   ATSPI_READY=0

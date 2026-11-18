@@ -4,7 +4,9 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 
-use platynui_core::platform::{PlatformError, WindowHit, WindowId, WindowState, WindowVisualState};
+use platynui_core::platform::{
+    PlatformError, PopupGeometry, WindowGeometry, WindowHit, WindowId, WindowState, WindowVisualState,
+};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::{Namespace, PatternName, UiNode, pattern_names};
 use serde_json::{Value, json};
@@ -90,22 +92,9 @@ impl CompositorBackend for PlatynUiIpcBackend {
         Ok(WindowId::new(local_id))
     }
 
-    fn bounds(&self, id: WindowId, toolkit_hint: Option<&str>) -> Result<Rect, PlatformError> {
+    fn geometry(&self, id: WindowId) -> Result<WindowGeometry, PlatformError> {
         let info = resolve_window_info(id)?;
-
-        // The compositor's element_location (reported as content_x/y) is
-        // the buffer origin — where the wl_surface is placed on screen.
-        // For CSD windows the buffer includes transparent shadow area, so
-        // the actual content starts further right/down by the shadow inset.
-        //
-        // We derive this offset from the opaque region (surface-local coords
-        // from the client) with geometry_offset as fallback.  The opaque
-        // region's origin is at least as large as the geometry offset; for
-        // the Y axis they typically match, while on X the opaque region may
-        // be indented further due to rounded corners.  We use the minimum
-        // per axis to get the content origin, not the opaque origin.
-        let (offset_x, offset_y) = csd_shadow_offset(&info, toolkit_hint);
-
+        let geometry = window_geometry(&info);
         tracing::debug!(
             window_id = info.window_id,
             title = %info.title,
@@ -115,13 +104,11 @@ impl CompositorBackend for PlatynUiIpcBackend {
             content_height = info.content_height,
             geometry_x = info.geometry_x,
             geometry_y = info.geometry_y,
-            offset_x,
-            offset_y,
             opaque_region = ?info.opaque_region,
-            "window bounds computation"
+            bounds = ?geometry.bounds,
+            "window geometry computation"
         );
-
-        Ok(Rect::new(info.content_x + offset_x, info.content_y + offset_y, info.content_width, info.content_height))
+        Ok(geometry)
     }
 
     fn is_active(&self, id: WindowId) -> Result<bool, PlatformError> {
@@ -181,32 +168,8 @@ impl CompositorBackend for PlatynUiIpcBackend {
         Ok(())
     }
 
-    fn popups(&self, pid: u32) -> Result<Vec<Rect>, PlatformError> {
-        let response = send_command(&json!({"command": "list_popups"}))?;
-        let Some(popups) = response.get("popups").and_then(Value::as_array) else {
-            return Err(PlatformError::OperationFailed {
-                operation: "decode list_popups response",
-                details: Some("missing popups array".into()),
-            });
-        };
-
-        // The compositor reports global logical rects, deepest cascade level
-        // first (i.e. most recently opened first per popup chain) — preserve
-        // that order for recency-based tie-breaking in consumers.
-        Ok(popups
-            .iter()
-            .filter(|popup| {
-                popup.get("pid").and_then(Value::as_u64).and_then(|value| u32::try_from(value).ok()) == Some(pid)
-            })
-            .map(|popup| {
-                Rect::new(
-                    popup.get("x").and_then(Value::as_f64).unwrap_or(0.0),
-                    popup.get("y").and_then(Value::as_f64).unwrap_or(0.0),
-                    popup.get("width").and_then(Value::as_f64).unwrap_or(0.0),
-                    popup.get("height").and_then(Value::as_f64).unwrap_or(0.0),
-                )
-            })
-            .collect())
+    fn popups(&self, pid: u32) -> Result<Vec<PopupGeometry>, PlatformError> {
+        decode_popups(&send_command(&json!({"command": "list_popups"}))?, pid)
     }
 
     fn window_at_point(&self, point: Point) -> Result<Option<WindowHit>, PlatformError> {
@@ -214,29 +177,7 @@ impl CompositorBackend for PlatynUiIpcBackend {
         // The compositor returns `window: null` when no window covers the point.
         match response.get("window") {
             None | Some(Value::Null) => Ok(None),
-            Some(_) => {
-                let info = decode_window_response(&response)?;
-                let (offset_x, offset_y) = csd_shadow_offset(&info, None);
-                let bounds = Rect::new(
-                    info.content_x + offset_x,
-                    info.content_y + offset_y,
-                    info.content_width,
-                    info.content_height,
-                );
-                // Register a selector so the returned WindowId is usable with
-                // the other window-manager operations (bounds/activate/...).
-                let local_id = NEXT_WINDOW_ID.fetch_add(1, Ordering::Relaxed);
-                RESOLVED_WINDOWS.lock().expect("resolved windows mutex poisoned").insert(
-                    local_id,
-                    WindowSelector {
-                        compositor_window_id: info.window_id,
-                        title: info.title.clone(),
-                        pid: info.pid,
-                        size: Some((info.content_width, info.content_height)),
-                    },
-                );
-                Ok(Some(WindowHit { id: WindowId::new(local_id), pid: info.pid, bounds }))
-            }
+            Some(_) => Ok(Some(register_hit(&decode_window_response(&response)?))),
         }
     }
 }
@@ -536,12 +477,75 @@ fn decode_opaque_region(value: &Value) -> Option<Vec<OpaqueRect>> {
     if rects.is_empty() { None } else { Some(rects) }
 }
 
-/// Compute the CSD shadow offset to add to the buffer origin to find
-/// the actual content origin.
+/// The popups of process `pid` in a `list_popups` response, in the order the
+/// compositor lists them: deepest cascade level first (most recently opened
+/// first per popup chain), which consumers use to break ties.
 ///
-/// For CSD windows, the compositor places the surface buffer on screen
-/// at `element_location`. The content area (xdg geometry) starts further
-/// inside the buffer by the shadow inset. This function returns that inset.
+/// Each popup's bounds are its placed rectangle, and its surface the listed
+/// `surface_*` rectangle; a response without one gives the placed rectangle.
+fn decode_popups(response: &Value, pid: u32) -> Result<Vec<PopupGeometry>, PlatformError> {
+    let Some(popups) = response.get("popups").and_then(Value::as_array) else {
+        return Err(PlatformError::OperationFailed {
+            operation: "decode list_popups response",
+            details: Some("missing popups array".into()),
+        });
+    };
+    let rect = |popup: &Value, prefix: &str| {
+        let field = |name: &str| popup.get(format!("{prefix}{name}")).and_then(Value::as_f64);
+        Some(Rect::new(field("x")?, field("y")?, field("width")?, field("height")?))
+    };
+    Ok(popups
+        .iter()
+        .filter(|popup| {
+            popup.get("pid").and_then(Value::as_u64).and_then(|value| u32::try_from(value).ok()) == Some(pid)
+        })
+        .map(|popup| {
+            let bounds = rect(popup, "").unwrap_or_default();
+            PopupGeometry { bounds, surface: rect(popup, "surface_").unwrap_or(bounds) }
+        })
+        .collect())
+}
+
+/// A window's visible frame and its surface origin from the compositor's
+/// record of it.
+///
+/// The compositor places the window's surface buffer at `content_x/y`, which
+/// is the surface origin. A client-side-decorated window draws a transparent
+/// shadow inside that buffer, so its visible frame starts further in by the
+/// shadow inset ([`csd_shadow_offset`]), with the size of the window's
+/// geometry. A server-side-decorated window's visible frame is its buffer.
+fn window_geometry(info: &ControlWindowInfo) -> WindowGeometry {
+    let (offset_x, offset_y) = csd_shadow_offset(info);
+    WindowGeometry {
+        bounds: Rect::new(
+            info.content_x + offset_x,
+            info.content_y + offset_y,
+            info.content_width,
+            info.content_height,
+        ),
+        surface_origin: Point::new(info.content_x, info.content_y),
+    }
+}
+
+/// The window hit for a compositor window record, with a selector registered
+/// so the returned [`WindowId`] is usable with the other window-manager
+/// operations.
+fn register_hit(info: &ControlWindowInfo) -> WindowHit {
+    let local_id = NEXT_WINDOW_ID.fetch_add(1, Ordering::Relaxed);
+    RESOLVED_WINDOWS.lock().expect("resolved windows mutex poisoned").insert(
+        local_id,
+        WindowSelector {
+            compositor_window_id: info.window_id,
+            title: info.title.clone(),
+            pid: info.pid,
+            size: Some((info.content_width, info.content_height)),
+        },
+    );
+    WindowHit { id: WindowId::new(local_id), pid: info.pid, bounds: window_geometry(info).bounds }
+}
+
+/// The shadow inset of a client-side-decorated window: how far its visible
+/// frame starts inside its surface buffer.
 ///
 /// Primary source: the opaque region's origin (surface-local coords from
 /// the client). Using `min(opaque, geometry)` per axis avoids over-correcting
@@ -549,12 +553,8 @@ fn decode_opaque_region(value: &Value) -> Option<Vec<OpaqueRect>> {
 ///
 /// Fallback: the geometry offset reported by the compositor.
 /// Returns `(0.0, 0.0)` for SSD windows.
-fn csd_shadow_offset(info: &ControlWindowInfo, toolkit_hint: Option<&str>) -> (f64, f64) {
-    // Only apply the shadow offset for GTK4 CSD windows.  GTK4 includes a
-    // transparent shadow in the surface buffer and AT-SPI coordinates don't
-    // account for it.  Other toolkits (Qt, etc.) report correct AT-SPI
-    // extents even with CSD, so we must not apply the offset for them.
-    if info.decoration_mode.as_deref() != Some("csd") || toolkit_hint != Some("gtk4") {
+fn csd_shadow_offset(info: &ControlWindowInfo) -> (f64, f64) {
+    if info.decoration_mode.as_deref() != Some("csd") {
         return (0.0, 0.0);
     }
 
@@ -961,7 +961,7 @@ mod tests {
                 height: 346.0,
             }]),
         };
-        let (ox, oy) = csd_shadow_offset(&info, Some("gtk4"));
+        let (ox, oy) = csd_shadow_offset(&info);
         // X: min(geometry=25, opaque=40) = 25  (geometry wins, avoids rounded-corner overcount)
         assert!((ox - 25.0).abs() < f64::EPSILON);
         // Y: min(geometry=25, opaque=25) = 25
@@ -992,7 +992,7 @@ mod tests {
             decoration_mode: Some("csd".into()),
             opaque_region: Some(vec![OpaqueRect { kind: "add".into(), x: 10.0, y: 12.0, width: 780.0, height: 576.0 }]),
         };
-        let (ox, oy) = csd_shadow_offset(&info, Some("gtk4"));
+        let (ox, oy) = csd_shadow_offset(&info);
         assert!((ox - 10.0).abs() < f64::EPSILON);
         assert!((oy - 12.0).abs() < f64::EPSILON);
     }
@@ -1020,7 +1020,7 @@ mod tests {
             decoration_mode: Some("csd".into()),
             opaque_region: None,
         };
-        let (ox, oy) = csd_shadow_offset(&info, Some("gtk4"));
+        let (ox, oy) = csd_shadow_offset(&info);
         assert!((ox - 6.0).abs() < f64::EPSILON);
         assert!((oy - 8.0).abs() < f64::EPSILON);
     }
@@ -1048,14 +1048,16 @@ mod tests {
             decoration_mode: Some("ssd".into()),
             opaque_region: None,
         };
-        let (ox, oy) = csd_shadow_offset(&info, Some("gtk4"));
+        let (ox, oy) = csd_shadow_offset(&info);
         assert!((ox - 0.0).abs() < f64::EPSILON);
         assert!((oy - 0.0).abs() < f64::EPSILON);
     }
 
     #[test]
-    fn csd_shadow_offset_returns_zero_for_non_gtk4_csd() {
-        // Qt6 CSD window with geometry offset — should NOT get the shadow correction
+    fn csd_shadow_offset_applies_to_every_csd_window() {
+        // A client-side-decorated window of any toolkit: the platform reports
+        // its visible frame; what the toolkit's coordinates mean is the
+        // provider's decision.
         let info = ControlWindowInfo {
             window_id: 1,
             title: "test".into(),
@@ -1077,8 +1079,110 @@ mod tests {
             decoration_mode: Some("csd".into()),
             opaque_region: Some(vec![OpaqueRect { kind: "add".into(), x: 10.0, y: 10.0, width: 780.0, height: 580.0 }]),
         };
-        let (ox, oy) = csd_shadow_offset(&info, Some("qt6"));
-        assert!((ox - 0.0).abs() < f64::EPSILON);
-        assert!((oy - 0.0).abs() < f64::EPSILON);
+        let (ox, oy) = csd_shadow_offset(&info);
+        assert!((ox - 10.0).abs() < f64::EPSILON);
+        assert!((oy - 10.0).abs() < f64::EPSILON);
+    }
+
+    /// A `list_windows` record as measured on the lanes (design.md, Context).
+    fn record(
+        frame: (f64, f64, f64, f64),
+        content: (f64, f64, f64, f64),
+        geometry: (f64, f64),
+        mode: &str,
+    ) -> ControlWindowInfo {
+        ControlWindowInfo {
+            window_id: 7,
+            title: "probe".into(),
+            app_id: "probe".into(),
+            pid: Some(4242),
+            x: frame.0,
+            y: frame.1,
+            width: frame.2,
+            height: frame.3,
+            content_x: content.0,
+            content_y: content.1,
+            content_width: content.2,
+            content_height: content.3,
+            geometry_x: geometry.0,
+            geometry_y: geometry.1,
+            focused: false,
+            minimized: false,
+            maximized: false,
+            decoration_mode: Some(mode.into()),
+            opaque_region: None,
+        }
+    }
+
+    #[test]
+    fn a_gtk3_window_with_a_header_bar_reports_its_visible_frame() {
+        let info = record((34.0, 31.0, 420.0, 337.0), (10.0, 10.0, 420.0, 337.0), (24.0, 21.0), "csd");
+        let geometry = window_geometry(&info);
+        assert_eq!(geometry.bounds, Rect::new(34.0, 31.0, 420.0, 337.0));
+        assert_eq!(geometry.surface_origin, Point::new(10.0, 10.0));
+    }
+
+    #[test]
+    fn a_gtk4_window_with_a_header_bar_reports_its_visible_frame() {
+        let info = record((24.0, 22.0, 420.0, 305.0), (10.0, 10.0, 420.0, 305.0), (14.0, 12.0), "csd");
+        let geometry = window_geometry(&info);
+        assert_eq!(geometry.bounds, Rect::new(24.0, 22.0, 420.0, 305.0));
+        assert_eq!(geometry.surface_origin, Point::new(10.0, 10.0));
+    }
+
+    #[test]
+    fn server_side_decorated_windows_report_their_content_area() {
+        let qt = record((2.0, 2.0, 656.0, 526.0), (10.0, 40.0, 640.0, 480.0), (0.0, 0.0), "ssd");
+        let egui = record((2.0, 2.0, 616.0, 546.0), (10.0, 40.0, 600.0, 500.0), (0.0, 0.0), "ssd");
+        for (info, bounds) in [(qt, Rect::new(10.0, 40.0, 640.0, 480.0)), (egui, Rect::new(10.0, 40.0, 600.0, 500.0))] {
+            let geometry = window_geometry(&info);
+            assert_eq!(geometry.bounds, bounds);
+            assert_eq!(geometry.surface_origin, Point::new(10.0, 40.0));
+        }
+    }
+
+    /// A `list_popups` response with a GTK 4 submenu of process 4242 (its
+    /// surface includes GTK's shadow), a Qt menu of the same process (no
+    /// shadow), and a popup of another process.
+    #[test]
+    fn popups_decode_the_placed_rectangle_and_the_surface() {
+        let response = json!({"status": "ok", "popups": [
+            {"parent_window_id": 1, "pid": 4242, "x": 265, "y": 179, "width": 158, "height": 82,
+             "surface_x": 242, "surface_y": 158, "surface_width": 204, "surface_height": 128},
+            {"parent_window_id": 1, "pid": 4242, "x": 300, "y": 200, "width": 180, "height": 240,
+             "surface_x": 300, "surface_y": 200, "surface_width": 180, "surface_height": 240},
+            {"parent_window_id": 2, "pid": 7, "x": 0, "y": 0, "width": 10, "height": 10,
+             "surface_x": 0, "surface_y": 0, "surface_width": 10, "surface_height": 10}
+        ]});
+        let popups = decode_popups(&response, 4242).expect("decodes");
+        assert_eq!(
+            popups,
+            vec![
+                PopupGeometry {
+                    bounds: Rect::new(265.0, 179.0, 158.0, 82.0),
+                    surface: Rect::new(242.0, 158.0, 204.0, 128.0),
+                },
+                PopupGeometry::from_bounds(Rect::new(300.0, 200.0, 180.0, 240.0)),
+            ]
+        );
+    }
+
+    /// A compositor that lists no surface reports the placed rectangle as the
+    /// popup's surface.
+    #[test]
+    fn popups_without_a_listed_surface_use_the_placed_rectangle() {
+        let response = json!({"status": "ok", "popups": [
+            {"parent_window_id": 1, "pid": 4242, "x": 10, "y": 20, "width": 30, "height": 40}
+        ]});
+        let popups = decode_popups(&response, 4242).expect("decodes");
+        assert_eq!(popups, vec![PopupGeometry::from_bounds(Rect::new(10.0, 20.0, 30.0, 40.0))]);
+    }
+
+    #[test]
+    fn a_window_hit_carries_the_visible_frame() {
+        let info = record((34.0, 31.0, 420.0, 337.0), (10.0, 10.0, 420.0, 337.0), (24.0, 21.0), "csd");
+        let hit = register_hit(&info);
+        assert_eq!(hit.bounds, window_geometry(&info).bounds);
+        assert_eq!(hit.pid, Some(4242));
     }
 }

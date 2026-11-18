@@ -26,9 +26,9 @@ fn compare_codepoint_cases(#[case] expr: &str, #[case] expected: i64) {
 #[rstest]
 fn compare_empty_operand() {
     let r = eval("fn:compare((), 'a')");
-    assert!(r.is_empty());
+    assert_eq!(r, []);
     let r = eval("fn:compare('a', ())");
-    assert!(r.is_empty());
+    assert_eq!(r, []);
 }
 
 #[rstest]

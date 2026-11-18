@@ -88,6 +88,11 @@ dev = [
     "robotcode[analyze,repl,runner]>=2.7.0",
     # Powers the Qt test app (apps/test-app-qt) driven by the qt acceptance suite.
     "PySide6>=6.7",
+    # Powers the GTK 3 and GTK 4 test apps (apps/test-app-gtk3, apps/test-app-gtk4).
+    # PyPI has no Linux wheels, so `uv sync` builds it: it needs a C compiler,
+    # pkg-config, libgirepository-2.0-dev (GLib >= 2.80) and libcairo2-dev, which
+    # `just bootstrap` checks first. GTK has no accessibility on Windows or macOS.
+    "PyGObject>=3.52; sys_platform == 'linux'",
 ]
 
 [tool.cibuildwheel.macos.environment]
@@ -271,3 +276,9 @@ mypy_path = ["src", "packages/native/python"]
 module = ["robot.*", "robotlibcore.*"]
 ignore_missing_imports = true
 no_implicit_reexport = false
+
+# PyGObject ships no type information, and pygobject-stubs generates stubs for one
+# GTK version per installation while the venv serves both GTK fixtures.
+[[tool.mypy.overrides]]
+module = ["gi", "gi.*"]
+ignore_missing_imports = true

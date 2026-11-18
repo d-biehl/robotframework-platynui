@@ -36,6 +36,8 @@ jobs:
             libxcb-xfixes0-dev \
             libxkbcommon-dev \
             libfontconfig-dev \
+            libgirepository-2.0-dev \
+            libcairo2-dev \
             clang \
             libasound2-dev \
             pkg-config \
@@ -202,6 +204,8 @@ jobs:
             libxcb-xfixes0-dev \
             libxkbcommon-dev \
             libfontconfig-dev \
+            libgirepository-2.0-dev \
+            libcairo2-dev \
             clang \
             libasound2-dev \
             pkg-config \
@@ -258,7 +262,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        backend: [x11, compositor]
+        backend: [x11, x11-bare, compositor]
     env:
       # egui renders via Mesa's software rasteriser (runners have no GPU).
       LIBGL_ALWAYS_SOFTWARE: "1"
@@ -274,6 +278,8 @@ jobs:
             libxcb-xfixes0-dev \
             libxkbcommon-dev \
             libfontconfig-dev \
+            libgirepository-2.0-dev \
+            libcairo2-dev \
             clang \
             libasound2-dev \
             pkg-config \
@@ -300,7 +306,11 @@ jobs:
             libxcb-randr0 \
             libxcb-render-util0 \
             libxcb-shape0 \
-            libxcb-xinerama0
+            libxcb-xinerama0 \
+            libgtk-3-0 \
+            libgtk-4-1 \
+            gir1.2-gtk-3.0 \
+            gir1.2-gtk-4.0
 
       - name: Set up Python and uv
         uses: astral-sh/setup-uv@v7
@@ -324,24 +334,47 @@ jobs:
       - name: Bootstrap environment
         run: just bootstrap
 
+      # The GTK 4 fixture needs GTK 4.18 or later, and the runner image decides
+      # which GTK the fixtures load: print what they will run on.
+      - name: Show the GTK versions of the test apps
+        run: |
+          for v in 3.0 4.0; do
+            uv run --no-sync python -c "import gi; gi.require_version('Gtk', '$v'); from gi.repository import Gtk; print('GTK', '.'.join(str(n) for n in (Gtk.get_major_version(), Gtk.get_minor_version(), Gtk.get_micro_version())))"
+          done
+
       # CI=true (set by GitHub Actions) makes `headless` default to true, so the
       # compositor uses its headless backend and X11 runs under Xvfb — no flag needed.
+      # log.html records debug messages (keyword action lines, native provider records)
+      # while the console and the report stay at INFO. It is uploaded when the lane fails.
       - name: Run acceptance lane (${{ matrix.backend }}, headless)
-        run: just test-acceptance-${{ matrix.backend }}
+        env:
+          PLATYNUI_LOG_LEVEL: debug
+        run: just test-acceptance-${{ matrix.backend }} --loglevel DEBUG:INFO
 
       - name: Dump test app logs on failure
         if: failure()
         run: |
           echo "=== test app logs (stdout+stderr merged) ==="
-          mapfile -t logs < <(find /tmp /var/tmp /home /run -maxdepth 6 \( -name 'egui-*.log' -o -name 'qt-*.log' \) 2>/dev/null | sort -u)
+          mapfile -t logs < <(find /tmp /var/tmp /home /run -maxdepth 6 \( -name 'egui-*.log' -o -name 'qt-*.log' -o -name 'gtk3-*.log' -o -name 'gtk4-*.log' \) 2>/dev/null | sort -u)
           if [ ${#logs[@]} -eq 0 ]; then
-            echo "(no egui-*.log / qt-*.log found under /tmp /var/tmp /home /run)"
+            echo "(no egui-*.log / qt-*.log / gtk3-*.log / gtk4-*.log found under /tmp /var/tmp /home /run)"
           fi
           for f in "${logs[@]}"; do
             echo "----- $f -----"
             cat "$f" || true
             echo
           done
+
+      # The console shows only which test failed. log.html also records where each
+      # pointer action landed and what the providers logged during the test.
+      - name: Upload Robot Framework results on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: acceptance-results-${{ matrix.backend }}
+          path: results/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: RF test summary
         if: always()
@@ -380,6 +413,13 @@ jobs:
 
       - name: Update changelog
         run: uv run scripts/update-changelog.py
+
+      # `just bootstrap` syncs the dev group, which builds PyGObject (the GTK test
+      # apps' bindings) from source: it has no Linux wheels.
+      - name: Install PyGObject build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt install -y libgirepository-2.0-dev libcairo2-dev pkg-config
 
       - name: Bootstrap environment
         run: just bootstrap
@@ -501,6 +541,13 @@ jobs:
 
       - name: Update changelog
         run: uv run scripts/update-changelog.py
+
+      # `just bootstrap` syncs the dev group, which builds PyGObject (the GTK test
+      # apps' bindings) from source: it has no Linux wheels.
+      - name: Install PyGObject build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt install -y libgirepository-2.0-dev libcairo2-dev pkg-config
 
       - name: Bootstrap environment
         run: just bootstrap

@@ -69,8 +69,38 @@ default:
 # ─── Bootstrap ──────────────────────────────────────────────────────────────────
 
 # Bootstrap the full development environment
-bootstrap:
+bootstrap: _check-pygobject-build-deps
     uv sync --dev --all-packages --all-groups --all-extras --no-install-workspace
+
+# PyGObject (the GTK test apps' bindings) has no Linux wheels, so `uv sync` builds
+# it from source. Check its build dependencies first, so a missing one is named
+# here instead of failing deep inside the meson log of the build.
+[linux]
+_check-pygobject-build-deps:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    missing=()
+    command -v cc >/dev/null || missing+=("a C compiler (gcc)")
+    if ! command -v pkg-config >/dev/null; then
+        missing+=("pkg-config")
+    else
+        pkg-config --exists girepository-2.0 || missing+=("girepository-2.0 >= GLib 2.80 (libgirepository-2.0-dev)")
+        pkg-config --exists cairo || missing+=("cairo (libcairo2-dev)")
+    fi
+    if (( ${#missing[@]} )); then
+        list=$(printf '%s, ' "${missing[@]}")
+        echo "PyGObject is built from source on Linux and needs: ${list%, }." >&2
+        echo "On Debian/Ubuntu: sudo apt install libgirepository-2.0-dev libcairo2-dev pkg-config gcc" >&2
+        exit 1
+    fi
+
+[windows]
+_check-pygobject-build-deps:
+    @Write-Output "PyGObject is Linux-only; nothing to check."
+
+[macos]
+_check-pygobject-build-deps:
+    @echo "PyGObject is Linux-only; nothing to check."
 
 # ─── Build ──────────────────────────────────────────────────────────────────────
 
@@ -205,6 +235,8 @@ mypy:
     uv run mypy
     uv run mypy --no-warn-unused-configs apps/test-app-qt/main.py
     uv run mypy --no-warn-unused-configs apps/test-app-qml/main.py
+    uv run mypy --no-warn-unused-configs apps/test-app-gtk3/main.py
+    uv run mypy --no-warn-unused-configs apps/test-app-gtk4/main.py
     uv run mypy --no-warn-unused-configs apps/large-tree-qt/main.py apps/large-tree-qt/measure_snapshot_memory.py
 
 # Run all checks (format, clippy, ruff, mypy)
@@ -347,9 +379,10 @@ test-all: test test-python
 
 # The compositor lane runs first; like any `just` dependency chain, a failing lane stops
 # the run, so the X11 lane only runs once the compositor lane has passed.
-# Run the egui acceptance lane on this OS (Linux: compositor + X11). Honors headless.
+# Run the egui acceptance lane on this OS (Linux: compositor, X11, and X11 without a
+# window manager). Honors headless.
 [linux]
-test-acceptance: test-acceptance-compositor test-acceptance-x11
+test-acceptance: test-acceptance-compositor test-acceptance-x11 test-acceptance-x11-bare
 
 # Run the egui acceptance lane on this OS (Windows: the real desktop).
 [windows]
@@ -367,6 +400,11 @@ test-acceptance-compositor *ARGS: build-native
 [linux]
 test-acceptance-x11 *ARGS: build-native
     {{ if headless == "true" { "PLATYNUI_BACKEND=headless " } else { "" } }}uv run robotcode --profile real-x11 run {{ ARGS }}
+
+# Run the acceptance lane under an isolated X11 session in which no window manager runs.
+[linux]
+test-acceptance-x11-bare *ARGS: build-native
+    {{ if headless == "true" { "PLATYNUI_BACKEND=headless " } else { "" } }}uv run robotcode --profile real-x11-bare run {{ ARGS }}
 
 # Run the acceptance lane on the native Windows desktop (UIA + Java providers).
 # No isolated session — the suites launch the apps on the real desktop. Builds
@@ -403,6 +441,20 @@ build-win32-test-window-x86:
 # dependency, installed by `uv sync`). Extra args are forwarded to the app.
 run-test-app-qml *ARGS:
     uv run python apps/test-app-qml/main.py {{ ARGS }}
+
+# Positional arguments keep a quoted value, such as a title with spaces, whole.
+# Run the GTK 3 test app (Linux; PyGObject comes with `just bootstrap`)
+[linux]
+[positional-arguments]
+run-test-app-gtk3 *ARGS:
+    uv run --no-sync python apps/test-app-gtk3/main.py "$@"
+
+# Positional arguments keep a quoted value, such as a title with spaces, whole.
+# Run the GTK 4 test app (Linux; PyGObject comes with `just bootstrap`)
+[linux]
+[positional-arguments]
+run-test-app-gtk4 *ARGS:
+    uv run --no-sync python apps/test-app-gtk4/main.py "$@"
 
 # ─── Java Agent (the artifact loaded INTO a target JVM) ────────────────────────
 

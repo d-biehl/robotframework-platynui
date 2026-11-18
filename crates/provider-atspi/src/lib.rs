@@ -493,7 +493,8 @@ fn application_for_pid(
 /// `Component.GetAccessibleAtPoint`: the native hit-test proved unreliable
 /// across toolkits (Qt reports bad screen extents; AccessKit returns the widget
 /// *beneath* an overlay), whereas resolving each node's toolkit-aware
-/// `Control:Bounds` and picking the smallest containing box reaches menu items
+/// `Control:Bounds` and picking the smallest containing box — a popup's before
+/// anything beneath it (see `SubtreeHit::beats`) — reaches menu items
 /// regardless of how the toolkit exposes the popup. It is deliberately *not*
 /// pruned by parent bounds, so a menu drawn outside its owning frame is still
 /// reached; a node budget guards against pathological trees.
@@ -550,25 +551,28 @@ fn popup_at_point(
 
     let mut best: Option<SubtreeHit> = None;
     for popup_obj in popup_objs {
-        let popup_node: Arc<dyn UiNode> = {
-            let n = AtspiNode::new(
-                conn.clone(),
-                popup_obj.clone(),
-                Some(app_node),
-                window_manager.cloned(),
-                popups.cloned(),
-                Arc::clone(timeouts),
-            );
-            n.hold_parent(Arc::clone(app_node));
-            n
-        };
+        let popup = AtspiNode::new(
+            conn.clone(),
+            popup_obj.clone(),
+            Some(app_node),
+            window_manager.cloned(),
+            popups.cloned(),
+            Arc::clone(timeouts),
+        );
+        popup.hold_parent(Arc::clone(app_node));
+        let popup_node: Arc<dyn UiNode> = popup.clone();
         if let Some(bounds) = node_screen_bounds(&popup_node)
             && bounds.contains(point)
             && node_is_pickable(&popup_node)
         {
-            let area = bounds.width() * bounds.height();
-            if best.as_ref().is_none_or(|cur| area < cur.area) {
-                best = Some(SubtreeHit { node: Arc::clone(&popup_node), area, depth: 0 });
+            let hit = SubtreeHit {
+                node: Arc::clone(&popup_node),
+                area: bounds.width() * bounds.height(),
+                depth: 0,
+                popup_depth: popup.popup_depth(),
+            };
+            if best.as_ref().is_none_or(|cur| hit.beats(cur)) {
+                best = Some(hit);
             }
         }
         search_subtree(conn, window_manager, popups, timeouts, &popup_node, &popup_obj, point, 0, budget, &mut best);
@@ -581,11 +585,33 @@ fn popup_at_point(
 const SUBTREE_SEARCH_BUDGET: u32 = 5000;
 
 /// Best match tracked during the geometric subtree search: the built node, the
-/// area of its bounds, and its depth below the search root (for tie-breaking).
+/// area of its bounds, its depth below the search root (for tie-breaking), and
+/// how many popups it is drawn in.
 struct SubtreeHit {
     node: Arc<dyn UiNode>,
     area: f64,
     depth: usize,
+    popup_depth: u32,
+}
+
+impl SubtreeHit {
+    /// Whether this hit is the better answer for the point than `other`.
+    ///
+    /// A hit inside a popup wins over every hit outside it, and a hit in a
+    /// popup opened from another wins over one in that other: a popup is
+    /// drawn above the widgets it was opened from, so the smallest box alone
+    /// is not enough — a label beneath a menu item can be smaller than the
+    /// item. Within one popup level the smallest area wins (the most specific
+    /// box), and on a tie the deeper node (the one closest to the leaf under
+    /// the cursor). A tie is an exactly equal area: both products come from
+    /// the same bounds arithmetic, so no epsilon is wanted.
+    #[allow(clippy::float_cmp)]
+    fn beats(&self, other: &Self) -> bool {
+        if self.popup_depth != other.popup_depth {
+            return self.popup_depth > other.popup_depth;
+        }
+        self.area < other.area || (self.area == other.area && self.depth > other.depth)
+    }
 }
 
 /// The application's top-level frame that maps to `target_window`, or `None`
@@ -656,33 +682,29 @@ fn search_subtree(
             continue;
         }
         *budget -= 1;
-        let child_node: Arc<dyn UiNode> = {
-            let n = AtspiNode::new(
-                conn.clone(),
-                child_obj.clone(),
-                Some(node),
-                window_manager.cloned(),
-                popups.cloned(),
-                Arc::clone(timeouts),
-            );
-            n.hold_parent(Arc::clone(node));
-            n
-        };
+        let child = AtspiNode::new(
+            conn.clone(),
+            child_obj.clone(),
+            Some(node),
+            window_manager.cloned(),
+            popups.cloned(),
+            Arc::clone(timeouts),
+        );
+        child.hold_parent(Arc::clone(node));
+        let child_node: Arc<dyn UiNode> = child.clone();
         let child_depth = depth + 1;
         if let Some(bounds) = node_screen_bounds(&child_node)
             && bounds.contains(point)
             && node_is_pickable(&child_node)
         {
-            let area = bounds.width() * bounds.height();
-            // Smallest area wins (most specific box); on a tie the deeper node
-            // wins (closest to the leaf under the cursor).
-            // A tie is an exactly equal area: both products come from the same
-            // bounds arithmetic, so no epsilon is wanted.
-            #[allow(clippy::float_cmp)]
-            let better =
-                best.as_ref().is_none_or(|cur| area < cur.area || (area == cur.area && child_depth > cur.depth));
-            if better {
-                *best = Some(SubtreeHit { node: Arc::clone(&child_node), area, depth: child_depth });
+            let hit = SubtreeHit {
+                node: Arc::clone(&child_node),
+                area: bounds.width() * bounds.height(),
+                depth: child_depth,
+                popup_depth: child.popup_depth(),
+            };
+            if best.as_ref().is_none_or(|cur| hit.beats(cur)) {
+                *best = Some(hit);
             }
         }
         search_subtree(

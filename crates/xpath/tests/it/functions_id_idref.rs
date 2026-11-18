@@ -85,7 +85,7 @@ fn fn_idref_returns_attributes_referencing_ids(doc: N) {
 fn fn_id_ignores_non_ncname_tokens(doc: N) {
     let ctx = DynamicContextBuilder::<N>::default().with_context_item(doc.clone()).build();
     let out = evaluate_expr::<N>("id('1bad', /)", &ctx).unwrap();
-    assert!(out.is_empty());
+    assert_eq!(out, []);
 }
 
 #[rstest]

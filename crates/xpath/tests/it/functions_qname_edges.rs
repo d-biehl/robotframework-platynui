@@ -98,7 +98,7 @@ fn qname_roundtrip_basic() {
     assert_eq!(loc_rt, vec![I::Atomic(A::NCName("local".into()))]);
     // Second: no namespace
     let ns_empty = evaluate_expr::<N>("namespace-uri-from-QName(QName('', 'local'))", &c).unwrap();
-    assert!(ns_empty.is_empty());
+    assert_eq!(ns_empty, []);
     let pref_empty = evaluate_expr::<N>("prefix-from-QName(QName('', 'local'))", &c).unwrap();
-    assert!(pref_empty.is_empty());
+    assert_eq!(pref_empty, []);
 }

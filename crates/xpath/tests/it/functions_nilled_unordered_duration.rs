@@ -42,7 +42,7 @@ fn nilled_true_false_and_empty() {
     }
     // non-element -> empty
     let e = evaluate_expr::<N>("nilled(/root/text())", &ctx).unwrap();
-    assert!(e.is_empty());
+    assert_eq!(e, []);
 }
 
 #[rstest]
@@ -72,7 +72,7 @@ fn ctx() -> DynamicContext<N> {
 #[rstest]
 fn nilled_empty_sequence_returns_empty(ctx: DynamicContext<N>) {
     let r = evaluate_expr::<N>("nilled(())", &ctx).unwrap();
-    assert!(r.is_empty());
+    assert_eq!(r, []);
 }
 
 #[rstest]

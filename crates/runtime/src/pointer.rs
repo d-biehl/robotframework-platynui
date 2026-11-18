@@ -1245,7 +1245,7 @@ mod tests {
 
         engine.move_to(Point::new(4.0, 0.0), None).unwrap();
         let recorded = sleeps.lock().unwrap().clone();
-        assert!(!recorded.is_empty());
+        assert_ne!(recorded, []);
         assert_eq!(device.moves.load(Ordering::SeqCst), expected_steps);
 
         // A step count of a few units converts to f64 exactly.
@@ -1497,7 +1497,7 @@ mod tests {
         sleeps.lock().unwrap().clear();
         engine.click(Some(Point::new(12.0, 10.0)), None, None).unwrap();
         let recorded = sleeps.lock().unwrap().clone();
-        assert!(!recorded.is_empty());
+        assert_ne!(recorded, []);
         let enforced = *recorded.last().unwrap();
         assert_duration_approx(enforced, Duration::from_millis(80));
         assert!(engine.last_click.is_some());

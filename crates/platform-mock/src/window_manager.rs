@@ -1,4 +1,4 @@
-use platynui_core::platform::{PlatformError, WindowId, WindowManager, WindowState, WindowVisualState};
+use platynui_core::platform::{PlatformError, WindowGeometry, WindowId, WindowManager, WindowState, WindowVisualState};
 use platynui_core::types::{Point, Rect, Size};
 use platynui_core::ui::UiNode;
 use std::sync::Mutex;
@@ -9,7 +9,7 @@ pub static MOCK_WINDOW_MANAGER: MockWindowManager = MockWindowManager::new();
 #[derive(Debug, Clone, PartialEq)]
 pub enum WindowManagerLogEntry {
     ResolveWindow,
-    Bounds(WindowId),
+    Geometry(WindowId),
     IsActive(WindowId),
     State(WindowId),
     Activate(WindowId),
@@ -47,9 +47,9 @@ impl WindowManager for MockWindowManager {
         Ok(WindowId::new(1))
     }
 
-    fn bounds(&self, id: WindowId, _toolkit_hint: Option<&str>) -> Result<Rect, PlatformError> {
-        self.record(WindowManagerLogEntry::Bounds(id));
-        Ok(Rect::new(0.0, 0.0, 800.0, 600.0))
+    fn geometry(&self, id: WindowId) -> Result<WindowGeometry, PlatformError> {
+        self.record(WindowManagerLogEntry::Geometry(id));
+        Ok(WindowGeometry::from_bounds(Rect::new(0.0, 0.0, 800.0, 600.0)))
     }
 
     fn is_active(&self, id: WindowId) -> Result<bool, PlatformError> {

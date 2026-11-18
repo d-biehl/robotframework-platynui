@@ -12,7 +12,7 @@ fn ctx() -> platynui_xpath::engine::runtime::DynamicContext<N> {
 #[rstest]
 fn data_on_empty_sequence() {
     let res = evaluate_expr::<N>("fn:data(())", &ctx()).unwrap();
-    assert!(res.is_empty());
+    assert_eq!(res, []);
 }
 
 #[rstest]

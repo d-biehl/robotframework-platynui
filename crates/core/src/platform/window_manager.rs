@@ -91,6 +91,50 @@ impl WindowState {
     }
 }
 
+/// What a window manager knows about a window's place on the desktop.
+///
+/// A window's visible frame and the origin of its surface are two facts: a
+/// toolkit that draws its own shadow around the window (client-side
+/// decorations) places its surface outside the visible frame, so the surface
+/// starts above and left of the bounds.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WindowGeometry {
+    /// The visible window in desktop coordinates, which the window's node
+    /// reports as its `Bounds`.
+    pub bounds: Rect,
+    /// The desktop position of the window surface's `(0,0)`, from which a
+    /// toolkit measures the positions it reports relative to its surface.
+    pub surface_origin: Point,
+}
+
+impl WindowGeometry {
+    /// The geometry of a window whose surface starts where its visible frame
+    /// does.
+    #[must_use]
+    pub fn from_bounds(bounds: Rect) -> Self {
+        Self { bounds, surface_origin: bounds.position() }
+    }
+}
+
+/// A transient popup (a menu, drop-down or tooltip) as the platform shows it,
+/// reported by [`WindowManager::popups`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PopupGeometry {
+    /// The visible popup in desktop coordinates.
+    pub bounds: Rect,
+    /// The popup's whole surface in desktop coordinates, including a shadow
+    /// the toolkit draws around the visible popup.
+    pub surface: Rect,
+}
+
+impl PopupGeometry {
+    /// The geometry of a popup whose surface is its visible rectangle.
+    #[must_use]
+    pub fn from_bounds(bounds: Rect) -> Self {
+        Self { bounds, surface: bounds }
+    }
+}
+
 /// Platform-native window management operations.
 ///
 /// Implementations live in platform crates (e.g. `platform-linux-x11`,
@@ -113,18 +157,29 @@ pub trait WindowManager: Send + Sync {
     /// `node`.
     fn resolve_window(&self, node: &dyn UiNode) -> Result<WindowId, PlatformError>;
 
-    /// Actual screen bounds of the window as reported by the window manager.
+    /// The window's visible frame and the origin of its surface, as the window
+    /// manager reports them.
     ///
-    /// May differ from accessibility-reported bounds (e.g. GTK4 on X11).
-    /// The optional `toolkit_hint` (e.g. `"gtk4"`) lets implementations
-    /// adjust the result for toolkit-specific quirks such as CSD shadow
-    /// offsets.
+    /// The platform states what it knows; what a toolkit's coordinates mean
+    /// relative to it is the accessibility provider's decision. A window
+    /// manager whose windows have no separate surface origin returns
+    /// [`WindowGeometry::from_bounds`].
     ///
     /// # Errors
     ///
     /// Returns a [`PlatformError`] when the window manager cannot report the
     /// window's geometry (for example because the window no longer exists).
-    fn bounds(&self, id: WindowId, toolkit_hint: Option<&str>) -> Result<Rect, PlatformError>;
+    fn geometry(&self, id: WindowId) -> Result<WindowGeometry, PlatformError>;
+
+    /// Whether screen coordinates a toolkit reports are desktop coordinates.
+    ///
+    /// They are on X11 and Windows. Under a Wayland compositor a client does
+    /// not know where its window is, so a toolkit's screen coordinates are
+    /// relative to something the toolkit chose, and the provider re-bases them
+    /// on the window. The default answers `true`.
+    fn toolkit_screen_coordinates_are_desktop(&self) -> bool {
+        true
+    }
 
     /// Whether this window is the currently active (foreground) window.
     ///
@@ -225,23 +280,21 @@ pub trait WindowManager: Send + Sync {
         Err(PlatformError::CapabilityUnavailable { capability: "window_at_point", details: None })
     }
 
-    /// Desktop-coordinate rectangles of the transient popups (menus,
-    /// dropdowns, tooltips) currently open in the given process, most
-    /// recently opened first.
+    /// The transient popups (menus, drop-downs, tooltips) currently shown for
+    /// the given process, each with its visible rectangle and its surface,
+    /// most recently opened or topmost first.
     ///
-    /// Only window managers that place popups themselves can answer this —
-    /// today the `PlatynUI` Wayland compositor backend, where toolkit-reported
-    /// popup extents are client-local and this query is the only source of
-    /// their real screen position. The default reports the capability as
-    /// unavailable so every other backend (X11, Windows, mock — where
-    /// toolkit extents are already correct) keeps its existing bounds path.
+    /// A popup is a surface of its own, so the platform knows where it is even
+    /// when the toolkit's accessibility tree measures it from the widget that
+    /// opened it. The default reports the capability as unavailable, and a
+    /// provider then places popups like any other node of their window.
     ///
     /// # Errors
     ///
     /// The default implementation always returns
     /// [`PlatformError::CapabilityUnavailable`]. Implementations return a
     /// [`PlatformError`] when the popup list cannot be queried.
-    fn popups(&self, _pid: u32) -> Result<Vec<Rect>, PlatformError> {
+    fn popups(&self, _pid: u32) -> Result<Vec<PopupGeometry>, PlatformError> {
         Err(PlatformError::CapabilityUnavailable { capability: "popups", details: None })
     }
 }
@@ -298,8 +351,8 @@ mod tests {
             Ok(WindowId::new(42))
         }
 
-        fn bounds(&self, _id: WindowId, _toolkit_hint: Option<&str>) -> Result<Rect, PlatformError> {
-            Ok(Rect::new(0.0, 0.0, 800.0, 600.0))
+        fn geometry(&self, _id: WindowId) -> Result<WindowGeometry, PlatformError> {
+            Ok(WindowGeometry::from_bounds(Rect::new(10.0, 20.0, 800.0, 600.0)))
         }
 
         fn is_active(&self, _id: WindowId) -> Result<bool, PlatformError> {
@@ -359,10 +412,36 @@ mod tests {
     }
 
     #[test]
-    fn stub_bounds_returns_rect() {
-        let wm = StubWindowManager;
-        let rect = wm.bounds(WindowId::new(1), None).unwrap();
-        assert!((rect.width() - 800.0).abs() < f64::EPSILON);
+    fn a_window_without_a_separate_surface_origin_has_its_surface_at_its_bounds() {
+        let geometry = StubWindowManager.geometry(WindowId::new(1)).unwrap();
+        assert_eq!(geometry.bounds, Rect::new(10.0, 20.0, 800.0, 600.0));
+        assert_eq!(geometry.surface_origin, geometry.bounds.position());
+    }
+
+    #[test]
+    fn toolkit_screen_coordinates_are_desktop_coordinates_by_default() {
+        assert!(StubWindowManager.toolkit_screen_coordinates_are_desktop());
+    }
+
+    #[test]
+    fn popups_are_unavailable_unless_implemented() {
+        let err = StubWindowManager.popups(1).unwrap_err();
+        assert!(matches!(err, PlatformError::CapabilityUnavailable { capability: "popups", .. }));
+    }
+
+    #[test]
+    fn a_popup_carries_its_visible_rectangle_and_its_surface() {
+        // A GTK 4 popover under the PlatynUI compositor: the surface includes the
+        // shadow GTK draws around the visible menu (design.md, Context).
+        let popup = PopupGeometry {
+            bounds: Rect::new(110.0, 60.0, 161.0, 110.0),
+            surface: Rect::new(87.0, 39.0, 207.0, 156.0),
+        };
+        assert_eq!(popup.bounds.size(), Size::new(161.0, 110.0));
+        assert_eq!(popup.surface.size(), Size::new(207.0, 156.0));
+
+        let without_shadow = PopupGeometry::from_bounds(Rect::new(5.0, 6.0, 70.0, 80.0));
+        assert_eq!(without_shadow.surface, without_shadow.bounds);
     }
 
     #[test]

@@ -254,7 +254,7 @@ mod tests {
         assert_eq!(spec(&[("RUST_LOG", "zbus")], None).directives, "zbus");
         let s = spec(&[("RUST_LOG", "platynui_runtime=trace,warn")], Some(LevelFilter::DEBUG));
         assert_eq!(s.directives, "platynui_runtime=trace,warn");
-        assert!(s.rejected.is_empty());
+        assert_eq!(s.rejected, []);
     }
 
     #[test]
@@ -270,7 +270,7 @@ mod tests {
     fn blank_variables_count_as_absent_without_a_report() {
         let s = spec(&[("RUST_LOG", ""), ("PLATYNUI_LOG_LEVEL", "  ")], None);
         assert_eq!(s.directives, "warn");
-        assert!(s.rejected.is_empty());
+        assert_eq!(s.rejected, []);
     }
 
     #[test]
@@ -314,7 +314,7 @@ mod tests {
     fn nothing_set_means_warn() {
         let s = spec(&[], None);
         assert_eq!(s.directives, "warn");
-        assert!(s.rejected.is_empty());
+        assert_eq!(s.rejected, []);
     }
 
     #[test]
@@ -334,7 +334,7 @@ mod tests {
     fn the_process_wide_report_happens_once() {
         let pairs: &'static [(&'static str, &'static str)] = &[("PLATYNUI_LOG_LEVEL", "only-once-per-process")];
         assert_eq!(filter_spec(env(pairs), None).rejected.len(), 1);
-        assert!(filter_spec(env(pairs), None).rejected.is_empty());
+        assert_eq!(filter_spec(env(pairs), None).rejected, []);
     }
 
     /// Collects the targets of the events that pass the filter.

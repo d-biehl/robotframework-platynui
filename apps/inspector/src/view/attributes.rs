@@ -174,8 +174,8 @@ pub fn show_attributes(
     let inner_spacing = 2.0 * spacing;
     let type_w = ATTRIBUTE_TYPE_COLUMN_WIDTH;
 
-    let prev_pane_id = ui.id().with("attributes_prev_pane");
-    let prev_widths_id = ui.id().with("attributes_prev_widths");
+    let prev_pane_id = ui.scope_id().with("attributes_prev_pane");
+    let prev_widths_id = ui.scope_id().with("attributes_prev_widths");
 
     let default_value_w =
         (pane - ATTRIBUTE_NAME_COLUMN_WIDTH - type_w - inner_spacing).max(ATTRIBUTE_VALUE_COLUMN_MIN_WIDTH);
@@ -457,7 +457,7 @@ fn render_sort_header_cell(
         }
     });
 
-    let resp = ui.interact(ui.max_rect(), ui.id().with(id_source), egui::Sense::click());
+    let resp = ui.interact(ui.max_rect(), ui.scope_id().with(id_source), egui::Sense::click());
     if resp.clicked() {
         sort_state.toggle(column);
     }
@@ -580,7 +580,7 @@ fn render_namespace_header_row(
         // child-Ui rect (which would trigger egui's id-clash debug overlay
         // — the red flicker frame).
         let interact_rect = cell_rect.shrink(0.5);
-        let interact_id = ui.id().with(("ns_header_click", group_key));
+        let interact_id = ui.scope_id().with(("ns_header_click", group_key));
         let response = ui.interact(interact_rect, interact_id, egui::Sense::click());
         if response.hovered() {
             ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
@@ -645,7 +645,7 @@ fn render_attribute_row_cells(
             }
 
             let mut text = display_name.to_string();
-            let cell_id = ui.id().with(("prop_name", &attribute_key));
+            let cell_id = ui.scope_id().with(("prop_name", &attribute_key));
             let prev_state = egui::text_edit::TextEditState::load(ui.ctx(), cell_id);
             let prev_sel = cell_selection_from_state(prev_state.as_ref(), display_name);
             let resp = ui.add(
@@ -681,7 +681,7 @@ fn render_attribute_row_cells(
 
     row.col(|ui| {
         let mut text = attr.value.clone();
-        let cell_id = ui.id().with(("prop_value", &attribute_key));
+        let cell_id = ui.scope_id().with(("prop_value", &attribute_key));
         let prev_state = egui::text_edit::TextEditState::load(ui.ctx(), cell_id);
         let prev_sel = cell_selection_from_state(prev_state.as_ref(), &attr.value);
         let resp = ui.add(
@@ -717,7 +717,7 @@ fn render_attribute_row_cells(
 
     row.col(|ui| {
         let mut text = attr.value_type.clone();
-        let cell_id = ui.id().with(("prop_type", &attribute_key));
+        let cell_id = ui.scope_id().with(("prop_type", &attribute_key));
         let prev_state = egui::text_edit::TextEditState::load(ui.ctx(), cell_id);
         let prev_sel = cell_selection_from_state(prev_state.as_ref(), &attr.value_type);
         let resp = ui.add(

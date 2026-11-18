@@ -261,7 +261,7 @@ pub enum ToolbarAction {
 
 /// Stable egui id of the `XPath` search input field.
 pub fn search_field_id() -> egui::Id {
-    egui::Id::new("inspector_xpath_search_field")
+    egui::Id::unique("inspector_xpath_search_field")
 }
 
 /// Render the application menu bar. With `window_controls` (headerbar mode on
@@ -486,7 +486,7 @@ pub fn show_search_bar(
                         egui::vec2(icon_size, icon_size),
                     );
                     let icon_response =
-                        ui.interact(icon_rect, egui::Id::new("search_error_icon_button"), egui::Sense::click());
+                        ui.interact(icon_rect, egui::Id::unique("search_error_icon_button"), egui::Sense::click());
                     paint_warning_triangle_icon(ui, icon_response.rect, icon_color, theme_stroke_width);
 
                     let mut hover_text = String::from("Show XPath error details");
@@ -639,7 +639,7 @@ fn paint_warning_triangle_icon(ui: &egui::Ui, rect: egui::Rect, color: egui::Col
 }
 
 fn search_error_popup_state_id() -> egui::Id {
-    egui::Id::new("search_error_popup_open_state")
+    egui::Id::unique("search_error_popup_open_state")
 }
 
 fn is_search_error_popup_open(ctx: &egui::Context) -> bool {
@@ -656,7 +656,7 @@ fn toggle_search_error_popup(ctx: &egui::Context) {
 }
 
 fn search_error_auto_preview_state_id() -> egui::Id {
-    egui::Id::new("search_error_auto_preview_state")
+    egui::Id::unique("search_error_auto_preview_state")
 }
 
 fn reset_search_error_auto_preview(ctx: &egui::Context) {
@@ -672,7 +672,7 @@ fn show_search_error_popup(ui: &egui::Ui, icon_rect: egui::Rect, error_hint: &st
         return;
     }
 
-    let popup_id = egui::Id::new("search_error_popup");
+    let popup_id = egui::Id::unique("search_error_popup");
     let popup_pos = egui::pos2(icon_rect.right() + 8.0, icon_rect.bottom() + 6.0);
     let popup = egui::Area::new(popup_id).order(egui::Order::Foreground).fixed_pos(popup_pos).show(ui.ctx(), |ui| {
         egui::Frame::popup(ui.style()).show(ui, |ui| {

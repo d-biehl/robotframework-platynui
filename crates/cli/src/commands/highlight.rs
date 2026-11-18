@@ -161,7 +161,7 @@ mod tests {
         assert!(output.contains("Highlighted"));
 
         let log = take_highlight_log();
-        assert!(!log.is_empty());
+        assert_ne!(log, []);
         assert_eq!(log[0].duration, Some(Duration::from_millis(500)));
 
         reset_highlight_state();

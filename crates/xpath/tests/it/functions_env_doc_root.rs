@@ -74,8 +74,8 @@ fn base_uri_document_uri_empty_without_adapter_support() {
     let ctx = DynamicContextBuilder::<N>::default().with_context_item(d.clone()).build();
     // base-uri(/) -> empty for SimpleNode
     let b = evaluate_expr::<N>("base-uri(/)", &ctx).unwrap();
-    assert!(b.is_empty());
+    assert_eq!(b, []);
     // document-uri(/) -> empty for SimpleNode
     let u = evaluate_expr::<N>("document-uri(/)", &ctx).unwrap();
-    assert!(u.is_empty());
+    assert_eq!(u, []);
 }

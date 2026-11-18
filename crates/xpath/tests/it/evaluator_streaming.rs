@@ -725,7 +725,7 @@ fn streaming_position_lt_one_is_empty() {
     let expr = "(1 to 100)[position() < 1]";
     let stream = evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval succeeds");
     let results: Vec<_> = stream.iter().collect::<Result<Vec<_>, _>>().expect("ok");
-    assert!(results.is_empty());
+    assert_eq!(results, []);
 
     // Also verify on nodes
     let document = doc().child(elem("root").child(elem("a")).child(elem("b")).child(elem("c"))).build();
@@ -733,7 +733,7 @@ fn streaming_position_lt_one_is_empty() {
     let ctx2 = DynamicContextBuilder::default().with_context_item(I::Node(root.clone())).build();
     let stream2 = evaluate_stream_expr::<N>("child::*[position() < 1]", &ctx2).expect("stream eval");
     let results2: Vec<_> = stream2.iter().collect::<Result<Vec<_>, _>>().expect("ok");
-    assert!(results2.is_empty());
+    assert_eq!(results2, []);
 }
 
 /// Edge case: `position() >= 1` — matches everything (identity filter).
@@ -1110,7 +1110,7 @@ fn streaming_position_eq_zero_is_empty() {
     let expr = "(1 to 10)[position() = 0]";
     let results: Vec<_> =
         evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval").iter().collect::<Result<Vec<_>, _>>().expect("ok");
-    assert!(results.is_empty());
+    assert_eq!(results, []);
 
     // Also on nodes
     let document = doc().child(elem("root").child(elem("a")).child(elem("b"))).build();
@@ -1121,7 +1121,7 @@ fn streaming_position_eq_zero_is_empty() {
         .iter()
         .collect::<Result<Vec<_>, _>>()
         .expect("ok");
-    assert!(results2.is_empty());
+    assert_eq!(results2, []);
 }
 
 /// `position() = -1` — negative position, always empty.
@@ -1131,7 +1131,7 @@ fn streaming_position_eq_negative_is_empty() {
     let expr = "(1 to 10)[position() = -1]";
     let results: Vec<_> =
         evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval").iter().collect::<Result<Vec<_>, _>>().expect("ok");
-    assert!(results.is_empty());
+    assert_eq!(results, []);
 }
 
 /// `position() >= 0` — matches everything (position starts at 1, 1 >= 0 is true).
@@ -1157,7 +1157,7 @@ fn streaming_position_le_zero_is_empty() {
     let expr = "(1 to 10)[position() <= 0]";
     let results: Vec<_> =
         evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval").iter().collect::<Result<Vec<_>, _>>().expect("ok");
-    assert!(results.is_empty());
+    assert_eq!(results, []);
 }
 
 /// `position() > -5` — always true, matches everything.
@@ -1183,7 +1183,7 @@ fn streaming_literal_zero_predicate_is_empty() {
     let expr = "(1 to 10)[0]";
     let results: Vec<_> =
         evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval").iter().collect::<Result<Vec<_>, _>>().expect("ok");
-    assert!(results.is_empty());
+    assert_eq!(results, []);
 }
 
 /// `[-1]` — negative literal predicate, always empty.
@@ -1193,7 +1193,7 @@ fn streaming_literal_negative_predicate_is_empty() {
     let expr = "(1 to 10)[-1]";
     let results: Vec<_> =
         evaluate_stream_expr::<N>(expr, &ctx).expect("stream eval").iter().collect::<Result<Vec<_>, _>>().expect("ok");
-    assert!(results.is_empty());
+    assert_eq!(results, []);
 }
 
 // ---------------------------------------------------------------------------

@@ -108,6 +108,12 @@ pub trait UiNode: Send + Sync {
     }
     /// Invalidates cached state. Providers may reload values on the next access.
     fn invalidate(&self);
+    /// The node as `Any`, so that a provider can reach its own node type
+    /// behind a `dyn UiNode` — a parent it built itself, for example. `None`
+    /// by default; a provider that needs it returns `Some(self)`.
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        None
+    }
 }
 
 impl dyn UiNode {
@@ -697,7 +703,7 @@ mod tests {
         } else {
             assert!(pattern.is_none());
             let supported = node.supported_patterns();
-            assert!(supported.is_empty());
+            assert_eq!(supported, Vec::<PatternName>::new());
             assert_eq!(supported, node.patterns.supported());
         }
     }

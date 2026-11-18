@@ -1034,9 +1034,9 @@ impl LazyAttrs {
             && let Some(wm) = &self.window_manager
             && let Some(node) = self.owner.as_ref().and_then(Weak::upgrade)
             && let Ok(wid) = wm.resolve_window(node.as_ref())
-            && let Ok(rect) = wm.bounds(wid, None)
+            && let Ok(geometry) = wm.geometry(wid)
         {
-            return Some(rect);
+            return Some(geometry.bounds);
         }
         self.info.bounds.map(|bounds| self.calibration.apply(bounds))
     }

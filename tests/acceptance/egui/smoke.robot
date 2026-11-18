@@ -30,7 +30,7 @@ Egui Window Is Exposed By Title
     BM.Highlight    ${win}    duration=1.0
 
 Window Carries The Common Attributes
-    [Documentation]    The always-present common attributes (architecture §6.3): every ``control:``
+    [Documentation]    The always-present common attributes (architecture §6.6): every ``control:``
     ...    node names the technology that surfaced it and the patterns it advertises. Both values are
     ...    platform-specific (``AT-SPI2`` here, ``UIAutomation`` on Windows), so this asserts presence
     ...    rather than a literal — the point is that no provider leaves them off.

@@ -47,7 +47,7 @@ fn cast_multi_item_error() {
 fn cast_empty_extra_parens_optional() {
     let c = ctx();
     let r = evaluate_expr::<N>("(()) cast as xs:boolean?", &c).unwrap();
-    assert!(r.is_empty());
+    assert_eq!(r, []);
 }
 
 // empty sequence castable as optional vs required
@@ -77,7 +77,7 @@ fn castable_multi_item_false() {
 fn cast_then_treat_optional_empty() {
     let c = ctx();
     let r = evaluate_expr::<N>("(() cast as xs:string?) treat as xs:string?", &c).unwrap();
-    assert!(r.is_empty());
+    assert_eq!(r, []);
 }
 
 // cast required then treat as optional (should error at cast step before treat)
@@ -91,5 +91,5 @@ fn cast_required_then_treat_optional_error() {
 fn cast_optional_chain_remains_empty() {
     let c = ctx();
     let r = evaluate_expr::<N>("(() cast as xs:integer?) cast as xs:integer?", &c).unwrap();
-    assert!(r.is_empty());
+    assert_eq!(r, []);
 }

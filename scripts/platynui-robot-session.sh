@@ -58,12 +58,12 @@ else
   echo "AT-SPI already configured (AT_SPI_BUS_ADDRESS set) — skipping setup-atspi.sh" >&2
 fi
 
-# CRITICAL: accesskit_unix only registers its AT-SPI adapter when
-# org.a11y.Status.ScreenReaderEnabled is true. Without this the egui app
+# CRITICAL: accesskit_unix only registers its AT-SPI adapter while
+# org.a11y.Status.IsEnabled is true. Without this the egui app
 # (and any AccessKit client) is invisible to the AT-SPI provider — the tree
 # resolves a desktop root but no app subtree, which is flaky to debug. Enable
 # it on this session's a11y bus before launching the app so AccessKit registers.
-"$SCRIPT_DIR/linux-a11y-enable.sh" || echo "WARNING: failed to enable a11y screen-reader status" >&2
+"$SCRIPT_DIR/linux-a11y-enable.sh" || echo "WARNING: failed to enable the a11y IsEnabled status" >&2
 
 cd "$PROJECT_DIR"
 
@@ -106,6 +106,33 @@ export QT_ACCESSIBILITY=1
 export QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1
 echo "Qt test app: $PLATYNUI_TEST_APP_QT_PYTHON $PLATYNUI_TEST_APP_QT_MAIN (Robot Framework launches it)" >&2
 echo "QML test app: $PLATYNUI_TEST_APP_QML_PYTHON $PLATYNUI_TEST_APP_QML_MAIN (Robot Framework launches it)" >&2
+
+# The GTK fixtures run on the project venv too (PyGObject is a Linux dev
+# dependency; GTK and its typelibs come from the system), launched directly for
+# the same PID reason. GTK 4 implements AT-SPI itself: GTK_A11Y=atspi keeps a
+# host-wide GTK_A11Y=none from hiding it. GTK 3 goes through its ATK bridge,
+# which NO_AT_BRIDGE would keep from loading.
+export PLATYNUI_TEST_APP_GTK3_PYTHON="$PROJECT_DIR/.venv/bin/python"
+export PLATYNUI_TEST_APP_GTK3_MAIN="$PROJECT_DIR/apps/test-app-gtk3/main.py"
+export PLATYNUI_TEST_APP_GTK4_PYTHON="$PROJECT_DIR/.venv/bin/python"
+export PLATYNUI_TEST_APP_GTK4_MAIN="$PROJECT_DIR/apps/test-app-gtk4/main.py"
+export GTK_A11Y=atspi
+unset NO_AT_BRIDGE
+echo "GTK 3 test app: $PLATYNUI_TEST_APP_GTK3_PYTHON $PLATYNUI_TEST_APP_GTK3_MAIN (Robot Framework launches it)" >&2
+echo "GTK 4 test app: $PLATYNUI_TEST_APP_GTK4_PYTHON $PLATYNUI_TEST_APP_GTK4_MAIN (Robot Framework launches it)" >&2
+
+# Under the PlatynUI compositor, suites read the compositor's own window list
+# (e.g. a window's decoration mode) through its control tool; the compositor
+# exports PLATYNUI_CONTROL_SOCKET to its session.
+if [ -n "${PLATYNUI_CONTROL_SOCKET:-}" ]; then
+  echo "Building platynui-wayland-compositor-ctl ..." >&2
+  if ! cargo build -q -p platynui-wayland-compositor-ctl; then
+    echo "ERROR: failed to build platynui-wayland-compositor-ctl" >&2
+    exit 1
+  fi
+  export PLATYNUI_COMPOSITOR_CTL_BIN="$PROJECT_DIR/target/debug/platynui-wayland-compositor-ctl"
+  echo "Compositor control tool: $PLATYNUI_COMPOSITOR_CTL_BIN" >&2
+fi
 
 # Run the command RobotCode appended to the wrapper. `exec` replaces this
 # script with it, so stdio, signals and the exit code pass through on their own
