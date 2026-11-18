@@ -161,6 +161,15 @@ A child of a padded widget, such as a button's inner label, still reports its pa
 origin: GTK 4 sums CSS border boxes while it draws in content boxes
 ([`dev-docs/platform-linux-wayland.md`](../../dev-docs/platform-linux-wayland.md) §3).
 
+**After a submenu activation (Wayland).** When an item of a nested menu-bar submenu is
+activated with the pointer, GTK opens the next menu-bar menu by itself, here `menu-help`. GDK
+logs `Tried to map a grabbing popup with a non-top most parent`, and the Wayland protocol log
+shows no input between the activation and the new popover. Escape does not close it. The
+next click outside it only closes it, and GTK 4.24.1 then ignores every further click in the
+application. This was seen with GTK's default settings, on GTK 4.22.4 and 4.24.1, and not with
+a desktop's own theme and font settings, nor on X11. The catalog's submenu test therefore runs
+on an instance of its own.
+
 **PyGObject:** `Gdk.Rectangle(x=…, y=…)` ignores its arguments, so the context menu's
 target rectangle is filled field by field.
 
@@ -172,7 +181,8 @@ Wired into the real-provider lanes under
 
 - `catalog.robot`: the blueprint's canonical catalog test set, plus the window shape other
   suites rely on (the header bar under the compositor, the dialog's size, the radios inside
-  the group) and the fast failure of an unknown argument.
+  the group) and the fast failure of an unknown argument. Its menu-bar submenu test launches
+  an instance of its own and terminates it afterwards (see *After a submenu activation*).
 - `modal.robot`: `dialog-modal`, on an instance of its own started with `--open-modal`.
 
 `scripts/platynui-robot-session.sh` hands the interpreter and entrypoint over as

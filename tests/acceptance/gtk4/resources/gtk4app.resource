@@ -1,8 +1,9 @@
 *** Settings ***
 Documentation       Launch and tear down apps/test-app-gtk4 instances from Robot Framework — the
 ...                 GTK 4 technology's launch configuration for its catalog suites. Each suite
-...                 launches the instance it needs in its Suite Setup; the top-level suite
-...                 launches nothing.
+...                 launches the instance it needs in its Suite Setup, and a test that needs an
+...                 instance of its own launches it in its [Setup]; the top-level suite launches
+...                 nothing.
 ...
 ...                 The interpreter and entrypoint are handed over via PLATYNUI_TEST_APP_GTK4_PYTHON
 ...                 / PLATYNUI_TEST_APP_GTK4_MAIN (prepared by scripts/platynui-robot-session.sh; set
@@ -11,8 +12,9 @@ Documentation       Launch and tear down apps/test-app-gtk4 instances from Robot
 ...                 via ``uv run``, whose PID differs from the app's and would break the
 ...                 @ProcessId pinning.
 ...
-...                 The launcher pins the instance as the suite-wide query root (``Set Root``, SUITE
-...                 scope), so every locator in the suites is relative (``.//``). Window matching:
+...                 The launcher pins the instance as the query root (``Set Root``), suite-wide by
+...                 default and for one test with ``scope=TEST``, so every locator in the suites is
+...                 relative (``.//``). Window matching:
 ...                 a GTK 4 window's accessible name is its title, so the main window is matched by
 ...                 the launch title — the blueprint's launch-configuration fallback for window
 ...                 naming — and dialogs carry their canonical names as titles.
@@ -33,19 +35,21 @@ ${GTK4_APP_HANDLE}      ${None}
 
 *** Keywords ***
 Launch GTK4 Test App
-    [Documentation]    Suite Setup: start one GTK 4 fixture instance by launching its interpreter
-    ...    directly, pin it as the suite-wide query root (by the launched ProcessId), and wait
-    ...    until its main window — matched by the launch title — is on the accessibility tree.
-    ...    A fixture that exits first (PyGObject or a GTK typelib missing, a crash) fails the
-    ...    suite with its own output, which names what is missing. Extra CLI args (e.g.
-    ...    ``--open-modal``) are forwarded.
+    [Documentation]    Start one GTK 4 fixture instance by launching its interpreter directly,
+    ...    pin it as the query root (by the launched ProcessId), and wait until its main window —
+    ...    matched by the launch title — is on the accessibility tree. A fixture that exits first
+    ...    (PyGObject or a GTK typelib missing, a crash) fails with its own output, which names
+    ...    what is missing. Extra CLI args (e.g. ``--open-modal``) are forwarded. ``scope`` is the
+    ...    lifetime of the root and the handle: SUITE for a Suite Setup, TEST for a test's own
+    ...    instance.
     [Arguments]    ${title}=PlatynUI GTK4 TestApp    ${app_id}=org.platynui.test.gtk4    @{extra_args}
+    ...    ${scope}=SUITE
     VAR    ${log}    ${TEMPDIR}/gtk4-${app_id}.log
     ${handle}=    Start Process    ${GTK4_APP_PYTHON}    ${GTK4_APP_MAIN}    --app-id    ${app_id}    --title    ${title}
     ...    @{extra_args}    stdout=${log}    stderr=STDOUT
-    VAR    ${GTK4_APP_HANDLE}    ${handle}    scope=SUITE
+    VAR    ${GTK4_APP_HANDLE}    ${handle}    scope=${scope}
     ${pid}=    Get Process Id    ${handle}
-    BM.Set Root    /app:Application[@ProcessId=${pid}]    scope=SUITE
+    BM.Set Root    /app:Application[@ProcessId=${pid}]    scope=${scope}
     TRY
         BM.Wait Until Exists    .//(Frame|Window)[@Name="${title}"]    query_overrides={'timeout': ${GTK4_WAIT_TIMEOUT}}
     EXCEPT    AS    ${error}
@@ -58,5 +62,5 @@ Launch GTK4 Test App
     END
 
 Terminate GTK4 Instance
-    [Documentation]    Suite Teardown: terminate the instance started by Launch GTK4 Test App.
+    [Documentation]    Teardown: terminate the instance started by Launch GTK4 Test App.
     Run Keyword And Ignore Error    Terminate Process    ${GTK4_APP_HANDLE}

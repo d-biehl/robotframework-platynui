@@ -12,6 +12,10 @@ Documentation       Blueprint catalog acceptance for the GTK 4 fixture (the cano
 ...                 submenu and its menu take one each), so a popover a failed test left open
 ...                 cannot swallow the next test's first click.
 ...
+...                 The menu-bar submenu test runs on an instance of its own: on Wayland, GTK 4
+...                 opens the next menu-bar menu by itself after a submenu item is activated, which
+...                 takes the instance's following clicks (apps/test-app-gtk4/README.md).
+...
 ...                 Test order matters for the click-counter test (the counter is cumulative per
 ...                 instance), so it runs before anything else clicks button-basic.
 
@@ -59,11 +63,15 @@ Activating A Menu Bar Item Updates The Last Action
     [Teardown]    Run Keyword And Ignore Error    BM.Keyboard Type    ${None}    <Escape><Escape>
 
 Activating A Menu Bar Submenu Item Updates The Last Action
+    [Documentation]    Runs on an instance of its own, which its teardown terminates: what GTK 4
+    ...    opens after the activation never reaches the suite's instance.
+    [Setup]    Launch GTK4 Test App    PlatynUI GTK4 TestApp (Submenu)    org.platynui.test.gtk4.submenu
+    ...    scope=TEST
     BM.Pointer Click    .//*[@Name="menu-edit"]
     BM.Pointer Click    .//*[@Name="menu-edit"]//*[@Name="menu-edit-more"]
     BM.Pointer Click    .//*[@Name="menu-edit"]//*[@Name="menu-edit-more"]//*[@Name="menu-edit-sub-one"]
     BM.Wait Until Exists    .//*[@Name="last-action-menu-edit-sub-one"]
-    [Teardown]    Run Keyword And Ignore Error    BM.Keyboard Type    ${None}    <Escape><Escape>
+    [Teardown]    Terminate GTK4 Instance
 
 Activating A Context Menu Item Updates The Last Action
     BM.Pointer Click    .//*[@Name="label-basic"]    button=right
