@@ -8,9 +8,11 @@ Documentation       Blueprint catalog acceptance for the GTK 3 fixture (the cano
 ...                 Menu-bar items are on the tree while their menu is closed. The context menu is
 ...                 on it only while open, in a popup window of its own, and collapsed tree children
 ...                 appear only after expansion. Activations report through the always-visible
-...                 ``last-action-<ident>`` label. Every test that opens a menu presses Escape twice
-...                 in its teardown (a submenu and its menu take one each), so a menu a failed test
-...                 left open cannot swallow the next test's first click.
+...                 ``last-action-<ident>`` label. Every test that opens a menu ends with
+...                 ``Close The Open Menus``: when the test failed, it first embeds a screenshot of the
+...                 screen in the log, showing whether the menu was open and where; then it presses
+...                 Escape twice (a submenu and its menu take one each), so a menu a failed test left
+...                 open cannot swallow the next test's first click.
 ...
 ...                 Test order matters for the click-counter test (the counter is cumulative per
 ...                 instance), so it runs before anything else clicks button-basic.
@@ -56,27 +58,27 @@ Activating A Menu Bar Item Updates The Last Action
     BM.Pointer Click    .//*[@Name="menu-file"]
     BM.Pointer Click    .//*[@Name="menu-file"]//*[@Name="menu-file-new"]
     BM.Wait Until Exists    .//*[@Name="last-action-menu-file-new"]
-    [Teardown]    Run Keyword And Ignore Error    BM.Keyboard Type    ${None}    <Escape><Escape>
+    [Teardown]    Close The Open Menus
 
 Activating A Menu Bar Submenu Item Updates The Last Action
     BM.Pointer Click    .//*[@Name="menu-edit"]
     BM.Pointer Click    .//*[@Name="menu-edit"]//*[@Name="menu-edit-more"]
     BM.Pointer Click    .//*[@Name="menu-edit"]//*[@Name="menu-edit-more"]//*[@Name="menu-edit-sub-one"]
     BM.Wait Until Exists    .//*[@Name="last-action-menu-edit-sub-one"]
-    [Teardown]    Run Keyword And Ignore Error    BM.Keyboard Type    ${None}    <Escape><Escape>
+    [Teardown]    Close The Open Menus
 
 Activating A Context Menu Item Updates The Last Action
     BM.Pointer Click    .//*[@Name="label-basic"]    button=right
     BM.Pointer Click    .//*[@Name="context-menu"]//*[@Name="ctx-copy"]
     BM.Wait Until Exists    .//*[@Name="last-action-ctx-copy"]
-    [Teardown]    Run Keyword And Ignore Error    BM.Keyboard Type    ${None}    <Escape><Escape>
+    [Teardown]    Close The Open Menus
 
 Activating A Context Submenu Item Updates The Last Action
     BM.Pointer Click    .//*[@Name="label-basic"]    button=right
     BM.Pointer Click    .//*[@Name="context-menu"]//*[@Name="ctx-more"]
     BM.Pointer Click    .//*[@Name="context-menu"]//*[@Name="ctx-more"]//*[@Name="ctx-sub-alpha"]
     BM.Wait Until Exists    .//*[@Name="last-action-ctx-sub-alpha"]
-    [Teardown]    Run Keyword And Ignore Error    BM.Keyboard Type    ${None}    <Escape><Escape>
+    [Teardown]    Close The Open Menus
 
 Opening The Combo Box Reveals Its Items
     [Documentation]    A documented limitation of GTK 3, see apps/test-app-gtk3/README.md.
@@ -131,3 +133,11 @@ An Unknown Argument Fails Fast
     Should Not Be Equal As Integers    ${result.rc}    0
     Should Contain    ${result.stdout}    --bogus
     Should Contain    ${result.stdout}    usage
+
+
+*** Keywords ***
+Close The Open Menus
+    IF    $TEST_STATUS == 'FAIL'
+        Run Keyword And Ignore Error    BM.Take Screenshot    filename=EMBED
+    END
+    Run Keyword And Ignore Error    BM.Keyboard Type    ${None}    <Escape><Escape>
