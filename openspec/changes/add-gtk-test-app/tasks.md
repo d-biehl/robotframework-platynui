@@ -5,7 +5,7 @@
 - [x] 1.1 Add the Linux-only `PyGObject>=3.52; sys_platform == 'linux'` dev dependency to `pyproject.toml` and a `[[tool.mypy.overrides]]` entry for `gi`/`gi.*` with `ignore_missing_imports`. Refresh `uv.lock`. Verify `just bootstrap` succeeds on a machine with the build dependencies and that `uv run --no-sync python -c "import gi; gi.require_version('Gtk', '4.0')"` exits 0.
 - [x] 1.2 Add the build-dependency check to `just bootstrap` on Linux (design decision 2): `pkg-config --exists girepository-2.0 cairo`, failing with the apt names `libgirepository-2.0-dev libcairo2-dev pkg-config gcc`. Verify that `PKG_CONFIG_LIBDIR=/nonexistent just bootstrap` stops with that message before syncing.
 - [x] 1.3 Add `apps/test-app-gtk3` and `apps/test-app-gtk4` to the root `Cargo.toml` `exclude` list and its comment. Verify `cargo metadata --no-deps` does not list them.
-- [ ] 1.4 Install `libgirepository-2.0-dev` and `libcairo2-dev` in every Linux job of `.github/workflows/ci.yml` that runs `just bootstrap` or `uv sync`. Verify the jobs pass on a pushed branch.
+- [x] 1.4 Install `libgirepository-2.0-dev` and `libcairo2-dev` in every Linux job of `.github/workflows/ci.yml` that runs `just bootstrap` or `uv sync`. Verify the jobs pass on a pushed branch.
 - [x] 1.5 `CONTRIBUTING.md`: the new Linux prerequisites for the dev environment, the GTK runtime and typelibs for the acceptance lanes, and that distributions with GLib older than 2.80 cannot build the environment. Verify the documented apt line installs on Ubuntu 24.04.
 
 ## 2. Selection
@@ -74,14 +74,14 @@
 
 ## 5. CI
 
-- [ ] 5.1 In the acceptance job of `ci.yml`:
+- [x] 5.1 In the acceptance job of `ci.yml`:
   - install `libgtk-3-0 libgtk-4-1 gir1.2-gtk-3.0 gir1.2-gtk-4.0`;
   - print the GTK 3 and GTK 4 versions the fixtures load into the log, through PyGObject in the project venv
     (`pkg-config --modversion gtk4` would need `libgtk-4-dev`, which the job does not install);
   - add the GTK fixtures' logs to the failure dump.
 
   Verify on a pushed branch that the GTK suites pass in every matrix entry (`x11`, `x11-bare`, `compositor`) and that the log shows a GTK 4 of at least 4.18.
-- [ ] 5.2 After `linux-element-geometry` task 5.4, verify in a CI run that the GTK 4 popover tests passed in every matrix entry (spec *CI runs a supported GTK 4*).
+- [x] 5.2 After `linux-element-geometry` task 5.4, verify in a CI run that the GTK 4 popover tests passed in every matrix entry (spec *CI runs a supported GTK 4*).
 
 ## 6. Integration (after 3.8 and 4.5)
 
