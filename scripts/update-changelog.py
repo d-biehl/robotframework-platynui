@@ -5,11 +5,17 @@
 #   "semantic-version>=2.10.0",
 # ]
 # ///
+"""Write CHANGELOG.md with git-cliff for the version that scripts/tools.py derives.
+
+``cz bump`` runs this as a pre-bump hook. It fails when git-cliff is missing or fails,
+so that the bump stops before it commits and tags a release without its changelog.
+"""
+
 import contextlib
+import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
 
 if __name__ == '__main__' and not __package__:
     file = Path(__file__).resolve()
@@ -26,33 +32,28 @@ if __name__ == '__main__' and not __package__:
 
 from scripts.tools import get_version
 
-
-def run(title: str, *args: Any, **kwargs: Any) -> None:
-    try:
-        print(f'running {title}')
-        subprocess.run(*args, **kwargs)
-    except (SystemExit, KeyboardInterrupt):
-        raise
-    except BaseException as e:
-        print(f'{title} failed: {e}', file=sys.stderr)
+GIT_CLIFF_TIMEOUT_SECONDS = 600
 
 
 def main() -> None:
     current_version = get_version()
+
+    git_cliff = shutil.which('git-cliff')
+    if git_cliff is None:
+        raise SystemExit('git-cliff was not found on the PATH, so CHANGELOG.md cannot be written (see CONTRIBUTING.md)')
+
     if current_version.prerelease:
-        run(
-            'create changelog',
-            'git-cliff -o CHANGELOG.md',
-            shell=True,
-            timeout=600,
-        )
+        command = [git_cliff, '-o', 'CHANGELOG.md']
     else:
-        run(
-            'create changelog',
-            f'git-cliff --bump -t v{current_version} -o CHANGELOG.md',
-            shell=True,
-            timeout=600,
-        )
+        command = [git_cliff, '--bump', '-t', f'v{current_version}', '-o', 'CHANGELOG.md']
+
+    print(f'writing CHANGELOG.md for {current_version}', flush=True)
+    try:
+        subprocess.run(command, check=True, timeout=GIT_CLIFF_TIMEOUT_SECONDS)
+    except subprocess.CalledProcessError as e:
+        raise SystemExit(f'git-cliff failed with exit status {e.returncode}, so CHANGELOG.md was not written') from e
+    except subprocess.TimeoutExpired as e:
+        raise SystemExit(f'git-cliff did not finish within {GIT_CLIFF_TIMEOUT_SECONDS} seconds') from e
 
 
 if __name__ == '__main__':

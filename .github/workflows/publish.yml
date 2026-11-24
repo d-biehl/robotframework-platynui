@@ -1,0 +1,153 @@
+# Publishes PlatynUI to PyPI, and nothing else does: every upload, nightly dev build
+# or release, comes from this one file, which the Trusted Publishers of the five PyPI
+# projects name together with the environment `pypi` (limited to `main`).
+#
+# It relies on ci.yml: the workflow name `CI`, its `v*` tag trigger, and the seven
+# `wheels-*` artifacts that scripts/release_wheels.py lists. See CONTRIBUTING.md §10.
+name: publish
+
+on:
+  # dev builds, not at the full hour, when GitHub delays scheduled runs under load
+  schedule:
+    - cron: "23 2 * * *"
+      timezone: "Europe/Berlin"
+
+  workflow_dispatch:
+
+  # releases, after the CI run of a version tag
+  workflow_run: # zizmor: ignore[dangerous-triggers] the release job checks out and runs only the tag's own commit, and only for a push of this repository
+    workflows: ["CI"]
+    types: [completed]
+
+# the jobs read the runs and artifacts of CI
+permissions:
+  actions: read
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  dev:
+    if: github.event_name != 'workflow_run'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      actions: read
+      contents: read
+      # Trusted Publishing
+      id-token: write
+    # at job level, because every CI run starts a run of this workflow that must not replace a pending nightly run
+    concurrency:
+      group: publish-dev
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          enable-cache: false
+
+      - name: Find the latest CI run on main
+        id: build
+        # waits while it runs, and hands its id on only when it succeeded
+        run: uv run scripts/publish_dev.py latest-run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+
+      - name: Publish the wheels of that run to PyPI
+        if: ${{ !cancelled() && steps.build.outputs.run-id != '' }}
+        run: uv run scripts/publish_dev.py pypi --run-id "$RUN_ID"
+        env:
+          RUN_ID: ${{ steps.build.outputs.run-id }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+
+  release:
+    # only for a successful CI run of a version tag pushed to this repository, never for a pull request; CI runs for
+    # pushes only on branches without a leading "v" and on version tags, so a push run whose branch starts with "v"
+    # is a version tag
+    if: >-
+      github.event_name == 'workflow_run'
+      && github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+      && startsWith(github.event.workflow_run.head_branch, 'v')
+      && github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      # downloads the wheels of the tag's CI run
+      actions: read
+      # creates the GitHub release
+      contents: write
+      # Trusted Publishing
+      id-token: write
+    concurrency:
+      group: publish-release-${{ github.event.workflow_run.head_branch }}
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          # the scripts and the changelog of the tag's commit; this run's own ref is the default branch
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          enable-cache: false
+
+      - name: Check the tag
+        id: check
+        # refuses a dev tag; a -dev.0 tag starts a version line and gives skip=true
+        run: uv run scripts/publish.py check-tag "$TAG"
+        env:
+          TAG: ${{ github.event.workflow_run.head_branch }}
+
+      - name: Download the wheels of the tag's CI run
+        id: download
+        if: steps.check.outputs.skip == 'false'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          # one directory per artifact, so the upload can check that none is missing
+          pattern: wheels-*
+          path: dist
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Extract the release notes
+        if: steps.check.outputs.skip == 'false'
+        run: uv run scripts/extract_release_notes.py "$VERSION" --changelog-url "$CHANGELOG_URL" > release-notes.md
+        env:
+          VERSION: ${{ steps.check.outputs.version }}
+          CHANGELOG_URL: ${{ github.server_url }}/${{ github.repository }}/blob/${{ github.event.workflow_run.head_branch }}/CHANGELOG.md
+
+      - name: Create the GitHub release
+        if: steps.check.outputs.skip == 'false'
+        # on a re-run it updates the existing release and replaces files of the same name, where `gh release create`
+        # would fail
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # zizmor: ignore[superfluous-actions] v3.0.4
+        with:
+          tag_name: ${{ github.event.workflow_run.head_branch }}
+          name: v${{ steps.check.outputs.version }}
+          prerelease: ${{ steps.check.outputs.is-prerelease }}
+          body_path: release-notes.md
+          files: dist/*/*.whl
+          fail_on_unmatched_files: true
+
+      - name: Publish the wheels to PyPI
+        # also when only the release notes or the GitHub release failed, but not without the wheels
+        if: >-
+          !cancelled()
+          && steps.check.outcome == 'success'
+          && steps.check.outputs.skip == 'false'
+          && steps.download.outcome == 'success'
+        run: uv run scripts/publish.py upload dist --version "$VERSION"
+        env:
+          VERSION: ${{ steps.check.outputs.version }}

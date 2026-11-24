@@ -13,7 +13,7 @@ Thanks for helping build PlatynUI! This guide describes how to get set up, our c
 - Python: 3.12+ and uv >= 0.11.7. Do not use pip directly in this repo.
 - Java, only for the Java agent, the Swing test app, and the Windows acceptance lane: any `java` 8 or newer on `PATH`. The Gradle wrappers provision the rest themselves, which needs network access on the first build. `just build-native` needs no JDK.
 - [just](https://github.com/casey/just): Task runner for common dev workflows. Install with `cargo install just`, `brew install just`, `winget install Casey.Just`, `scoop install just`, or your system package manager (`pacman -S just`, `apt install just`, etc.).
-- [git-cliff](https://git-cliff.org): Changelog generator, needed only for changelog and release work (`scripts/update-changelog.py`). Install with `cargo install git-cliff`, `cargo binstall git-cliff`, or `brew install git-cliff`.
+- [git-cliff](https://git-cliff.org): Changelog generator, needed only for changelog and release work (`scripts/update-changelog.py`). Install with `cargo install git-cliff`, `cargo binstall git-cliff`, or `brew install git-cliff`. It must be on the `PATH` (the cargo installs put it into `~/.cargo/bin`): `cz bump` stops when the changelog step cannot find it.
 - Tools: cargo, uv, and (recommended) GPG for signed commits.
 
 Run commands from the repository root. `just` is the primary entry point for local development tasks; it wraps the expected `uv`, `cargo`, and `maturin` commands so everyone runs the same workflow.
@@ -404,7 +404,7 @@ End‑to‑end / acceptance:
 
 ## 10) Packaging and release (preview)
 
-PlatynUI is built as five Python packages and released to PyPI as pre-releases. End-user install commands live in [README.md](README.md) and in the package READMEs (each package's PyPI page); this guide links there instead of repeating them.
+PlatynUI is built as five Python packages and published to PyPI by the `publish` workflow (`.github/workflows/publish.yml`): every night as a dev version, and on a version tag as a release. End-user install commands live in [README.md](README.md) and in the package READMEs (each package's PyPI page); this guide links there instead of repeating them.
 
 | Package | Built from | Wheels |
 |---|---|---|
@@ -416,9 +416,94 @@ PlatynUI is built as five Python packages and released to PyPI as pre-releases. 
 
 - **One version for all.** `robotframework-PlatynUI` pins `platynui-native` and the packages behind its extras (`[cli]`, `[inspector]`, `[java]`, `[all]`) to exactly its own version, and the provider refuses an agent package or a running agent of any other version. The five therefore only work together at one version.
 - **Versions come from git.** `cz bump` writes each release version into the manifests (its `pre_bump_hooks` run `scripts/update-git-versions.py`), so the committed version is the one the last bump wrote. Between bumps only CI applies git versions: every CI wheel job first runs `scripts/update-git-versions.py`, which writes the version that `scripts/tools.py` derives from `git describe --tags --long --first-parent --match 'v[0-9]*'` into every manifest, every exact pin, and `java/agent/gradle.properties` — a tagged commit gets its tag's version, each later commit `<next version>-dev.<commits since the tag>`. A new tag matching `v[0-9]*`, lightweight or annotated, therefore changes the version of every later build.
-- **One CI run builds the whole set** — seven artifacts, 17 wheels: `wheels-pure-python`, `wheels-provider-java`, `wheels-linux-x86_64`, `wheels-linux-aarch64`, `wheels-macos-latest`, `wheels-windows-latest`, and `wheels-windows-11-arm`. CI has no publish job. Artifacts built from different commits carry different versions and do not satisfy each other's exact pins.
+- **One CI run builds the whole set** — seven artifacts, 17 wheels: `wheels-pure-python`, `wheels-provider-java`, `wheels-linux-x86_64`, `wheels-linux-aarch64`, `wheels-macos-latest`, `wheels-windows-latest`, and `wheels-windows-11-arm`. CI itself uploads nothing; `publish.yml` publishes the wheels of one CI run, never a mix. Artifacts built from different commits carry different versions and do not satisfy each other's exact pins. The workflow name `CI`, its `v*` tag trigger and these artifact names are what `publish.yml` and `scripts/release_wheels.py` rely on, so change them only together.
 - **Local wheels are a packaging check.** `just build-all-wheels` and the `just build-*-wheel` recipes build only this host's wheels, and because no `just` recipe runs `update-git-versions.py`, they carry the committed version, not the one CI derives for the same commit. During development, prefer the source build ([Run PlatynUI from a source checkout](#run-platynui-from-a-source-checkout)).
-- Release and changelog automation (`cz bump` with the hooks in `[tool.commitizen]`, git-cliff through `scripts/update-changelog.py`) is maintainer-owned unless explicitly coordinated in an issue or PR.
+- Release and changelog automation (`cz bump` with the hooks in `[tool.commitizen]`, git-cliff through `scripts/update-changelog.py`, and `publish.yml`) is maintainer-owned unless explicitly coordinated in an issue or PR.
+
+### Nightly dev builds
+
+Every night at 02:23 Europe/Berlin, the `publish` workflow takes the newest CI run for a push to `main`. You can also start it by hand from the Actions tab.
+- **Waiting:** while that run is still going, the workflow waits for it, at most two hours. A newer run that a push starts meanwhile takes its place.
+- **Uploading:** if the run succeeded, its 17 wheels go to PyPI as a dev version. That version is the one `scripts/tools.py` derived for the commit, in its PEP 440 form: `0.14.0-dev.12` becomes `0.14.0.dev12`.
+- **Order:** `platynui-native`, `platynui-cli`, `platynui-inspector` and `platynui-provider-java` go first, and `robotframework-PlatynUI` goes last. PyPI therefore never offers a root version whose exact pins cannot be met.
+
+There is no dev build that night if any of these holds. Such a night still ends green, because CI already shows a red `main`.
+- The newest run failed, was cancelled, or is not done within the two hours. An older green run is never taken, because during feature work it is often an unfinished intermediate state.
+- PyPI already has that version.
+- The run built a version without a `dev` label, such as the release commit's `1.0.0`. Its tag publishes that version.
+
+Installers take a dev version only when asked for pre-releases, or when it is pinned:
+
+```sh
+pip install "robotframework-platynui[all]==0.14.0.dev12"
+```
+
+### Releasing a version
+
+A version tag is a release, for example `v1.0.0` or the pre-release `v1.0.0-rc.1`. To release 1.0.0:
+
+1. Check that `git-cliff` is on the `PATH` (`git-cliff --version`). `scripts/update-changelog.py` stops the bump without it. In that case the earlier hook has already rewritten the version places, so run `git restore .` and bump again.
+2. For the step to 1.0.0 only: set `major_version_zero = false` in `[tool.commitizen]`. The bump's last hook runs `git add .` and takes this edit into the release commit. Left at `true`, commitizen keeps treating breaking changes as minor bumps.
+3. Run `cz bump 1.0.0`. The bump:
+   - writes the version into every manifest, every exact pin and `java/agent/gradle.properties`;
+   - writes the `## [1.0.0]` section of `CHANGELOG.md`;
+   - refreshes the lock files;
+   - creates the signed release commit and the signed tag `v1.0.0`.
+4. Push the branch and the tag together, for example `git push origin main v1.0.0`.
+
+When the tag's CI run succeeds, the `release` job of `publish` takes over:
+- It creates the GitHub release `v1.0.0` with that run's 17 wheels, and with the version's changelog section as notes. Above GitHub's limit of 125,000 characters, the notes keep only the subject lines of features, bug fixes and performance improvements, and link to `CHANGELOG.md`.
+- It then uploads the same wheels to PyPI.
+
+A pre-release tag goes the same way:
+- Its GitHub release is marked as a pre-release.
+- Its notes are the `[Unreleased]` section of its commit. The bump writes the changelog before the tag exists, so a pre-release has no section of its own.
+- PyPI receives the PEP 440 form, `1.0.0rc1`.
+
+A failed tag build publishes nothing.
+
+### Dev tags and version lines
+
+Dev versions come only from the nightly upload, so **do not tag `-dev.N` versions**. The release job refuses a tag such as `v0.14.0-dev.3`. After it, the nightly numbers would start again at `.dev1`, and those file names already exist on PyPI, or did once: PyPI never accepts a file name again, even after it was deleted.
+
+The one exception is a `-dev.0` tag, which **starts a version line**. Every build after a tag derives its version from that tag. To leave the current line behind (0.13 from `v0.13.0-dev.2`) and start at 0.14, run `cz bump 0.14.0-dev.0` and push `main` and the tag. Then:
+- the release job publishes nothing for that tag, and ends green;
+- the nightly upload publishes `0.14.0.dev0` for the tagged commit, and `0.14.0.dev1`, `0.14.0.dev2` and so on after it.
+
+These rank above every 0.13 version.
+
+### One-time setup
+
+Publishing uses PyPI's Trusted Publishing: the workflow gets a short-lived upload token through its GitHub identity, and the repository stores no PyPI credential. This needs two settings, both maintainer setup outside the repository:
+
+- **GitHub environment `pypi`** (Settings → Environments):
+  - deployment branches limited to `main`, so a workflow on any other ref cannot get a PyPI token. Both jobs of `publish` run on `main`, because GitHub runs `schedule` and `workflow_run` on the default branch;
+  - no required reviewers, because the nightly job runs unattended;
+  - no secrets.
+- **A Trusted Publisher on PyPI** for each of the five projects (the project's Publishing settings, "GitHub"). It names:
+  - the repository owner;
+  - the repository name;
+  - the workflow `publish.yml`;
+  - the environment `pypi`.
+
+  For a project that does not exist on PyPI yet, add a "pending publisher" under your account's Publishing settings.
+
+Both settings name the repository. Set them up again when the repository moves to another owner or gets another name. Until then every upload fails with `invalid-publisher`, and PyPI's error lists the claims of the run to compare.
+
+### Re-running a failed release
+
+Fix the cause, then re-run the `release` job of the `publish` run:
+- the upload skips every wheel PyPI already has, so only the missing ones are sent;
+- the GitHub release is updated instead of created again.
+
+A re-run uses the workflow file and the scripts of the original run. If the fix is in them, upload the missing wheels by hand from the GitHub release with `uv publish` and a PyPI API token of your own, and correct the workflow before the next tag.
+
+### Cleaning up PyPI
+
+PyPI allows 10 GB per project by default, and every nightly dev build adds about 58 MB to `platynui-inspector`. Delete old dev versions by hand on PyPI to stay below the limit:
+
+- **Older dev versions** are safe to delete. Versions only rise, so no build ever needs one of their file names again.
+- **Never delete the newest dev version** while no newer commit is on `main`. The next nightly upload would find it missing, and PyPI would refuse the upload with "Filename has been previously used". The nightly would then fail every night until the next commit.
 
 ## 11) Documentation
 

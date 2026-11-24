@@ -1,3 +1,6 @@
+# publish.yml publishes the wheels this workflow builds. It relies on the workflow name
+# `CI`, this file name, the `v*` tag trigger, and the seven `wheels-*` artifact names,
+# which scripts/release_wheels.py lists. Change them only together with those two files.
 name: CI
 
 on:

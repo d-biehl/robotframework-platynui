@@ -131,6 +131,12 @@ include = [
     "examples/**/*.py",
     "tests/**/*.py",
     "dev-docs/**/*.py",
+    # The publishing scripts; the older helpers in scripts/ are not lint-clean yet.
+    "scripts/release_wheels.py",
+    "scripts/publish_dev.py",
+    "scripts/publish.py",
+    "scripts/extract_release_notes.py",
+    "scripts/update-changelog.py",
 ]
 
 [tool.ruff.lint]
@@ -281,4 +287,9 @@ no_implicit_reexport = false
 # GTK version per installation while the venv serves both GTK fixtures.
 [[tool.mypy.overrides]]
 module = ["gi", "gi.*"]
+ignore_missing_imports = true
+
+# semantic-version ships no type information; scripts/publish.py parses version tags with it.
+[[tool.mypy.overrides]]
+module = ["semantic_version"]
 ignore_missing_imports = true
