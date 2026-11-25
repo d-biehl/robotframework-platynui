@@ -116,8 +116,10 @@ annotated_tag = true
 pre_bump_hooks = [
     "uv run scripts/update-git-versions.py",
     "uv run scripts/update-changelog.py",
-    "cargo update -w --offline --recursive --verbose",
-    "uv lock -U --offline",
+    # Only the new versions of the workspace's own packages go into the lock files;
+    # dependency upgrades get commits of their own, not the release commit.
+    "cargo update -w --offline",
+    "uv lock --offline",
     "git add .",
 ]
 
