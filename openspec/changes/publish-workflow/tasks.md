@@ -127,14 +127,14 @@ The tests live in `tests/publishing/` and import the scripts as `scripts.<module
 ## 6. Verification
 
 - [x] 6.1 Run `just check` and `just test-python`, and verify that both are green, including `tests/publishing`.
-- [ ] 6.2 Only after the maintainer's explicit go-ahead to commit and push: after the push, check that the CI run on `main` starts a `publish` run whose jobs are both skipped.
-- [ ] 6.3 Start the 0.14 line, only after the maintainer's explicit go-ahead. Run `cz bump 0.14.0-dev.0 --yes` (signed commit and tag) with `~/.cargo/bin` on the `PATH`, then check:
+- [x] 6.2 Only after the maintainer's explicit go-ahead to commit and push: after the push, check that the CI run on `main` starts a `publish` run whose jobs are both skipped.
+- [x] 6.3 Start the 0.14 line, only after the maintainer's explicit go-ahead. Run `cz bump 0.14.0-dev.0 --yes` (signed commit and tag) with `~/.cargo/bin` on the `PATH`, then check:
   - the release commit changed `CHANGELOG.md`;
   - all 21 version places read `0.14.0-dev.0`, and `git grep -n "0.13.0-dev.2" -- ':!CHANGELOG.md' ':!openspec/'` finds nothing;
   - the tag `v0.14.0-dev.0` exists and is signed (`git tag -v v0.14.0-dev.0`).
 
   Push `main` and the tag only after a separate go-ahead. Then check that the tag's CI run is green, and that its `publish` release job ends green without a GitHub release once `publish.yml` is on `main`.
-- [ ] 6.4 Once `publish.yml` is on `main` (the environment `pypi` and the five Trusted Publishers were set up on 2026-11-24). If an upload fails with `invalid-publisher`, compare owner, repository, workflow and environment on PyPI with the run's claims, which the error message lists. Then:
+- [x] 6.4 Once `publish.yml` is on `main` (the environment `pypi` and the five Trusted Publishers were set up on 2026-11-24). If an upload fails with `invalid-publisher`, compare owner, repository, workflow and environment on PyPI with the run's claims, which the error message lists. Then:
   - start `publish` by hand and check that the log names the run it took;
   - check that PyPI has a `0.14.0.devN` version of all five projects, published by `publish.yml`;
   - start it a second time and check that it uploads nothing;
