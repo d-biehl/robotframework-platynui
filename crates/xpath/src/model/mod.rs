@@ -171,6 +171,19 @@ pub trait XdmNode: Clone + Eq + core::fmt::Debug {
         None
     }
 
+    /// Optional hint for sibling steps: this node's 0-based position in its parent's
+    /// [`children()`](Self::children), when the model knows it, because the node came from that list.
+    ///
+    /// The engine moves from a node to its next or previous sibling by this position instead of
+    /// looking the node up in its parent's list by `==`. Only a position keeps sibling walks finite
+    /// on a model that reports two siblings as one node, because a lookup by `==` cannot tell them
+    /// apart and finds the first of them again. The engine checks that the entry at the position
+    /// equals the node and looks the node up otherwise, so a stale position costs a lookup, never a
+    /// wrong sibling. Without it, every sibling step looks the node up.
+    fn sibling_position(&self) -> Option<usize> {
+        None
+    }
+
     /// Default document order comparison uses ancestry and sibling order.
     /// Returns an error for multi-root comparisons unless overridden by adapter.
     ///

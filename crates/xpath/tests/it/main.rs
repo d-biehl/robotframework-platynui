@@ -170,6 +170,7 @@ mod property_deep_equal;
 mod proptest_nan;
 mod proptest_ordering;
 mod proptest_round;
+mod shared_identity;
 mod simple_node;
 mod simple_node_cross_doc_order;
 mod simple_node_ns_element;

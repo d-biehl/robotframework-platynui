@@ -712,8 +712,14 @@ impl<N: XdmNode + Clone + 'static> SequenceCursor<N> for ContextMinFollowingSibl
 }
 
 impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for NodeAxisCursor<N> {
+    /// Checks the cancel flag before every candidate: a wildcard or kind test never reaches the VM,
+    /// which checks it for named tests and predicates, so a walk that `count()` consumes would
+    /// otherwise run on after cancellation.
     fn next_item(&mut self) -> Option<XdmItemResult<N>> {
         loop {
+            if let Err(err) = self.vm.check_cancel() {
+                return Some(Err(err));
+            }
             let cand = match self.take_candidate() {
                 Ok(opt) => opt,
                 Err(err) => return Some(Err(err)),
@@ -745,6 +751,9 @@ impl<N: 'static + XdmNode + Clone> SequenceCursor<N> for NodeAxisCursor<N> {
             };
         }
         loop {
+            if let Err(err) = self.vm.check_cancel() {
+                return Before::Taken(Err(err));
+            }
             let cand = match self.take_candidate() {
                 Ok(Some(cand)) => cand,
                 Ok(None) => return Before::End,
@@ -810,8 +819,17 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
         }
         None
     }
+    /// The node's next sibling: by the node's position when the model knows it, so that siblings
+    /// the model reports as one node are walked one after the other; otherwise by looking the node
+    /// up in its parent's list (see [`XdmNode::sibling_position`]).
     fn next_sibling_in_doc(node: &N) -> Option<N> {
         let parent = node.parent()?;
+        if let Some(position) = node.sibling_position() {
+            let mut siblings = parent.children().skip(position);
+            if siblings.next().is_some_and(|at| at == *node) {
+                return siblings.find(|s| !Self::is_attr_or_namespace(s));
+            }
+        }
         let mut seen = false;
         for s in parent.children() {
             if seen && !Self::is_attr_or_namespace(&s) {
@@ -882,8 +900,23 @@ impl<N: 'static + XdmNode + Clone> NodeAxisCursor<N> {
             cur = cur.parent()?;
         }
     }
+    /// The node's previous sibling, by position or by lookup like [`Self::next_sibling_in_doc`].
     fn prev_sibling_in_doc(node: &N) -> Option<N> {
         let parent = node.parent()?;
+        if let Some(position) = node.sibling_position() {
+            let mut prev: Option<N> = None;
+            for (index, s) in parent.children().enumerate() {
+                if index == position {
+                    if s == *node {
+                        return prev;
+                    }
+                    break;
+                }
+                if !Self::is_attr_or_namespace(&s) {
+                    prev = Some(s);
+                }
+            }
+        }
         let mut prev: Option<N> = None;
         for s in parent.children() {
             if s == *node {

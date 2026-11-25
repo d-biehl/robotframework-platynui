@@ -435,9 +435,12 @@ impl WeakXdmNode {
 enum ParentLink {
     /// Not looked up yet.
     Unresolved,
-    /// The wrapper whose list of children holds this element. Sharing it keeps
-    /// a sibling walk at one provider enumeration per list.
-    Linked(WeakXdmNode),
+    /// The wrapper whose list of children holds this element, and the
+    /// element's position in that list. Sharing the wrapper keeps a sibling
+    /// walk at one provider enumeration per list; the position lets the walk
+    /// move on without looking the element up by its runtime id, which siblings
+    /// may share (see [`XdmNode::sibling_position`]).
+    Linked { parent: WeakXdmNode, position: usize },
     /// A parent built upward from this element, which only this element holds:
     /// for an element that no list of children produced — the context node of
     /// a query, the ancestors built from it, an attribute's owner — or whose
@@ -511,7 +514,7 @@ impl RuntimeXdmNode {
             if let RuntimeXdmNode::Element(elem) = &node {
                 let owned = match &*lock(&elem.parent) {
                     ParentLink::Owned(parent) => Some(parent.clone()),
-                    ParentLink::Unresolved | ParentLink::Linked(_) => None,
+                    ParentLink::Unresolved | ParentLink::Linked { .. } => None,
                 };
                 pending.extend(owned);
             }
@@ -630,6 +633,19 @@ impl XdmNode for RuntimeXdmNode {
     fn doc_order_key(&self) -> Option<u64> {
         match self {
             RuntimeXdmNode::Element(elem) => elem.order_key,
+            RuntimeXdmNode::Document(_) | RuntimeXdmNode::Attribute(_) => None,
+        }
+    }
+
+    /// The position under which the parent's list of children holds this
+    /// element, while it is linked to that list; none for a context node and
+    /// for the ancestors built upward from it.
+    fn sibling_position(&self) -> Option<usize> {
+        match self {
+            RuntimeXdmNode::Element(elem) => match &*lock(&elem.parent) {
+                ParentLink::Linked { position, .. } => Some(*position),
+                ParentLink::Unresolved | ParentLink::Owned(_) => None,
+            },
             RuntimeXdmNode::Document(_) | RuntimeXdmNode::Attribute(_) => None,
         }
     }
@@ -964,7 +980,7 @@ impl ElementData {
             let link = lock(&self.parent);
             match &*link {
                 ParentLink::Owned(parent) => return parent.clone(),
-                ParentLink::Linked(parent) => {
+                ParentLink::Linked { parent, .. } => {
                     if let Some(parent) = parent.upgrade() {
                         return parent;
                     }
@@ -1377,14 +1393,30 @@ impl Iterator for NodeChildrenIter<'_> {
         // SAME parent wrapper, with its shared list of children, instead of
         // re-enumerating the provider (O(N²) COM tree walks) per sibling lookup.
         // The link is weak: the parent owns the child, not the other way round.
+        // It records the child's position in the list too; children are only
+        // appended under `inner`, so the list's length is that position.
+        let mut cache = lock(&self.cache);
         if let RuntimeXdmNode::Element(elem) = &node
             && let Some(parent) = self.parent_node.as_ref().and_then(RuntimeXdmNode::downgrade)
         {
-            *lock(&elem.parent) = ParentLink::Linked(parent);
+            *lock(&elem.parent) = ParentLink::Linked { parent, position: cache.len() };
         }
-        lock(&self.cache).push(node.clone());
+        cache.push(node.clone());
+        drop(cache);
         self.pos += 1;
         Some(node)
+    }
+
+    /// Skips the children the shared list already holds by their index, so a
+    /// sibling step by position does not walk the list up to it.
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        let held = lock(&self.cache).len().saturating_sub(self.pos);
+        let skipped = n.min(held);
+        self.pos += skipped;
+        for _ in skipped..n {
+            self.next()?;
+        }
+        self.next()
     }
 }
 

@@ -204,18 +204,24 @@ pub fn find<N: XdmNode>(root: &N, wanted: &str) -> N {
 // ---------------------------------------------------------------------------------------------
 
 /// A [`SimpleNode`] tree seen through a model without document-order keys, as every real provider
-/// is: it orders by ancestry. It can also record whose list of children was read, and leave one
-/// node out of its parent's list.
+/// is: it orders by ancestry. It can also record whose list of children was read, leave one node
+/// out of its parent's list, and report chosen nodes as one node while telling each listed node's
+/// position among its siblings, as the runtime does for a provider whose siblings share an id.
 #[derive(Clone)]
 pub struct Keyless {
     node: SimpleNode,
     model: Arc<KeylessModel>,
+    /// The position of this view in the list of children that produced it; none for a view made
+    /// of a node directly.
+    position: Option<usize>,
 }
 
 #[derive(Default)]
 struct KeylessModel {
     reads: Option<Mutex<Vec<String>>>,
     hidden: Option<String>,
+    /// Labels of nodes that compare equal to each other, as siblings that share one runtime id.
+    shared: Option<Vec<String>>,
     /// A cancellation flag to set once this many lists of children have been read.
     cancel: Option<(Arc<AtomicBool>, usize)>,
     lists_read: AtomicUsize,
@@ -224,7 +230,7 @@ struct KeylessModel {
 impl Keyless {
     /// The keyless view of `node`'s tree.
     pub fn new(node: &SimpleNode) -> Self {
-        Self { node: node.clone(), model: Arc::new(KeylessModel::default()) }
+        Self { node: node.clone(), model: Arc::new(KeylessModel::default()), position: None }
     }
 
     /// The keyless view of `node`'s tree that records every read of a list of children.
@@ -232,6 +238,7 @@ impl Keyless {
         Self {
             node: node.clone(),
             model: Arc::new(KeylessModel { reads: Some(Mutex::new(Vec::new())), ..KeylessModel::default() }),
+            position: None,
         }
     }
 
@@ -241,6 +248,7 @@ impl Keyless {
         Self {
             node: node.clone(),
             model: Arc::new(KeylessModel { hidden: Some(hidden.to_string()), ..KeylessModel::default() }),
+            position: None,
         }
     }
 
@@ -250,12 +258,44 @@ impl Keyless {
         Self {
             node: node.clone(),
             model: Arc::new(KeylessModel { cancel: Some((Arc::clone(flag), after)), ..KeylessModel::default() }),
+            position: None,
+        }
+    }
+
+    /// The keyless view of `node`'s tree in which the nodes labelled `shared` are one node to the
+    /// model, as siblings that share one runtime id are to the runtime. It records every read of a
+    /// list of children, and every listed node knows its position among its siblings.
+    pub fn sharing(node: &SimpleNode, shared: &[&str]) -> Self {
+        let shared = shared.iter().map(|label| (*label).to_string()).collect();
+        Self {
+            node: node.clone(),
+            model: Arc::new(KeylessModel {
+                reads: Some(Mutex::new(Vec::new())),
+                shared: Some(shared),
+                ..KeylessModel::default()
+            }),
+            position: None,
         }
     }
 
     /// The same model's view of another node of the tree.
     pub fn view(&self, node: &SimpleNode) -> Self {
-        Self { node: node.clone(), model: Arc::clone(&self.model) }
+        Self { node: node.clone(), model: Arc::clone(&self.model), position: None }
+    }
+
+    /// The position of this node in the list of children that produced it.
+    pub fn position(&self) -> Option<usize> {
+        self.position
+    }
+
+    /// The number of lists of children read so far, by a cancelling view.
+    pub fn lists_read(&self) -> usize {
+        self.model.lists_read.load(Ordering::SeqCst)
+    }
+
+    /// Whether this node is one of the nodes the model reports as one.
+    fn is_shared(&self) -> bool {
+        self.model.shared.as_ref().is_some_and(|shared| shared.contains(&label(&self.node)))
     }
 
     /// The labels of the nodes whose children were read, once each, in the order of their first read.
@@ -286,7 +326,7 @@ impl Keyless {
 
 impl PartialEq for Keyless {
     fn eq(&self, other: &Self) -> bool {
-        self.node == other.node
+        self.node == other.node || (self.is_shared() && other.is_shared())
     }
 }
 
@@ -331,7 +371,8 @@ impl XdmNode for Keyless {
         self.node
             .children()
             .filter(|child| self.model.hidden.as_deref() != Some(label(child).as_str()))
-            .map(|child| self.view(&child))
+            .enumerate()
+            .map(|(position, child)| Self { position: Some(position), ..self.view(&child) })
             .collect::<Vec<_>>()
             .into_iter()
     }
@@ -344,7 +385,15 @@ impl XdmNode for Keyless {
         self.node.namespaces().map(|n| self.view(&n)).collect::<Vec<_>>().into_iter()
     }
 
+    fn sibling_position(&self) -> Option<usize> {
+        self.position
+    }
+
     fn identity_hint(&self) -> Option<u64> {
+        // Nodes that compare equal must share a hint, so every shared node gets the same one.
+        if self.is_shared() {
+            return Some(u64::MAX);
+        }
         self.node.identity_hint()
     }
 }

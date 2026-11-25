@@ -66,8 +66,9 @@ fn nodes_of_two_documents_keep_a_stable_order(#[case] xpath: &str) {
 }
 
 /// Spec `xpath-evaluation`, "Cancellation stops a sort": the flag is set while `//*/..` collects
-/// the parents it has to sort. Only the sort itself can notice, because the walk below it tests
-/// every element with `*` and never asks for the flag.
+/// the parents it has to sort, and the evaluation stops with the cancellation error. The walk
+/// below the sort checks the flag for every candidate as well (spec "Cancellation stops every
+/// walk", `shared_identity.rs`).
 #[test]
 fn cancellation_stops_a_sort() {
     let document = tree("W:[P1:[B1,B2],B3,P2:[B4,B5]]");
