@@ -1,10 +1,10 @@
-# Spec Delta
+# release-publishing Specification
 
 ## Purpose
 
 Defines what CI publishes as nightly dev builds of `main` and as releases of version tags, where it publishes them, from which build and in which order, and how a failed or repeated publish behaves. The goal is that every release and dev build reaches PyPI without a manual upload.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Dev builds of main are published to PyPI every night
 
@@ -137,7 +137,7 @@ When the CI run of a version tag succeeds, CI SHALL create the GitHub release of
 - **GIVEN** the maintainer ran `cz bump 1.0.0` and pushed `main` and the tag `v1.0.0`
 - **WHEN** the CI run of `v1.0.0` succeeds
 - **THEN** the GitHub release `v1.0.0` SHALL hold the 17 wheels of that run, and PyPI SHALL have version `1.0.0` of all five projects from these files
-- **NOTE:** Verified at the first real tag; the job's decision logic is verified by pytest.
+- **NOTE:** The job's decision logic is verified by pytest. The GitHub release and the upload are checked at the first release tag, likely an official 0.x version such as `v0.14.0`; the `-dev.0` start tag of 2026-11-25 already ran the release job up to the tag check.
 
 #### Scenario: Failed tag build
 

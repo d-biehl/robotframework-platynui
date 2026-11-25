@@ -142,4 +142,5 @@ The tests live in `tests/publishing/` and import the scripts as `scripts.<module
 
 ## Workflow follow-up
 
-- At the first release tag (`v1.0.0` or a release candidate), check the GitHub release (name, notes, pre-release flag, 17 wheels) and PyPI, then archive the change.
+- Archive the change once its tasks are done; it does not wait for a release. Releases will be official 0.x versions for a while before 1.0.0.
+- At the first release tag, likely an official 0.x version such as `v0.14.0`, check the GitHub release (name, notes, pre-release flag, 17 wheels) and PyPI. The scenario "Release tag" of `release-publishing` records this.
