@@ -106,6 +106,10 @@ pub struct UiaNode {
     // Minimal identity caches required by trait return types
     rid_cell: std::sync::OnceLock<RuntimeId>,
     id_scope: crate::map::UiaIdScope,
+    /// The element's 0-based position among its parent's raw-view children, set by the child
+    /// iterator that listed it. Only an element that UI Automation reports no runtime id for and
+    /// that has no MSAA child id needs it (spec `uia-runtime-id`).
+    position_hint: std::sync::OnceLock<usize>,
     // Cached: does window/transform pattern exist? Avoids repeated COM calls.
     has_window_surface: std::sync::OnceLock<bool>,
     // Cached: can this element take keyboard focus? Gates the Focusable pattern.
@@ -140,6 +144,7 @@ impl UiaNode {
             self_weak: std::sync::OnceLock::new(),
             rid_cell: std::sync::OnceLock::new(),
             id_scope: scope,
+            position_hint: std::sync::OnceLock::new(),
             has_window_surface: std::sync::OnceLock::new(),
             is_keyboard_focusable: std::sync::OnceLock::new(),
             has_text_surface: std::sync::OnceLock::new(),
@@ -192,8 +197,6 @@ impl UiaNode {
     /// on any COM failure the chain simply ends early (reveal then no-ops rather
     /// than mis-selecting), and the depth is bounded.
     pub(crate) fn attach_ancestor_chain(leaf: &Arc<UiaNode>, pid: i32) {
-        const MAX_ANCESTORS: usize = 256;
-
         let Ok(uia) = crate::com::uia() else { return };
         let Ok(walker) = crate::com::raw_walker() else { return };
         let Ok(root) = (unsafe { uia.GetRootElement() }) else { return };
@@ -202,7 +205,7 @@ impl UiaNode {
         let mut child: Arc<UiaNode> = Arc::clone(leaf);
         let mut child_elem = leaf.elem.clone();
 
-        for _ in 0..MAX_ANCESTORS {
+        for _ in 0..crate::map::MAX_ANCESTORS {
             let Ok(parent_elem) = (unsafe { walker.GetParentElement(&child_elem) }) else { break };
             // Reached the desktop root: `child` is a top-level window. Stop and
             // cap it with the application node below (the tree groups an app's
@@ -333,6 +336,63 @@ impl UiaNode {
         attrs
     }
 
+    /// Records where the child iterator listed this element among its parent's raw-view children.
+    pub(crate) fn set_position_hint(&self, position: usize) {
+        let _ = self.position_hint.set(position);
+    }
+
+    /// The id of an element that UI Automation reports no runtime id for: its parent's id followed
+    /// by its MSAA child id or, without one, its position (spec `uia-runtime-id`). The child id
+    /// comes first because it is what UI Automation's own identity of such an element rests on,
+    /// and because a hit-tested element knows it without walking its siblings. When neither the
+    /// parent's id nor a key can be formed, the element gets an id of its own, unique but not
+    /// reproducible.
+    fn derived_runtime_id(&self) -> String {
+        let Ok(parent_id) = self.parent_runtime_id() else {
+            let prefix = match self.id_scope {
+                crate::map::UiaIdScope::Desktop => "uia://desktop".to_string(),
+                crate::map::UiaIdScope::App { pid } => format!("uia://app/{pid}"),
+            };
+            return unlisted_runtime_id(&prefix);
+        };
+        match crate::map::SiblingKey::choose(crate::map::msaa_child_id(&self.elem), || self.raw_position()) {
+            Some(key) => crate::map::derived_runtime_id(&parent_id, key),
+            None => unlisted_runtime_id(&parent_id),
+        }
+    }
+
+    /// The runtime id of this node's parent: of the parent node when there is one (a listed child,
+    /// a hit-test result with its ancestor chain), otherwise of UI Automation's raw-view parent,
+    /// walked up at most [`crate::map::MAX_ANCESTORS`] elements to one with a reported id.
+    ///
+    /// Only UI Automation's root has no parent, and it reports an id, so for an element that
+    /// reaches here a parent that cannot be read is unresolved, not absent: treating it as absent
+    /// would give two such elements with the same child id one id.
+    fn parent_runtime_id(&self) -> Result<String, crate::map::UnresolvedParent> {
+        if let Some(parent) = self.parent().and_then(|parent| parent.upgrade()) {
+            return Ok(parent.runtime_id().as_str().to_owned());
+        }
+        let walker = crate::com::raw_walker().map_err(|_| crate::map::UnresolvedParent)?;
+        let first_parent = unsafe { walker.GetParentElement(&self.elem) }.map_err(|_| crate::map::UnresolvedParent)?;
+        let scope = self.id_scope;
+        crate::map::resolve_parent_id(
+            Some(first_parent),
+            |elem| unsafe { walker.GetParentElement(elem) }.ok(),
+            |elem| crate::map::reported_scoped_runtime_id(elem, scope),
+            |elem| crate::map::SiblingKey::choose(crate::map::msaa_child_id(elem), || raw_position_of(elem)),
+        )?
+        .ok_or(crate::map::UnresolvedParent)
+    }
+
+    /// This element's position among its parent's raw-view children: the hint of the iterator
+    /// that listed it, otherwise found with `CompareElements`.
+    fn raw_position(&self) -> Option<usize> {
+        match self.position_hint.get() {
+            Some(position) => Some(*position),
+            None => raw_position_of(&self.elem),
+        }
+    }
+
     /// Best-effort realization for virtualized items.
     /// If the element supports `VirtualizedItem` pattern, call `Realize()`.
     /// Errors are ignored to keep traversal non-panicking.
@@ -370,11 +430,14 @@ impl UiNode for UiaNode {
     fn name(&self) -> String {
         crate::map::get_name(&self.elem).unwrap_or_default()
     }
+    /// The id UI Automation reports, scoped to the node's view; for an element that UI Automation
+    /// reports none for, an id derived from its parent's (spec `uia-runtime-id`). Formed on the
+    /// first read, when the node's parent is already linked.
     fn runtime_id(&self) -> &RuntimeId {
         self.rid_cell.get_or_init(|| {
-            let s =
-                crate::map::format_scoped_runtime_id(&self.elem, self.id_scope).unwrap_or_else(|_| "uia://temp".into());
-            RuntimeId::from(s)
+            let id = crate::map::reported_scoped_runtime_id(&self.elem, self.id_scope)
+                .unwrap_or_else(|| self.derived_runtime_id());
+            RuntimeId::from(id)
         })
     }
     fn id(&self) -> Option<String> {
@@ -756,6 +819,9 @@ pub(crate) struct ElementChildrenIter {
     parent_elem: windows::Win32::UI::Accessibility::IUIAutomationElement,
     current: Option<windows::Win32::UI::Accessibility::IUIAutomationElement>,
     first: bool,
+    /// The raw-view position of the next element, counting the own-process ones that are skipped,
+    /// so that it matches what [`UiaNode::raw_position`] finds for a hit-tested element.
+    raw_position: usize,
     parent: Option<Arc<dyn UiNode>>,
     scope: crate::map::UiaIdScope,
 }
@@ -767,7 +833,7 @@ impl ElementChildrenIter {
     ) -> Self {
         let walker = crate::com::raw_walker().ok();
         let cache_req = crate::com::traversal_cache_request().ok();
-        Self { walker, cache_req, parent_elem, current: None, first: true, parent: parent_node, scope }
+        Self { walker, cache_req, parent_elem, current: None, first: true, raw_position: 0, parent: parent_node, scope }
     }
 
     fn next_internal(&mut self) -> Option<IUIAutomationElement> {
@@ -802,6 +868,8 @@ impl Iterator for ElementChildrenIter {
         let has_cache = self.cache_req.is_some();
         loop {
             let elem = self.next_internal()?;
+            let position = self.raw_position;
+            self.raw_position += 1;
             // Use cached ProcessId when available to avoid an extra COM call.
             let pid = if has_cache {
                 unsafe { elem.CachedProcessId().unwrap_or(-1) }
@@ -814,6 +882,7 @@ impl Iterator for ElementChildrenIter {
             }
 
             let node = UiaNode::from_elem_with_scope(elem, self.scope);
+            node.set_position_hint(position);
             if has_cache {
                 node.populate_cached_properties();
             }
@@ -829,6 +898,35 @@ impl Iterator for ElementChildrenIter {
 
 // Cache current process id once for the entire module; process id is stable for the process lifetime.
 static SELF_PID: LazyLock<i32> = LazyLock::new(|| std::process::id().cast_signed());
+
+/// Numbers the elements that have neither a reported runtime id, nor an MSAA child id, nor a place
+/// among their parent's children, so that no two of them share an id.
+static UNLISTED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// An id of its own for an element whose id cannot be derived: `<parent id>/unlisted:<n>`, numbered
+/// within the process. Unique, so no two such elements share an id, but not reproducible.
+fn unlisted_runtime_id(parent_id: &str) -> String {
+    format!("{parent_id}/unlisted:{}", UNLISTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+}
+
+/// The position of `elem` among its raw-view parent's children, found with `CompareElements`,
+/// which tells apart elements that UI Automation gives no runtime id.
+fn raw_position_of(elem: &IUIAutomationElement) -> Option<usize> {
+    /// How many siblings the search reads at most, so that a walker that cycles cannot hold it.
+    const MAX_SIBLINGS: usize = 10_000;
+    let uia = crate::com::uia().ok()?;
+    let walker = crate::com::raw_walker().ok()?;
+    let parent = unsafe { walker.GetParentElement(elem) }.ok()?;
+    let mut sibling = unsafe { walker.GetFirstChildElement(&parent) }.ok();
+    for position in 0..MAX_SIBLINGS {
+        let current = sibling?;
+        if unsafe { uia.CompareElements(&current, elem) }.is_ok_and(windows::core::BOOL::as_bool) {
+            return Some(position);
+        }
+        sibling = unsafe { walker.GetNextSiblingElement(&current) }.ok();
+    }
+    None
+}
 
 struct RoleAttr {
     elem: windows::Win32::UI::Accessibility::IUIAutomationElement,

@@ -292,7 +292,12 @@ same blueprint.
   bitness follows the build target, which the Windows lane builds 32-bit. It has a process
   and a window and no controls, follows no blueprint, and its one suite,
   `tests/acceptance/win32`, is about processes, not controls. It is not the planned
-  native-Win32 row.
+  native-Win32 row. `apps/winforms-test-window` is a helper too: a PowerShell script
+  that shows a WinForms tab control on .NET Framework (Windows PowerShell 5.1), whose
+  tab headers UI Automation reaches only through its MSAA proxy and gives no runtime id.
+  Its one suite, `tests/acceptance/winforms`, is about the runtime ids the UIA provider
+  derives for such elements. It needs no build, has no catalog, and is no WinForms row
+  of the blueprint.
 
 ### 5.1 The fixture blueprint
 

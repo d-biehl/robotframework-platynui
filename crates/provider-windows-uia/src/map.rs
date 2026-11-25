@@ -236,20 +236,103 @@ pub enum UiaIdScope {
     App { pid: i32 },
 }
 
-/// Compose a scoped `RuntimeId` URI that stays unique across multiple views in our trees.
-/// Examples:
-///  - Desktop: `uia://desktop/<rid>`
-///  - App:     `uia://app/<pid>/<rid>`
-pub fn format_scoped_runtime_id(
-    elem: &IUIAutomationElement,
-    scope: UiaIdScope,
-) -> Result<String, crate::error::UiaError> {
-    let body = runtime_id_hex_body(elem)?;
-    let s = match scope {
+/// How an element that UI Automation reports no runtime id for is told apart from its siblings
+/// (spec `uia-runtime-id`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SiblingKey {
+    /// Its MSAA child id, on which UI Automation's own identity of such an element rests.
+    ChildId(i32),
+    /// Its 0-based position among its parent's raw-view children.
+    Position(usize),
+}
+
+impl SiblingKey {
+    /// The MSAA child id when it names a child (greater than 0), otherwise the position, which is
+    /// only asked for then.
+    pub(crate) fn choose(child_id: Option<i32>, position: impl FnOnce() -> Option<usize>) -> Option<Self> {
+        match child_id {
+            Some(id) if id > 0 => Some(Self::ChildId(id)),
+            _ => position().map(Self::Position),
+        }
+    }
+}
+
+/// The runtime id of an element that UI Automation reports none for: its parent's runtime id
+/// followed by `/child:<n>` or `/index:<n>`. A reported body consists of hex digits and dots, so a
+/// derived id never equals a reported one.
+pub(crate) fn derived_runtime_id(parent_id: &str, key: SiblingKey) -> String {
+    match key {
+        SiblingKey::ChildId(id) => format!("{parent_id}/child:{id}"),
+        SiblingKey::Position(position) => format!("{parent_id}/index:{position}"),
+    }
+}
+
+/// How many ancestors the provider walks up at most, so that a parent chain that a broken provider
+/// closes into a circle cannot hold it.
+pub(crate) const MAX_ANCESTORS: usize = 256;
+
+/// The id of an element's parent could not be formed: no ancestor with a reported runtime id was
+/// reached within [`MAX_ANCESTORS`] elements, or an ancestor on the way has no sibling key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct UnresolvedParent;
+
+/// The runtime id of an element's parent, found by walking up from `first_parent` without
+/// recursion: the id of the nearest ancestor with a reported id, with the ids of the ancestors
+/// below it derived on the way back down (spec `uia-runtime-id`). `Ok(None)` when the element has
+/// no parent.
+pub(crate) fn resolve_parent_id<E>(
+    first_parent: Option<E>,
+    parent_of: impl Fn(&E) -> Option<E>,
+    reported: impl Fn(&E) -> Option<String>,
+    key: impl Fn(&E) -> Option<SiblingKey>,
+) -> Result<Option<String>, UnresolvedParent> {
+    let Some(mut current) = first_parent else {
+        return Ok(None);
+    };
+    // The ancestors without a reported id, the element's parent first.
+    let mut below: Vec<E> = Vec::new();
+    for _ in 0..MAX_ANCESTORS {
+        if let Some(id) = reported(&current) {
+            return below
+                .iter()
+                .rev()
+                .try_fold(id, |id, ancestor| key(ancestor).map(|key| derived_runtime_id(&id, key)))
+                .map(Some)
+                .ok_or(UnresolvedParent);
+        }
+        let next = parent_of(&current).ok_or(UnresolvedParent)?;
+        below.push(std::mem::replace(&mut current, next));
+    }
+    Err(UnresolvedParent)
+}
+
+/// The body of the runtime id UI Automation reported, or `None` when it reported none: an empty
+/// array, or a read that failed.
+pub(crate) fn reported_runtime_id_body(read: Result<String, crate::error::UiaError>) -> Option<String> {
+    read.ok().filter(|body| !body.is_empty())
+}
+
+/// The scoped runtime id of `elem` when UI Automation reports one, `None` when it reports none.
+pub(crate) fn reported_scoped_runtime_id(elem: &IUIAutomationElement, scope: UiaIdScope) -> Option<String> {
+    let body = reported_runtime_id_body(runtime_id_hex_body(elem))?;
+    Some(scoped_runtime_id(&body, scope))
+}
+
+/// The MSAA child id of an element that UI Automation reaches through its MSAA proxy; `None` when
+/// the property cannot be read.
+pub(crate) fn msaa_child_id(elem: &IUIAutomationElement) -> Option<i32> {
+    match read_uia_property(elem, UIA_LegacyIAccessibleChildIdPropertyId)? {
+        UiValue::Integer(id) => i32::try_from(id).ok(),
+        _ => None,
+    }
+}
+
+/// A reported runtime-id body in its view: `uia://desktop/<body>` or `uia://app/<pid>/<body>`.
+fn scoped_runtime_id(body: &str, scope: UiaIdScope) -> String {
+    match scope {
         UiaIdScope::Desktop => format!("uia://desktop/{body}"),
         UiaIdScope::App { pid } => format!("uia://app/{pid}/{body}"),
-    };
-    Ok(s)
+    }
 }
 
 pub fn get_is_enabled(elem: &IUIAutomationElement) -> Result<bool, crate::error::UiaError> {
@@ -943,5 +1026,131 @@ mod variant_string_tests {
     #[test]
     fn a_padded_string_stays_padded() {
         assert_eq!(converted(" Press F1 "), Some(UiValue::from(" Press F1 ")));
+    }
+}
+
+/// Spec `uia-runtime-id`: how an id is formed when UI Automation reports none.
+#[cfg(test)]
+mod derived_runtime_id_tests {
+    use super::{SiblingKey, derived_runtime_id, reported_runtime_id_body};
+    use crate::error::UiaError;
+
+    /// *`WinForms` tab headers get distinct ids from their child ids*.
+    #[test]
+    fn an_msaa_child_id_names_the_element() {
+        let key = SiblingKey::choose(Some(3), || panic!("the position is not needed")).expect("a key");
+        assert_eq!(derived_runtime_id("uia://app/7/2a.e062c", key), "uia://app/7/2a.e062c/child:3");
+    }
+
+    /// *An element without a child id is numbered by its position*.
+    #[test]
+    fn without_a_child_id_the_position_names_the_element() {
+        for child_id in [None, Some(0), Some(-1)] {
+            let key = SiblingKey::choose(child_id, || Some(2)).expect("a key");
+            assert_eq!(derived_runtime_id("uia://app/7/2a.10", key), "uia://app/7/2a.10/index:2", "{child_id:?}");
+        }
+    }
+
+    #[test]
+    fn without_a_child_id_or_a_position_there_is_no_key() {
+        assert_eq!(SiblingKey::choose(None, || None), None);
+    }
+
+    /// *A parent without a reported id passes its derived id on*.
+    #[test]
+    fn a_derived_parent_id_nests() {
+        let parent = derived_runtime_id("uia://app/7/2a.10", SiblingKey::ChildId(1));
+        assert_eq!(derived_runtime_id(&parent, SiblingKey::ChildId(2)), "uia://app/7/2a.10/child:1/child:2");
+    }
+
+    /// *A reported runtime id is kept*.
+    #[test]
+    fn a_reported_body_is_kept_unchanged() {
+        assert_eq!(reported_runtime_id_body(Ok("2a.e062c".to_string())), Some("2a.e062c".to_string()));
+    }
+
+    /// *A failed runtime id read is treated like an empty one*.
+    #[test]
+    fn an_empty_array_and_a_failed_read_report_no_id() {
+        assert_eq!(reported_runtime_id_body(Ok(String::new())), None);
+        assert_eq!(reported_runtime_id_body(Err(UiaError::Null("GetRuntimeId"))), None);
+        let failed = UiaError::Api { context: "IUIAutomationElement::GetRuntimeId", message: "E_FAIL".to_string() };
+        assert_eq!(reported_runtime_id_body(Err(failed)), None);
+    }
+}
+
+/// Spec `uia-runtime-id`: the parent's id of an element found without a parent node, by walking
+/// up a fake raw view whose elements are indexes into `Fake`.
+#[cfg(test)]
+mod parent_id_resolution_tests {
+    use super::{MAX_ANCESTORS, SiblingKey, UnresolvedParent, resolve_parent_id};
+
+    /// Per element: its parent, the id UI Automation reports for it, and its sibling key.
+    struct Fake(Vec<(Option<usize>, Option<&'static str>, Option<SiblingKey>)>);
+
+    impl Fake {
+        fn parent_id_of(&self, element: usize) -> Result<Option<String>, UnresolvedParent> {
+            resolve_parent_id(
+                self.0[element].0,
+                |&e| self.0[e].0,
+                |&e| self.0[e].1.map(str::to_string),
+                |&e| self.0[e].2,
+            )
+        }
+    }
+
+    #[test]
+    fn a_parent_with_a_reported_id_gives_it() {
+        let fake = Fake(vec![(None, Some("uia://app/7/2a.10"), None), (Some(0), None, Some(SiblingKey::ChildId(1)))]);
+        assert_eq!(fake.parent_id_of(1), Ok(Some("uia://app/7/2a.10".to_string())));
+    }
+
+    /// *A parent without a reported id passes its derived id on*, two levels up.
+    #[test]
+    fn ancestors_without_an_id_are_derived_on_the_way_down() {
+        let fake = Fake(vec![
+            (None, Some("uia://app/7/2a.10"), None),
+            (Some(0), None, Some(SiblingKey::ChildId(1))),
+            (Some(1), None, Some(SiblingKey::Position(4))),
+            (Some(2), None, Some(SiblingKey::ChildId(2))),
+        ]);
+        assert_eq!(fake.parent_id_of(3), Ok(Some("uia://app/7/2a.10/child:1/index:4".to_string())));
+    }
+
+    #[test]
+    fn an_element_without_a_parent_has_no_parent_id() {
+        let fake = Fake(vec![(None, None, Some(SiblingKey::ChildId(1)))]);
+        assert_eq!(fake.parent_id_of(0), Ok(None));
+    }
+
+    /// A broken provider closes the parent chain into a circle of elements without ids: the walk
+    /// stops after `MAX_ANCESTORS` elements instead of running on.
+    #[test]
+    fn a_circle_of_parents_without_ids_is_unresolved() {
+        let fake = Fake(vec![
+            (Some(1), None, Some(SiblingKey::ChildId(1))),
+            (Some(0), None, Some(SiblingKey::ChildId(2))),
+            (Some(0), None, Some(SiblingKey::ChildId(3))),
+        ]);
+        assert_eq!(fake.parent_id_of(2), Err(UnresolvedParent));
+    }
+
+    #[test]
+    fn a_chain_longer_than_the_limit_is_unresolved() {
+        let depth = MAX_ANCESTORS + 10;
+        let mut elements = vec![(None, Some("uia://app/7/2a.10"), None)];
+        elements.extend((0..depth).map(|i| (Some(i), None, Some(SiblingKey::ChildId(1)))));
+        let fake = Fake(elements);
+        assert_eq!(fake.parent_id_of(depth), Err(UnresolvedParent));
+        assert!(fake.parent_id_of(MAX_ANCESTORS).is_ok(), "a chain within the limit resolves");
+    }
+
+    #[test]
+    fn an_ancestor_without_a_key_or_a_parent_is_unresolved() {
+        let without_key =
+            Fake(vec![(None, Some("uia://app/7/2a.10"), None), (Some(0), None, None), (Some(1), None, None)]);
+        assert_eq!(without_key.parent_id_of(2), Err(UnresolvedParent));
+        let without_root = Fake(vec![(None, None, Some(SiblingKey::ChildId(1))), (Some(0), None, None)]);
+        assert_eq!(without_root.parent_id_of(1), Err(UnresolvedParent));
     }
 }

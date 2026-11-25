@@ -49,6 +49,13 @@ When UI Automation reports an empty runtime id for an element, or reading it fai
 - **THEN** it SHALL be `uia://app/<pid>/2a.10/child:1/child:2`
 - **NOTE:** Verified by a Windows unit test of the id composition.
 
+#### Scenario: A parent chain that does not end is cut off
+
+- **GIVEN** an element with an empty runtime id and no parent node, whose raw-view ancestors have no reported runtime id and lead in a circle, or more than 256 levels up
+- **WHEN** its runtime id is formed
+- **THEN** the walk SHALL stop after 256 ancestors, and the element SHALL get `uia://app/<pid>/unlisted:<n>` (`uia://desktop/unlisted:<n>` in the desktop view), with an `n` that no other such element of the process has
+- **NOTE:** Verified by a Windows unit test of the bounded walk; no fixture has such a parent chain.
+
 ### Requirement: A derived runtime id is the same on every path
 
 A runtime id formed from the parent SHALL be the same for one element whichever way the provider reached it: listed as a child, resolved from a point, or listed again by a later query on a fresh snapshot, as long as the element and its ancestors are unchanged.

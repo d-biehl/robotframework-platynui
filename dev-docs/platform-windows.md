@@ -51,7 +51,7 @@ This document covers the Windows-specific implementation details for PlatynUI: p
 **Attributes**:
 - `Role`: from ControlType → normalized PascalCase
 - `Name`: from `CurrentName()`
-- `RuntimeId`: from `GetRuntimeId()` → scoped URI (`uia://desktop/<hex>` or `uia://app/<pid>/<hex>`)
+- `RuntimeId`: from `GetRuntimeId()` → scoped URI (`uia://desktop/<hex>` or `uia://app/<pid>/<hex>`). When UIA reports an empty array or the read fails — MSAA-proxied elements without a window of their own, such as WinForms tab headers on .NET Framework — the id is derived from the parent's: `<parent id>/child:<n>` from the MSAA child id (`LegacyIAccessible.ChildId`), otherwise `<parent id>/index:<n>` from the raw-view position, and `<parent id>/unlisted:<n>` as a last resort, also when the walk up the raw view reaches no reported id within 256 ancestors (architecture.md §5.4, spec `uia-runtime-id`)
 - `Id`: from `AutomationId` (only emitted if non-empty)
 - `Technology`: constant `UIAutomation`, the provider's registered `TechnologyId`
 - `SupportedPatterns`: read back through the node's own `supported_patterns()` at value time, so the attribute and the advertisement cannot drift

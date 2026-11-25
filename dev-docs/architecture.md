@@ -225,7 +225,7 @@ Every node needs an identity that stays stable for as long as the node lives, an
 
 | Provider | Scheme | Example |
 |----------|--------|---------|
-| UIA | `uia://desktop/<hex>` or `uia://app/<pid>/<hex>` | `uia://desktop/2A0B3C` |
+| UIA | `uia://desktop/<hex>` or `uia://app/<pid>/<hex>`; without a reported id `<parent id>/child:<n>` or `<parent id>/index:<n>` | `uia://desktop/2A0B3C`, `uia://app/4711/2a.e062c/child:3` |
 | JAB (Swing/AWT) | `jab://<vmID>/0x<hwnd>[/<enum-index-path>]`, app view `jab://app/<pid>/…` | `jab://12345/0x2A0B3C/0/3/1` |
 | Java agent | `agent/<pid>/<id>`, app view `agent/app/<pid>/<id>` | `agent/4711/42` |
 | AT-SPI2 | AT-SPI D-Bus object path | `atspi:///org/a11y/...` |
@@ -233,6 +233,8 @@ Every node needs an identity that stays stable for as long as the node lives, an
 | Desktop | `platynui:Desktop` (reserved) | `platynui:Desktop` |
 
 Providers generate deterministic IDs stable for the element's lifetime. The `platynui` prefix is reserved for the desktop node.
+
+**When the platform reports no id.** UI Automation gives some elements no runtime id: the elements its MSAA proxy builds for MSAA children that have no window of their own, such as the tab headers of a WinForms tab control on .NET Framework. The UIA provider then derives one from the element's parent. It appends the element's MSAA child id (`…/child:3`), or, when there is none, the element's position among its parent's children (`…/index:2`). The child id comes first because UI Automation's own comparison of such elements rests on it, and because an element found by a hit test knows it without listing its siblings. Both forms are reproducible for an unchanged tree, so a listed and a hit-tested element carry the same id. When the provider has no parent node for the element, it walks up UI Automation's tree to the nearest ancestor with a reported id, at most 256 levels. An element that has neither a child id nor a place among its parent's children any more, or whose ancestors reach no reported id within those 256 levels or cannot be read, gets `…/unlisted:<n>`, numbered within the process: unique, but not reproducible. A derived id can never equal a reported one, because a reported id contains only hex digits and dots.
 
 **One id per view.** An id names an element at one place in the tree. A provider that shows an element in two views — in the desktop's list of top-level windows, and below its application's `app:Application` node — gives it one id per view, so the two copies are two nodes. That is what the `app` part of the UIA, JAB and Java agent schemes is for. The XPath engine removes duplicate nodes by identity (§9.2); if both copies shared one id, how many windows `//Window` returns would depend on how the query is written, because a search that reaches a window through both views keeps only one of them.
 

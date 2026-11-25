@@ -2,9 +2,10 @@
 members = ["crates/*", "apps/*", "packages/*"]
 # apps/test-app-qt and apps/test-app-qml are Python (PySide6) test fixtures,
 # apps/test-app-gtk3 and apps/test-app-gtk4 Python (PyGObject) test fixtures,
-# apps/large-tree-qt a Python measurement helper, and apps/test-app-swing a Java
-# (Swing) test fixture — none is a Cargo crate. packages/provider-java is pure
-# data: a wheel carrying the Java agent JAR, with no Rust in it.
+# apps/large-tree-qt a Python measurement helper, apps/test-app-swing a Java
+# (Swing) test fixture, and apps/winforms-test-window a PowerShell helper window —
+# none is a Cargo crate. packages/provider-java is pure data: a wheel carrying the
+# Java agent JAR, with no Rust in it.
 exclude = [
     "apps/test-app-qt",
     "apps/test-app-qml",
@@ -12,6 +13,7 @@ exclude = [
     "apps/test-app-gtk4",
     "apps/test-app-swing",
     "apps/large-tree-qt",
+    "apps/winforms-test-window",
     "packages/provider-java",
 ]
 default-members = ["crates/playground"]
