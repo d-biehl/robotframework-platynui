@@ -117,9 +117,11 @@ pre_bump_hooks = [
     "uv run scripts/update-git-versions.py",
     "uv run scripts/update-changelog.py",
     # Only the new versions of the workspace's own packages go into the lock files;
-    # dependency upgrades get commits of their own, not the release commit.
+    # dependency upgrades get commits of their own, not the release commit. uv re-resolves
+    # after the version change and keeps every locked version, but it needs the network
+    # for that whenever the local cache lacks a locked package.
     "cargo update -w --offline",
-    "uv lock --offline",
+    "uv lock",
     "git add .",
 ]
 
