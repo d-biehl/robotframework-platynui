@@ -51,3 +51,19 @@ complexity = { level = "warn", priority = -1 }
 disallowed_types = "deny"
 disallowed_methods = "deny"
 non_std_lazy_statics = "deny"
+
+# The profile of the release wheels (`just build-*-wheel` and CI). It optimizes
+# for speed exactly like `release` (opt-level 3) and makes the binaries smaller:
+# whole-program LTO and a single codegen unit let the optimizer inline and drop
+# code across crates, and the symbol table is stripped. The price is build time,
+# which is why everyday `--release` builds keep Cargo's faster defaults.
+# - Stripping costs function names in a backtrace. On Windows MSVC the symbols
+#   sit in a separate PDB rather than in the binary, and a wheel does not carry
+#   the PDB, so there the binaries shrink far less than on Linux.
+# - No `panic = "abort"`: the native module needs unwinding, so that a Rust
+#   panic becomes a Python exception instead of ending the interpreter.
+[profile.dist]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+strip = "symbols"

@@ -50,8 +50,9 @@ headless := if env("CI", "") != "" { "true" } else { "false" }
 
 # When "true", the build recipes that default to debug — `build` (cargo) and the
 # maturin-develop installs (build-native, build-cli, build-inspector,
-# build-native-mock) — compile in release mode. The *-wheel recipes are always
-# release and ignore this. Override per-invocation, e.g. `just release=true build`.
+# build-native-mock) — compile in release mode. The *-wheel recipes always use
+# the `dist` profile (release plus LTO and stripping, see the root Cargo.toml) and
+# ignore this. Override per-invocation, e.g. `just release=true build`.
 release := "false"
 
 pre_push_cross_command := if os() == "linux" {
@@ -114,7 +115,7 @@ build-native *FEATURES:
 
 # Build release wheel for native Python package
 build-native-wheel *ARGS:
-    uv run --no-sync maturin build --release -m packages/native/Cargo.toml -o dist {{ ARGS }}
+    uv run --no-sync maturin build --profile dist -m packages/native/Cargo.toml -o dist {{ ARGS }}
 
 # Build CLI Python package
 build-cli:
@@ -122,7 +123,7 @@ build-cli:
 
 # Build release wheel for CLI Python package
 build-cli-wheel *ARGS:
-    uv run --no-sync maturin build --release -m packages/cli/Cargo.toml -o dist {{ ARGS }}
+    uv run --no-sync maturin build --profile dist -m packages/cli/Cargo.toml -o dist {{ ARGS }}
 
 # Build Inspector Python package
 build-inspector:
@@ -130,7 +131,7 @@ build-inspector:
 
 # Build release wheel for Inspector Python package
 build-inspector-wheel *ARGS:
-    uv run --no-sync maturin build --release -m packages/inspector/Cargo.toml -o dist {{ ARGS }}
+    uv run --no-sync maturin build --profile dist -m packages/inspector/Cargo.toml -o dist {{ ARGS }}
 
 # Build release wheel for robotframework-PlatynUI package
 build-platynui-wheel:

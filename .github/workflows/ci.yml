@@ -561,7 +561,7 @@ jobs:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
           container: ${{ matrix.container }}
-          args: --release -m packages/native/Cargo.toml -o dist -i python3.12
+          args: --profile dist -m packages/native/Cargo.toml -o dist -i python3.12
           before-script-linux: |
             yum install -y libxkbcommon-devel
 
@@ -571,7 +571,7 @@ jobs:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
           container: ${{ matrix.container }}
-          args: --release -m packages/cli/Cargo.toml -o dist
+          args: --profile dist -m packages/cli/Cargo.toml -o dist
           before-script-linux: |
             yum install -y libxkbcommon-devel
 
@@ -581,7 +581,7 @@ jobs:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
           container: ${{ matrix.container }}
-          args: --release -m packages/inspector/Cargo.toml -o dist
+          args: --profile dist -m packages/inspector/Cargo.toml -o dist
           before-script-linux: |
             yum install -y libxkbcommon-devel
 
