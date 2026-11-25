@@ -440,20 +440,26 @@ pip install "robotframework-platynui[all]==0.14.0.dev12"
 
 ### Releasing a version
 
-A version tag is a release, for example `v1.0.0` or the pre-release `v1.0.0-rc.1`. To release 1.0.0:
+A version tag is a release: a 0.x version such as `v0.14.0`, later `v1.0.0`, or a pre-release such as `v1.0.0-rc.1`. To release 0.14.0:
 
-1. Check that `git-cliff` is on the `PATH` (`git-cliff --version`). `scripts/update-changelog.py` stops the bump without it. In that case the earlier hook has already rewritten the version places, so run `git restore .` and bump again.
-2. For the step to 1.0.0 only: set `major_version_zero = false` in `[tool.commitizen]`. The bump's last hook runs `git add .` and takes this edit into the release commit. Left at `true`, commitizen keeps treating breaking changes as minor bumps.
-3. Run `cz bump 1.0.0`. The bump:
+1. Start from a clean working tree. The bump's last hook runs `git add .` and takes everything into the release commit.
+2. Check that `git-cliff` is on the `PATH` (`git-cliff --version`). `scripts/update-changelog.py` stops the bump without it. In that case the earlier hook has already rewritten the version places, so run `git restore .` and bump again.
+3. Run `cz bump 0.14.0`. The bump:
    - writes the version into every manifest, every exact pin and `java/agent/gradle.properties`;
-   - writes the `## [1.0.0]` section of `CHANGELOG.md`;
-   - refreshes the lock files;
-   - creates the signed release commit and the signed tag `v1.0.0`.
-4. Push the branch and the tag together, for example `git push origin main v1.0.0`.
+   - writes the `## [0.14.0]` section of `CHANGELOG.md`;
+   - writes the new versions of the workspace's own packages into `Cargo.lock` and `uv.lock`, and upgrades no dependency;
+   - creates the signed release commit and the signed tag `v0.14.0`.
+4. Push the branch and the tag together, for example `git push origin main v0.14.0`.
+
+For the step to 1.0.0, also set `major_version_zero = false` in `[tool.commitizen]` before the bump, and the `git add .` takes this edit into the release commit. Left at `true`, commitizen keeps treating breaking changes as minor bumps.
 
 When the tag's CI run succeeds, the `release` job of `publish` takes over:
-- It creates the GitHub release `v1.0.0` with that run's 17 wheels, and with the version's changelog section as notes. Above GitHub's limit of 125,000 characters, the notes keep only the subject lines of features, bug fixes and performance improvements, and link to `CHANGELOG.md`.
+- It creates the GitHub release `v0.14.0` with that run's 17 wheels, and with the version's changelog section as notes. Above GitHub's limit of 125,000 characters, the notes keep only the subject lines of features, bug fixes and performance improvements, and link to `CHANGELOG.md`.
 - It then uploads the same wheels to PyPI.
+
+After the release, the nightlies continue as dev versions of the next version, for example `0.14.1.dev3` or `0.15.0.dev3`, depending on the commits since the tag.
+
+The first release without a pre-release label is also the first version of the new PlatynUI that `pip install robotframework-platynui` installs without `--pre`. Until then, installers without `--pre` choose `0.9.2` of the old .NET prototype, which shares the PyPI project.
 
 A pre-release tag goes the same way:
 - Its GitHub release is marked as a pre-release.
