@@ -39,7 +39,7 @@ fn toplevel_latest_size_committed(toplevel: &smithay::wayland::shell::xdg::Tople
             .lock()
             .expect("XdgToplevelSurfaceData mutex poisoned");
         let current_server = attributes.current_server_state();
-        attributes.last_acked.as_ref().is_some_and(|acked| acked.size == current_server.size)
+        attributes.last_acked.as_ref().is_some_and(|acked| acked.state.size == current_server.size)
     })
 }
 
@@ -348,14 +348,7 @@ impl PointerGrab<State> for MoveSurfaceGrab {
         // After a move, tell X11 clients their new position so they can
         // calculate correct screen coordinates for override-redirect
         // windows (menus, tooltips).
-        if let Some(x11) = self.window.x11_surface()
-            && let Some(loc) = data.space.element_location(&self.window)
-        {
-            let size = x11.geometry().size;
-            if let Err(err) = x11.configure(smithay::utils::Rectangle::new(loc, size)) {
-                tracing::warn!(%err, "failed to configure X11 window after move");
-            }
-        }
+        crate::xwayland::configure_at_space_location(&data.space, &self.window, "after move");
     }
 }
 
@@ -414,9 +407,9 @@ pub fn handle_move_request(
 fn detect_maximized_state(window: &Window, location: Point<i32, Logical>) -> Option<MaximizedMoveState> {
     // Wayland toplevel
     if let Some(toplevel) = window.toplevel()
-        && toplevel.current_state().states.contains(xdg_toplevel::State::Maximized)
+        && crate::handlers::xdg_shell::committed_state(toplevel).states.contains(xdg_toplevel::State::Maximized)
     {
-        let width = toplevel.current_state().size.map_or(0, |s| s.w);
+        let width = crate::handlers::xdg_shell::committed_state(toplevel).size.map_or(0, |s| s.w);
         return Some(MaximizedMoveState { location, width });
     }
     // X11
@@ -563,14 +556,7 @@ impl PointerGrab<State> for ResizeSurfaceGrab {
     fn unset(&mut self, data: &mut State) {
         // After a resize, tell X11 clients their new position/size so they
         // have consistent screen coordinates for popup placement.
-        if let Some(x11) = self.window.x11_surface()
-            && let Some(loc) = data.space.element_location(&self.window)
-        {
-            let size = x11.geometry().size;
-            if let Err(err) = x11.configure(smithay::utils::Rectangle::new(loc, size)) {
-                tracing::warn!(%err, "failed to configure X11 window after resize");
-            }
-        }
+        crate::xwayland::configure_at_space_location(&data.space, &self.window, "after resize");
     }
 }
 
@@ -597,7 +583,7 @@ pub fn handle_resize_request(
     });
 
     let initial_window_location = data.space.element_location(window).unwrap_or_default();
-    let initial_window_size = window.geometry().size;
+    let initial_window_size = crate::xwayland::window_size(window);
 
     // Set compositor cursor so the resize cursor persists during the grab.
     // Without this, CSD-initiated resizes would lose the cursor when
@@ -634,23 +620,15 @@ impl TouchGrab<State> for TouchMoveSurfaceGrab {
         _handle: &mut TouchInnerHandle<'_, State>,
         _focus: Option<(<State as SeatHandler>::TouchFocus, Point<f64, Logical>)>,
         _event: &TouchDownEvent,
-        _seq: Serial,
     ) {
         // Additional touch points during a move grab are ignored.
     }
 
-    fn up(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>, event: &TouchUpEvent, _seq: Serial) {
+    fn up(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>, event: &TouchUpEvent) {
         // End the grab when the initiating touch slot is lifted.
         if event.slot == self.start_data.slot {
             // Tell X11 clients their final position.
-            if let Some(x11) = self.window.x11_surface()
-                && let Some(loc) = data.space.element_location(&self.window)
-            {
-                let size = x11.geometry().size;
-                if let Err(err) = x11.configure(smithay::utils::Rectangle::new(loc, size)) {
-                    tracing::warn!(%err, "failed to configure X11 window after touch move");
-                }
-            }
+            crate::xwayland::configure_at_space_location(&data.space, &self.window, "after touch move");
             handle.unset_grab(self, data);
         }
     }
@@ -662,9 +640,8 @@ impl TouchGrab<State> for TouchMoveSurfaceGrab {
         handle: &mut TouchInnerHandle<'_, State>,
         _focus: Option<(<State as SeatHandler>::TouchFocus, Point<f64, Logical>)>,
         event: &TouchMotionEvent,
-        seq: Serial,
     ) {
-        handle.motion(data, None, event, seq);
+        handle.motion(data, None, event);
 
         // Only track the initiating slot.
         if event.slot != self.start_data.slot {
@@ -701,26 +678,20 @@ impl TouchGrab<State> for TouchMoveSurfaceGrab {
         }
     }
 
-    fn frame(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>, seq: Serial) {
-        handle.frame(data, seq);
+    fn frame(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>) {
+        handle.frame(data);
     }
 
-    fn cancel(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>, seq: Serial) {
-        handle.cancel(data, seq);
+    fn cancel(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>) {
+        handle.cancel(data);
     }
 
-    fn shape(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>, event: &ShapeEvent, seq: Serial) {
-        handle.shape(data, event, seq);
+    fn shape(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>, event: &ShapeEvent) {
+        handle.shape(data, event);
     }
 
-    fn orientation(
-        &mut self,
-        data: &mut State,
-        handle: &mut TouchInnerHandle<'_, State>,
-        event: &OrientationEvent,
-        seq: Serial,
-    ) {
-        handle.orientation(data, event, seq);
+    fn orientation(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>, event: &OrientationEvent) {
+        handle.orientation(data, event);
     }
 
     fn start_data(&self) -> &TouchGrabStartData<State> {
@@ -749,12 +720,11 @@ impl TouchGrab<State> for TouchResizeSurfaceGrab {
         _handle: &mut TouchInnerHandle<'_, State>,
         _focus: Option<(<State as SeatHandler>::TouchFocus, Point<f64, Logical>)>,
         _event: &TouchDownEvent,
-        _seq: Serial,
     ) {
         // Additional touch points during a resize grab are ignored.
     }
 
-    fn up(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>, event: &TouchUpEvent, _seq: Serial) {
+    fn up(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>, event: &TouchUpEvent) {
         if event.slot == self.start_data.slot {
             // Remove resizing state.
             if let Some(toplevel) = self.window.toplevel() {
@@ -779,9 +749,8 @@ impl TouchGrab<State> for TouchResizeSurfaceGrab {
         handle: &mut TouchInnerHandle<'_, State>,
         _focus: Option<(<State as SeatHandler>::TouchFocus, Point<f64, Logical>)>,
         event: &TouchMotionEvent,
-        seq: Serial,
     ) {
-        handle.motion(data, None, event, seq);
+        handle.motion(data, None, event);
 
         if event.slot != self.start_data.slot {
             return;
@@ -849,26 +818,20 @@ impl TouchGrab<State> for TouchResizeSurfaceGrab {
         data.space.map_element(self.window.clone(), (new_x, new_y), true);
     }
 
-    fn frame(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>, seq: Serial) {
-        handle.frame(data, seq);
+    fn frame(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>) {
+        handle.frame(data);
     }
 
-    fn cancel(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>, seq: Serial) {
-        handle.cancel(data, seq);
+    fn cancel(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>) {
+        handle.cancel(data);
     }
 
-    fn shape(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>, event: &ShapeEvent, seq: Serial) {
-        handle.shape(data, event, seq);
+    fn shape(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>, event: &ShapeEvent) {
+        handle.shape(data, event);
     }
 
-    fn orientation(
-        &mut self,
-        data: &mut State,
-        handle: &mut TouchInnerHandle<'_, State>,
-        event: &OrientationEvent,
-        seq: Serial,
-    ) {
-        handle.orientation(data, event, seq);
+    fn orientation(&mut self, data: &mut State, handle: &mut TouchInnerHandle<'_, State>, event: &OrientationEvent) {
+        handle.orientation(data, event);
     }
 
     fn start_data(&self) -> &TouchGrabStartData<State> {
@@ -876,14 +839,7 @@ impl TouchGrab<State> for TouchResizeSurfaceGrab {
     }
 
     fn unset(&mut self, data: &mut State) {
-        if let Some(x11) = self.window.x11_surface()
-            && let Some(loc) = data.space.element_location(&self.window)
-        {
-            let size = x11.geometry().size;
-            if let Err(err) = x11.configure(smithay::utils::Rectangle::new(loc, size)) {
-                tracing::warn!(%err, "failed to configure X11 window after touch resize");
-            }
-        }
+        crate::xwayland::configure_at_space_location(&data.space, &self.window, "after touch resize");
     }
 }
 
@@ -916,7 +872,7 @@ pub fn handle_touch_resize_request(
     serial: Serial,
 ) {
     let initial_window_location = data.space.element_location(window).unwrap_or_default();
-    let initial_window_size = window.geometry().size;
+    let initial_window_size = crate::xwayland::window_size(window);
 
     let start_data = TouchGrabStartData { focus: None, slot, location };
 

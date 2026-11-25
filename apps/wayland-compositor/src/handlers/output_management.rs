@@ -16,6 +16,7 @@
 //! 4. Clients call `apply` or `test`.
 //! 5. The compositor responds with `succeeded`, `failed`, or `cancelled`.
 
+use smithay::wayland::{Dispatch2, GlobalDispatch2};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicU32, Ordering},
@@ -32,7 +33,7 @@ use smithay::{
             zwlr_output_mode_v1::ZwlrOutputModeV1,
         },
         wayland_server::{
-            Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource, WEnum, Weak,
+            Client, DataInit, DisplayHandle, New, Resource, WEnum, Weak,
             backend::{ClientId, GlobalId},
             protocol::wl_output::Transform,
         },
@@ -74,14 +75,14 @@ pub struct OutputManagerData {
     modes: Mutex<Vec<(Output, Mode, ZwlrOutputModeV1)>>,
 }
 
-impl GlobalDispatch<ZwlrOutputManagerV1, OutputManagementGlobalData> for State {
+impl GlobalDispatch2<ZwlrOutputManagerV1, State> for OutputManagementGlobalData {
     fn bind(
-        state: &mut Self,
+        &self,
+        state: &mut State,
         _handle: &DisplayHandle,
         _client: &Client,
         resource: New<ZwlrOutputManagerV1>,
-        _global_data: &OutputManagementGlobalData,
-        data_init: &mut DataInit<'_, Self>,
+        data_init: &mut DataInit<'_, State>,
     ) {
         let manager = data_init
             .init(resource, OutputManagerData { heads: Mutex::new(Vec::new()), modes: Mutex::new(Vec::new()) });
@@ -96,21 +97,22 @@ impl GlobalDispatch<ZwlrOutputManagerV1, OutputManagementGlobalData> for State {
         state.output_managers.push(manager.downgrade());
     }
 
-    fn can_view(client: Client, global_data: &OutputManagementGlobalData) -> bool {
-        (global_data.filter)(&client)
+    fn can_view(&self, client: &Client) -> bool {
+        (self.filter)(client)
     }
 }
 
-impl Dispatch<ZwlrOutputManagerV1, OutputManagerData> for State {
+impl Dispatch2<ZwlrOutputManagerV1, State> for OutputManagerData {
     fn request(
-        _state: &mut Self,
+        &self,
+        _state: &mut State,
         _client: &Client,
         _resource: &ZwlrOutputManagerV1,
         request: zwlr_output_manager_v1::Request,
-        data: &OutputManagerData,
         _dhandle: &DisplayHandle,
-        data_init: &mut DataInit<'_, Self>,
+        data_init: &mut DataInit<'_, State>,
     ) {
+        let data = self;
         if let zwlr_output_manager_v1::Request::CreateConfiguration { id, serial } = request {
             let current_serial = CONFIG_SERIAL.load(Ordering::Relaxed);
             // Build head mapping from manager data.
@@ -145,60 +147,57 @@ impl Dispatch<ZwlrOutputManagerV1, OutputManagerData> for State {
         }
     }
 
-    fn destroyed(_state: &mut Self, _client: ClientId, _resource: &ZwlrOutputManagerV1, _data: &OutputManagerData) {}
+    fn destroyed(&self, _state: &mut State, _client: ClientId, _resource: &ZwlrOutputManagerV1) {}
 }
 
 // ---------------------------------------------------------------------------
 // Head (read-only output device)
 // ---------------------------------------------------------------------------
 
-/// Per-head data — links back to the output.
-pub struct OutputHeadData {
-    pub output: Output,
-}
+/// Per-head data. Heads are read-only; the configuration requests name the
+/// output through their own objects, so a head carries nothing.
+pub struct OutputHeadData;
 
-impl Dispatch<ZwlrOutputHeadV1, OutputHeadData> for State {
+impl Dispatch2<ZwlrOutputHeadV1, State> for OutputHeadData {
     fn request(
-        _state: &mut Self,
+        &self,
+        _state: &mut State,
         _client: &Client,
         _resource: &ZwlrOutputHeadV1,
         request: zwlr_output_head_v1::Request,
-        _data: &OutputHeadData,
         _dhandle: &DisplayHandle,
-        _data_init: &mut DataInit<'_, Self>,
+        _data_init: &mut DataInit<'_, State>,
     ) {
         // Only request is `release` (v3 destructor).
         let _ = request;
     }
 
-    fn destroyed(_state: &mut Self, _client: ClientId, _resource: &ZwlrOutputHeadV1, _data: &OutputHeadData) {}
+    fn destroyed(&self, _state: &mut State, _client: ClientId, _resource: &ZwlrOutputHeadV1) {}
 }
 
 // ---------------------------------------------------------------------------
 // Mode (read-only)
 // ---------------------------------------------------------------------------
 
-/// Per-mode data.
-pub struct OutputModeData {
-    pub output: Output,
-    pub mode: Mode,
-}
+/// Per-mode data. Modes are read-only; `set_mode` is resolved through the
+/// configuration head, so a mode carries nothing.
+pub struct OutputModeData;
 
-impl Dispatch<ZwlrOutputModeV1, OutputModeData> for State {
+impl Dispatch2<ZwlrOutputModeV1, State> for OutputModeData {
     fn request(
-        _state: &mut Self,
+        &self,
+        _state: &mut State,
         _client: &Client,
         _resource: &ZwlrOutputModeV1,
         request: <ZwlrOutputModeV1 as Resource>::Request,
-        _data: &OutputModeData,
         _dhandle: &DisplayHandle,
-        _data_init: &mut DataInit<'_, Self>,
+        _data_init: &mut DataInit<'_, State>,
     ) {
         // Only request is `release` (v3 destructor).
         let _ = request;
     }
 
-    fn destroyed(_state: &mut Self, _client: ClientId, _resource: &ZwlrOutputModeV1, _data: &OutputModeData) {}
+    fn destroyed(&self, _state: &mut State, _client: ClientId, _resource: &ZwlrOutputModeV1) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -241,16 +240,17 @@ struct HeadConfig {
     scale: Option<f64>,
 }
 
-impl Dispatch<ZwlrOutputConfigurationV1, OutputConfigurationData> for State {
+impl Dispatch2<ZwlrOutputConfigurationV1, State> for OutputConfigurationData {
     fn request(
-        state: &mut Self,
+        &self,
+        state: &mut State,
         _client: &Client,
         resource: &ZwlrOutputConfigurationV1,
         request: zwlr_output_configuration_v1::Request,
-        data: &OutputConfigurationData,
         _dhandle: &DisplayHandle,
-        data_init: &mut DataInit<'_, Self>,
+        data_init: &mut DataInit<'_, State>,
     ) {
+        let data = self;
         match request {
             zwlr_output_configuration_v1::Request::EnableHead { id, head } => {
                 let Some(output) = data.resolve_head(&head) else {
@@ -291,13 +291,7 @@ impl Dispatch<ZwlrOutputConfigurationV1, OutputConfigurationData> for State {
         }
     }
 
-    fn destroyed(
-        _state: &mut Self,
-        _client: ClientId,
-        _resource: &ZwlrOutputConfigurationV1,
-        _data: &OutputConfigurationData,
-    ) {
-    }
+    fn destroyed(&self, _state: &mut State, _client: ClientId, _resource: &ZwlrOutputConfigurationV1) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -315,16 +309,17 @@ pub struct ConfigHeadData {
     mode_map: Arc<Vec<(Weak<ZwlrOutputModeV1>, Output, Mode)>>,
 }
 
-impl Dispatch<ZwlrOutputConfigurationHeadV1, ConfigHeadData> for State {
+impl Dispatch2<ZwlrOutputConfigurationHeadV1, State> for ConfigHeadData {
     fn request(
-        _state: &mut Self,
+        &self,
+        _state: &mut State,
         _client: &Client,
         _resource: &ZwlrOutputConfigurationHeadV1,
         request: zwlr_output_configuration_head_v1::Request,
-        data: &ConfigHeadData,
         _dhandle: &DisplayHandle,
-        _data_init: &mut DataInit<'_, Self>,
+        _data_init: &mut DataInit<'_, State>,
     ) {
+        let data = self;
         match request {
             zwlr_output_configuration_head_v1::Request::SetMode { mode } => {
                 let weak = mode.downgrade();
@@ -371,13 +366,7 @@ impl Dispatch<ZwlrOutputConfigurationHeadV1, ConfigHeadData> for State {
         }
     }
 
-    fn destroyed(
-        _state: &mut Self,
-        _client: ClientId,
-        _resource: &ZwlrOutputConfigurationHeadV1,
-        _data: &ConfigHeadData,
-    ) {
-    }
+    fn destroyed(&self, _state: &mut State, _client: ClientId, _resource: &ZwlrOutputConfigurationHeadV1) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -465,6 +454,7 @@ fn handle_apply_or_test(
 
         // Handle disabled heads — unmap from space and release DRM hardware.
         for output in disabled.iter() {
+            crate::handlers::screencopy::stop_sessions_for_output(state, output);
             state.space.unmap_output(output);
 
             // For DRM backend: deactivate hardware (release CRTC).
@@ -511,11 +501,7 @@ fn send_head_for_output(state: &State, manager: &ZwlrOutputManagerV1, output: &O
     };
 
     // Create head object.
-    let Ok(head) = client.create_resource::<ZwlrOutputHeadV1, _, State>(
-        dh,
-        manager.version(),
-        OutputHeadData { output: output.clone() },
-    ) else {
+    let Ok(head) = client.create_resource::<ZwlrOutputHeadV1, _, State>(dh, manager.version(), OutputHeadData) else {
         tracing::warn!(output = output.name(), "output management: failed to create head resource (client gone?)");
         return;
     };
@@ -586,11 +572,8 @@ fn send_mode(
     is_preferred: bool,
     data: &OutputManagerData,
 ) {
-    let Ok(mode_obj) = client.create_resource::<ZwlrOutputModeV1, _, State>(
-        dh,
-        manager.version(),
-        OutputModeData { output: output.clone(), mode },
-    ) else {
+    let Ok(mode_obj) = client.create_resource::<ZwlrOutputModeV1, _, State>(dh, manager.version(), OutputModeData)
+    else {
         tracing::warn!("output management: failed to create mode resource (client gone?)");
         return;
     };
@@ -627,6 +610,7 @@ pub fn init_output_management(
 /// then re-sends the full output state with a bumped serial so that clients
 /// (e.g. `kanshi`) watching for changes can create a fresh configuration.
 pub fn notify_output_config_changed(state: &mut State) {
+    crate::eis::outputs_changed(state);
     // GC dead manager references.
     state.output_managers.retain(|weak| weak.upgrade().is_ok());
 

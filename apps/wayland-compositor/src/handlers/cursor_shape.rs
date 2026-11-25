@@ -4,12 +4,15 @@
 //! `grab`) instead of providing a cursor surface. The compositor resolves
 //! the shape via the cursor theme loaded from `$XCURSOR_THEME`/`$XCURSOR_SIZE`.
 //!
-//! No handler trait is required — `delegate_cursor_shape!()` in `state.rs`
-//! handles all protocol requests automatically. Requires `SeatHandler` and
-//! `TabletSeatHandler`.
+//! No handler trait is required — smithay's cursor-shape module handles all
+//! protocol requests (routed through `delegate_dispatch2!` in `state.rs`). It
+//! requires `SeatHandler` and `TabletSeatHandler`; tablet tools share the
+//! pointer's focus targets.
 
-use smithay::wayland::tablet_manager::TabletSeatHandler;
+use smithay::input::tablet::TabletSeatHandler;
 
-use crate::state::State;
+use crate::{focus::PointerFocusTarget, state::State};
 
-impl TabletSeatHandler for State {}
+impl TabletSeatHandler for State {
+    type ToolFocus = PointerFocusTarget;
+}

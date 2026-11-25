@@ -503,6 +503,13 @@ pub(crate) fn unconstrain_popup(surface: &PopupSurface, state: &State) {
 // Extracted so that foreign-toplevel requests and other handlers can reuse
 // the same logic without going through the XdgShellHandler trait methods.
 
+/// The toplevel state the client acked for its current commit — what it
+/// actually shows. Before its first acked commit this is the default state.
+#[allow(clippy::redundant_closure_for_method_calls)] // `Option::cloned` is ambiguous here
+pub fn committed_state(toplevel: &ToplevelSurface) -> smithay::wayland::shell::xdg::ToplevelState {
+    toplevel.with_committed_state(|state| state.cloned()).unwrap_or_default()
+}
+
 /// Maximize a toplevel window (sets state, saves position, maps to usable area).
 pub fn do_maximize(state: &mut State, surface: &ToplevelSurface) {
     let window = state.space.elements().find(|w| w.toplevel().is_some_and(|t| t == surface)).cloned();

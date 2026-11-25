@@ -1,120 +1,109 @@
-//! `pointer-warp-v1` handler — client-requested pointer warping.
+//! Pointer warp protocol handler (`wp-pointer-warp-v1`).
 //!
-//! Allows clients to request the pointer to be moved to a position relative
-//! to a `wl_surface`.  The compositor honors the request when the surface
-//! has pointer focus.  Used by accessibility tools, remote-desktop clients,
-//! and application drag operations.
+//! Lets a client move the pointer to a position inside one of its own
+//! surfaces (accessibility tools, remote desktops, applications that confine
+//! the pointer during drags). Smithay decodes the request and converts the
+//! position to logical coordinates; this module decides whether to honor it:
 //!
-//! Smithay 0.7 does not yet provide a high-level abstraction for this
-//! protocol, so we implement `GlobalDispatch` / `Dispatch` manually using
-//! the generated bindings from `wayland-protocols 0.32.10`.
+//! - the surface has pointer focus (also while an implicit grab holds it),
+//! - the serial is the one of the last pointer enter the seat sent, and
+//! - the position lies inside the surface.
+//!
+//! Anything else is ignored without a protocol error. An honored warp moves
+//! the pointer like any absolute motion ([`crate::input::move_pointer_to`]);
+//! the global position is the surface's origin plus the requested offset, so
+//! popups and subsurfaces work like toplevels.
+//!
+//! Smithay's `PointerWarpManager` has no global filter, so the global is
+//! created here ([`init_pointer_warp`]) with the restrictive-policy filter;
+//! its resources use smithay's `GlobalData`, so the requests are still
+//! handled by smithay.
 
 use smithay::{
-    input::pointer::MotionEvent,
+    backend::{input::InputTime, renderer::utils::with_renderer_surface_state},
+    input::pointer::PointerHandle,
     reexports::{
-        wayland_protocols::wp::pointer_warp::v1::server::wp_pointer_warp_v1::{self, WpPointerWarpV1},
-        wayland_server::{Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, backend::GlobalId},
+        wayland_protocols::wp::pointer_warp::v1::server::wp_pointer_warp_v1::WpPointerWarpV1,
+        wayland_server::{
+            Client, DataInit, DisplayHandle, New,
+            backend::GlobalId,
+            protocol::{wl_pointer::WlPointer, wl_surface::WlSurface},
+        },
     },
-    utils::{Logical, Point, SERIAL_COUNTER},
-    wayland::seat::WaylandFocus,
+    utils::{Logical, Point, Serial},
+    wayland::{GlobalData, GlobalDispatch2, pointer_warp::PointerWarpHandler, seat::WaylandFocus},
 };
 
 use crate::state::State;
 
-// ---------------------------------------------------------------------------
-// Global data — carries a filter closure for security policy
-// ---------------------------------------------------------------------------
-
-pub struct PointerWarpGlobalData {
+/// Data of the `wp_pointer_warp_v1` global: who may see it.
+pub struct PointerWarpGlobal {
     filter: Box<dyn Fn(&Client) -> bool + Send + Sync>,
 }
 
-// ---------------------------------------------------------------------------
-// GlobalDispatch — advertise the wp_pointer_warp_v1 global
-// ---------------------------------------------------------------------------
-
-impl GlobalDispatch<WpPointerWarpV1, PointerWarpGlobalData> for State {
+impl GlobalDispatch2<WpPointerWarpV1, State> for PointerWarpGlobal {
     fn bind(
-        _state: &mut Self,
-        _handle: &DisplayHandle,
+        &self,
+        _state: &mut State,
+        _dh: &DisplayHandle,
         _client: &Client,
         resource: New<WpPointerWarpV1>,
-        _global_data: &PointerWarpGlobalData,
-        data_init: &mut DataInit<'_, Self>,
+        data_init: &mut DataInit<'_, State>,
     ) {
-        data_init.init(resource, ());
+        // smithay's `GlobalData` routes the requests to `PointerWarpHandler`.
+        data_init.init(resource, GlobalData);
     }
 
-    fn can_view(client: Client, global_data: &PointerWarpGlobalData) -> bool {
-        (global_data.filter)(&client)
+    fn can_view(&self, client: &Client) -> bool {
+        (self.filter)(client)
     }
 }
 
-// ---------------------------------------------------------------------------
-// Dispatch — handle warp_pointer / destroy requests
-// ---------------------------------------------------------------------------
-
-impl Dispatch<WpPointerWarpV1, ()> for State {
-    fn request(
-        state: &mut Self,
-        _client: &Client,
-        _resource: &WpPointerWarpV1,
-        request: wp_pointer_warp_v1::Request,
-        _data: &(),
-        _dhandle: &DisplayHandle,
-        _data_init: &mut DataInit<'_, Self>,
-    ) {
-        match request {
-            wp_pointer_warp_v1::Request::WarpPointer { surface, pointer: _, x, y, serial: _ } => {
-                let pos: Point<f64, Logical> = (x, y).into();
-
-                // Find the window containing this surface.
-                let Some(window) =
-                    state.space.elements().find(|w| w.wl_surface().is_some_and(|s| *s == surface)).cloned()
-                else {
-                    tracing::debug!("pointer warp: surface not found in space");
-                    return;
-                };
-
-                let Some(element_loc) = state.space.element_location(&window) else {
-                    tracing::debug!("pointer warp: window has no location in space");
-                    return;
-                };
-
-                // Surface-local → global compositor coordinates.
-                let global_pos: Point<f64, Logical> =
-                    (element_loc.to_f64().x + pos.x, element_loc.to_f64().y + pos.y).into();
-
-                tracing::debug!(
-                    surface_x = pos.x,
-                    surface_y = pos.y,
-                    global_x = global_pos.x,
-                    global_y = global_pos.y,
-                    "pointer warp",
-                );
-
-                // Update pointer location and notify clients via motion event.
-                state.pointer_location = global_pos;
-
-                let serial = SERIAL_COUNTER.next_serial();
-                let under = crate::input::surface_under(state);
-                let pointer = state.pointer();
-                pointer.motion(state, under, &MotionEvent { location: global_pos, serial, time: 0 });
-                pointer.frame(state);
-            }
-            wp_pointer_warp_v1::Request::Destroy => {}
-            _ => {
-                tracing::debug!("unhandled pointer warp request");
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Registration helper
-// ---------------------------------------------------------------------------
-
-/// Register the `wp_pointer_warp_v1` global.
+/// Register the `wp_pointer_warp_v1` global for the clients `filter` accepts.
 pub fn init_pointer_warp(dh: &DisplayHandle, filter: impl Fn(&Client) -> bool + Send + Sync + 'static) -> GlobalId {
-    dh.create_global::<State, WpPointerWarpV1, _>(1, PointerWarpGlobalData { filter: Box::new(filter) })
+    dh.create_global::<State, WpPointerWarpV1, _>(1, PointerWarpGlobal { filter: Box::new(filter) })
+}
+
+impl PointerWarpHandler for State {
+    fn warp_pointer(&mut self, surface: WlSurface, _pointer: WlPointer, pos: Point<f64, Logical>, serial: Serial) {
+        let pointer = self.pointer();
+        if pointer.last_enter() != Some(serial) {
+            tracing::debug!("pointer warp ignored: stale enter serial");
+            return;
+        }
+        let Some(origin) = focused_surface_origin(self, &pointer, &surface) else {
+            tracing::debug!("pointer warp ignored: surface does not have pointer focus");
+            return;
+        };
+        let inside = with_renderer_surface_state(&surface, |s| s.surface_size())
+            .flatten()
+            .is_some_and(|size| pos.x >= 0.0 && pos.y >= 0.0 && pos.x < f64::from(size.w) && pos.y < f64::from(size.h));
+        if !inside {
+            tracing::debug!(x = pos.x, y = pos.y, "pointer warp ignored: position outside the surface");
+            return;
+        }
+        let target = origin + pos;
+        tracing::debug!(x = target.x, y = target.y, "pointer warp");
+        crate::input::move_pointer_to(self, target, InputTime::now());
+    }
+}
+
+/// The global origin of `surface` if it holds the pointer focus — directly,
+/// or as the focus an implicit grab started on.
+fn focused_surface_origin(
+    state: &State,
+    pointer: &PointerHandle<State>,
+    surface: &WlSurface,
+) -> Option<Point<f64, Logical>> {
+    let is_surface = |focus: &crate::focus::PointerFocusTarget| focus.wl_surface().is_some_and(|s| *s == *surface);
+    if pointer.current_focus().is_some_and(|focus| is_surface(&focus))
+        && let Some((focus, origin)) = crate::input::surface_under(state)
+        && is_surface(&focus)
+    {
+        return Some(origin);
+    }
+    pointer
+        .grab_start_data()
+        .and_then(|data| data.focus)
+        .and_then(|(focus, origin)| is_surface(&focus).then_some(origin))
 }

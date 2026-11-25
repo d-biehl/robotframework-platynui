@@ -1,34 +1,60 @@
-//! EIS (Emulated Input Server) — accepts libei clients for input injection.
+//! EIS (Emulated Input Server) — accepts libei sender clients for input
+//! emulation.
 //!
-//! Listens on a Unix socket (`$XDG_RUNTIME_DIR/eis-platynui`) and uses the
-//! `reis` crate's calloop integration to handle connections + input events.
-//! Single-client for now; a second connection replaces the first.
+//! Listens on `$XDG_RUNTIME_DIR/eis-platynui` (exported as `LIBEI_SOCKET`) and
+//! serves every connecting client through smithay's libei backend, each with
+//! its own devices; a new client never displaces another. Receiver contexts
+//! are refused by smithay.
+//!
+//! Each client gets a seat `default` with a keyboard (the compositor's
+//! configured keymap), a relative pointer, an absolute pointer and touch (one
+//! region per output, in global logical coordinates), plus buttons and scroll.
+//! No text device is created. EI events take the compositor's generic input
+//! path; absolute pointer and touch positions are used as the global
+//! positions they are.
+//!
+//! Keys go through a keyboard source of their own per client, and the buttons
+//! a client holds are tracked, so a client that disconnects without releasing
+//! leaves nothing pressed — keys and buttons held by other devices stay.
 
-use std::io;
-use std::os::unix::io::AsFd;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use calloop::LoopHandle;
-use reis::calloop::{EisListenerSource, EisRequestSource, EisRequestSourceEvent};
+use reis::calloop::EisListenerSource;
 use reis::eis;
-use reis::enumflags2::BitFlags;
-use reis::request::{Connection, Device, DeviceCapability, EisRequest};
-use smithay::backend::input::{ButtonState, KeyState, TouchSlot};
-use smithay::input::keyboard::{FilterResult, xkb};
-use smithay::input::pointer::{AxisFrame, MotionEvent};
-use smithay::utils::{Point, SERIAL_COUNTER};
+use smithay::{
+    backend::{
+        input::{
+            AbsolutePositionEvent, ButtonState, Event, InputEvent, KeyboardKeyEvent, PointerButtonEvent, TouchEvent,
+        },
+        libei::{EiInput, EiInputEvent, EiInputSeat, EiRegion},
+    },
+    input::keyboard::{FilterResult, KeyboardSource},
+    utils::{Logical, Point, SERIAL_COUNTER},
+};
 
 use crate::input;
 use crate::state::State;
 
-/// Bind the EIS listener and register it with the calloop event loop.
+/// What the compositor keeps per connected EI client.
+#[derive(Debug)]
+pub struct EisClient {
+    seat: Option<EiInputSeat>,
+    keyboard_source: KeyboardSource,
+    buttons: HashSet<u32>,
+}
+
+/// The connected EI clients, by connection number.
+pub type EisClients = HashMap<u64, EisClient>;
+
+/// Create the EIS listener and register it with the event loop.
 ///
 /// Returns the socket path on success (for setting `LIBEI_SOCKET`).
 pub fn setup_eis_server(handle: &LoopHandle<'static, State>) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let socket_name = "eis-platynui";
-    let path = eis_socket_path(socket_name);
+    let path = eis_socket_path("eis-platynui");
 
-    // Remove stale socket if it exists.
+    // Remove a stale socket if one exists.
     if path.exists() {
         std::fs::remove_file(&path)?;
     }
@@ -36,8 +62,26 @@ pub fn setup_eis_server(handle: &LoopHandle<'static, State>) -> Result<PathBuf, 
     let listener = eis::Listener::bind(&path)?;
     tracing::info!(path = %path.display(), "EIS server listening");
 
-    let listener_source = EisListenerSource::new(listener);
-    handle.insert_source(listener_source, |context, (), state| handle_new_eis_connection(context, state))?;
+    let loop_handle = handle.clone();
+    let mut next_id: u64 = 0;
+    handle.insert_source(EisListenerSource::new(listener), move |context, (), state| {
+        next_id += 1;
+        let id = next_id;
+        state.eis_clients.insert(
+            id,
+            EisClient { seat: None, keyboard_source: KeyboardSource::new_auxiliary(), buttons: HashSet::new() },
+        );
+        let inserted = loop_handle.insert_source(EiInput::new(context), move |event, connection, state| {
+            handle_event(state, id, event, connection);
+        });
+        if let Err(err) = inserted {
+            tracing::warn!(%err, "failed to register an EIS client");
+            state.eis_clients.remove(&id);
+        } else {
+            tracing::info!(client = id, "EIS client connected (handshake in progress)");
+        }
+        Ok(calloop::PostAction::Continue)
+    })?;
 
     Ok(path)
 }
@@ -48,381 +92,111 @@ fn eis_socket_path(name: &str) -> PathBuf {
     runtime_dir.join(name)
 }
 
-// ---------------------------------------------------------------------------
-// Connection lifecycle
-// ---------------------------------------------------------------------------
-
-/// Accept a new EIS client connection.
-fn handle_new_eis_connection(context: eis::Context, state: &mut State) -> io::Result<calloop::PostAction> {
-    // Disconnect previous client if any.
-    if let Some(token) = state.eis_client_token.take() {
-        tracing::info!("replacing previous EIS client");
-        if let Some(device) = state.eis_client_device.take() {
-            device.remove();
-        }
-        state.loop_handle.remove(token);
-    }
-
-    let request_source = EisRequestSource::new(context, 1);
-    let token = state.loop_handle.insert_source(request_source, handle_eis_event).map_err(io::Error::other)?;
-
-    state.eis_client_token = Some(token);
-    tracing::info!("new EIS client connected (handshake in progress)");
-    Ok(calloop::PostAction::Continue)
-}
-
-/// Handle events from an EIS client's `EisRequestSource`.
-#[allow(clippy::unnecessary_wraps)] // calloop EventSource requires io::Result<PostAction>
-fn handle_eis_event(
-    event: Result<EisRequestSourceEvent, reis::Error>,
-    connection: &mut Connection,
-    state: &mut State,
-) -> io::Result<calloop::PostAction> {
-    match event {
-        Ok(EisRequestSourceEvent::Connected) => {
-            handle_eis_connected(connection, state);
-            Ok(calloop::PostAction::Continue)
-        }
-        Ok(EisRequestSourceEvent::Request(request)) => {
-            handle_eis_request(&request, connection, state);
-            Ok(calloop::PostAction::Continue)
-        }
-        Err(err) => {
-            tracing::warn!(%err, "EIS client error, disconnecting");
-            cleanup_eis_client(state);
-            Ok(calloop::PostAction::Remove)
-        }
-    }
-}
-
-/// Handshake completed — advertise a seat with all capabilities.
-fn handle_eis_connected(connection: &Connection, state: &mut State) {
-    let client_name = connection.name().unwrap_or("<unknown>");
-    let context_type = connection.context_type();
-    tracing::info!(name = client_name, ?context_type, "EIS client handshake complete");
-
-    // Only sender context is valid — clients that send emulated input.
-    if context_type != eis::handshake::ContextType::Sender {
-        tracing::warn!(?context_type, "EIS client has wrong context type, expected Sender");
-        connection
-            .disconnected(eis::connection::DisconnectReason::Protocol, Some("only sender context type is supported"));
-        let _ = connection.flush();
-        cleanup_eis_client(state);
-        return;
-    }
-
-    // Advertise a seat with every capability except text input: we emulate
-    // pointer/keyboard/touch into Wayland but have no text-injection path, so
-    // advertising `Text` would only invite `TextKeysym`/`TextUtf8` events we'd
-    // silently drop. Device creation is deferred to the Bind handler (the
-    // client picks which of the advertised capabilities it wants).
-    let caps = BitFlags::all() & !DeviceCapability::Text;
-    let _seat = connection.add_seat(Some("default"), caps);
-    let _ = connection.flush();
-    tracing::debug!("EIS seat advertised, waiting for client Bind");
-}
-
-// ---------------------------------------------------------------------------
-// Request dispatch
-// ---------------------------------------------------------------------------
-
-/// Handle a high-level EIS request.
-fn handle_eis_request(request: &EisRequest, connection: &Connection, state: &mut State) {
-    match request {
-        EisRequest::Disconnect => {
-            tracing::info!("EIS client disconnected");
-            cleanup_eis_client(state);
-        }
-        EisRequest::Bind(bind) => {
-            handle_eis_bind(bind, connection, state);
-        }
-        EisRequest::PointerMotion(m) => handle_eis_pointer_motion(m, state),
-        EisRequest::PointerMotionAbsolute(m) => handle_eis_pointer_motion_absolute(m, state),
-        EisRequest::Button(b) => handle_eis_button(b, state),
-        EisRequest::ScrollDelta(s) => handle_eis_scroll_delta(s, state),
-        EisRequest::ScrollDiscrete(s) => handle_eis_scroll_discrete(s, state),
-        EisRequest::ScrollStop(s) => handle_eis_scroll_stop(s, state),
-        EisRequest::KeyboardKey(k) => handle_eis_keyboard_key(k, state),
-        EisRequest::TouchDown(t) => handle_eis_touch_down(t, state),
-        EisRequest::TouchMotion(t) => handle_eis_touch_motion(t, state),
-        EisRequest::TouchUp(t) => handle_eis_touch_up(t, state),
-        EisRequest::DeviceClosed(closed) => handle_eis_device_closed(closed, state),
-        // We implement only the `bind` device model (server-created devices).
-        // A client using `request_device` would otherwise get no device at all,
-        // so make the unsupported path visible rather than silently dropping it.
-        EisRequest::RequestDevice(_) => {
-            tracing::warn!("EIS client used request_device; only the bind device model is supported, ignoring");
-        }
-        // No-ops: emulation framing/lifecycle we don't act on, the device-ready
-        // handshake we don't gate on (we `resumed()` immediately), and text
-        // events that can't arrive because we no longer advertise `Text`.
-        EisRequest::DeviceStartEmulating(_)
-        | EisRequest::DeviceStopEmulating(_)
-        | EisRequest::Frame(_)
-        | EisRequest::Ready(_)
-        | EisRequest::ScrollCancel(_)
-        | EisRequest::TouchCancel(_)
-        | EisRequest::TextKeysym(_)
-        | EisRequest::TextUtf8(_) => {}
-    }
-    let _ = connection.flush();
-}
-
-// ---------------------------------------------------------------------------
-// Bind — client wants capabilities, create/update device
-// ---------------------------------------------------------------------------
-
-fn handle_eis_bind(bind: &reis::request::Bind, connection: &Connection, state: &mut State) {
-    let caps = bind.capabilities;
-    tracing::info!(?caps, "EIS client binding capabilities");
-
-    // Remove previous device if any (client re-binding).
-    if let Some(old_device) = state.eis_client_device.take() {
-        old_device.remove();
-    }
-
-    // Get the compositor's active XKB keymap for propagation to EIS clients.
-    let keymap_string = compositor_keymap_string(state);
-
-    // Capture shared borrows for the `before_done` closure (runs synchronously).
-    let outputs = &state.outputs;
-    let space = &state.space;
-
-    let device = bind.seat.add_device(Some("virtual-input"), eis::device::DeviceType::Virtual, caps, |device| {
-        // Before done: send regions for absolute pointer.
-        if device.has_capability(reis::request::DeviceCapability::PointerAbsolute) {
-            send_regions(device, outputs, space);
-        }
-        send_keymap_to_device(device, keymap_string.as_deref());
-    });
-
-    device.resumed();
-    let _ = connection.flush();
-    tracing::info!("EIS device created and resumed");
-
-    state.eis_client_device = Some(device);
-}
-
-/// Send output regions so that absolute pointer coordinates are meaningful.
-fn send_regions(
-    device: &Device,
-    outputs: &[smithay::output::Output],
-    space: &smithay::desktop::Space<smithay::desktop::Window>,
-) {
-    let eis_device = device.device();
-    for output in outputs {
-        if let Some(geo) = space.output_geometry(output) {
-            let scale = output.current_scale().fractional_scale();
-            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-            eis_device.region(geo.loc.x as u32, geo.loc.y as u32, geo.size.w as u32, geo.size.h as u32, scale as f32);
-            tracing::debug!(x = geo.loc.x, y = geo.loc.y, w = geo.size.w, h = geo.size.h, scale, "sent EIS region");
-        }
-    }
-}
-
-/// Get the compositor's active XKB keymap as a string.
-///
-/// Uses `with_xkb_state` to access the keymap that was configured via
-/// `compositor.toml` / CLI flags / `XKB_DEFAULT_*` env vars.
-fn compositor_keymap_string(state: &mut State) -> Option<String> {
-    let keyboard = state.keyboard();
-    keyboard.with_xkb_state(state, |xkb_context| {
-        let xkb = xkb_context.xkb().lock().ok()?;
-        // SAFETY: The keymap reference does not outlive this closure scope.
-        #[allow(unsafe_code)]
-        let keymap = unsafe { xkb.keymap() };
-        Some(keymap.get_as_string(xkb::KEYMAP_FORMAT_TEXT_V1))
-    })
-}
-
-/// Send the XKB keymap to the EIS keyboard device via a tempfile fd.
-fn send_keymap_to_device(device: &Device, keymap_string: Option<&str>) {
-    let Some(eis_keyboard) = device.interface::<eis::Keyboard>() else {
-        return;
-    };
-
-    let Some(keymap_str) = keymap_string else {
-        tracing::warn!("no keymap available for EIS device");
-        return;
-    };
-
-    match tempfile::tempfile() {
-        Ok(mut file) => {
-            use std::io::Write;
-            let keymap_bytes = keymap_str.as_bytes();
-            if let Err(err) = file.write_all(keymap_bytes) {
-                tracing::warn!(%err, "failed to write keymap to tempfile");
-                return;
-            }
-
+/// One region per output, in global logical coordinates.
+fn output_regions(state: &State) -> Vec<EiRegion> {
+    state
+        .outputs
+        .iter()
+        .filter_map(|output| {
+            let rect = state.space.output_geometry(output)?;
             #[allow(clippy::cast_possible_truncation)]
-            eis_keyboard.keymap(eis::keyboard::KeymapType::Xkb, keymap_bytes.len() as u32, file.as_fd());
-            tracing::debug!(size = keymap_bytes.len(), "sent EIS keymap");
+            let scale = output.current_scale().fractional_scale() as f32;
+            Some(EiRegion { rect, scale, mapping_id: Some(output.name()) })
+        })
+        .collect()
+}
+
+/// Send the current output regions to every connected client.
+pub fn outputs_changed(state: &State) {
+    let regions = output_regions(state);
+    for client in state.eis_clients.values() {
+        if let Some(seat) = &client.seat {
+            seat.update_regions(&regions);
         }
-        Err(err) => {
-            tracing::warn!(%err, "failed to create tempfile for keymap");
+    }
+}
+
+fn handle_event(
+    state: &mut State,
+    id: u64,
+    event: EiInputEvent,
+    connection: &mut smithay::backend::libei::EiInputConnection,
+) {
+    match event {
+        EiInputEvent::Connected => {
+            tracing::info!(
+                client = id,
+                name = connection.name().unwrap_or("<unknown>"),
+                "EIS client handshake complete"
+            );
+            let seat = connection.add_seat("default");
+            if let Err(err) = seat.add_keyboard("keyboard", state.xkb_names.config()) {
+                tracing::warn!(?err, "EIS: cannot build the keyboard keymap");
+            }
+            seat.add_pointer("pointer");
+            let regions = output_regions(state);
+            seat.add_pointer_absolute("absolute pointer", &regions);
+            seat.add_touch("touch", &regions);
+            if let Some(client) = state.eis_clients.get_mut(&id) {
+                client.seat = Some(seat);
+            }
         }
+        EiInputEvent::Disconnected => disconnected(state, id),
+        EiInputEvent::Event(event) => handle_input(state, id, event),
     }
 }
 
-// ---------------------------------------------------------------------------
-// Input event handlers
-// ---------------------------------------------------------------------------
-
-fn handle_eis_pointer_motion(motion: &reis::request::PointerMotion, state: &mut State) {
-    let serial = SERIAL_COUNTER.next_serial();
-    state.pointer_location += (f64::from(motion.dx), f64::from(motion.dy)).into();
-    input::clamp_pointer_location(state);
-    input::update_cursor_shape(state);
-
-    let under = input::surface_under(state);
-    let pointer = state.pointer();
-    pointer.motion(
-        state,
-        under,
-        &MotionEvent { location: state.pointer_location, serial, time: eis_time_to_msec(motion.time) },
-    );
-    pointer.frame(state);
+fn handle_input(state: &mut State, id: u64, event: InputEvent<EiInput>) {
+    match event {
+        InputEvent::Keyboard { event } => {
+            let Some(source) = state.eis_clients.get(&id).map(|c| c.keyboard_source) else { return };
+            input::activate_compositor_keymap(state);
+            let keyboard = state.keyboard();
+            let serial = SERIAL_COUNTER.next_serial();
+            keyboard.input_from_source::<(), _>(
+                source,
+                state,
+                event.key_code(),
+                event.state(),
+                serial,
+                Event::time(&event),
+                |_, _, _| FilterResult::Forward,
+            );
+        }
+        InputEvent::PointerMotionAbsolute { event } => {
+            // EI absolute positions are global logical coordinates.
+            let location = state.clamp_to_outputs(Point::<f64, Logical>::from((event.x(), event.y())));
+            input::move_pointer_to(state, location, event.time());
+        }
+        InputEvent::PointerButton { event } => {
+            if let Some(client) = state.eis_clients.get_mut(&id) {
+                match event.state() {
+                    ButtonState::Pressed => client.buttons.insert(event.button_code()),
+                    ButtonState::Released => client.buttons.remove(&event.button_code()),
+                };
+            }
+            input::process_pointer_button(state, event.button_code(), event.state(), event.time());
+        }
+        InputEvent::TouchDown { event } => {
+            input::process_touch_down(state, (event.x(), event.y()).into(), event.slot(), event.time());
+        }
+        InputEvent::TouchMotion { event } => {
+            input::process_touch_motion(state, (event.x(), event.y()).into(), event.slot(), event.time());
+        }
+        InputEvent::TouchUp { event } => input::process_touch_up(state, event.slot(), event.time()),
+        // No text device is created, so no text events arrive.
+        InputEvent::Special(_) | InputEvent::DeviceAdded { .. } | InputEvent::DeviceRemoved { .. } => {}
+        other => input::process_input_event(state, other),
+    }
 }
 
-fn handle_eis_pointer_motion_absolute(motion: &reis::request::PointerMotionAbsolute, state: &mut State) {
-    let serial = SERIAL_COUNTER.next_serial();
-    state.pointer_location = Point::from((f64::from(motion.dx_absolute), f64::from(motion.dy_absolute)));
-    input::clamp_pointer_location(state);
-    input::update_cursor_shape(state);
-
-    let under = input::surface_under(state);
-    let pointer = state.pointer();
-    pointer.motion(
-        state,
-        under,
-        &MotionEvent { location: state.pointer_location, serial, time: eis_time_to_msec(motion.time) },
-    );
-    pointer.frame(state);
-}
-
-fn handle_eis_button(button: &reis::request::Button, state: &mut State) {
-    let button_state =
-        if button.state == eis::button::ButtonState::Press { ButtonState::Pressed } else { ButtonState::Released };
-    tracing::trace!(button = button.button, ?button_state, "EIS button");
-    input::process_pointer_button(state, button.button, button_state, eis_time_to_msec(button.time));
-}
-
-fn handle_eis_scroll_delta(scroll: &reis::request::ScrollDelta, state: &mut State) {
-    let time = eis_time_to_msec(scroll.time);
-    let mut frame = AxisFrame::new(time).source(smithay::backend::input::AxisSource::Finger);
-    if scroll.dx != 0.0 {
-        frame = frame.value(smithay::backend::input::Axis::Horizontal, f64::from(scroll.dx));
-    }
-    if scroll.dy != 0.0 {
-        frame = frame.value(smithay::backend::input::Axis::Vertical, f64::from(scroll.dy));
-    }
-    let pointer = state.pointer();
-    pointer.axis(state, frame);
-    pointer.frame(state);
-}
-
-fn handle_eis_scroll_discrete(scroll: &reis::request::ScrollDiscrete, state: &mut State) {
-    let time = eis_time_to_msec(scroll.time);
-    let mut frame = AxisFrame::new(time).source(smithay::backend::input::AxisSource::Wheel);
-    if scroll.discrete_dx != 0 {
-        frame = frame.v120(smithay::backend::input::Axis::Horizontal, scroll.discrete_dx);
-    }
-    if scroll.discrete_dy != 0 {
-        frame = frame.v120(smithay::backend::input::Axis::Vertical, scroll.discrete_dy);
-    }
-    let pointer = state.pointer();
-    pointer.axis(state, frame);
-    pointer.frame(state);
-}
-
-fn handle_eis_scroll_stop(scroll: &reis::request::ScrollStop, state: &mut State) {
-    let time = eis_time_to_msec(scroll.time);
-    let mut frame = AxisFrame::new(time);
-    if scroll.x {
-        frame = frame.stop(smithay::backend::input::Axis::Horizontal);
-    }
-    if scroll.y {
-        frame = frame.stop(smithay::backend::input::Axis::Vertical);
-    }
-    let pointer = state.pointer();
-    pointer.axis(state, frame);
-    pointer.frame(state);
-}
-
-fn handle_eis_keyboard_key(key: &reis::request::KeyboardKey, state: &mut State) {
-    let key_state = if key.state == eis::keyboard::KeyState::Press { KeyState::Pressed } else { KeyState::Released };
-    tracing::trace!(key = key.key, ?key_state, "EIS keyboard key");
-
-    let serial = SERIAL_COUNTER.next_serial();
+/// Release what a departing client still holds and forget it.
+fn disconnected(state: &mut State, id: u64) {
+    let Some(client) = state.eis_clients.remove(&id) else { return };
+    tracing::info!(client = id, "EIS client disconnected");
     let keyboard = state.keyboard();
-    let time = eis_time_to_msec(key.time);
-    // EIS sends Linux evdev scancodes; XKB keycodes are offset by +8.
-    let keycode = smithay::input::keyboard::Keycode::new(key.key + 8);
-    keyboard.input::<(), _>(state, keycode, key_state, serial, time, |_, _, _| FilterResult::Forward);
-}
-
-fn handle_eis_touch_down(touch: &reis::request::TouchDown, state: &mut State) {
-    let location = Point::from((f64::from(touch.x), f64::from(touch.y)));
-    let time = eis_time_to_msec(touch.time);
-    let slot = TouchSlot::from(Some(touch.touch_id));
-
-    tracing::debug!(touch_id = touch.touch_id, x = touch.x, y = touch.y, "EIS touch down");
-
-    input::process_touch_down(state, location, slot, time);
-}
-
-fn handle_eis_touch_motion(touch: &reis::request::TouchMotion, state: &mut State) {
-    let location = Point::from((f64::from(touch.x), f64::from(touch.y)));
-    let time = eis_time_to_msec(touch.time);
-    let slot = TouchSlot::from(Some(touch.touch_id));
-
-    tracing::trace!(touch_id = touch.touch_id, x = touch.x, y = touch.y, "EIS touch motion");
-
-    input::process_touch_motion(state, location, slot, time);
-}
-
-fn handle_eis_touch_up(touch: &reis::request::TouchUp, state: &mut State) {
-    let time = eis_time_to_msec(touch.time);
-    let slot = TouchSlot::from(Some(touch.touch_id));
-
-    tracing::debug!(touch_id = touch.touch_id, "EIS touch up");
-
-    input::process_touch_up(state, slot, time);
-}
-
-// ---------------------------------------------------------------------------
-// Device release
-// ---------------------------------------------------------------------------
-
-/// The client released its device via `ei_device.release`. Drop our tracked
-/// handle and complete teardown with `Device::remove`, as reis documents. The
-/// connection stays alive, so the client may bind a fresh device afterwards.
-fn handle_eis_device_closed(closed: &reis::request::DeviceClosed, state: &mut State) {
-    state.eis_client_device.take();
-    closed.device.remove();
-    tracing::info!("EIS client released its device");
-}
-
-// ---------------------------------------------------------------------------
-// Cleanup
-// ---------------------------------------------------------------------------
-
-fn cleanup_eis_client(state: &mut State) {
-    if let Some(device) = state.eis_client_device.take() {
-        device.remove();
+    keyboard.release_source(state, client.keyboard_source);
+    for button in client.buttons {
+        input::process_pointer_button(state, button, ButtonState::Released, smithay::backend::input::InputTime::now());
     }
-    if let Some(token) = state.eis_client_token.take() {
-        state.loop_handle.remove(token);
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Convert EIS time (microseconds) to Wayland time (milliseconds).
-#[allow(clippy::cast_possible_truncation)]
-fn eis_time_to_msec(us: u64) -> u32 {
-    (us / 1000) as u32
 }

@@ -4,8 +4,8 @@ use std::borrow::Cow;
 
 use smithay::{
     backend::input::{
-        AbsolutePositionEvent, Axis, ButtonState, Event, InputBackend, InputEvent, KeyState, KeyboardKeyEvent,
-        PointerAxisEvent, PointerButtonEvent, PointerMotionEvent, TouchEvent as BackendTouchEvent,
+        AbsolutePositionEvent, Axis, ButtonState, Event, InputBackend, InputEvent, InputTime, KeyState,
+        KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent, PointerMotionEvent, TouchEvent as BackendTouchEvent,
     },
     desktop::{Window, WindowSurfaceType, layer_map_for_output},
     input::{
@@ -74,7 +74,9 @@ pub fn release_all_pressed_inputs(state: &mut State) {
         tracing::info!(count = pressed_keys.len(), "releasing stuck keys on focus loss");
         for key_code in pressed_keys {
             let serial = SERIAL_COUNTER.next_serial();
-            keyboard.input::<(), _>(state, key_code, KeyState::Released, serial, 0, |_, _, _| FilterResult::Forward);
+            keyboard.input::<(), _>(state, key_code, KeyState::Released, serial, InputTime::now(), |_, _, _| {
+                FilterResult::Forward
+            });
         }
     }
 
@@ -85,21 +87,45 @@ pub fn release_all_pressed_inputs(state: &mut State) {
         let pointer = state.pointer();
         for button in pressed_buttons {
             let serial = SERIAL_COUNTER.next_serial();
-            pointer.button(state, &ButtonEvent { serial, time: 0, button, state: ButtonState::Released });
+            pointer
+                .button(state, &ButtonEvent { serial, time: InputTime::now(), button, state: ButtonState::Released });
         }
         let pointer = state.pointer();
         pointer.frame(state);
     }
 }
 
+/// Make `keymap` the seat keyboard's active keymap, unless it already is.
+///
+/// Key codes only mean something under a keymap. A virtual keyboard brings its
+/// own; every other source (devices, the control socket, EIS) uses the
+/// compositor's. Switching only when the source's keymap differs from the
+/// active one keeps the `wl_keyboard.keymap` events clients get to a minimum.
+pub(crate) fn activate_keymap(state: &mut State, keymap: &smithay::input::keyboard::KeymapFile) {
+    let keyboard = state.keyboard();
+    if keyboard.keymap_file().id() == keymap.id() {
+        return;
+    }
+    if let Err(err) = keyboard.set_keymap_from_keymap_file(state, keymap.clone()) {
+        tracing::warn!(?err, "failed to activate keymap");
+    }
+}
+
+/// Make the compositor's configured keymap active (see [`activate_keymap`]).
+pub(crate) fn activate_compositor_keymap(state: &mut State) {
+    let keymap = state.compositor_keymap.clone();
+    activate_keymap(state, &keymap);
+}
+
 fn handle_keyboard<B: InputBackend>(state: &mut State, event: &B::KeyboardKeyEvent) {
     use smithay::backend::session::Session;
 
     let serial = SERIAL_COUNTER.next_serial();
-    let time = Event::time_msec(event);
+    let time = Event::time(event);
     let key_code = event.key_code();
     let key_state: KeyState = event.state();
 
+    activate_compositor_keymap(state);
     let keyboard = state.keyboard();
     tracing::debug!(key_code = key_code.raw(), ?key_state, "keyboard event");
     keyboard.input::<(), _>(state, key_code, key_state, serial, time, |data, _modifiers, handle| {
@@ -136,13 +162,11 @@ fn handle_pointer_motion<B: InputBackend>(state: &mut State, event: &B::PointerM
 
     let under = surface_under(state);
     let pointer = state.pointer();
-    pointer.motion(state, under, &MotionEvent { location: state.pointer_location, serial, time: event.time_msec() });
+    pointer.motion(state, under, &MotionEvent { location: state.pointer_location, serial, time: event.time() });
     pointer.frame(state);
 }
 
 fn handle_pointer_motion_absolute<B: InputBackend>(state: &mut State, event: &B::PointerMotionAbsoluteEvent) {
-    let serial = SERIAL_COUNTER.next_serial();
-
     // Use combined output bounds so absolute events span all monitors.
     let combined_geo = state.combined_output_geometry();
     let pos = event.position_transformed(combined_geo.size);
@@ -151,21 +175,32 @@ fn handle_pointer_motion_absolute<B: InputBackend>(state: &mut State, event: &B:
     // the visual host cursor and the logical pointer position, breaking
     // subsequent interactions (e.g. can't click on a window a second time).
     // Dead-zone handling for windows is done in the move grab instead.
-    state.pointer_location = (pos.x + f64::from(combined_geo.loc.x), pos.y + f64::from(combined_geo.loc.y)).into();
+    let location = (pos.x + f64::from(combined_geo.loc.x), pos.y + f64::from(combined_geo.loc.y)).into();
+    tracing::trace!(x = pos.x, y = pos.y, "pointer motion absolute");
+    move_pointer_to(state, location, event.time());
+}
 
+/// Move the pointer to a global logical position and send the motion to the
+/// surface under it.
+///
+/// The position is taken as given — absolute sources (the winit host cursor,
+/// virtual pointers) are not clamped to the outputs; a source that wants
+/// clamping clamps before calling.
+pub(crate) fn move_pointer_to(state: &mut State, location: Point<f64, Logical>, time: InputTime) {
+    let serial = SERIAL_COUNTER.next_serial();
+    state.pointer_location = location;
     update_cursor_shape(state);
 
     let under = surface_under(state);
-    tracing::trace!(x = pos.x, y = pos.y, has_target = under.is_some(), "pointer motion absolute",);
     let pointer = state.pointer();
-    pointer.motion(state, under, &MotionEvent { location: state.pointer_location, serial, time: event.time_msec() });
+    pointer.motion(state, under, &MotionEvent { location, serial, time });
     pointer.frame(state);
 }
 
 fn handle_pointer_button<B: InputBackend>(state: &mut State, event: &B::PointerButtonEvent) {
     let button = event.button_code();
     let button_state = event.state();
-    let time = event.time_msec();
+    let time = event.time();
     process_pointer_button(state, button, button_state, time);
 }
 
@@ -175,7 +210,7 @@ fn handle_pointer_button<B: InputBackend>(state: &mut State, event: &B::PointerB
 /// Handles decoration hit-testing, window focus/raise, titlebar buttons,
 /// context menus, and forwarding the event to the Wayland seat.
 #[allow(clippy::too_many_lines)]
-pub(crate) fn process_pointer_button(state: &mut State, button: u32, button_state: ButtonState, time: u32) {
+pub(crate) fn process_pointer_button(state: &mut State, button: u32, button_state: ButtonState, time: InputTime) {
     // Track pressed buttons for focus-loss cleanup.
     match button_state {
         ButtonState::Pressed => state.pressed_buttons.push(button),
@@ -341,7 +376,7 @@ fn handle_pointer_axis<B: InputBackend>(state: &mut State, event: &B::PointerAxi
         event.amount_v120(Axis::Vertical).unwrap_or(0.0) * SCROLL_PIXELS_PER_NOTCH / V120_UNITS_PER_NOTCH
     });
 
-    let mut frame = AxisFrame::new(event.time_msec()).source(source);
+    let mut frame = AxisFrame::new(event.time()).source(source);
 
     if horizontal_amount != 0.0 {
         frame = frame.value(Axis::Horizontal, horizontal_amount);
@@ -372,7 +407,7 @@ fn handle_touch_down<B: InputBackend>(state: &mut State, event: &B::TouchDownEve
     let pos = event.position_transformed(combined_geo.size);
     let location = (pos.x + f64::from(combined_geo.loc.x), pos.y + f64::from(combined_geo.loc.y)).into();
     let slot = event.slot();
-    process_touch_down(state, location, slot, event.time_msec());
+    process_touch_down(state, location, slot, event.time());
 }
 
 fn handle_touch_motion<B: InputBackend>(state: &mut State, event: &B::TouchMotionEvent) {
@@ -380,7 +415,7 @@ fn handle_touch_motion<B: InputBackend>(state: &mut State, event: &B::TouchMotio
     let pos = event.position_transformed(combined_geo.size);
     let location = (pos.x + f64::from(combined_geo.loc.x), pos.y + f64::from(combined_geo.loc.y)).into();
     let slot = event.slot();
-    process_touch_motion(state, location, slot, event.time_msec());
+    process_touch_motion(state, location, slot, event.time());
 }
 
 /// Core touch-motion logic shared by backend input events and EIS.
@@ -391,7 +426,7 @@ pub(crate) fn process_touch_motion(
     state: &mut State,
     location: Point<f64, Logical>,
     slot: smithay::backend::input::TouchSlot,
-    time: u32,
+    time: InputTime,
 ) {
     // Keep the deferred SSD-button position up to date so touch-up can
     // verify the finger is still over the same button.
@@ -409,7 +444,7 @@ pub(crate) fn process_touch_motion(
 
 fn handle_touch_up<B: InputBackend>(state: &mut State, event: &B::TouchUpEvent) {
     let slot = event.slot();
-    process_touch_up(state, slot, event.time_msec());
+    process_touch_up(state, slot, event.time());
 }
 
 /// Core touch-down logic shared by backend input events and EIS.
@@ -422,7 +457,7 @@ pub(crate) fn process_touch_down(
     state: &mut State,
     location: Point<f64, Logical>,
     slot: smithay::backend::input::TouchSlot,
-    time: u32,
+    time: InputTime,
 ) {
     let serial = SERIAL_COUNTER.next_serial();
     let focus = surface_under_point(state, location);
@@ -501,7 +536,7 @@ pub(crate) fn process_touch_down(
 ///
 /// Handles deferred SSD button actions (close/maximize/minimize) — the button
 /// fires on touch-up if the finger is still over the same button.
-pub(crate) fn process_touch_up(state: &mut State, slot: smithay::backend::input::TouchSlot, time: u32) {
+pub(crate) fn process_touch_up(state: &mut State, slot: smithay::backend::input::TouchSlot, time: InputTime) {
     let serial = SERIAL_COUNTER.next_serial();
 
     // Deferred SSD button action (mirrors pointer's pressed_titlebar_button).
@@ -588,7 +623,7 @@ fn has_x11_override_redirect_windows(state: &State) -> bool {
 /// expects, and the menu loop exits normally.
 ///
 /// Returns `true` when a bridge was performed (consumes the click).
-fn bridge_x11_pointer_grab(state: &mut State, button: u32, serial: Serial, time: u32) -> bool {
+fn bridge_x11_pointer_grab(state: &mut State, button: u32, serial: Serial, time: InputTime) -> bool {
     if !has_x11_override_redirect_windows(state) {
         return false;
     }
@@ -648,7 +683,8 @@ fn handle_decoration_click(
         }
         DecorationClick::Maximize => {
             if let Some(toplevel) = window.toplevel() {
-                let is_maximized = toplevel.current_state().states.contains(xdg_toplevel::State::Maximized);
+                let is_maximized = toplevel
+                    .with_committed_state(|s| s.is_some_and(|s| s.states.contains(xdg_toplevel::State::Maximized)));
                 if is_maximized {
                     crate::handlers::xdg_shell::do_unmaximize(state, toplevel);
                 } else {
@@ -718,7 +754,7 @@ fn maximize_x11_window(state: &mut State, window: &Window, x11: &smithay::xwayla
         // Save current position and size
         if let Some(current_loc) = state.space.element_location(window) {
             state.pre_maximize_positions.retain(|(w, _, _)| w != window);
-            state.pre_maximize_positions.push((window.clone(), current_loc, Some(x11.geometry().size)));
+            state.pre_maximize_positions.push((window.clone(), current_loc, Some(crate::xwayland::x11_size(x11))));
         }
 
         // Maximize to usable area minus titlebar
@@ -869,7 +905,7 @@ fn open_titlebar_context_menu(state: &mut State, window: &Window, serial: Serial
     state.space.raise_element(window, true);
 
     let is_maximized = if let Some(toplevel) = window.toplevel() {
-        toplevel.current_state().states.contains(xdg_toplevel::State::Maximized)
+        toplevel.with_committed_state(|s| s.is_some_and(|s| s.states.contains(xdg_toplevel::State::Maximized)))
     } else if let Some(x11) = window.x11_surface() {
         x11.is_maximized()
     } else {

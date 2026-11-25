@@ -1,7 +1,8 @@
 //! Wayland protocol handler implementations.
 //!
-//! Each sub-module implements one or more protocol handler traits required
-//! by smithay's `delegate_*!()` macros.
+//! Each sub-module implements the handler traits a smithay protocol module
+//! requires, or implements a protocol itself through `Dispatch2` /
+//! `GlobalDispatch2`; `delegate_dispatch2!` in `state.rs` routes them all.
 
 pub mod compositor;
 pub mod cursor_shape;

@@ -11,14 +11,16 @@
 //! Our compositor stores tags and descriptions in-memory per toplevel for
 //! potential automation queries but does not persist them across sessions.
 //!
-//! Smithay 0.7 does not provide a high-level abstraction for this protocol.
-//! We implement `GlobalDispatch` / `Dispatch` manually using the generated
-//! bindings from `wayland-protocols 0.32`.
+//! Smithay has its own `wayland::xdg_toplevel_tag` module; this compositor
+//! keeps a handler of its own, which stores tag and description per toplevel.
+//! It implements `GlobalDispatch2` / `Dispatch2` on the generated bindings from
+//! `wayland-protocols`.
 
 use smithay::reexports::{
     wayland_protocols::xdg::toplevel_tag::v1::server::xdg_toplevel_tag_manager_v1::{self, XdgToplevelTagManagerV1},
-    wayland_server::{Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource, backend::GlobalId},
+    wayland_server::{Client, DataInit, DisplayHandle, New, Resource, backend::GlobalId},
 };
+use smithay::wayland::{Dispatch2, GlobalDispatch2};
 
 use crate::state::State;
 
@@ -39,14 +41,14 @@ pub struct ToplevelTagInfo {
 // GlobalDispatch — advertise the xdg_toplevel_tag_manager_v1 global
 // ---------------------------------------------------------------------------
 
-impl GlobalDispatch<XdgToplevelTagManagerV1, ()> for State {
+impl GlobalDispatch2<XdgToplevelTagManagerV1, State> for () {
     fn bind(
-        _state: &mut Self,
+        &self,
+        _state: &mut State,
         _handle: &DisplayHandle,
         _client: &Client,
         resource: New<XdgToplevelTagManagerV1>,
-        _global_data: &(),
-        data_init: &mut DataInit<'_, Self>,
+        data_init: &mut DataInit<'_, State>,
     ) {
         data_init.init(resource, ());
     }
@@ -56,15 +58,15 @@ impl GlobalDispatch<XdgToplevelTagManagerV1, ()> for State {
 // Dispatch — handle manager requests (destroy, set_toplevel_tag, set_toplevel_description)
 // ---------------------------------------------------------------------------
 
-impl Dispatch<XdgToplevelTagManagerV1, ()> for State {
+impl Dispatch2<XdgToplevelTagManagerV1, State> for () {
     fn request(
-        state: &mut Self,
+        &self,
+        state: &mut State,
         _client: &Client,
         _resource: &XdgToplevelTagManagerV1,
         request: xdg_toplevel_tag_manager_v1::Request,
-        _data: &(),
         _dhandle: &DisplayHandle,
-        _data_init: &mut DataInit<'_, Self>,
+        _data_init: &mut DataInit<'_, State>,
     ) {
         match request {
             xdg_toplevel_tag_manager_v1::Request::SetToplevelTag { toplevel, tag } => {

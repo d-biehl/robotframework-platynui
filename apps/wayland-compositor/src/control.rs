@@ -49,17 +49,16 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use smithay::backend::input::{AxisSource, ButtonState, KeyState};
+use smithay::backend::input::{AxisSource, ButtonState, InputTime, KeyState};
 use smithay::desktop::space::SpaceElement;
 use smithay::desktop::utils::bbox_from_surface_tree;
-use smithay::desktop::{PopupManager, Window};
+use smithay::desktop::{PopupKind, PopupManager, Window};
 use smithay::input::keyboard::{FilterResult, xkb};
 use smithay::input::pointer::{AxisFrame, MotionEvent};
 use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{Logical, Physical, Point, Rectangle, SERIAL_COUNTER, Size};
 use smithay::wayland::compositor::{self, SurfaceAttributes};
 use smithay::wayland::seat::WaylandFocus;
-use smithay::wayland::shell::xdg::XdgPopupSurfaceData;
 
 use crate::client::ClientState;
 use crate::handlers::foreign_toplevel;
@@ -810,19 +809,20 @@ fn process_input_command(command: &str, request: &Request, state: &mut State) ->
 //  Input injection helpers
 // ---------------------------------------------------------------------------
 
-/// Get the current compositor time in milliseconds (for smithay event timestamps).
-#[allow(clippy::cast_possible_truncation)]
-fn current_time_msec(state: &State) -> u32 {
-    state.start_time.elapsed().as_millis() as u32
+/// The timestamp of an injected event: the monotonic clock, the same base as
+/// libinput's event times and smithay's synthesized events.
+fn injection_time() -> InputTime {
+    InputTime::now()
 }
 
 /// Inject a keyboard key press or release via the smithay input stack.
 fn inject_key_event(state: &mut State, evdev_key: u32, pressed: bool) {
     let key_state = if pressed { KeyState::Pressed } else { KeyState::Released };
     let serial = SERIAL_COUNTER.next_serial();
-    let time = current_time_msec(state);
+    let time = injection_time();
     // Evdev scancodes → XKB keycodes are offset by +8.
     let keycode = smithay::input::keyboard::Keycode::new(evdev_key + 8);
+    input::activate_compositor_keymap(state);
     let keyboard = state.keyboard();
     keyboard.input::<(), _>(state, keycode, key_state, serial, time, |_, _, _| FilterResult::Forward);
 }
@@ -835,7 +835,7 @@ fn inject_pointer_move(state: &mut State, x: f64, y: f64) {
     input::update_cursor_shape(state);
 
     let under = input::surface_under(state);
-    let time = current_time_msec(state);
+    let time = injection_time();
     let pointer = state.pointer();
     pointer.motion(state, under, &MotionEvent { location: state.pointer_location, serial, time });
     pointer.frame(state);
@@ -844,14 +844,14 @@ fn inject_pointer_move(state: &mut State, x: f64, y: f64) {
 /// Inject a pointer button press or release via the smithay input stack.
 fn inject_pointer_button(state: &mut State, button: u32, pressed: bool) {
     let button_state = if pressed { ButtonState::Pressed } else { ButtonState::Released };
-    let time = current_time_msec(state);
+    let time = injection_time();
     input::process_pointer_button(state, button, button_state, time);
 }
 
 /// Inject a scroll event via the smithay input stack.
 #[allow(clippy::cast_possible_truncation)]
 fn inject_pointer_scroll(state: &mut State, dx: f64, dy: f64) {
-    let time = current_time_msec(state);
+    let time = injection_time();
     // The control socket carries PlatynUI MOUSE-WHEEL deltas in v120 units (120 = one notch), in the
     // platform's "down/right is negative" convention (matching the `scroll_step` (0, -120) default and
     // the X11 wheel buttons). Wayland's axis convention is the opposite — positive is down/right — so
@@ -1133,18 +1133,26 @@ fn resolve_window_index(
 /// Check if a window is maximized.
 fn is_maximized(window: &Window) -> bool {
     window.toplevel().is_some_and(|t| {
-        t.current_state()
-            .states
-            .contains(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Maximized)
+        t.with_committed_state(|state| {
+            state.is_some_and(|state| {
+                state
+                    .states
+                    .contains(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Maximized)
+            })
+        })
     })
 }
 
 /// Check if a window is fullscreen.
 fn is_fullscreen(window: &Window) -> bool {
     window.toplevel().is_some_and(|t| {
-        t.current_state()
-            .states
-            .contains(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Fullscreen)
+        t.with_committed_state(|state| {
+            state.is_some_and(|state| {
+                state.states.contains(
+                    smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Fullscreen,
+                )
+            })
+        })
     })
 }
 
@@ -1274,12 +1282,10 @@ fn list_popups(state: &State) -> Vec<PopupInfo> {
             // `set_window_geometry` and may be unset. Until the client acks
             // the initial configure and commits, this rect is empty: such a
             // popup is not mapped yet and must not be reported.
-            let placed = compositor::with_states(popup.wl_surface(), |states| {
-                states
-                    .data_map
-                    .get::<XdgPopupSurfaceData>()
-                    .map_or_default(|attrs| attrs.lock().expect("xdg popup attributes poisoned").current.geometry)
-            });
+            let placed = match &popup {
+                PopupKind::Xdg(xdg) => xdg.with_committed_state(|state| state.map_or_default(|state| state.geometry)),
+                PopupKind::InputMethod(_) => Rectangle::default(),
+            };
             if placed.size.w <= 0 || placed.size.h <= 0 {
                 continue;
             }

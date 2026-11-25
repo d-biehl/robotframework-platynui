@@ -59,7 +59,7 @@ pub fn window_has_ssd(window: &Window) -> bool {
         let pending_mode = toplevel.with_pending_state(|s| s.decoration_mode);
         return match pending_mode {
             Some(mode) => mode == Mode::ServerSide,
-            None => toplevel.current_state().decoration_mode == Some(Mode::ServerSide),
+            None => crate::handlers::xdg_shell::committed_state(toplevel).decoration_mode == Some(Mode::ServerSide),
         };
     }
 
@@ -78,7 +78,7 @@ pub fn window_has_ssd(window: &Window) -> bool {
 #[must_use]
 pub fn window_is_fullscreen(window: &Window) -> bool {
     if let Some(toplevel) = window.toplevel() {
-        return toplevel.current_state().states.contains(xdg_toplevel::State::Fullscreen);
+        return crate::handlers::xdg_shell::committed_state(toplevel).states.contains(xdg_toplevel::State::Fullscreen);
     }
     if let Some(x11) = window.x11_surface() {
         return x11.is_fullscreen();

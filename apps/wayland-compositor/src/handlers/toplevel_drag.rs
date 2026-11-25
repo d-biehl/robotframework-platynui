@@ -9,17 +9,18 @@
 //! behaviour is not yet implemented.  The `attach` request is accepted and
 //! logged but has no compositor-side effect.
 //!
-//! Smithay 0.7 does not provide a high-level abstraction for this protocol.
-//! We implement `GlobalDispatch` / `Dispatch` manually using the generated
-//! bindings from `wayland-protocols 0.32`.
+//! Smithay provides no abstraction for this protocol, so this module
+//! implements `GlobalDispatch2` / `Dispatch2` on the generated bindings from
+//! `wayland-protocols`.
 
 use smithay::reexports::{
     wayland_protocols::xdg::toplevel_drag::v1::server::{
         xdg_toplevel_drag_manager_v1::{self, XdgToplevelDragManagerV1},
         xdg_toplevel_drag_v1::{self, XdgToplevelDragV1},
     },
-    wayland_server::{Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, backend::GlobalId},
+    wayland_server::{Client, DataInit, DisplayHandle, New, backend::GlobalId},
 };
+use smithay::wayland::{Dispatch2, GlobalDispatch2};
 
 use crate::state::State;
 
@@ -27,14 +28,14 @@ use crate::state::State;
 // GlobalDispatch — advertise the xdg_toplevel_drag_manager_v1 global
 // ---------------------------------------------------------------------------
 
-impl GlobalDispatch<XdgToplevelDragManagerV1, ()> for State {
+impl GlobalDispatch2<XdgToplevelDragManagerV1, State> for () {
     fn bind(
-        _state: &mut Self,
+        &self,
+        _state: &mut State,
         _handle: &DisplayHandle,
         _client: &Client,
         resource: New<XdgToplevelDragManagerV1>,
-        _global_data: &(),
-        data_init: &mut DataInit<'_, Self>,
+        data_init: &mut DataInit<'_, State>,
     ) {
         data_init.init(resource, ());
     }
@@ -44,15 +45,15 @@ impl GlobalDispatch<XdgToplevelDragManagerV1, ()> for State {
 // Dispatch — handle manager requests (destroy + get_xdg_toplevel_drag)
 // ---------------------------------------------------------------------------
 
-impl Dispatch<XdgToplevelDragManagerV1, ()> for State {
+impl Dispatch2<XdgToplevelDragManagerV1, State> for () {
     fn request(
-        _state: &mut Self,
+        &self,
+        _state: &mut State,
         _client: &Client,
         _resource: &XdgToplevelDragManagerV1,
         request: xdg_toplevel_drag_manager_v1::Request,
-        _data: &(),
         _dhandle: &DisplayHandle,
-        data_init: &mut DataInit<'_, Self>,
+        data_init: &mut DataInit<'_, State>,
     ) {
         match request {
             xdg_toplevel_drag_manager_v1::Request::GetXdgToplevelDrag { id, data_source: _ } => {
@@ -71,15 +72,15 @@ impl Dispatch<XdgToplevelDragManagerV1, ()> for State {
 // Dispatch — handle per-drag requests (attach + destroy)
 // ---------------------------------------------------------------------------
 
-impl Dispatch<XdgToplevelDragV1, ()> for State {
+impl Dispatch2<XdgToplevelDragV1, State> for () {
     fn request(
-        _state: &mut Self,
+        &self,
+        _state: &mut State,
         _client: &Client,
         _resource: &XdgToplevelDragV1,
         request: xdg_toplevel_drag_v1::Request,
-        _data: &(),
         _dhandle: &DisplayHandle,
-        _data_init: &mut DataInit<'_, Self>,
+        _data_init: &mut DataInit<'_, State>,
     ) {
         match request {
             xdg_toplevel_drag_v1::Request::Attach { toplevel: _, x_offset, y_offset } => {

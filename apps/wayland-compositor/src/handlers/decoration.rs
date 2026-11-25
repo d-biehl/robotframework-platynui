@@ -84,6 +84,19 @@ impl XdgDecorationHandler for State {
 
         toplevel.send_configure();
     }
+
+    fn decoration_destroyed(&mut self, toplevel: ToplevelSurface) {
+        // smithay has already reset the pending mode: without a decoration
+        // object the toplevel draws its own decorations. If it was drawn
+        // server-side so far, drop the title-bar offset as for a switch to CSD.
+        let was_ssd = toplevel
+            .with_committed_state(|state| state.is_some_and(|state| state.decoration_mode == Some(Mode::ServerSide)));
+        tracing::debug!(surface = ?toplevel.wl_surface().id(), was_ssd, "decoration object destroyed");
+        if was_ssd {
+            adjust_window_position_for_ssd(&mut self.space, &toplevel, false);
+        }
+        toplevel.send_configure();
+    }
 }
 
 /// Adjust a window's position in the space to account for the SSD title bar.

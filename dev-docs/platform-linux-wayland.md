@@ -531,14 +531,14 @@ For automated testing in CI, a headless-capable compositor is essential.
 
 ### 11.7. Custom Test Compositor — ✅ Implemented
 
-The PlatynUI project includes a purpose-built Wayland compositor for CI testing and development, implemented with [Smithay](https://github.com/Smithay/smithay) (~15K LoC):
+The PlatynUI project includes a purpose-built Wayland compositor for CI testing and development, implemented with [Smithay](https://github.com/Smithay/smithay) (~15K LoC). Smithay is taken from git at a pinned commit (see the comment at the dependency in `apps/wayland-compositor/Cargo.toml`), and the pin moves only as described in `CONTRIBUTING.md` §7:
 
 - **Crate:** `apps/wayland-compositor` (`platynui-wayland-compositor`)
 - **Control CLI:** `apps/wayland-compositor-ctl` (`platynui-wayland-compositor-ctl`)
 - **Test application:** `apps/test-app-egui` (`platynui-test-app-egui`) — egui-based test app (built on `eframe`)
 - **EIS test client:** `apps/eis-test-client` (`platynui-eis-test-client`) — standalone EIS client for validating the EI protocol against compositors
 - **Backends:** Headless (no display), Winit (windowed), DRM (hardware)
-- **EIS server:** Built-in via `reis` — supports libei-based input injection
+- **EIS server:** Built-in via smithay's libei backend (on `reis`) — serves several libei sender clients at once, each with its own devices, and releases what a client still holds when it disconnects
 - **XWayland:** Supported for X11 application testing
 - **Control IPC:** Unix socket for test orchestration (keyboard/pointer injection, compositor state queries)
 - **Protocol coverage:** Virtual pointer/keyboard, layer-shell, foreign-toplevel management, and more
@@ -783,7 +783,7 @@ This would allow a single platform registration that handles both X11 and Waylan
 
 The custom Smithay-based compositor described in §11.7 has been implemented as `apps/wayland-compositor` (~15K LoC). It provides:
 - Headless and windowed (Winit) backends
-- EIS server via `reis` for libei-based input injection
+- EIS server (smithay's libei backend, several clients at once) for libei-based input injection
 - XWayland support
 - Control socket IPC (`apps/wayland-compositor-ctl`) for test orchestration
 - Full protocol coverage (virtual pointer/keyboard, layer-shell, foreign-toplevel, etc.)

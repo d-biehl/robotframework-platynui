@@ -344,6 +344,7 @@ CLI/Inspector (apps):
 - Prefer small, widely‑used, stable libraries. Justify heavyweight deps in the PR.
 - Before adding a Rust dependency, check whether the standard library already provides the needed functionality for the workspace's Rust version.
 - Keep `tracing` as a per-crate dependency rather than a workspace dependency because of maturin compatibility constraints.
+- A Rust dependency taken from git is pinned to a full commit (`rev = "<40-hex sha>"`), never to a `branch`, with a comment naming the upstream date of that commit. The pin moves only in a change of its own, verified by the crate's tests and by the lane that exercises the crate — for the compositor's smithay pin, `just test-crate platynui-wayland-compositor` and `just test-acceptance-compositor`.
 - Avoid adding dependencies only for tests if a small local fixture is clearer and cheaper.
 
 ## 8) Testing guidance

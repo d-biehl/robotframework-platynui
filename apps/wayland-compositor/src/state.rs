@@ -3,14 +3,6 @@
 use std::collections::{HashMap, HashSet};
 
 use smithay::{
-    delegate_alpha_modifier, delegate_compositor, delegate_content_type, delegate_cursor_shape, delegate_data_control,
-    delegate_data_device, delegate_dmabuf, delegate_ext_data_control, delegate_fractional_scale, delegate_idle_inhibit,
-    delegate_idle_notify, delegate_input_method_manager, delegate_keyboard_shortcuts_inhibit, delegate_layer_shell,
-    delegate_output, delegate_pointer_constraints, delegate_pointer_gestures, delegate_presentation,
-    delegate_primary_selection, delegate_relative_pointer, delegate_seat, delegate_security_context,
-    delegate_session_lock, delegate_shm, delegate_single_pixel_buffer, delegate_tablet_manager,
-    delegate_text_input_manager, delegate_viewporter, delegate_virtual_keyboard_manager, delegate_xdg_activation,
-    delegate_xdg_decoration, delegate_xdg_dialog, delegate_xdg_foreign, delegate_xdg_shell, delegate_xdg_system_bell,
     desktop::{PopupManager, Space, Window, layer_map_for_output},
     input::{Seat, SeatState, keyboard::XkbConfig, pointer::CursorImageStatus},
     output::{Output, PhysicalProperties, Subpixel},
@@ -44,7 +36,11 @@ use smithay::{
         session_lock::SessionLockManagerState,
         shell::{
             wlr_layer::WlrLayerShellState,
-            xdg::{XdgShellState, decoration::XdgDecorationState, dialog::XdgDialogState},
+            xdg::{
+                XdgShellState,
+                decoration::XdgDecorationState,
+                dialog::{ToplevelDialogHint, XdgDialogState},
+            },
         },
         shm::ShmState,
         single_pixel_buffer::SinglePixelBufferState,
@@ -142,15 +138,15 @@ pub struct State {
     pub ext_data_control_state: ExtDataControlState,
     pub content_type_state: ContentTypeState,
     pub virtual_keyboard_state: VirtualKeyboardManagerState,
-    pub virtual_pointer_global: smithay::reexports::wayland_server::backend::GlobalId,
+    pub virtual_pointer_state: smithay::wayland::virtual_pointer::VirtualPointerManagerState,
+    /// Buttons each live virtual pointer holds — released when it goes away.
+    pub virtual_pointer_buttons: HashMap<smithay::wayland::virtual_pointer::VirtualPointerDevice, HashSet<u32>>,
     pub pointer_warp_global: smithay::reexports::wayland_server::backend::GlobalId,
     pub output_management_global: smithay::reexports::wayland_server::backend::GlobalId,
 
     // -- EIS (Emulated Input Server) --
-    /// The virtual device created for the active EIS client (if any).
-    pub eis_client_device: Option<reis::request::Device>,
-    /// Calloop registration token for the active EIS client's request source.
-    pub eis_client_token: Option<smithay::reexports::calloop::RegistrationToken>,
+    /// Connected EI clients (see `crate::eis`).
+    pub eis_clients: crate::eis::EisClients,
 
     /// Weak references to all bound output management instances.
     ///
@@ -161,14 +157,7 @@ pub struct State {
     >>,
 
     // -- Screencopy protocol --
-    pub screencopy_globals: (
-        smithay::reexports::wayland_server::backend::GlobalId,
-        smithay::reexports::wayland_server::backend::GlobalId,
-        smithay::reexports::wayland_server::backend::GlobalId,
-    ),
-    /// Pending frame capture state, keyed by frame object ID.
-    pub pending_captures:
-        HashMap<smithay::reexports::wayland_server::backend::ObjectId, crate::handlers::screencopy::PendingCapture>,
+    pub screencopy: crate::handlers::screencopy::ScreencopyState,
 
     // -- Foreign-toplevel protocols --
     pub wlr_foreign_toplevel_state: crate::handlers::foreign_toplevel::WlrForeignToplevelManagerState,
@@ -194,6 +183,20 @@ pub struct State {
 
     /// Currently physically pressed pointer buttons (tracked for focus-loss cleanup).
     pub pressed_buttons: Vec<u32>,
+
+    /// The keymap the compositor was configured with. A virtual keyboard
+    /// activates its own keymap for its keys; input from every other source
+    /// switches back to this one first (see `input::activate_keymap`).
+    pub compositor_keymap: smithay::input::keyboard::KeymapFile,
+
+    /// The XKB names the compositor keymap was built from, kept so that more
+    /// keyboards (the EI keyboard devices) get the same keymap.
+    pub xkb_names: XkbNames,
+
+    /// Modifier masks (depressed, latched, locked) each live virtual keyboard
+    /// set through its `modifiers` request — cleared again when it goes away.
+    pub virtual_keyboard_mods:
+        HashMap<smithay::wayland::virtual_keyboard::VirtualKeyboardDevice, crate::handlers::virtual_keyboard::Masks>,
 
     /// Compositor-driven cursor shape (for SSD resize borders, title bar).
     pub compositor_cursor_shape: crate::decorations::CursorShape,
@@ -328,6 +331,41 @@ pub struct State {
     pub render_ping: Option<smithay::reexports::calloop::ping::Ping>,
 }
 
+/// Owned copy of the XKB names (rules, model, layout, variant, options) a
+/// keymap is built from. `XkbConfig` borrows its strings, so it cannot outlive
+/// the CLI arguments it was resolved from.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct XkbNames {
+    pub rules: String,
+    pub model: String,
+    pub layout: String,
+    pub variant: String,
+    pub options: Option<String>,
+}
+
+impl XkbNames {
+    #[must_use]
+    pub fn from_config(config: &XkbConfig<'_>) -> Self {
+        Self {
+            rules: config.rules.to_string(),
+            model: config.model.to_string(),
+            layout: config.layout.to_string(),
+            variant: config.variant.to_string(),
+            options: config.options.clone(),
+        }
+    }
+
+    #[must_use]
+    pub fn config(&self) -> XkbConfig<'_> {
+        XkbConfig {
+            rules: &self.rules,
+            model: &self.model,
+            layout: &self.layout,
+            variant: &self.variant,
+            options: self.options.clone(),
+        }
+    }
+}
 impl State {
     /// Create a new compositor state, registering all Wayland globals.
     ///
@@ -417,7 +455,7 @@ impl State {
             let restrict = security_policy.is_restrictive();
             VirtualKeyboardManagerState::new::<Self, _>(&dh, move |_| !restrict)
         };
-        let virtual_pointer_global = {
+        let virtual_pointer_state = {
             let restrict = security_policy.is_restrictive();
             crate::handlers::virtual_pointer::init_virtual_pointer_manager(&dh, move |_| !restrict)
         };
@@ -429,9 +467,9 @@ impl State {
             let restrict = security_policy.is_restrictive();
             crate::handlers::output_management::init_output_management(&dh, move |_| !restrict)
         };
-        let screencopy_globals = {
+        let screencopy = {
             let restrict = security_policy.is_restrictive();
-            crate::handlers::screencopy::init_screencopy(&dh, move |_| !restrict)
+            crate::handlers::screencopy::ScreencopyState::new(&dh, move |_| !restrict)
         };
 
         // Foreign-toplevel protocols
@@ -440,7 +478,11 @@ impl State {
         let ext_foreign_toplevel_list_state = ForeignToplevelListState::new::<Self>(&dh);
 
         let mut seat = seat_state.new_wl_seat(&dh, "seat0");
-        seat.add_keyboard(xkb_config, KEY_REPEAT_DELAY_MS, KEY_REPEAT_RATE).expect("Failed to add keyboard to seat");
+        let xkb_names = XkbNames::from_config(&xkb_config);
+        let compositor_keymap = seat
+            .add_keyboard(xkb_config, KEY_REPEAT_DELAY_MS, KEY_REPEAT_RATE)
+            .expect("Failed to add keyboard to seat")
+            .keymap_file();
         seat.add_pointer();
         seat.add_touch();
 
@@ -460,6 +502,7 @@ impl State {
                     subpixel: Subpixel::Unknown,
                     make: "PlatynUI".to_string(),
                     model: "Placeholder".to_string(),
+                    serial_number: String::new(),
                 },
             );
             let mode = smithay::output::Mode { size: output_size, refresh: DEFAULT_REFRESH_MHTZ };
@@ -492,6 +535,7 @@ impl State {
                     subpixel: Subpixel::Unknown,
                     make: "PlatynUI".to_string(),
                     model: "Wayland Compositor".to_string(),
+                    serial_number: String::new(),
                 },
             );
 
@@ -566,14 +610,13 @@ impl State {
             ext_data_control_state,
             content_type_state,
             virtual_keyboard_state,
-            virtual_pointer_global,
+            virtual_pointer_state,
+            virtual_pointer_buttons: HashMap::new(),
             pointer_warp_global,
             output_management_global,
-            eis_client_device: None,
-            eis_client_token: None,
+            eis_clients: HashMap::new(),
             output_managers: Vec::new(),
-            screencopy_globals,
-            pending_captures: HashMap::new(),
+            screencopy,
             wlr_foreign_toplevel_state,
             ext_foreign_toplevel_list_state,
             ext_toplevel_handles: Vec::new(),
@@ -586,6 +629,9 @@ impl State {
             cursor_status: CursorImageStatus::default_named(),
             pointer_location: (0.0, 0.0).into(),
             pressed_buttons: Vec::new(),
+            compositor_keymap,
+            xkb_names,
+            virtual_keyboard_mods: HashMap::new(),
             compositor_cursor_shape: crate::decorations::CursorShape::Default,
             cursor_theme: crate::cursor::CursorThemeState::new(),
             pre_maximize_positions: Vec::new(),
@@ -1112,7 +1158,7 @@ impl State {
 
                 // For X11 windows, also update the X11 surface geometry.
                 if let Some(x11) = window.x11_surface() {
-                    let _ = x11.configure(Rectangle::new((new_x, new_y).into(), win_size));
+                    let _ = x11.configure(Rectangle::new((new_x, new_y).into(), crate::xwayland::x11_size(x11)));
                 }
 
                 tracing::debug!(
@@ -1249,6 +1295,7 @@ impl State {
                 surface,
                 output,
                 states,
+                None,
                 render_element_states,
                 default_primary_scanout_output_compare,
             );
@@ -1284,7 +1331,7 @@ impl State {
 
         for window in self.space.elements() {
             window.take_presentation_feedback(feedback, surface_primary_scanout_output, |surface, _| {
-                surface_presentation_feedback_flags_from_states(surface, render_element_states)
+                surface_presentation_feedback_flags_from_states(surface, None, render_element_states)
             });
         }
 
@@ -1292,7 +1339,7 @@ impl State {
             let map = smithay::desktop::layer_map_for_output(o);
             for layer_surface in map.layers() {
                 layer_surface.take_presentation_feedback(feedback, surface_primary_scanout_output, |surface, _| {
-                    surface_presentation_feedback_flags_from_states(surface, render_element_states)
+                    surface_presentation_feedback_flags_from_states(surface, None, render_element_states)
                 });
             }
         }
@@ -1416,7 +1463,7 @@ impl State {
                     states
                         .data_map
                         .get::<XdgToplevelSurfaceData>()
-                        .is_some_and(|data| data.lock().is_ok_and(|d| d.modal))
+                        .is_some_and(|data| data.lock().is_ok_and(|d| d.dialog_hint == ToplevelDialogHint::Modal))
                 })
             })
             .cloned();
@@ -1450,42 +1497,45 @@ impl FractionalScaleHandler for State {
     }
 }
 
-// -- Protocol delegation macros --
+// -- Protocol dispatch --
+//
+// Every smithay protocol state, and every protocol this compositor implements
+// itself (`handlers/`), provides `Dispatch2`/`GlobalDispatch2` on its user-data
+// types; this one macro routes all of them through `State`.
 
-delegate_compositor!(State);
-delegate_shm!(State);
-delegate_output!(State);
-delegate_seat!(State);
-delegate_xdg_shell!(State);
-delegate_xdg_decoration!(State);
-delegate_data_device!(State);
-delegate_primary_selection!(State);
-delegate_dmabuf!(State);
-delegate_viewporter!(State);
-delegate_fractional_scale!(State);
-delegate_presentation!(State);
-delegate_xdg_activation!(State);
-delegate_pointer_constraints!(State);
-delegate_relative_pointer!(State);
-delegate_single_pixel_buffer!(State);
-delegate_keyboard_shortcuts_inhibit!(State);
-delegate_text_input_manager!(State);
-delegate_input_method_manager!(State);
-delegate_idle_notify!(State);
-delegate_session_lock!(State);
-delegate_xdg_foreign!(State);
-delegate_security_context!(State);
-delegate_cursor_shape!(State);
-delegate_layer_shell!(State);
-delegate_data_control!(State);
-delegate_ext_data_control!(State);
-delegate_content_type!(State);
-delegate_virtual_keyboard_manager!(State);
+smithay::delegate_dispatch2!(State);
 
-// Phase 3b: Additional protocol support
-delegate_alpha_modifier!(State);
-delegate_idle_inhibit!(State);
-delegate_xdg_dialog!(State);
-delegate_xdg_system_bell!(State);
-delegate_pointer_gestures!(State);
-delegate_tablet_manager!(State);
+#[cfg(test)]
+mod xkb_names_tests {
+    use smithay::input::keyboard::{XkbConfig, xkb};
+
+    use super::XkbNames;
+
+    fn keymap_text(config: &XkbConfig<'_>) -> String {
+        let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
+        xkb::Keymap::new_from_names(
+            &context,
+            config.rules,
+            config.model,
+            config.layout,
+            config.variant,
+            config.options.clone(),
+            xkb::KEYMAP_COMPILE_NO_FLAGS,
+        )
+        .expect("compile keymap")
+        .get_as_string(xkb::KEYMAP_FORMAT_TEXT_V1)
+    }
+
+    #[test]
+    fn the_owned_names_build_the_same_keymap() {
+        let config = XkbConfig {
+            rules: "",
+            model: "pc105",
+            layout: "de,us",
+            variant: "nodeadkeys,",
+            options: Some("grp:alt_shift_toggle".to_string()),
+        };
+        let names = XkbNames::from_config(&config);
+        assert_eq!(keymap_text(&names.config()), keymap_text(&config));
+    }
+}

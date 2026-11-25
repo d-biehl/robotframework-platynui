@@ -44,7 +44,7 @@ use smithay::{
         drm::{
             DrmDevice, DrmDeviceFd, DrmEvent, DrmEventTime, DrmNode, DrmSurface,
             compositor::{DrmCompositor, FrameFlags},
-            exporter::gbm::GbmFramebufferExporter,
+            exporter::gbm::{GbmFramebufferExporter, NodeFilter},
         },
         libinput::LibinputInputBackend,
         renderer::glow::GlowRenderer,
@@ -161,7 +161,7 @@ impl DrmBackendState {
         // Create hardware resources.
         let surface = self.drm_device.create_surface(crtc, drm_mode, &[conn])?;
         let allocator = GbmAllocator::new(self.gbm_device.clone(), GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT);
-        let exporter = GbmFramebufferExporter::new(self.gbm_device.clone(), None);
+        let exporter = GbmFramebufferExporter::new(self.gbm_device.clone(), NodeFilter::None);
         let color_formats = [DrmFourcc::Argb8888, DrmFourcc::Xrgb8888];
         let renderer_formats: Vec<DrmFormat> = [DrmFourcc::Argb8888, DrmFourcc::Xrgb8888]
             .iter()
@@ -269,6 +269,7 @@ impl DrmBackendState {
                 subpixel,
                 make,
                 model: model_name,
+                serial_number: String::new(),
             },
         );
 
@@ -299,7 +300,7 @@ impl DrmBackendState {
             let surface: DrmSurface = self.drm_device.create_surface(crtc, mode, &[conn_handle])?;
             let allocator =
                 GbmAllocator::new(self.gbm_device.clone(), GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT);
-            let exporter = GbmFramebufferExporter::new(self.gbm_device.clone(), None);
+            let exporter = GbmFramebufferExporter::new(self.gbm_device.clone(), NodeFilter::None);
             let color_formats = [DrmFourcc::Argb8888, DrmFourcc::Xrgb8888];
 
             let drm_compositor = DrmCompositor::new(
@@ -576,7 +577,7 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<ExitCode, 
     }
 
     // Watch for hotplug events (monitor plug/unplug and GPU add/remove).
-    event_loop.handle().insert_source(udev_backend, |event, (), state| match event {
+    event_loop.handle().insert_source(udev_backend, |event, _devices, state| match event {
         UdevEvent::Added { device_id, path } => {
             handle_gpu_added(state, device_id, &path);
         }
@@ -736,6 +737,7 @@ fn handle_connector_hotplug(state: &mut State) {
 
     // Remove disconnected outputs from the space and state.outputs.
     for output in &removed {
+        crate::handlers::screencopy::stop_sessions_for_output(state, output);
         state.space.unmap_output(output);
         state.outputs.retain(|o| o.name() != output.name());
     }
@@ -841,6 +843,7 @@ fn handle_gpu_removed(state: &mut State, device_id: u64) {
 
     // Unmap every output that belonged to this GPU from the space.
     for output_state in backend.outputs.values() {
+        crate::handlers::screencopy::stop_sessions_for_output(state, &output_state.output);
         state.space.unmap_output(&output_state.output);
         state.outputs.retain(|o| o.name() != output_state.output.name());
     }

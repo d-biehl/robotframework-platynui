@@ -10,7 +10,7 @@ use std::process::Stdio;
 
 use smithay::{
     desktop::Window,
-    utils::{Logical, Rectangle},
+    utils::{Logical, Rectangle, Size},
     wayland::{
         selection::SelectionTarget,
         xwayland_keyboard_grab::XWaylandKeyboardGrabHandler,
@@ -23,6 +23,40 @@ use smithay::{
 };
 
 use crate::state::State;
+
+// -- X11 rectangles --
+//
+// This compositor places a window's buffer at its `Space` element location, so
+// for an X11 window the element location is the window's X11 origin, and the
+// compositor configures X11 windows with their full X11 rectangle. smithay's
+// `X11Surface::geometry` is the *visible* area instead — for a window with
+// `_GTK_FRAME_EXTENTS` (GTK's client-drawn shadows) it excludes the shadow and
+// starts inside the window. It is for reporting (the window rectangles
+// PlatynUI sees), never for configuring: an X11 window's own rectangle is
+// `X11Surface::last_configure`.
+
+/// The X11 size an X11 window has now (shadow included).
+pub(crate) fn x11_size(x11: &X11Surface) -> Size<i32, Logical> {
+    x11.last_configure().size
+}
+
+/// The size to keep or restore for `window`: the X11 size for an X11 window,
+/// the window geometry otherwise.
+pub(crate) fn window_size(window: &Window) -> Size<i32, Logical> {
+    window.x11_surface().map_or_else(|| window.geometry().size, x11_size)
+}
+
+/// Tell an X11 client where it is now: its Space location (its X11 origin)
+/// with its X11 size unchanged. Clients need this to place their
+/// override-redirect windows (menus, tooltips) in screen coordinates.
+pub(crate) fn configure_at_space_location(space: &smithay::desktop::Space<Window>, window: &Window, what: &str) {
+    if let Some(x11) = window.x11_surface()
+        && let Some(loc) = space.element_location(window)
+        && let Err(err) = x11.configure(Rectangle::new(loc, x11_size(x11)))
+    {
+        tracing::warn!(%err, what, "failed to configure X11 window position");
+    }
+}
 
 /// Find the smithay `Window` in the space that wraps a given [`X11Surface`].
 fn find_x11_window(state: &State, surface: &X11Surface) -> Option<Window> {
@@ -63,6 +97,7 @@ impl State {
             &self.display_handle,
             None,
             std::iter::empty::<(OsString, OsString)>(),
+            std::iter::empty::<OsString>(),
             true,
             Stdio::null(),
             Stdio::null(),
@@ -103,7 +138,8 @@ impl State {
                 // Retrieve the stored client
                 let client = state.xwayland.as_mut().and_then(|s| s.client.take()).expect("XWayland client not stored");
 
-                match X11Wm::start_wm(state.loop_handle.clone(), x11_socket, client) {
+                let dh = state.display_handle.clone();
+                match X11Wm::start_wm(state.loop_handle.clone(), &dh, x11_socket, client) {
                     Ok(wm) => {
                         if let Some(ref mut xw_state) = state.xwayland {
                             xw_state.wm = Some(wm);
@@ -133,8 +169,6 @@ impl XWaylandShellHandler for State {
     }
 }
 
-smithay::delegate_xwayland_shell!(State);
-
 // -- XWaylandKeyboardGrabHandler --
 
 impl XWaylandKeyboardGrabHandler for State {
@@ -148,8 +182,6 @@ impl XWaylandKeyboardGrabHandler for State {
         })
     }
 }
-
-smithay::delegate_xwayland_keyboard_grab!(State);
 
 // -- XwmHandler --
 
@@ -197,14 +229,7 @@ impl XwmHandler for State {
         // windows (menus, tooltips, dropdowns).  Without this, the client
         // still thinks it is at its initial (often 0,0) position and any
         // popup it opens ends up in the wrong place.
-        if let Some(x11) = smithay_window.x11_surface()
-            && let Some(loc) = self.space.element_location(&smithay_window)
-        {
-            let size = x11.geometry().size;
-            if let Err(err) = x11.configure(Rectangle::new(loc, size)) {
-                tracing::warn!(%err, "failed to configure X11 window position after mapping");
-            }
-        }
+        configure_at_space_location(&self.space, &smithay_window, "after mapping");
 
         // Announce to foreign-toplevel protocols
         crate::handlers::foreign_toplevel::announce_new_toplevel(self, &smithay_window);
@@ -217,7 +242,7 @@ impl XwmHandler for State {
     fn mapped_override_redirect_window(&mut self, _xwm: XwmId, window: X11Surface) {
         // Override-redirect windows (menus, tooltips, dropdowns) set their own
         // position in X11 screen coordinates — honour that instead of cascading.
-        let geo = window.geometry();
+        let geo = window.last_configure();
         tracing::debug!(
             x = geo.loc.x,
             y = geo.loc.y,
@@ -249,7 +274,8 @@ impl XwmHandler for State {
         h: Option<u32>,
         _reorder: Option<Reorder>,
     ) {
-        let geo = window.geometry();
+        // The request is in X11 coordinates: answer with X11 rectangles.
+        let geo = window.last_configure();
         let is_mapped = find_x11_window(self, &window).is_some();
 
         if is_mapped && !window.is_override_redirect() {
@@ -343,7 +369,7 @@ impl XwmHandler for State {
 
         // Save current position and size before maximizing.
         let current_loc = self.space.element_location(&element).unwrap_or_default();
-        let current_size = Some(window.geometry().size);
+        let current_size = Some(x11_size(&window));
         self.pre_maximize_positions.retain(|(w, _, _)| w != &element);
         self.pre_maximize_positions.push((element.clone(), current_loc, current_size));
 
@@ -408,7 +434,7 @@ impl XwmHandler for State {
 
         // Save the current position and size before going fullscreen.
         let current_loc = self.space.element_location(&element).unwrap_or_default();
-        let current_size = Some(window.geometry().size);
+        let current_size = Some(x11_size(&window));
         self.pre_fullscreen_states.retain(|(w, _, _)| w != &element);
         self.pre_fullscreen_states.push((element.clone(), current_loc, current_size));
 

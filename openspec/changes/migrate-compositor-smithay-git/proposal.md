@@ -49,6 +49,7 @@ The change runs in two phases. Each phase can be committed on its own and is ver
 **Phase 2: replace hand-written protocol handlers with smithay modules**
 
 - **Screencopy** moves to `wayland::image_capture_source` + `wayland::image_copy_capture`. Output and toplevel capture, `wl_shm` ARGB8888/XRGB8888, `paint_cursors` and cursor sessions stay as they are, and so does hiding the globals under `--restrict-protocols`. No dmabuf capture is added.
+  - **Bug fix:** a toplevel capture contains only that toplevel. Today it renders the first output's scene cropped to the window's size, which shows the background and other windows wherever the window is not at the output origin.
 - **Virtual pointer** moves to `wayland::virtual_pointer`. Events enter the compositor's generic input path (`input::process_input_event`), and absolute motion of an output-bound pointer still maps onto that output.
 - **Pointer warp** moves to `wayland::pointer_warp`. **Behavior change:** a warp is honored only for a surface that has pointer focus, with a valid enter serial, and to a position inside that surface. Today the first matching toplevel surface is accepted and the serial is ignored.
 - **EIS** moves to `backend::libei`:

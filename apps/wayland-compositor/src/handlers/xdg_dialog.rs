@@ -11,13 +11,17 @@
 //! [`State::find_modal_child`](crate::state::State::find_modal_child)).
 
 use smithay::reexports::wayland_server::Resource;
-use smithay::wayland::shell::xdg::{ToplevelSurface, dialog::XdgDialogHandler};
+use smithay::wayland::shell::xdg::{
+    ToplevelSurface,
+    dialog::{ToplevelDialogHint, XdgDialogHandler},
+};
 
 use crate::state::State;
 
 impl XdgDialogHandler for State {
-    fn modal_changed(&mut self, toplevel: ToplevelSurface, is_modal: bool) {
-        tracing::debug!(is_modal, "xdg dialog modal state changed");
+    fn dialog_hint_changed(&mut self, toplevel: ToplevelSurface, hint: ToplevelDialogHint) {
+        let is_modal = hint == ToplevelDialogHint::Modal;
+        tracing::debug!(?hint, "xdg dialog hint changed");
 
         if is_modal {
             // Raise the modal dialog above its parent so it's always visible.

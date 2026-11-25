@@ -4,17 +4,18 @@
 //! tearing-enabled presentation.  Our compositor always uses vsync, so
 //! the hint is accepted but silently ignored.
 //!
-//! Smithay 0.7 does not provide a high-level abstraction for this protocol.
-//! We implement `GlobalDispatch` / `Dispatch` manually using the generated
-//! bindings from `wayland-protocols 0.32`.
+//! Smithay provides no abstraction for this protocol, so this module
+//! implements `GlobalDispatch2` / `Dispatch2` on the generated bindings from
+//! `wayland-protocols`.
 
 use smithay::reexports::{
     wayland_protocols::wp::tearing_control::v1::server::{
         wp_tearing_control_manager_v1::{self, WpTearingControlManagerV1},
         wp_tearing_control_v1::{self, WpTearingControlV1},
     },
-    wayland_server::{Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource, backend::GlobalId},
+    wayland_server::{Client, DataInit, DisplayHandle, New, Resource, backend::GlobalId},
 };
+use smithay::wayland::{Dispatch2, GlobalDispatch2};
 
 use crate::state::State;
 
@@ -22,14 +23,14 @@ use crate::state::State;
 // GlobalDispatch — advertise the wp_tearing_control_manager_v1 global
 // ---------------------------------------------------------------------------
 
-impl GlobalDispatch<WpTearingControlManagerV1, ()> for State {
+impl GlobalDispatch2<WpTearingControlManagerV1, State> for () {
     fn bind(
-        _state: &mut Self,
+        &self,
+        _state: &mut State,
         _handle: &DisplayHandle,
         _client: &Client,
         resource: New<WpTearingControlManagerV1>,
-        _global_data: &(),
-        data_init: &mut DataInit<'_, Self>,
+        data_init: &mut DataInit<'_, State>,
     ) {
         data_init.init(resource, ());
     }
@@ -39,15 +40,15 @@ impl GlobalDispatch<WpTearingControlManagerV1, ()> for State {
 // Dispatch — handle manager requests (destroy + get_tearing_control)
 // ---------------------------------------------------------------------------
 
-impl Dispatch<WpTearingControlManagerV1, ()> for State {
+impl Dispatch2<WpTearingControlManagerV1, State> for () {
     fn request(
-        _state: &mut Self,
+        &self,
+        _state: &mut State,
         _client: &Client,
         _resource: &WpTearingControlManagerV1,
         request: wp_tearing_control_manager_v1::Request,
-        _data: &(),
         _dhandle: &DisplayHandle,
-        data_init: &mut DataInit<'_, Self>,
+        data_init: &mut DataInit<'_, State>,
     ) {
         match request {
             wp_tearing_control_manager_v1::Request::GetTearingControl { id, surface } => {
@@ -66,15 +67,15 @@ impl Dispatch<WpTearingControlManagerV1, ()> for State {
 // Dispatch — handle per-surface tearing control requests
 // ---------------------------------------------------------------------------
 
-impl Dispatch<WpTearingControlV1, ()> for State {
+impl Dispatch2<WpTearingControlV1, State> for () {
     fn request(
-        _state: &mut Self,
+        &self,
+        _state: &mut State,
         _client: &Client,
         _resource: &WpTearingControlV1,
         request: wp_tearing_control_v1::Request,
-        _data: &(),
         _dhandle: &DisplayHandle,
-        _data_init: &mut DataInit<'_, Self>,
+        _data_init: &mut DataInit<'_, State>,
     ) {
         match request {
             wp_tearing_control_v1::Request::SetPresentationHint { hint } => {

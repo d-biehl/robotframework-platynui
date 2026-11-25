@@ -9,12 +9,12 @@
 //!   Implemented manually because smithay does not provide it.
 //!
 //! - **ext-foreign-toplevel-list-v1**: Read-only list with title + `app_id`.
-//!   Uses smithay's `delegate_foreign_toplevel_list!()`.
+//!   Uses smithay's `foreign_toplevel_list` module.
 
+use smithay::wayland::{Dispatch2, GlobalDispatch2};
 use std::sync::Mutex;
 
 use smithay::{
-    delegate_foreign_toplevel_list,
     desktop::Window,
     output::Output,
     reexports::{
@@ -328,13 +328,13 @@ impl WlrForeignToplevelManagerState {
 
 // ── GlobalDispatch for manager ──────────────────────────────────────────────
 
-impl GlobalDispatch<ZwlrForeignToplevelManagerV1, WlrForeignToplevelManagerGlobalData> for State {
+impl GlobalDispatch2<ZwlrForeignToplevelManagerV1, State> for WlrForeignToplevelManagerGlobalData {
     fn bind(
+        &self,
         state: &mut State,
         dh: &DisplayHandle,
         client: &Client,
         resource: New<ZwlrForeignToplevelManagerV1>,
-        _global_data: &WlrForeignToplevelManagerGlobalData,
         data_init: &mut DataInit<'_, State>,
     ) {
         let manager = data_init.init(resource, ());
@@ -357,20 +357,20 @@ impl GlobalDispatch<ZwlrForeignToplevelManagerV1, WlrForeignToplevelManagerGloba
         state.wlr_foreign_toplevel_state.manager_instances.push(manager);
     }
 
-    fn can_view(client: Client, global_data: &WlrForeignToplevelManagerGlobalData) -> bool {
-        (global_data.filter)(&client)
+    fn can_view(&self, client: &Client) -> bool {
+        (self.filter)(client)
     }
 }
 
 // ── Dispatch for manager requests ───────────────────────────────────────────
 
-impl Dispatch<ZwlrForeignToplevelManagerV1, ()> for State {
+impl Dispatch2<ZwlrForeignToplevelManagerV1, State> for () {
     fn request(
+        &self,
         state: &mut State,
         _client: &Client,
         manager: &ZwlrForeignToplevelManagerV1,
         request: zwlr_foreign_toplevel_manager_v1::Request,
-        _data: &(),
         _dh: &DisplayHandle,
         _data_init: &mut DataInit<'_, State>,
     ) {
@@ -381,23 +381,24 @@ impl Dispatch<ZwlrForeignToplevelManagerV1, ()> for State {
         }
     }
 
-    fn destroyed(state: &mut State, _client: ClientId, resource: &ZwlrForeignToplevelManagerV1, _data: &()) {
+    fn destroyed(&self, state: &mut State, _client: ClientId, resource: &ZwlrForeignToplevelManagerV1) {
         state.wlr_foreign_toplevel_state.manager_instances.retain(|m| m != resource);
     }
 }
 
 // ── Dispatch for handle requests ────────────────────────────────────────────
 
-impl Dispatch<ZwlrForeignToplevelHandleV1, WlrToplevelHandle> for State {
+impl Dispatch2<ZwlrForeignToplevelHandleV1, State> for WlrToplevelHandle {
     fn request(
+        &self,
         state: &mut State,
         _client: &Client,
         _resource: &ZwlrForeignToplevelHandleV1,
         request: zwlr_foreign_toplevel_handle_v1::Request,
-        handle: &WlrToplevelHandle,
         _dh: &DisplayHandle,
         _data_init: &mut DataInit<'_, State>,
     ) {
+        let handle = self;
         if handle.is_closed() {
             return;
         }
@@ -454,12 +455,8 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, WlrToplevelHandle> for State {
         }
     }
 
-    fn destroyed(
-        _state: &mut State,
-        _client: ClientId,
-        resource: &ZwlrForeignToplevelHandleV1,
-        handle: &WlrToplevelHandle,
-    ) {
+    fn destroyed(&self, _state: &mut State, _client: ClientId, resource: &ZwlrForeignToplevelHandleV1) {
+        let handle = self;
         handle.remove_instance(resource);
     }
 }
@@ -472,10 +469,8 @@ impl ForeignToplevelListHandler for State {
     }
 }
 
-delegate_foreign_toplevel_list!(State);
-
-// NOTE: No delegate_global_dispatch!/delegate_dispatch! macros here — we have
-// manual GlobalDispatch/Dispatch impls above which provide the same thing.
+// The wlr objects' user-data types implement `GlobalDispatch2`/`Dispatch2`
+// above; `delegate_dispatch2!` in `state.rs` routes them through `State`.
 
 // ── Helper functions ────────────────────────────────────────────────────────
 
@@ -484,7 +479,7 @@ pub fn build_wlr_state(window: &Window) -> Vec<u8> {
     let mut states = Vec::new();
 
     if let Some(toplevel) = window.toplevel() {
-        let current = toplevel.current_state();
+        let current = crate::handlers::xdg_shell::committed_state(toplevel);
         if current
             .states
             .contains(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Maximized)
@@ -615,7 +610,7 @@ pub(crate) fn maximize_window(state: &mut State, window: &Window) {
     }
 
     let current_loc = state.space.element_location(window).unwrap_or_default();
-    let current_size = Some(window.geometry().size);
+    let current_size = Some(crate::xwayland::window_size(window));
     state.pre_maximize_positions.retain(|(w, _, _)| w != window);
     state.pre_maximize_positions.push((window.clone(), current_loc, current_size));
 
@@ -640,8 +635,7 @@ pub(crate) fn restore_window(state: &mut State, window: &Window) {
     }
 
     if let Some(toplevel) = window.toplevel() {
-        let is_maximized = toplevel
-            .current_state()
+        let is_maximized = crate::handlers::xdg_shell::committed_state(toplevel)
             .states
             .contains(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Maximized);
         if is_maximized {
@@ -685,7 +679,7 @@ pub(crate) fn move_window(state: &mut State, window: &Window, position: smithay:
     }
 
     if let Some(toplevel) = window.toplevel() {
-        let states = toplevel.current_state().states;
+        let states = crate::handlers::xdg_shell::committed_state(toplevel).states;
         if states.contains(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Fullscreen) {
             crate::handlers::xdg_shell::do_unfullscreen(state, toplevel);
         }
@@ -701,7 +695,7 @@ pub(crate) fn move_window(state: &mut State, window: &Window, position: smithay:
         return;
     };
 
-    let size = window.geometry().size;
+    let size = crate::xwayland::x11_size(x11);
     if let Err(err) = x11.configure(Rectangle::new(position, size)) {
         tracing::warn!(%err, "failed to configure X11 window during move");
     }
@@ -718,7 +712,7 @@ pub(crate) fn resize_window(state: &mut State, window: &Window, size: smithay::u
         smithay::utils::Size::from((size.w.max(MIN_CONTROLLED_WINDOW_WIDTH), size.h.max(MIN_CONTROLLED_WINDOW_HEIGHT)));
 
     if let Some(toplevel) = window.toplevel() {
-        let states = toplevel.current_state().states;
+        let states = crate::handlers::xdg_shell::committed_state(toplevel).states;
         if states.contains(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Fullscreen) {
             crate::handlers::xdg_shell::do_unfullscreen(state, toplevel);
         }
@@ -878,6 +872,7 @@ pub fn close_toplevel(state: &mut State, window: &Window) {
     // ext-foreign-toplevel-list: find and close
     if let Some(idx) = state.ext_toplevel_handles.iter().position(|(w, _)| w == window) {
         let (_, ext_handle) = state.ext_toplevel_handles.remove(idx);
+        crate::handlers::screencopy::stop_sessions_for_toplevel(state, &ext_handle);
         ext_handle.send_closed();
     }
 

@@ -6,10 +6,12 @@
 //! Named icons (`set_name`) are logged but not resolved (we have no
 //! icon-theme loader).
 //!
-//! Smithay 0.7 does not provide a high-level abstraction for this protocol.
-//! We implement `GlobalDispatch` / `Dispatch` manually using the generated
-//! bindings from `wayland-protocols 0.32`.
+//! Smithay has its own `wayland::xdg_toplevel_icon` module; this compositor
+//! keeps a handler of its own, which turns the best pixel buffer into the
+//! owned RGBA copy the SSD titlebar renders. It implements `GlobalDispatch2` /
+//! `Dispatch2` on the generated bindings from `wayland-protocols`.
 
+use smithay::wayland::{Dispatch2, GlobalDispatch2};
 use std::sync::Mutex;
 
 use smithay::{
@@ -18,7 +20,7 @@ use smithay::{
             xdg_toplevel_icon_manager_v1::{self, XdgToplevelIconManagerV1},
             xdg_toplevel_icon_v1::{self, XdgToplevelIconV1},
         },
-        wayland_server::{Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource, backend::GlobalId},
+        wayland_server::{Client, DataInit, DisplayHandle, New, Resource, backend::GlobalId},
     },
     wayland::shm::{BufferData, with_buffer_contents},
 };
@@ -54,14 +56,14 @@ struct IconBuilder {
 // GlobalDispatch — advertise the xdg_toplevel_icon_manager_v1 global
 // ---------------------------------------------------------------------------
 
-impl GlobalDispatch<XdgToplevelIconManagerV1, ()> for State {
+impl GlobalDispatch2<XdgToplevelIconManagerV1, State> for () {
     fn bind(
-        _state: &mut Self,
+        &self,
+        _state: &mut State,
         _handle: &DisplayHandle,
         _client: &Client,
         resource: New<XdgToplevelIconManagerV1>,
-        _global_data: &(),
-        data_init: &mut DataInit<'_, Self>,
+        data_init: &mut DataInit<'_, State>,
     ) {
         // Send `done` immediately (no preferred icon sizes).
         let manager = data_init.init(resource, ());
@@ -73,15 +75,15 @@ impl GlobalDispatch<XdgToplevelIconManagerV1, ()> for State {
 // Dispatch — handle manager requests (destroy, create_icon, set_icon)
 // ---------------------------------------------------------------------------
 
-impl Dispatch<XdgToplevelIconManagerV1, ()> for State {
+impl Dispatch2<XdgToplevelIconManagerV1, State> for () {
     fn request(
-        state: &mut Self,
+        &self,
+        state: &mut State,
         _client: &Client,
         _resource: &XdgToplevelIconManagerV1,
         request: xdg_toplevel_icon_manager_v1::Request,
-        _data: &(),
         _dhandle: &DisplayHandle,
-        data_init: &mut DataInit<'_, Self>,
+        data_init: &mut DataInit<'_, State>,
     ) {
         match request {
             xdg_toplevel_icon_manager_v1::Request::CreateIcon { id } => {
@@ -123,16 +125,17 @@ impl Dispatch<XdgToplevelIconManagerV1, ()> for State {
 // Dispatch — handle per-icon requests (destroy, set_name, add_buffer)
 // ---------------------------------------------------------------------------
 
-impl Dispatch<XdgToplevelIconV1, Mutex<IconBuilder>> for State {
+impl Dispatch2<XdgToplevelIconV1, State> for Mutex<IconBuilder> {
     fn request(
-        _state: &mut Self,
+        &self,
+        _state: &mut State,
         _client: &Client,
         resource: &XdgToplevelIconV1,
         request: xdg_toplevel_icon_v1::Request,
-        data: &Mutex<IconBuilder>,
         _dhandle: &DisplayHandle,
-        _data_init: &mut DataInit<'_, Self>,
+        _data_init: &mut DataInit<'_, State>,
     ) {
+        let data = self;
         match request {
             xdg_toplevel_icon_v1::Request::SetName { icon_name } => {
                 tracing::debug!(icon_name, "toplevel icon name set (not resolved — no icon theme loader)");

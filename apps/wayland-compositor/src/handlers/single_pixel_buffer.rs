@@ -3,5 +3,6 @@
 //! Allows clients to create surfaces backed by a single pixel, avoiding
 //! the overhead of allocating a full buffer for solid-color backgrounds.
 //!
-//! No handler trait is required — `delegate_single_pixel_buffer!()` in `state.rs`
-//! handles all protocol requests automatically. Requires `BufferHandler`.
+//! No handler trait is required — smithay's module handles all protocol
+//! requests, routed through `delegate_dispatch2!` in `state.rs`. Requires
+//! `BufferHandler`.

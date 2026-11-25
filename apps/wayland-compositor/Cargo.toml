@@ -11,8 +11,10 @@ license.workspace = true
 description = "Wayland compositor for UI test automation with PlatynUI on Linux (Wayland and X11 applications)"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-# Wayland compositor framework
-smithay = { version = "0.7", default-features = false, features = [
+# Wayland compositor framework. Taken from git: smithay's last crates.io release
+# (0.7.0) predates fixes and protocol modules the compositor relies on. Pinned
+# to the master commit of 2026-11-24; move it only as CONTRIBUTING.md §7 says.
+smithay = { git = "https://github.com/Smithay/smithay.git", rev = "54cf9c10fe214066f2e69f43784aafde0d921682", default-features = false, features = [
     "wayland_frontend",
     "desktop",
     "renderer_glow",
@@ -23,6 +25,7 @@ smithay = { version = "0.7", default-features = false, features = [
     "backend_session_libseat",
     "backend_udev",
     "xwayland",
+    "backend_libei",
 ] }
 
 # Event loop
@@ -49,7 +52,7 @@ zbus = { version = "5", features = ["blocking-api"] }
 # so clients must draw their own decorations.  This activates Adwaita-themed
 # CSD in winit's SCTK backend for compositors that don't provide SSD.
 # On sway/KDE (which support SSD), this is unused — the host draws the frame.
-winit = { version = "0.30", default-features = false, features = ["wayland-csd-adwaita"] }
+winit = { version = "0.31.0-beta.4", default-features = false, features = ["wayland-csd-adwaita"] }
 
 # CPU-side titlebar rendering (backgrounds, buttons, rounded rects)
 tiny-skia = "0.12"
@@ -82,11 +85,20 @@ signal-hook = "0.4"
 nix = { version = "0.31", default-features = false, features = ["socket"] }
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
-# Minimal raw Wayland client for the ipc_tests popup fixture (the egui test
-# app cannot create xdg_popups — its menus render in-window). Both crates are
-# already in the dependency tree via smithay/winit.
+# Minimal raw Wayland clients for the integration tests: the popup fixture (the
+# egui test app cannot create xdg_popups — its menus render in-window) and the
+# protocol clients of the input-emulation, screen-capture and protocol-policy
+# tests (staging: image capture, pointer warp; wlr: virtual pointer; misc:
+# virtual keyboard). All of these crates are already in the dependency tree via
+# smithay/winit and platynui-platform-linux-wayland.
 wayland-client = "0.31"
-wayland-protocols = { version = "0.32", features = ["client"] }
+wayland-protocols = { version = "0.32", features = ["client", "staging"] }
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+wayland-protocols-misc = { version = "0.3", features = ["client"] }
+# Waiting on the Wayland and EI client sockets with a deadline (poll).
+rustix = { version = "1", features = ["event"] }
+# X11 client for the Xwayland geometry tests (already in the tree via smithay).
+x11rb = "0.14"
 
 [lints]
 workspace = true

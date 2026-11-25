@@ -7,10 +7,17 @@
 use smithay::{
     reexports::wayland_server::protocol::wl_surface::WlSurface,
     utils::{Logical, Rectangle},
-    wayland::input_method::{InputMethodHandler, PopupSurface},
+    wayland::{
+        input_method::{InputMethodHandler, PopupSurface},
+        text_input::TextInputActivation,
+    },
 };
 
 use crate::state::State;
+
+/// No compositor-side reaction to a text field gaining or losing focus (no
+/// on-screen keyboard to show).
+impl TextInputActivation for State {}
 
 impl InputMethodHandler for State {
     fn new_popup(&mut self, _surface: PopupSurface) {

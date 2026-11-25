@@ -27,8 +27,10 @@ use smithay::{
         wayland_protocols::wp::presentation_time::server::wp_presentation_feedback,
         wayland_server::Display,
         winit::{
-            platform::wayland::WindowAttributesExtWayland,
-            window::{CursorIcon, Icon, Theme, WindowAttributes},
+            cursor::{Cursor, CursorIcon},
+            icon::{Icon, RgbaIcon},
+            platform::wayland::WindowAttributesWayland,
+            window::{Theme, WindowAttributes},
         },
     },
     utils::{Physical, Size},
@@ -97,7 +99,9 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<ExitCode, 
 
     let attributes = WindowAttributes::default()
         .with_title("PlatynUI Wayland Compositor")
-        .with_name("org.platynui.compositor", "platynui-wayland-compositor")
+        .with_platform_attributes(Box::new(
+            WindowAttributesWayland::default().with_name("org.platynui.compositor", "platynui-wayland-compositor"),
+        ))
         .with_theme(detect_system_theme())
         .with_window_icon(load_icon());
     let (mut backend, winit_evt): (WinitGraphicsBackend<GlowRenderer>, _) = winit::init_from_attributes(attributes)?;
@@ -143,9 +147,9 @@ pub fn run(args: &CompositorArgs, config: CompositorConfig) -> Result<ExitCode, 
 
     if tracker_size.w != output_size.w || tracker_size.h != output_size.h {
         use smithay::reexports::winit::dpi::PhysicalSize;
-        let _ = backend
-            .window()
-            .request_inner_size(PhysicalSize::new(tracker_size.w.unsigned_abs(), tracker_size.h.unsigned_abs()));
+        let _ = backend.window().request_surface_size(
+            PhysicalSize::new(tracker_size.w.unsigned_abs(), tracker_size.h.unsigned_abs()).into(),
+        );
         tracing::info!(
             width = tracker_size.w,
             height = tracker_size.h,
@@ -278,7 +282,7 @@ fn handle_output_config_change(wd: &mut WinitData, state: &mut State) {
         let _ = wd
             .backend
             .window()
-            .request_inner_size(PhysicalSize::new(new_render.w.unsigned_abs(), new_render.h.unsigned_abs()));
+            .request_surface_size(PhysicalSize::new(new_render.w.unsigned_abs(), new_render.h.unsigned_abs()).into());
     }
     rebuild_damage_tracker(wd, state);
 
@@ -386,7 +390,7 @@ fn update_cursor(backend: &mut WinitGraphicsBackend<GlowRenderer>, state: &State
         match &state.cursor_status {
             CursorImageStatus::Named(icon) => {
                 backend.window().set_cursor_visible(true);
-                backend.window().set_cursor(*icon);
+                backend.window().set_cursor(Cursor::Icon(*icon));
             }
             CursorImageStatus::Hidden | CursorImageStatus::Surface(_) => {
                 backend.window().set_cursor_visible(false);
@@ -405,7 +409,7 @@ fn update_cursor(backend: &mut WinitGraphicsBackend<GlowRenderer>, state: &State
             crate::decorations::CursorShape::ResizeSe => CursorIcon::SeResize,
         };
         backend.window().set_cursor_visible(true);
-        backend.window().set_cursor(icon);
+        backend.window().set_cursor(Cursor::Icon(icon));
     }
 }
 
@@ -418,7 +422,7 @@ fn load_icon() -> Option<Icon> {
     let mut buf = vec![0u8; buf_size];
     let info = reader.next_frame(&mut buf).ok()?;
     buf.truncate(info.buffer_size());
-    Icon::from_rgba(buf, info.width, info.height).ok()
+    RgbaIcon::new(buf, info.width, info.height).ok().map(Icon::from)
 }
 
 /// Detect the system color scheme via the XDG Desktop Portal.

@@ -13,13 +13,13 @@ use smithay::wayland::selection::wlr_data_control;
 use crate::state::State;
 
 impl wlr_data_control::DataControlHandler for State {
-    fn data_control_state(&self) -> &wlr_data_control::DataControlState {
-        &self.data_control_state
+    fn data_control_state(&mut self) -> &mut wlr_data_control::DataControlState {
+        &mut self.data_control_state
     }
 }
 
 impl ext_data_control::DataControlHandler for State {
-    fn data_control_state(&self) -> &ext_data_control::DataControlState {
-        &self.ext_data_control_state
+    fn data_control_state(&mut self) -> &mut ext_data_control::DataControlState {
+        &mut self.ext_data_control_state
     }
 }

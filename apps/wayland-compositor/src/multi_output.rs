@@ -101,6 +101,7 @@ pub fn create_outputs(configs: &[OutputConfig], dh: &DisplayHandle, space: &mut 
                     subpixel: Subpixel::Unknown,
                     make: "PlatynUI".to_string(),
                     model: "Wayland Compositor".to_string(),
+                    serial_number: String::new(),
                 },
             );
 

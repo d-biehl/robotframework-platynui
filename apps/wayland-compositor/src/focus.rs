@@ -4,24 +4,33 @@
 //! focus to different kinds of surfaces (toplevel windows, popups, layer
 //! surfaces, etc.) through smithay's `SeatHandler` focus type system.
 
-use std::borrow::Cow;
+use std::{borrow::Cow, sync::Arc};
 
 use smithay::{
-    backend::input::KeyState,
+    backend::input::{InputTime, KeyState, TabletToolDescriptor},
     desktop::{LayerSurface, PopupKind, Window},
     input::{
         Seat,
+        dnd::{DndFocus, OfferData, Source},
         keyboard::{KeyboardTarget, KeysymHandle, ModifiersState},
         pointer::{
             AxisFrame, ButtonEvent, GestureHoldBeginEvent, GestureHoldEndEvent, GesturePinchBeginEvent,
             GesturePinchEndEvent, GesturePinchUpdateEvent, GestureSwipeBeginEvent, GestureSwipeEndEvent,
             GestureSwipeUpdateEvent, MotionEvent, PointerTarget, RelativeMotionEvent,
         },
-        touch::TouchTarget,
+        tablet::{
+            Tablet,
+            tool::{
+                AxisFrame as ToolAxisFrame, ButtonEvent as ToolButtonEvent, DownEvent as ToolDownEvent,
+                MotionEvent as ToolMotionEvent, TabletToolTarget, UpEvent as ToolUpEvent,
+            },
+        },
+        touch::{FrameMarker, TouchTarget},
     },
-    reexports::wayland_server::{Resource, backend::ObjectId, protocol::wl_surface::WlSurface},
-    utils::{IsAlive, Serial},
-    wayland::seat::WaylandFocus,
+    reexports::wayland_server::{DisplayHandle, Resource, backend::ObjectId, protocol::wl_surface::WlSurface},
+    utils::{IsAlive, Logical, Point, Serial},
+    wayland::{seat::WaylandFocus, selection::data_device::WlOfferData},
+    xwayland::{X11Surface, xwm::XwmOfferData},
 };
 
 use crate::state::State;
@@ -221,7 +230,7 @@ impl KeyboardTarget<State> for KeyboardFocusTarget {
         key: KeysymHandle<'_>,
         state: KeyState,
         serial: Serial,
-        time: u32,
+        time: InputTime,
     ) {
         delegate_to_surface!(self, key, seat, data, key, state, serial, time);
     }
@@ -258,7 +267,7 @@ impl PointerTarget<State> for PointerFocusTarget {
         delegate_to_surface_pointer!(self, frame, seat, data);
     }
 
-    fn leave(&self, seat: &Seat<State>, data: &mut State, serial: Serial, time: u32) {
+    fn leave(&self, seat: &Seat<State>, data: &mut State, serial: Serial, time: InputTime) {
         delegate_to_surface_pointer!(self, leave, seat, data, serial, time);
     }
 
@@ -298,37 +307,222 @@ impl PointerTarget<State> for PointerFocusTarget {
 // -- TouchTarget --
 
 impl TouchTarget<State> for PointerFocusTarget {
-    fn down(&self, seat: &Seat<State>, data: &mut State, event: &smithay::input::touch::DownEvent, seq: Serial) {
-        delegate_to_surface_touch!(self, down, seat, data, event, seq);
+    fn down(&self, seat: &Seat<State>, data: &mut State, event: &smithay::input::touch::DownEvent) {
+        delegate_to_surface_touch!(self, down, seat, data, event);
     }
 
-    fn up(&self, seat: &Seat<State>, data: &mut State, event: &smithay::input::touch::UpEvent, seq: Serial) {
-        delegate_to_surface_touch!(self, up, seat, data, event, seq);
+    fn up(&self, seat: &Seat<State>, data: &mut State, event: &smithay::input::touch::UpEvent) {
+        delegate_to_surface_touch!(self, up, seat, data, event);
     }
 
-    fn motion(&self, seat: &Seat<State>, data: &mut State, event: &smithay::input::touch::MotionEvent, seq: Serial) {
-        delegate_to_surface_touch!(self, motion, seat, data, event, seq);
+    fn motion(&self, seat: &Seat<State>, data: &mut State, event: &smithay::input::touch::MotionEvent) {
+        delegate_to_surface_touch!(self, motion, seat, data, event);
     }
 
-    fn frame(&self, seat: &Seat<State>, data: &mut State, seq: Serial) {
-        delegate_to_surface_touch!(self, frame, seat, data, seq);
+    fn frame(&self, seat: &Seat<State>, data: &mut State, marker: FrameMarker) {
+        delegate_to_surface_touch!(self, frame, seat, data, marker);
     }
 
-    fn cancel(&self, seat: &Seat<State>, data: &mut State, seq: Serial) {
-        delegate_to_surface_touch!(self, cancel, seat, data, seq);
+    fn cancel(&self, seat: &Seat<State>, data: &mut State, marker: FrameMarker) {
+        delegate_to_surface_touch!(self, cancel, seat, data, marker);
     }
 
-    fn shape(&self, seat: &Seat<State>, data: &mut State, event: &smithay::input::touch::ShapeEvent, seq: Serial) {
-        delegate_to_surface_touch!(self, shape, seat, data, event, seq);
+    fn shape(&self, seat: &Seat<State>, data: &mut State, event: &smithay::input::touch::ShapeEvent) {
+        delegate_to_surface_touch!(self, shape, seat, data, event);
     }
 
-    fn orientation(
+    fn orientation(&self, seat: &Seat<State>, data: &mut State, event: &smithay::input::touch::OrientationEvent) {
+        delegate_to_surface_touch!(self, orientation, seat, data, event);
+    }
+
+    fn last_frame(&self, seat: &Seat<State>, data: &mut State) -> Option<FrameMarker> {
+        match self {
+            Self::Window(w) => {
+                w.wl_surface().and_then(|surface| <WlSurface as TouchTarget<State>>::last_frame(&surface, seat, data))
+            }
+            Self::Surface(s) => <WlSurface as TouchTarget<State>>::last_frame(s, seat, data),
+        }
+    }
+}
+
+// -- TabletToolTarget --
+
+macro_rules! delegate_to_surface_tool {
+    ($self:expr, $method:ident, $($arg:expr),* $(,)?) => {
+        match $self {
+            Self::Window(w) => {
+                if let Some(surface) = w.wl_surface() {
+                    <WlSurface as TabletToolTarget<State>>::$method(&*surface, $($arg),*);
+                }
+            }
+            Self::Surface(s) => {
+                <WlSurface as TabletToolTarget<State>>::$method(s, $($arg),*);
+            }
+        }
+    };
+}
+
+impl TabletToolTarget<State> for PointerFocusTarget {
+    fn proximity_in(
         &self,
         seat: &Seat<State>,
         data: &mut State,
-        event: &smithay::input::touch::OrientationEvent,
-        seq: Serial,
+        tool: &TabletToolDescriptor,
+        tablet: &Tablet,
+        serial: Serial,
     ) {
-        delegate_to_surface_touch!(self, orientation, seat, data, event, seq);
+        delegate_to_surface_tool!(self, proximity_in, seat, data, tool, tablet, serial);
+    }
+
+    fn proximity_out(&self, seat: &Seat<State>, data: &mut State, tool: &TabletToolDescriptor) {
+        delegate_to_surface_tool!(self, proximity_out, seat, data, tool);
+    }
+
+    fn down(&self, seat: &Seat<State>, data: &mut State, tool: &TabletToolDescriptor, event: &ToolDownEvent) {
+        delegate_to_surface_tool!(self, down, seat, data, tool, event);
+    }
+
+    fn up(&self, seat: &Seat<State>, data: &mut State, tool: &TabletToolDescriptor, event: &ToolUpEvent) {
+        delegate_to_surface_tool!(self, up, seat, data, tool, event);
+    }
+
+    fn motion(&self, seat: &Seat<State>, data: &mut State, tool: &TabletToolDescriptor, event: &ToolMotionEvent) {
+        delegate_to_surface_tool!(self, motion, seat, data, tool, event);
+    }
+
+    fn axis(&self, seat: &Seat<State>, data: &mut State, tool: &TabletToolDescriptor, frame: ToolAxisFrame) {
+        delegate_to_surface_tool!(self, axis, seat, data, tool, frame);
+    }
+
+    fn button(&self, seat: &Seat<State>, data: &mut State, tool: &TabletToolDescriptor, event: &ToolButtonEvent) {
+        delegate_to_surface_tool!(self, button, seat, data, tool, event);
+    }
+
+    fn frame(&self, seat: &Seat<State>, data: &mut State, tool: &TabletToolDescriptor, time: InputTime) {
+        delegate_to_surface_tool!(self, frame, seat, data, tool, time);
+    }
+}
+
+// -- DndFocus --
+
+/// The drop-target protocol state of a drag over one of our focus targets:
+/// a Wayland data offer, or an XDND offer to an X11 client.
+pub enum CompositorOfferData<S: Source> {
+    Wayland(WlOfferData<S>),
+    X11(Box<XwmOfferData<S>>),
+}
+
+impl<S: Source> OfferData for CompositorOfferData<S> {
+    fn disable(&self) {
+        match self {
+            Self::Wayland(data) => data.disable(),
+            Self::X11(data) => data.disable(),
+        }
+    }
+
+    fn drop(&self) {
+        match self {
+            Self::Wayland(data) => data.drop(),
+            Self::X11(data) => OfferData::drop(data.as_ref()),
+        }
+    }
+
+    fn validated(&self) -> bool {
+        match self {
+            Self::Wayland(data) => data.validated(),
+            Self::X11(data) => data.validated(),
+        }
+    }
+}
+
+/// What a drag over a focus target talks to.
+enum DndTarget {
+    Wayland(WlSurface),
+    X11(Box<X11Surface>),
+}
+
+impl PointerFocusTarget {
+    fn dnd_target(&self) -> Option<DndTarget> {
+        match self {
+            Self::Window(w) => match w.x11_surface() {
+                Some(x11) => Some(DndTarget::X11(Box::new(x11.clone()))),
+                None => w.wl_surface().map(|s| DndTarget::Wayland(s.into_owned())),
+            },
+            Self::Surface(s) => Some(DndTarget::Wayland(s.clone())),
+        }
+    }
+}
+
+impl DndFocus<State> for PointerFocusTarget {
+    type OfferData<S>
+        = CompositorOfferData<S>
+    where
+        S: Source;
+
+    fn enter<S: Source>(
+        &self,
+        data: &mut State,
+        dh: &DisplayHandle,
+        source: Arc<S>,
+        seat: &Seat<State>,
+        location: Point<f64, Logical>,
+        serial: &Serial,
+    ) -> Option<CompositorOfferData<S>> {
+        match self.dnd_target()? {
+            DndTarget::Wayland(s) => {
+                DndFocus::enter(&s, data, dh, source, seat, location, serial).map(CompositorOfferData::Wayland)
+            }
+            DndTarget::X11(x) => DndFocus::enter(&*x, data, dh, source, seat, location, serial)
+                .map(|o| CompositorOfferData::X11(Box::new(o))),
+        }
+    }
+
+    fn motion<S: Source>(
+        &self,
+        data: &mut State,
+        offer: Option<&mut CompositorOfferData<S>>,
+        seat: &Seat<State>,
+        location: Point<f64, Logical>,
+        time: InputTime,
+    ) {
+        match (self.dnd_target(), offer) {
+            (Some(DndTarget::Wayland(s)), Some(CompositorOfferData::Wayland(o))) => {
+                DndFocus::motion(&s, data, Some(o), seat, location, time);
+            }
+            (Some(DndTarget::Wayland(s)), None) => DndFocus::<State>::motion::<S>(&s, data, None, seat, location, time),
+            (Some(DndTarget::X11(x)), Some(CompositorOfferData::X11(o))) => {
+                DndFocus::motion(&*x, data, Some(o.as_mut()), seat, location, time);
+            }
+            (Some(DndTarget::X11(x)), None) => DndFocus::<State>::motion::<S>(&*x, data, None, seat, location, time),
+            _ => {}
+        }
+    }
+
+    fn leave<S: Source>(&self, data: &mut State, offer: Option<&mut CompositorOfferData<S>>, seat: &Seat<State>) {
+        match (self.dnd_target(), offer) {
+            (Some(DndTarget::Wayland(s)), Some(CompositorOfferData::Wayland(o))) => {
+                DndFocus::leave(&s, data, Some(o), seat);
+            }
+            (Some(DndTarget::Wayland(s)), None) => DndFocus::<State>::leave::<S>(&s, data, None, seat),
+            (Some(DndTarget::X11(x)), Some(CompositorOfferData::X11(o))) => {
+                DndFocus::leave(&*x, data, Some(o.as_mut()), seat);
+            }
+            (Some(DndTarget::X11(x)), None) => DndFocus::<State>::leave::<S>(&*x, data, None, seat),
+            _ => {}
+        }
+    }
+
+    fn drop<S: Source>(&self, data: &mut State, offer: Option<&mut CompositorOfferData<S>>, seat: &Seat<State>) {
+        match (self.dnd_target(), offer) {
+            (Some(DndTarget::Wayland(s)), Some(CompositorOfferData::Wayland(o))) => {
+                DndFocus::drop(&s, data, Some(o), seat);
+            }
+            (Some(DndTarget::Wayland(s)), None) => DndFocus::<State>::drop::<S>(&s, data, None, seat),
+            (Some(DndTarget::X11(x)), Some(CompositorOfferData::X11(o))) => {
+                DndFocus::drop(&*x, data, Some(o.as_mut()), seat);
+            }
+            (Some(DndTarget::X11(x)), None) => DndFocus::<State>::drop::<S>(&*x, data, None, seat),
+            _ => {}
+        }
     }
 }

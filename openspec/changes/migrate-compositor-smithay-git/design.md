@@ -14,6 +14,7 @@ Verified facts:
 - **Generic input path.** `input::process_input_event<B: InputBackend>` (`src/input.rs:39`) already handles any smithay input backend. EIS and virtual-pointer buttons already go through `input::process_pointer_button` (`src/eis.rs:304`, `src/handlers/virtual_pointer.rs:272`). Keys reach `KeyboardHandle::input` in three places: devices (`src/input.rs:105`), the control socket (`src/control.rs:827`) and EIS (`src/eis.rs:362`).
 - **Restrictive policy.** Under `--restrict-protocols` the virtual-keyboard, virtual-pointer, pointer-warp, output-management and screencopy globals are hidden from every client (`src/state.rs:416-434`).
 - **The compositor keymap is static.** It is built from CLI and environment values by `resolve_xkb_config` (`src/lib.rs:256`), and the control socket has no command to change it.
+- **On smithay 0.7 a virtual keyboard bypasses the seat** (verified by the Phase 0 tests and in smithay 0.7's `virtual_keyboard_handle.rs`). It sends its keymap, keys and modifiers straight to the focused client, so `get_modifiers` never shows its modifiers, and destroying it changes nothing. That diverges from `compositor-modifier-state`, which says the modifier state reflects the virtual-input protocols. The migration closes the gap, because a virtual keyboard becomes a seat device (D5).
 - **Xwayland is not exercised by the acceptance lane.** `real-wayland` runs `scripts/startcompositor.sh` without `--xwayland` (`robot.toml:82-86`).
 - **Smithay `master` APIs:**
   - Most of the new modules take a global filter: `VirtualPointerManagerState::new(dh, filter)`, `OutputCaptureSourceState::new_with_filter`, `ToplevelCaptureSourceState::new_with_filter` and `ImageCopyCaptureState::new_with_filter`.
@@ -33,7 +34,7 @@ Assumed, not verified:
 **Goals:**
 
 - Phase 1 leaves every observable behavior unchanged except the upstream behavior listed in the proposal. The characterization tests written before the migration stay green without edits.
-- Every handler that Phase 2 replaces is under test before it is replaced, and each replacement is a separate commit that can be reverted on its own.
+- Every handler that Phase 2 replaces is under test before it is replaced.
 - Moving the pin later is routine work: one manifest line plus the API fixes that upstream requires.
 
 **Non-Goals:**
@@ -99,7 +100,10 @@ Alternative: rely on the acceptance lane. It never exercises these protocols (se
    - `XdgDecorationHandler::decoration_destroyed` returns the toplevel to client-side decorations, the same effect as unsetting the mode
    - drop `XdgDialogHandler::modal_changed`
    - mutability of the `*_state()` accessors
-   - the moved `TabletSeatHandler`
+   - the moved `TabletSeatHandler`, which now names its tool-focus type, so `PointerFocusTarget` also implements `TabletToolTarget`
+   - **the compositor's own protocol handlers move to `Dispatch2`/`GlobalDispatch2`.** `delegate_dispatch2!` implements `Dispatch<I, U>`/`GlobalDispatch<I, U>` for `State` for every user-data type `U` that implements `Dispatch2<I, State>`. That blanket impl overlaps the hand-written `impl Dispatch<I, U> for State` blocks, so the 35 of them (nine files under `src/handlers/`) become `impl Dispatch2<I, State> for U`, with the user data as `self`. `()` stays usable as user data, because `State` is local and so the orphan rule allows the impl.
+   - smaller upstream API changes the trial build did not reach: `TextInputActivation`, the render-state namespace argument of `update_surface_primary_scanout_output`/`surface_presentation_feedback_flags_from_states`, `PhysicalProperties::serial_number`, `NodeFilter` for `GbmFramebufferExporter`, the device metadata of udev events, the extra-arguments parameter of `XWayland::spawn` (left empty), the `DisplayHandle` for `X11Wm::start_wm`, and the popup geometry from `PopupSurface::with_committed_state`
+   - **`X11Surface::geometry` changed meaning without a compile error** (smithay `72a81567`, `14ba3555`). It used to be the X11 window rectangle; it is now the *visible* area, the bounding box minus `_GTK_FRAME_EXTENTS`, relative to the window (origin = shadow width). The old meaning is `X11Surface::last_configure`. This compositor renders a window's buffer at its `Space` element location, so for X11 windows that location stays the X11 origin. X11 windows are therefore configured with their X11 rectangle (`last_configure`, helpers in `src/xwayland.rs`), and the visible geometry is used only for reporting window rectangles. The gap was found by the manual Xwayland check: GTK menus opened at the top-left corner, because a configure request answered with position (shadow, shadow), and shadowed windows shrank by twice the shadow. `tests/xwayland_geometry_tests.rs` (real Xwayland, `#[ignore]`d) covers it.
 2. **Semantic changes:** the virtual keyboard (D5) and the DnD rework. For DnD, implement `DndGrabHandler`, then `WaylandDndGrabHandler::started` to start a `DnDGrab` as anvil does, then `DndFocus` for `PointerFocusTarget` (`src/focus.rs:47`), which `X11Wm::start_wm` now requires.
 3. **winit 0.31** in `src/backend/winit.rs` (`Icon`, `CursorIcon`, `WindowAttributesExtWayland` moved).
 
@@ -143,6 +147,8 @@ These parts stay ours and are called from `frame()` and `cursor_frame()`:
 
 A toplevel source resolves its `ForeignToplevelHandle` to our `Window` through the existing ext-foreign-toplevel bookkeeping in `src/handlers/foreign_toplevel.rs`.
 
+**Toplevel content is rendered from the window, not from an output.** Today `render_source_to_pixels` renders a toplevel source as the first output's scene, cropped to the window's size (`src/handlers/screencopy.rs:1005`, verified by the Phase 0 test). Wherever the window is not at the output origin, the frame shows the background and other windows. The replacement renders only that window's own render elements (its surface tree, without the server-side titlebar), offset so that its geometry starts at the buffer origin. The output scale is unchanged. This fixes behavior `compositor-screen-capture` requires; it is not a protocol-level change.
+
 The compositor keeps the live sessions for each source. It stops them (`Session::stop`) when the toplevel unmaps or the output is removed, which `stopped` in the spec requires.
 
 **Alternative:** keep the hand-written protocol code. That keeps 1147 lines whose protocol corner cases smithay now covers (`duplicate_frame`, inert destruction order).
@@ -164,7 +170,7 @@ It converts the position to global coordinates from the surface's root window lo
 
 **Alternatives:**
 - Advertise pointer warp unfiltered. That changes policy behavior without a reason.
-- Contribute `new_with_filter` upstream first. Worth doing, but the change does not wait for it. Once it is merged, the compositor switches to it on the next pin move.
+- Contribute `new_with_filter` upstream first. Not pursued here (see Resolved Questions); should smithay gain such a constructor, a later pin move can switch to it.
 
 ### D9 — EIS on smithay's libei backend
 
@@ -191,7 +197,7 @@ The compositor tracks the keys and buttons each connection holds. On `Disconnect
 
 ## Risks / Trade-offs
 
-- **[Risk] An upstream regression at the pinned revision.** → The characterization tests and the lane run before the pin is accepted. Moving forward or back is a one-line change, and Phase 1 can be reverted as one commit.
+- **[Risk] An upstream regression at the pinned revision.** → The characterization tests and the lane run before the pin is accepted. Moving forward or back is a one-line change, and the whole migration can be reverted as one commit.
 - **[Risk] The ack-before-commit enforcement disconnects a fixture or a real application with a protocol error.** → The lane covers the egui, Qt and GTK fixtures. A client that fails is a client bug to report; the compositor gets no workaround that weakens the protocol.
 - **[Risk] `_GTK_FRAME_EXTENTS` changes the geometry of X11 GTK windows and interacts with our titlebar offset (`src/xwayland.rs:192`, `:353`).** → A manual Xwayland smoke check with an X11 GTK application and a Swing application. Window rectangles from `list_windows` are compared with the visible frame.
 - **[Risk] winit beta churn on later pin moves.** → It is confined to `src/backend/winit.rs`. The nested mode is a development convenience, and CI uses headless.
@@ -203,11 +209,11 @@ The compositor tracks the keys and buttons each connection holds. On `Disconnect
 ## Migration Plan
 
 - **Phase 0, additive:** characterization tests against smithay 0.7. No behavior change, no native rebuild.
-- **Phase 1, behavioral only through upstream:** the pin, the winit bump and the API adaptation in one commit. The Phase 0 tests stay green unchanged, plus `just test-crate platynui-wayland-compositor`, the `real-wayland` lane and the manual Xwayland smoke check.
-- **Phase 2, behavioral:** one commit per replaced handler, in this order: screencopy, virtual pointer, pointer warp, EIS. Each commit first adds the tests for its deliberate behavior changes, then replaces the handler. EIS goes last because it is PlatynUI's fallback input path.
+- **Phase 1, behavioral only through upstream:** the pin, the winit bump and the API adaptation. The Phase 0 tests stay green unchanged, plus `just test-crate platynui-wayland-compositor`, the `real-wayland` lane and the manual Xwayland smoke check.
+- **Phase 2, behavioral:** the handlers are replaced in this order: screencopy, virtual pointer, pointer warp, EIS. Each step first adds the tests for its deliberate behavior changes, then replaces the handler. EIS goes last because it is PlatynUI's fallback input path.
 - **No native rebuild.** `packages/native` does not depend on the compositor, and the Python package and Robot Framework library are unchanged. The lane uses the compositor binary that `scripts/startcompositor.sh` builds.
-- **Rollback:** revert the Phase 2 commits in reverse order, then the Phase 1 commit, which restores `smithay = "0.7"`, `winit = "0.30"` and the old `Cargo.lock`. The Phase 0 tests stay, because they describe behavior that holds on both versions.
+- **Commits and rollback:** the phases were verified one after another but land as one commit (maintainer's decision, 2026-11-25), because the intermediate states of the replaced handlers were never kept as files. Rolling back means reverting that commit, which restores `smithay = "0.7"`, `winit = "0.30"` and the old `Cargo.lock`.
 
-## Open Questions
+## Resolved Questions
 
-- Should the pointer-warp filter be proposed upstream as `PointerWarpManager::new_with_filter`? This does not change the approach (D8). It only decides whether a later pin move can drop our small global type.
+- **Upstream pointer-warp filter:** not proposed as part of this change (maintainer's decision, 2026-11-25). The compositor keeps its own filtered global (D8).

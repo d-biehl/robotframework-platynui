@@ -70,13 +70,13 @@ When a session is created with the `paint_cursors` option, the compositor SHALL 
 
 ### Requirement: A capture session ends with its source
 
-When the captured toplevel is closed or the captured output is removed, the compositor SHALL send `stopped` on the sessions of that source, and frames created afterwards SHALL fail with reason `stopped`. The compositor SHALL NOT end the client's connection for this.
+When the captured toplevel is closed or the captured output is removed, the compositor SHALL send `stopped` on the sessions of that source, and frames created afterwards SHALL fail. The failure reason of such a frame is not specified. The compositor SHALL NOT end the client's connection for this.
 
 #### Scenario: Closing the captured toplevel stops its session
 
 - **GIVEN** a capture session for toplevel A
 - **WHEN** A is closed and the client then creates and captures a frame
-- **THEN** the session SHALL have received `stopped`, the frame SHALL fail with `stopped`, and the client SHALL stay connected
+- **THEN** the session SHALL have received `stopped`, the frame SHALL fail, and the client SHALL stay connected
 
 ### Requirement: The restrictive policy hides screen capture
 

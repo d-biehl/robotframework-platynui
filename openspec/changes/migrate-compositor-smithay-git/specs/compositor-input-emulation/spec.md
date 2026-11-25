@@ -79,9 +79,9 @@ The compositor SHALL accept only EI clients that connect as senders, meaning cli
 - **WHEN** an EI client completes the handshake as a receiver
 - **THEN** the client SHALL be disconnected, and a following control-socket status request SHALL succeed
 
-### Requirement: EIS offers pointer, keyboard and touch but not text
+### Requirement: EIS gives pointer, keyboard and touch devices but no text device
 
-To a sender client the compositor SHALL offer a seat with relative pointer, absolute pointer, button, scroll, keyboard and touch capabilities, and SHALL NOT offer the text capability. A client SHALL get a device for each offered capability it binds. Absolute-pointer and touch devices SHALL carry one region per output, with that output's global logical geometry and scale.
+To a sender client the compositor SHALL offer a seat on which binding gives devices with relative pointer, absolute pointer, button, scroll, keyboard and touch capabilities. Binding SHALL NOT give a text device, even where the seat lists the text capability. Absolute-pointer and touch devices SHALL carry one region per output, with that output's global logical geometry and scale.
 
 #### Scenario: Binding every capability yields every device except text
 
