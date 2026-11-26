@@ -27,8 +27,9 @@
   - session ends while starting (never-ready fake, `--xwayland-timeout 30 --timeout 1`, no child);
   - invalid timeout (`--xwayland --xwayland-timeout 0` exits non-zero with a usage message naming the option);
   - "Status while XWayland is still starting" (never-ready fake, control socket enabled, `--xwayland-timeout 10`; query `status` over the control socket and parse the JSON: `xwayland` is `false`).
+  - "A failed XWayland start leaves no server running": the never-ready fake writes `$$` to a PID file before `exec /bin/sleep 30` (the PID survives the `exec`). Run it once with `--xwayland-timeout 1` and once with `--xwayland-timeout 30 --timeout 1`, both without a child. After the compositor exits, the recorded process must be gone or a zombie: `/proc/<pid>` is missing, or the state field of `/proc/<pid>/stat` is `Z`. The test kills a survivor itself, so a failing run leaves no `sleep` behind.
 
-  Confirm that each test fails on the current code, and record how. Cases without the new flag hang until the 30 s deadline, or exit `0` without `--exit-with-child`. Cases that pass `--xwayland-timeout` fail with clap's exit `2` until task 2.2. The status test reports `true`. After 2.2, re-run the `--xwayland-timeout` cases and confirm they fail for the real reason.
+  Confirm that each test fails on the current code, and record how. Cases without the new flag hang until the 30 s deadline, or exit `0` without `--exit-with-child`. Cases that pass `--xwayland-timeout` fail with clap's exit `2` until task 2.2. The status test reports `true`. After 2.2, re-run the `--xwayland-timeout` cases and confirm they fail for the real reason; the no-server-left test still finds the fake's `sleep` running until task 3.6.
 - [ ] 1.4 Add `#[ignore]`d tests that need a real `Xwayland` on `PATH`, with a module doc comment showing how to run them (`cargo nextest run -p platynui-wayland-compositor --run-ignored ignored-only -E 'binary(xwayland_startup_tests)'`):
   - "A working XWayland session succeeds": exit `0` and a `DISPLAY=` line on stdout.
   - "Readiness with XWayland waits for the X11 window manager": in the info log, the window-manager-started line (added in 3.3) comes before `compositor ready` and before `spawning child program`. On the current code this order is reversed.
@@ -67,6 +68,12 @@
   - Expect: the compositor's own ERROR text in the log; `list_windows` contains neither X11 window (mapped or `minimized`) but still the Wayland window; `status` reports `xwayland` as `false`; IPC keeps answering.
 
   Run it locally.
+- [ ] 3.6 Kill a server that failed to start, as in design Decision 11:
+  - Add `rustix` with the `process` feature to the compositor's Linux dependencies, and confirm with `cargo tree --workspace -i rustix` that `Cargo.lock` gains no new crate.
+  - On the timeout, window-manager-failure, `XWaylandEvent::Error` and session-ended-while-starting paths, take `XWaylandClientData::pidfd()` from the XWayland client `State` keeps, and send `SIGKILL` with `rustix::process::pidfd_send_signal` before the XWayland source is dropped.
+  - Ignore `ESRCH`. When `pidfd()` is `None`, log a WARN that the server cannot be terminated.
+
+  Verify that the no-server-left tests from 1.3 pass, and that the "exits before ready" and "window manager cannot start" tests still pass. Their processes exit on their own, so there is nothing to kill.
 
 ## 4. Status and documentation
 

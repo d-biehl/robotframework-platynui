@@ -120,6 +120,21 @@ These scenarios assume X11 display sockets can be created (a writable `/tmp/.X11
 - **WHEN** the compositor runs headless with `--xwayland --print-env --exit-with-child -- /bin/sh -c 'test -n "$DISPLAY"'`
 - **THEN** it exits with `0` and stdout contains a `DISPLAY=` line (verifiable only with a real `Xwayland` binary)
 
+### Requirement: A failed XWayland start leaves no server running
+When a requested XWayland does not become usable and its process is still running, the compositor SHALL terminate that process before it exits, so it neither outlives the session nor keeps its X display slot. It SHALL address the process through a handle that cannot reach an unrelated process with a reused process ID, and SHALL log a warning when no such handle is available.
+
+#### Scenario: A server that never reports readiness is terminated
+- **GIVEN** an `Xwayland` on `PATH` that writes its process ID to a file and then stays alive without ever reporting a display
+- **WHEN** the compositor runs headless with `--xwayland --xwayland-timeout 1` and no child program
+- **THEN** it exits with `1`, and the process with the recorded ID is no longer running (it is gone or only a zombie)
+
+#### Scenario: A server still starting when the session ends is terminated
+- **GIVEN** the same `Xwayland` on `PATH`
+- **WHEN** the compositor runs headless with `--xwayland --xwayland-timeout 30 --timeout 1` and no child program
+- **THEN** it exits with `1` after about one second, and the process with the recorded ID is no longer running
+
+Both scenarios use a fake `Xwayland` and need no real XWayland, so they run in CI.
+
 ### Requirement: XWayland terminating during the session is reported, not fatal
 When XWayland terminates after it became usable, the compositor SHALL:
 - log it at ERROR level with its own message;

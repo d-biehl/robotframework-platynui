@@ -1,6 +1,14 @@
 ## Context
 
-See proposal.md for the motivation. This section covers the current startup path and the constraints the fix works within. All references are to the working tree at ae5f614 and to smithay 0.7.0 (`Cargo.lock`).
+See proposal.md for the motivation. This section covers the current startup path and the constraints the fix works within. The references below are to the working tree at ae5f614 and to smithay 0.7.0.
+
+Since then the compositor moved to the smithay git revision 54cf9c10 (change `migrate-compositor-smithay-git`, commit 73ecd99f). That commit reworked parts of `src/xwayland.rs` and shifted smithay's line numbers, so the line references here are re-located during implementation. The smithay behaviors this design relies on were rechecked against the pin on 2026-11-26 and are unchanged:
+- EOF on the display fd is still `Ok(None)` (`xserver.rs:451`);
+- the source is still level-triggered (`:291`);
+- the environment is still cleared down to `PATH` and `XDG_RUNTIME_DIR` (`:247-250`);
+- `XwmHandler::disconnected` is still a no-op by default (`xwm/mod.rs:586`).
+
+One thing is new in the pin: smithay opens a pidfd for the Xwayland child and exposes it as `XWaylandClientData::pidfd()` (`xserver.rs:282-286`, `:496-498`). That makes Decision 11 possible.
 
 **Startup path today (verified in code):**
 - `setup_services` (`apps/wayland-compositor/src/backend/mod.rs:224-283`) registers signals and the watchdog. With `--xwayland` it then copies `print_env`, `ready_fd`, `exit_with_child` and `child_command` into `State` and calls `start_xwayland` (`:242-255`). Next it sets up the control socket (`:259-264`) and EIS (`:267-272`), each of which exports its environment variable. Only without `--xwayland` does it announce readiness and spawn the child right away (`:275-280`).
@@ -11,7 +19,7 @@ See proposal.md for the motivation. This section covers the current startup path
   - A failure to register the event source only logs (`:123`).
   - Xwayland's stdout and stderr go to `Stdio::null()` (`:67-68`), although smithay passes `-verbose` (smithay `xwayland/xserver.rs:143`).
 - smithay reports `XWaylandEvent::Error` only for a real read error on the display fd. A server that exits before reporting a display gives EOF, which `take_socket` returns as `Ok(None)` (`xserver.rs:352`). The source is level-triggered (`xserver.rs:193`), so it keeps firing without reporting anything, which most likely busy-loops the event loop. That busy loop was inferred from the code, not observed. A server that stays alive and silent produces no event at all.
-- smithay spawns `Command::new("Xwayland")` with an environment cleared down to `PATH`, `XDG_RUNTIME_DIR` and `WAYLAND_SOCKET` (`xserver.rs:137-173`). A caller can therefore control which `Xwayland` is found through `PATH`. Dropping the `XWayland` source only disconnects its Wayland client (`xserver.rs:330-335`); smithay 0.7 offers no API to kill the process.
+- smithay spawns `Command::new("Xwayland")` with an environment cleared down to `PATH`, `XDG_RUNTIME_DIR` and `WAYLAND_SOCKET` (`xserver.rs:137-173`). A caller can therefore control which `Xwayland` is found through `PATH`. Dropping the `XWayland` source only disconnects its Wayland client (`xserver.rs:330-335`); smithay 0.7 offers no API to kill the process. The git pin adds the pidfd described above, which Decision 11 uses.
 - `XwmHandler::xwm_state` panics when the window manager is missing (`src/xwayland.rs:158`), and smithay calls it from X11 event handling and the xwayland-shell commit hook. Today the reachable panic is on the WM-start failure path: `start_wm` attaches its `XwmId` to the XWayland client before later fallible steps, so a failure there leaves `wm` as `None` while the server keeps running. A mid-session termination cannot panic today, because smithay disables the source after Ready (`xserver.rs:305`) and `XwmHandler::disconnected` keeps smithay's no-op default (`xwm/mod.rs:396`), so the stored WM stays in place.
 - smithay keeps Xwayland's `Child` private and reaps it on its own thread when the client disconnects, logging `Xwayland terminated: <status>` at ERROR (`xserver.rs:364-386`). The compositor has no access to the exit status. `XWayland::spawn` returns the XWayland `Client`, whose liveness can be checked through the display handle.
 - The IPC `status` field is `state.xwayland.is_some()` (`src/control.rs:845`). `platynui-wayland-compositor-ctl` prints it as "XWayland: yes/no" (`apps/wayland-compositor-ctl/src/app.rs:348`, `:356`).
@@ -28,12 +36,12 @@ See proposal.md for the motivation. This section covers the current startup path
 - Every way XWayland can fail to become usable ends the process promptly with `1`, a visible cause, no readiness and no child. With or without `--exit-with-child`, and also when the session is ended from outside before XWayland became usable.
 - One place announces readiness and starts the child, after every requested service is usable.
 - XWayland's state is reported accurately, and its termination mid-session stays contained: its windows are cleaned up, and the compositor keeps running without crashing.
+- An Xwayland process that is still running when startup fails is terminated, so it does not outlive the compositor or hold its X display slot.
 - Every failure case is testable without a real XWayland.
 
 **Non-Goals:**
 - Restarting XWayland or lazily starting it on the first X11 client.
 - An `optional` mode that degrades to a Wayland-only session. It is not needed now, and it could be added later as a value for the flag.
-- Killing a hung Xwayland process on timeout. smithay 0.7 exposes no handle to do so (see Risks).
 - Installing XWayland in CI.
 
 ## Decisions
@@ -87,9 +95,18 @@ On either failure it removes the XWayland source, which also ends a busy loop on
 - `usage.md` lists `--control-socket`, but the flag is `--no-control-socket` (`src/lib.rs:132-136`).
 - `src/lib.rs:128`, `src/xwayland.rs:3` and `:53` mention an `xwayland` cargo feature that the crate does not have.
 
+**11. A server that failed to start is killed through its pidfd.** Every fatal startup path where the Xwayland process may still be running ends it before the compositor exits. That covers the startup timeout, a failed window manager start, the `XWaylandEvent::Error` arm, and a session that ends while XWayland is still starting.
+- **Getting the handle.** The handle comes from the XWayland Wayland client that `State` keeps until Ready: `client.get_data::<XWaylandClientData>()` and its `pidfd()`.
+- **Sending the signal.** The compositor sends `SIGKILL` with `rustix::process::pidfd_send_signal`. It does this before it drops the XWayland source, so smithay's reaper thread (`ClientData::disconnected`) collects the exit as usual.
+- **Paths with no process to kill.** Where the process is known to be gone ("exited before it was ready", a spawn error), there is nothing to kill; `ESRCH` from the call is ignored.
+- **No pidfd.** When `pidfd()` is `None` (smithay's `pidfd_open` failed, for example on a kernel before 5.3 or under a seccomp filter), the compositor logs a WARN that it cannot terminate the server. smithay already warns about the failed `pidfd_open` itself.
+- **Why a pidfd, not a PID.** A pidfd refers to exactly this process, so a recycled PID can never hit an unrelated process. The child's PID is private to smithay anyway.
+- *Rejected:* `SIGTERM` first, then `SIGKILL` after a grace period. It needs a second timer for a server that never served a client and has no state worth a clean shutdown. A server hung at startup may also ignore `SIGTERM`.
+- *Rejected:* leaving the server to exit on its own once its Wayland connection closes. A server that is hung in its own startup may never read that connection, and it keeps its `/tmp/.X<N>-lock` slot until it does.
+
 ## Risks / Trade-offs
 
-- **A hung Xwayland process can outlive the compositor.** On timeout, dropping the source only disconnects the Wayland client (`xserver.rs:330-335`), and smithay 0.7 exposes no process handle. → A real Xwayland normally exits once its Wayland connection closes (assumed). The test fake used for the never-ready case exits by itself shortly after the test. Killing the process is left to a future smithay API.
+- **A hung Xwayland process can outlive the compositor when no pidfd is available.** Decision 11 kills it through smithay's pidfd. Only if smithay could not open one (kernel before 5.3, seccomp) does dropping the source still just disconnect the Wayland client. → The compositor logs a WARN in that case, and a real Xwayland normally exits once its Wayland connection closes (assumed). The test environments have pidfd support, so the tests assert that the never-ready fake is gone.
 - **Tests with a fake `Xwayland` take real X display slots.** smithay creates `/tmp/.X<N>-lock` and `/tmp/.X11-unix/X<N>` before exec. → Parallel test processes are safe, because smithay creates the lock with `create_new` and reclaims stale locks by PID. The tests document that they touch this global state.
 - **The cause-specific assertions need working X11 socket preparation.** If `/tmp/.X11-unix` is missing or not writable, smithay fails before exec with "Could not find a free socket for the XServer" (`x11_sockets.rs:26-44`), and every fake case would report that instead of its own cause. → The test helper checks the precondition first and fails with a clear message rather than a misleading cause assertion.
 - **smithay logs an ERROR of its own when Xwayland dies.** A log assertion on "terminated" would pass without this change. → The tests assert the compositor's own message (Decision 8) and the observable cleanup, not smithay's line.
@@ -101,6 +118,6 @@ On either failure it removes the XWayland source, which also ends a busy loop on
 ## Migration Plan
 
 - The change is behavioral for `--xwayland` startup and additive for `--xwayland-timeout`. Sessions without `--xwayland` behave as before, including their readiness output and exit codes.
-- Nothing outside `apps/wayland-compositor` changes, so there is no native Python rebuild. The next `cargo build` (and `startcompositor.sh`, which builds via `cargo run`) picks it up.
+- Nothing outside `apps/wayland-compositor` changes, so there is no native Python rebuild. The next `cargo build` (and `startcompositor.sh`, which builds via `cargo run`) picks it up. The compositor gains a direct `rustix` dependency with the `process` feature, which smithay already pulls in, so `Cargo.lock` gains no new crate.
 - CI needs no workflow change; the lanes do not pass `--xwayland`.
 - Rollback: revert the change's commit(s). No persistent state, config format or protocol shape changes.

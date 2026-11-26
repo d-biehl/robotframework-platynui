@@ -17,6 +17,7 @@ No lane passes `--xwayland` today, so CI is not affected yet. The Wayland accept
 - **Startup timeout**: a new `--xwayland-timeout <secs>` option (default `10`, the same bound `startxsession.sh` uses for an X server) limits how long the compositor waits for XWayland.
 - **Readiness means usable**: with `--xwayland`, readiness and the child program follow only after XWayland is ready *and* its window manager runs, so `DISPLAY` is never handed out for a server that cannot serve X11 clients. Readiness and child launch happen in one place, after the control socket and EIS are set up, on both the XWayland and the plain path.
 - **Visible cause**: XWayland's own output is forwarded into the compositor log instead of being discarded, and the fatal startup error includes the last lines of it.
+- **No orphaned server**: on every startup error where the Xwayland process may still be running (startup timeout, window manager failure, session ended while XWayland is starting), the compositor kills it through the process file descriptor (pidfd) that smithay keeps for it. A hung server therefore no longer outlives the compositor or holds its X display slot. If smithay could not open a pidfd, the compositor logs a warning that it cannot terminate the server.
 - **XWayland terminating mid-session**: today nothing notices. With this change the compositor logs it at ERROR level, removes the dead server's X11 windows (mapped and minimized), reports XWayland as inactive, and keeps serving Wayland clients.
 - **Status reports usability**: the IPC `status` field `xwayland` (shown by `platynui-wayland-compositor-ctl status`) is `true` only while XWayland is ready and its window manager runs. Today it is already `true` before readiness and stays `true` after failures.
 - **Documentation**: add the startup-failure row to the exit-code table in the compositor usage docs and document the new option. Fix the drift found along the way: `--control-socket` should be `--no-control-socket`, and the `xwayland` cargo feature mentioned in the help text and module docs does not exist.
@@ -35,7 +36,8 @@ None. The existing compositor capabilities (`compositor-modifier-state`, `compos
 ## Impact
 
 - **Rust, `apps/wayland-compositor` only**:
-  - `src/xwayland.rs`: startup watch, window-manager-before-readiness, termination handling, output forwarding.
+  - `src/xwayland.rs`: startup watch, window-manager-before-readiness, termination handling, output forwarding, killing a server that failed to start.
+  - `Cargo.toml`: `rustix` with the `process` feature becomes a direct dependency (for `pidfd_send_signal`). It is already in the dependency tree with that feature through smithay, so no new crate is added.
   - `src/backend/mod.rs`: one startup finalization after control socket and EIS.
   - `src/state.rs`: startup-failure exit code and XWayland status.
   - `src/lib.rs`: the `--xwayland-timeout` option and help text.
