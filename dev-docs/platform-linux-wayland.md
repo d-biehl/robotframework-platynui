@@ -52,7 +52,7 @@ The following traits from `platynui-core` must be implemented (see [crates/core/
 | `PointerDevice` | XTest `XTestFakeMotionEvent/ButtonEvent` | libei / `zwlr_virtual_pointer_v1` | ✅ libei (GNOME, KDE) + wlr (wlroots) |
 | `KeyboardDevice` | XTest `XTestFakeKeyEvent` + XKB | libei / `zwp_virtual_keyboard_v1` | ✅ libei (GNOME, KDE) + wlr (wlroots) |
 | `ScreenshotProvider` | `XGetImage` | `ext-image-copy-capture-v1` / `wlr-screencopy` | ✅ Well-supported |
-| `HighlightProvider` | Override-redirect X11 window | `wlr-layer-shell-v1` / `ext-layer-shell-v1` | ⚠️ Compositor-dependent |
+| `HighlightProvider` | Override-redirect X11 window | `wlr-layer-shell-v1` | ⚠️ Compositor-dependent |
 | `DesktopInfoProvider` | XRandR | `wl_output` (core protocol) | ✅ Built-in |
 | `WindowManager` | EWMH (`_NET_WM_*`) | `wlr-foreign-toplevel-management` | ⚠️ Partial, no bounds/move/resize |
 
@@ -224,7 +224,7 @@ Use **ext-image-copy-capture-v1** as primary — it has broad adoption (KWin, Sw
 
 ## 6. Window Management
 
-This is the most challenging area. Wayland has **no equivalent to X11's EWMH** for programmatic window management. PlatynUI's `WindowManager` trait (see [`crates/core/src/platform/window_manager.rs`](../crates/core/src/platform/window_manager.rs)) covers resolving, reading and changing windows. Under Wayland, all of it except `bounds`, `move_to` and `resize` is solvable via standard protocols; those three require compositor-specific IPC.
+This is the most challenging area. Wayland has **no equivalent to X11's EWMH** for programmatic window management. PlatynUI's `WindowManager` trait (see [`crates/core/src/platform/window_manager.rs`](../crates/core/src/platform/window_manager.rs)) covers resolving, reading and changing windows. Under Wayland, all of it except `bounds`, `move_to` and `resize` is solvable via standard protocols; those three require compositor-specific IPC or a compositor's own protocol.
 
 ### 6.1. Available Protocols
 
@@ -246,7 +246,7 @@ The [wlr-foreign-toplevel-management-unstable-v1](https://wayland.app/protocols/
 - Resize window — ❌
 - Window stacking order — ❌
 
-**Compositor support:** Sway, Hyprland, wlroots-based, Mir, cosmic-comp, niri, labwc.
+**Compositor support:** Sway, Hyprland, wlroots-based, Mir, niri, labwc. cosmic-comp does not offer it (checked against cosmic-comp 1.11); it manages windows through its own `zcosmic_toplevel_manager_v1` and lists them through `ext-foreign-toplevel-list-v1`.
 
 #### ext-foreign-toplevel-list-v1 (Read-Only)
 
@@ -258,15 +258,20 @@ The [ext-foreign-toplevel-list-v1](https://wayland.app/protocols/ext-foreign-top
 
 ### 6.2. Compositor-Specific IPC for Full Window Control
 
-No Wayland protocol exposes window bounds or allows move/resize. The only path to these capabilities is compositor-specific IPC:
+No standard Wayland protocol exposes window bounds or allows move/resize. These capabilities come from compositor-specific IPC, or — on cosmic-comp — from the compositor's own Wayland protocol:
 
-| Compositor | IPC Mechanism | bounds | move_to | resize | Rust Integration |
+| Compositor | Mechanism | bounds | move_to | resize | Rust Integration |
 |---|---|---|---|---|---|
 | **KWin** | [D-Bus `org.kde.KWin`](https://develop.kde.org/docs/plasma/kwin/api/) | ✅ | ✅ | ✅ | `zbus` (already in workspace) |
 | **Sway** | [i3 IPC](https://github.com/swaywm/sway/wiki) (Unix socket, JSON) | ✅ | ✅ | ✅ | [`swayipc`](https://crates.io/crates/swayipc) or raw socket + serde |
 | **Hyprland** | [hyprctl](https://wiki.hyprland.org/Configuring/Using-hyprctl/) (Unix socket, JSON) | ✅ | ✅ | ✅ | [`hyprland`](https://crates.io/crates/hyprland) or raw socket + serde |
+| **niri** | [niri IPC](https://github.com/YaLTeR/niri/wiki/IPC) (`$NIRI_SOCKET`, JSON; `niri msg`) | ✅ (25.08+) | ⚠️ floating windows only | ✅ | [`niri-ipc`](https://crates.io/crates/niri-ipc) or raw socket + serde |
+| **cosmic-comp** | Wayland protocol `zcosmic_toplevel_info_v1` | ✅ (v2+) | ❌ | ❌ | `wayland-client` + the protocol XML from [`cosmic-protocols`](https://github.com/pop-os/cosmic-protocols) |
 | **Mutter** | Limited D-Bus | ❌ | ❌ | ❌ | No viable API — see §6.5 |
-| **cosmic-comp** | No public IPC (yet) | ❌ | ❌ | ❌ | May add IPC in future releases |
+
+**niri** reports each window's position in its `Windows` reply since 25.08: the window's `layout` carries the tile's position in the workspace view (`tile_pos_in_workspace_view`), the window's offset inside its tile (`window_offset_in_tile`) and the sizes of both. The tile position is only present for windows that are visible in the workspace view, which is the case for every window a test interacts with. Because niri tiles windows in scrollable columns, only floating windows can be placed freely (`move-floating-window`); `set-window-width` and `set-window-height` resize tiled and floating windows alike.
+
+**cosmic-comp** has no IPC socket, but its toplevel-info protocol sends a `geometry` event (output, x, y, width, height) for each toplevel from version 2 on. That gives `bounds`; moving and resizing are not offered.
 
 ### 6.3. Implementation Strategy: Two-Layer Architecture
 
@@ -277,14 +282,16 @@ WindowManager (Wayland)
 │   ├── ext-foreign-toplevel-list → resolve_window (title/app_id matching)
 │   └── AT-SPI PID matching → resolve_window (fallback)
 │
-└── Compositor IPC Layer (pluggable — per compositor)
-    ├── KWinIpcBackend    → bounds, move_to, resize  (D-Bus)
-    ├── SwayIpcBackend    → bounds, move_to, resize  (i3 IPC socket)
+└── Compositor Layer (pluggable — per compositor)
+    ├── KWinIpcBackend     → bounds, move_to, resize  (D-Bus)
+    ├── SwayIpcBackend     → bounds, move_to, resize  (i3 IPC socket)
     ├── HyprlandIpcBackend → bounds, move_to, resize  (hyprctl socket)
-    └── (none for Mutter) → bounds/move_to/resize return `PlatformError::CapabilityUnavailable`
+    ├── NiriIpcBackend     → bounds, resize; move_to for floating windows  (niri socket)
+    ├── CosmicToplevelInfo → bounds  (zcosmic_toplevel_info_v1 geometry)
+    └── (none for Mutter)  → bounds/move_to/resize return `PlatformError::CapabilityUnavailable`
 ```
 
-  **Runtime detection:** On initialization, the `WindowManager` probes which compositor is running (via `wl_registry` globals + environment variables like `SWAYSOCK`, `HYPRLAND_INSTANCE_SIGNATURE`, or D-Bus name `org.kde.KWin`). It loads the matching IPC backend. If no IPC backend is available, `bounds`/`move_to`/`resize` return `PlatformError::CapabilityUnavailable`.
+  **Runtime detection:** On initialization, the `WindowManager` probes which compositor is running (via `wl_registry` globals + environment variables like `SWAYSOCK`, `HYPRLAND_INSTANCE_SIGNATURE`, `NIRI_SOCKET`, or D-Bus name `org.kde.KWin`). It loads the matching backend. If no backend is available, `bounds`/`move_to`/`resize` return `PlatformError::CapabilityUnavailable`.
 
   **Trait compatibility:** The existing `WindowManager` trait returns `Result<T, PlatformError>` for all methods. No trait changes are needed — the Wayland implementation returns `Err(PlatformError::CapabilityUnavailable { capability: "Wayland window manager", details: Some("not yet implemented".into()) })` when no backend is available. The `WindowSurfacePattern` in `provider-atspi` already handles errors gracefully and propagates them to the Python/RF layer.
 
@@ -299,11 +306,11 @@ WindowManager (Wayland)
 | `close()` | ✅ `wlr-foreign-toplevel` close | — | ✅ All compositors |
 | `minimize()` / `restore()` | ✅ `wlr-foreign-toplevel` set/unset | — | ✅ All compositors |
 | `maximize()` | ✅ `wlr-foreign-toplevel` set/unset | — | ✅ All compositors |
-| `bounds()` | ❌ | ✅ KWin, Sway, Hyprland | ⚠️ Not on Mutter/cosmic |
-| `move_to()` | ❌ | ✅ KWin, Sway, Hyprland | ⚠️ Not on Mutter/cosmic |
-| `resize()` | ❌ | ✅ KWin, Sway, Hyprland | ⚠️ Not on Mutter/cosmic |
+| `bounds()` | ❌ | ✅ KWin, Sway, Hyprland, niri, cosmic-comp | ⚠️ Not on Mutter |
+| `move_to()` | ❌ | ✅ KWin, Sway, Hyprland; niri floating windows only | ⚠️ Not on Mutter/cosmic |
+| `resize()` | ❌ | ✅ KWin, Sway, Hyprland, niri | ⚠️ Not on Mutter/cosmic |
 
-**Coverage:** KWin + Sway + Hyprland account for the vast majority of Wayland desktops other than GNOME. Together with Mutter (everything except `bounds`, `move_to` and `resize`), this gives >95% of Linux desktops at least basic window management, and KDE/Sway/Hyprland users get full parity with X11.
+**Coverage:** KWin + Sway + Hyprland account for the vast majority of Wayland desktops other than GNOME. Together with Mutter (everything except `bounds`, `move_to` and `resize`), this gives >95% of Linux desktops at least basic window management, and KDE/Sway/Hyprland users get full parity with X11. niri and cosmic-comp both report window bounds, which is what pointer clicks and highlights need; only moving and resizing stay partly or wholly unavailable there.
 
 ### 6.5. The Mutter Problem and `ActivationPoint`
 
@@ -341,10 +348,11 @@ The key insight: **we don't need to know the window's screen position to click o
 | **KWin** | `wlr-foreign-toplevel` (if available) or D-Bus | D-Bus IPC → full support | Standard: screen-absolute via IPC bounds |
 | **Sway** | `wlr-foreign-toplevel` | i3 IPC → full support | Standard: screen-absolute via IPC bounds |
 | **Hyprland** | `wlr-foreign-toplevel` | hyprctl IPC → full support | Standard: screen-absolute via IPC bounds |
+| **niri** | `wlr-foreign-toplevel` | niri IPC → bounds and resize; move for floating windows | Standard: screen-absolute via IPC bounds |
 | **Mutter** | D-Bus limited (activate, close) + AT-SPI actions | ❌ not available | Focus-based: activate → window-relative AT-SPI coords + libei |
-| **cosmic-comp** | `wlr-foreign-toplevel` | ❌ (no IPC yet) | Focus-based (same as Mutter) |
+| **cosmic-comp** | `zcosmic_toplevel_manager_v1` + `ext-foreign-toplevel-list` | `zcosmic_toplevel_info_v1` geometry → bounds only | Standard: screen-absolute via the geometry event |
 
-**Priority:** Start with KWin + Sway IPC backends (covers KDE + tiling WM users with full functionality). Mutter's focus-based approach requires no compositor IPC — it works with what's already available (AT-SPI + libei). This means even the Phase 1 MVP can support pointer clicks on GNOME.
+**Priority:** Start with KWin + Sway IPC backends (covers KDE + tiling WM users with full functionality). Mutter's focus-based approach requires no compositor IPC — it works with what's already available (AT-SPI + libei). This means even the Phase 1 MVP can support pointer clicks on GNOME. niri and cosmic-comp follow the same standard strategy as KWin once their bounds sources are wired up.
 
 ---
 
@@ -358,23 +366,23 @@ The [wlr-layer-shell-unstable-v1](https://wayland.app/protocols/wlr-layer-shell-
 
 - **Layers:** background, bottom, top, **overlay** (highest, above all windows).
 - **Features:** Anchoring to edges, exclusive zones, keyboard interactivity control.
-- **Compositor support:** Sway, Hyprland, wlroots-based, Mir, cosmic-comp, niri, labwc.
-- **Not supported by:** Mutter (GNOME) — uses its own shell extensions, KWin — partial via `ext-layer-shell-v1`.
+- **Compositor support:** Sway, Hyprland, wlroots-based, Mir, labwc, **KWin**, niri, cosmic-comp. KWin implements `zwlr_layer_shell_v1` itself — Plasma's own panels use it through LayerShellQt.
+- **Not supported by:** Mutter (GNOME), which keeps such surfaces to its own shell extensions.
+
+The KWin, niri and cosmic-comp entries were checked against the protocol interfaces compiled into KWin 6.8, niri 26.04 and cosmic-comp 1.11.
 
 ### 7.2. ext-layer-shell-v1
 
-The [ext-layer-shell-v1](https://wayland.app/protocols/ext-layer-shell-v1) protocol is the standardized version.
-
-- **Compositor support:** KWin (KDE Plasma 6.2+), cosmic-comp, niri.
-- **Status:** Implemented by several compositors, but **not yet accepted into wayland-protocols** (as of Feb 2026). Adoption is growing independently of formal standardization. `wlr-layer-shell-unstable-v1` remains the primary option for wlroots-based compositors.
+An `ext-` successor to wlr-layer-shell has been proposed for wayland-protocols, but it is **not part of wayland-protocols** (not in 1.50), and none of the compositors above exposes it: KWin 6.8, niri 26.04 and cosmic-comp 1.11 all offer only `zwlr_layer_shell_v1`. There is therefore nothing to implement against today; `wlr-layer-shell-unstable-v1` is the de-facto standard on every compositor that has a layer shell at all.
 
 ### 7.3. Recommendation
 
-Use **wlr-layer-shell** for wlroots-based compositors, **ext-layer-shell** for KWin, and fall back to a separate Wayland client window (less ideal) for Mutter/GNOME.
+Use **wlr-layer-shell** on every compositor that offers it (wlroots-based, KWin, niri, cosmic-comp), and fall back to a separate Wayland client window (less ideal) for Mutter/GNOME.
 
-**Limitation:** Without global window coordinates, placing a highlight overlay at the correct screen position requires knowing the target window's screen-space bounds — which is unavailable via standard Wayland protocols. Possible workarounds:
+**Limitation:** Without global window coordinates, placing a highlight overlay at the correct screen position requires knowing the target window's screen-space bounds — which no standard Wayland protocol provides. Sources for them:
+- Compositor IPC for window geometry (KWin, Sway, Hyprland, niri — see §6.2).
+- cosmic-comp's `zcosmic_toplevel_info_v1` geometry event.
 - Use `ext-image-copy-capture` to screenshot + AT-SPI window-relative coords to compute overlay position.
-- Use compositor IPC (Sway/Hyprland) for window geometry.
 - Accept the limitation and only highlight within the captured screenshot image (software overlay).
 
 ---
@@ -416,17 +424,17 @@ Additionally, [`xdg_output_manager`](https://wayland.app/protocols/xdg-output-un
 | [`ext-image-capture-source-v1`](https://wayland.app/protocols/ext-image-capture-source-v1) | Capture source selection | Staging — pairs with above |
 | [`ext-foreign-toplevel-list-v1`](https://wayland.app/protocols/ext-foreign-toplevel-list-v1) | Read-only toplevel list | Staging |
 | [`ext-data-control-v1`](https://wayland.app/protocols/ext-data-control-v1) | Clipboard access (read/write) | Staging (since wayland-protocols 1.45) |
-| `ext-layer-shell-v1` | Layer surfaces (overlay) | Implemented by KWin, niri, cosmic, but **not yet in wayland-protocols** |
+| `ext-layer-shell-v1` | Layer surfaces (overlay) | Proposed only — **not in wayland-protocols** (1.50) and not exposed by KWin, niri or cosmic-comp, which all offer `zwlr_layer_shell_v1` (§7.2) |
 | [`zwp_virtual_keyboard_v1`](https://wayland.app/protocols/virtual-keyboard-unstable-v1) | Virtual keyboard input | Unstable |
 
 ### 9.3. wlroots-Specific Protocols
 
 | Protocol | Purpose | Compositors |
 |---|---|---|
-| [`wlr-foreign-toplevel-management-v1`](https://wayland.app/protocols/wlr-foreign-toplevel-management-unstable-v1) | Window management (activate, close, min/max) | wlroots-based, Mir |
-| [`wlr-layer-shell-v1`](https://wayland.app/protocols/wlr-layer-shell-unstable-v1) | Overlay/panel surfaces | wlroots-based, Mir |
-| [`wlr-screencopy-v1`](https://wayland.app/protocols/wlr-screencopy-unstable-v1) | Screen capture (legacy) | wlroots-based |
-| [`zwlr_virtual_pointer_v1`](https://wayland.app/protocols/wlr-virtual-pointer-unstable-v1) | Virtual pointer input | wlroots-based, Mir |
+| [`wlr-foreign-toplevel-management-v1`](https://wayland.app/protocols/wlr-foreign-toplevel-management-unstable-v1) | Window management (activate, close, min/max) | wlroots-based, Mir, niri |
+| [`wlr-layer-shell-v1`](https://wayland.app/protocols/wlr-layer-shell-unstable-v1) | Overlay/panel surfaces | wlroots-based, Mir, KWin, niri, cosmic-comp |
+| [`wlr-screencopy-v1`](https://wayland.app/protocols/wlr-screencopy-unstable-v1) | Screen capture (legacy) | wlroots-based, niri |
+| [`zwlr_virtual_pointer_v1`](https://wayland.app/protocols/wlr-virtual-pointer-unstable-v1) | Virtual pointer input | wlroots-based, Mir, niri |
 
 ### 9.4. Desktop Portal APIs (D-Bus)
 
@@ -442,25 +450,27 @@ Additionally, [`xdg_output_manager`](https://wayland.app/protocols/xdg-output-un
 
 Support for protocols relevant to UI automation (as of early 2026):
 
-> **Current compositor versions:** Sway 1.11 (Jun 2025), Hyprland 0.45+, KWin 6.4.3 / KDE Plasma 6.6 (Feb 2026), Mutter 49.2 / GNOME 49 (Nov 2025), Weston 15.0.0 (Feb 2026), labwc 0.8+, niri 25.x, Mir 2.x, cosmic-comp (beta, Pop!_OS 24.04 LTS).
+> **Current compositor versions:** Sway 1.11 (Jun 2025), Hyprland 0.45+, KWin 6.8.3 (Nov 2026), Mutter 49.2 / GNOME 49 (Nov 2025), Weston 15.0.0 (Feb 2026), labwc 0.8+, niri 26.04, Mir 2.x, cosmic-comp 1.11 (Pop!_OS 24.04 LTS).
 
 | Protocol | Sway | Hyprland | KWin | Mutter | Weston | labwc | niri | Mir | cosmic |
 |---|---|---|---|---|---|---|---|---|---|
 | `ext-image-copy-capture-v1` | ✅ (1.11+) | ✅ | ✅ | ❌ | ⚠️ | ❌ | ✅ | ✅ | ✅ |
 | `ext-data-control-v1` | ✅ (1.11+) | ❓ | ❓ | ❌ | ❌ | ❓ | ❓ | ❓ | ✅ |
-| `wlr-screencopy-v1` | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ | ❌ | ✅ |
-| `wlr-foreign-toplevel-mgmt` | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| `wlr-screencopy-v1` | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ |
+| `wlr-foreign-toplevel-mgmt` | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ |
 | `ext-foreign-toplevel-list` | ✅ (1.10+) | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ |
-| `wlr-layer-shell-v1` | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
-| `ext-layer-shell-v1` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ |
-| `zwlr_virtual_pointer_v1` | ✅ | ✅ | ❌ | ❌ | ⚠️ | ✅ | ❌ | ✅ | ❌ |
-| `zwp_virtual_keyboard_v1` | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ✅ | ✅ |
-| libei (EIS) | [Fork](https://github.com/tytan652/sway-libei) | ❌ | ✅ (6.1+) | ✅ (45+) | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `wlr-layer-shell-v1` | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| `zwlr_virtual_pointer_v1` | ✅ | ✅ | ❌ | ❌ | ⚠️ | ✅ | ✅ | ✅ | ❌ |
+| `zwp_virtual_keyboard_v1` | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Window geometry for clients | IPC | IPC | D-Bus | ❌ | ❌ | ❌ | IPC (25.08+) | ❌ | `zcosmic_toplevel_info_v1` (v2+) |
+
+The KWin, niri and cosmic-comp columns were checked against the protocol interfaces compiled into KWin 6.8.3, niri 26.04 and cosmic-comp 1.11. There is no `ext-layer-shell-v1` row: that protocol is not part of wayland-protocols and none of these compositors exposes it (§7.2). cosmic-comp covers toplevel management with its own `zcosmic_toplevel_manager_v1` instead of the wlr protocol.
+| libei (EIS) | [Fork](https://github.com/tytan652/sway-libei) | ❌ | ✅ (6.1+) | ✅ (45+) | ❌ | ❌ | ❌ | ❌ | ⚠️ via RemoteDesktop portal |
 
 **Key insights:**
 - No single protocol set covers all compositors. Mutter (GNOME) is the most restrictive — it only supports libei and portals.
-- **KWin** (KDE) is the most cooperative desktop compositor for UI automation — it supports `ext-image-copy-capture`, `ext-foreign-toplevel-list`, `ext-layer-shell`, **and** libei. KDE Plasma 6.2+ added full Sticky Keys support, 6.4+ added pointer-keys via numpad and improved screen reader usability.
-- **cosmic-comp** (System76/Pop!_OS) has the broadest protocol coverage of any compositor — it supports both `wlr-*` and `ext-*` variants for screenshots, toplevel management, layer-shell, data-control, and virtual keyboard. Built on Smithay (Rust), it includes built-in accessibility features (zoom, color filters). However, it does not yet support libei or `zwlr_virtual_pointer`. As Pop!_OS 24.04 LTS ships with COSMIC, it is becoming a relevant target desktop.
+- **KWin** (KDE) is the most cooperative desktop compositor for UI automation — it supports `ext-image-copy-capture`, `ext-foreign-toplevel-list`, `wlr-layer-shell`, **and** libei, and reports window geometry over D-Bus. KDE Plasma 6.2+ added full Sticky Keys support, 6.4+ added pointer-keys via numpad and improved screen reader usability.
+- **cosmic-comp** (System76/Pop!_OS) favours the `ext-*` protocols plus its own `zcosmic_*` family: `ext-image-copy-capture` for screenshots, `ext-foreign-toplevel-list` with `zcosmic_toplevel_manager_v1` for windows, `wlr-layer-shell`, both data-control variants and the virtual keyboard. Its `zcosmic_toplevel_info_v1` reports window geometry, which no standard protocol does. Built on Smithay (Rust), it includes built-in accessibility features (zoom, color filters). It offers libei only through the RemoteDesktop portal (`xdg-desktop-portal-cosmic`), which asks for consent, and does not support `zwlr_virtual_pointer`, `wlr-screencopy` or `wlr-foreign-toplevel-management`. As Pop!_OS 24.04 LTS ships with COSMIC, it is becoming a relevant target desktop.
 - **Mutter** (GNOME) relies exclusively on portals and libei. However, GNOME 48+ improved Orca accessibility on Wayland, and GNOME 49 enhanced Remote Desktop capabilities.
 - **Sway 1.11+** supports all standard `ext-*` protocols — no fallback to wlr-specific protocols needed.
 
@@ -511,12 +521,12 @@ For automated testing in CI, a headless-capable compositor is essential.
 [cosmic-comp](https://github.com/pop-os/cosmic-comp) is System76's Smithay-based compositor for the [COSMIC desktop environment](https://system76.com/cosmic), shipping with Pop!_OS 24.04 LTS (beta as of Sep 2025).
 
 - **Built with:** [Smithay](https://github.com/Smithay/smithay) (Rust), Rust 2024 edition. Track with PlatynUI's Rust baseline (MSRV 1.95).
-- **Protocol support:** Exceptionally broad — supports both `wlr-*` and `ext-*` protocol families:
-  - Screenshots: `ext-image-copy-capture-v1` + `wlr-screencopy`
-  - Toplevel: `ext-foreign-toplevel-list` + `wlr-foreign-toplevel-management` (with activate, close, maximize, minimize, move-to-workspace)
-  - Layer shell: `wlr-layer-shell` + `ext-layer-shell`
+- **Protocol support** (checked against cosmic-comp 1.11) — the `ext-*` protocols plus its own `zcosmic_*` family:
+  - Screenshots: `ext-image-copy-capture-v1` (no `wlr-screencopy`)
+  - Toplevel: `ext-foreign-toplevel-list` + its own `zcosmic_toplevel_manager_v1` (activate, close, maximize, minimize, move-to-workspace) and `zcosmic_toplevel_info_v1` (window geometry from v2 on); no `wlr-foreign-toplevel-management`
+  - Layer shell: `wlr-layer-shell`
   - Data control: `ext-data-control` + `wlr-data-control`
-  - Input: `zwp_virtual_keyboard` (but **no** `zwlr_virtual_pointer`, **no** libei)
+  - Input: `zwp_virtual_keyboard`; pointer input only through libei behind the RemoteDesktop portal (**no** `zwlr_virtual_pointer`)
 - **Accessibility:** Built-in zoom (`accessibility_zoom`) and color filters (inversion, color blindness). `A11yState` and `A11yKeyboardMonitorState` in compositor state. Screen reader toggle shortcut added recently.
 - **Headless mode:** Not explicitly documented. Backends include X11, Winit, and KMS — no dedicated headless backend, but Winit backend may work for testing.
 - **License:** GPL-3.0 — note: this may affect whether PlatynUI can link against cosmic-comp code directly.
@@ -764,7 +774,7 @@ This would allow a single platform registration that handles both X11 and Waylan
 | `WindowManager` (KWin IPC) | Window bounds/move/resize via KWin D-Bus scripting API (see §6.2) | M |
 | `WindowManager` (Sway IPC) | Window bounds/move/resize via i3 IPC socket (see §6.2) | M |
 | `WindowManager` (Hyprland IPC) | Window bounds/move/resize via hyprctl socket (see §6.2) | S |
-| `HighlightProvider` | ✅ Partially implemented (`WaylandHighlightProvider`): highlights/clears via control-socket IPC on the custom PlatynUI compositor; other compositors return silently. Still to do: `ext-layer-shell-v1` for KWin + `wlr-layer-shell` for wlroots-based + `tiny-skia` rendering | M |
+| `HighlightProvider` | ✅ Partially implemented (`WaylandHighlightProvider`): highlights/clears via control-socket IPC on the custom PlatynUI compositor; other compositors return silently. Still to do: `wlr-layer-shell` for KWin, wlroots-based, niri and cosmic-comp + `tiny-skia` rendering | M |
 | `ScreenshotProvider` (legacy) | `wlr-screencopy` fallback for older wlroots (<0.19) | S |
 | CI setup (KWin) | KWin headless testing | M |
 
@@ -798,7 +808,7 @@ This compositor is already usable for development and will become the primary de
 1. ~~**Window bounds on Mutter:**~~ Accepted: Mutter does not expose window geometry. Focus-based pointer strategy (§6.5) with window-relative AT-SPI coordinates is the production approach. Screenshot correlation remains a future enhancement option.
 2. ~~**reis API stability:**~~ Pinned to `reis` 0.6.x. The EIS backend wraps `reis` behind the `InputBackend` trait, isolating the rest of the crate from API changes.
 3. **Mutter headless + libei + portals in CI:** Does `mutter --headless` provide a functional EIS endpoint for libei-based input injection and xdg-desktop-portal for screenshots — both without user consent dialogs? Test tokens via `org.freedesktop.portal.RemoteDesktop` may be needed. Needs validation with actual CI runners.
-4. **Highlight without coordinates:** If we can't know window screen position (Mutter, cosmic), should highlights be rendered as image overlays in screenshots rather than live compositor overlays? Compositor IPC provides window geometry for KWin/Sway/Hyprland. On Mutter, software overlay on a captured screenshot or no highlight are the options.
+4. **Highlight without coordinates:** If we can't know window screen position (Mutter), should highlights be rendered as image overlays in screenshots rather than live compositor overlays? Compositor IPC provides window geometry for KWin/Sway/Hyprland/niri, and cosmic-comp reports it through `zcosmic_toplevel_info_v1`. On Mutter, software overlay on a captured screenshot or no highlight are the options.
 5. ~~**Mixed session routing:**~~ Deferred to Phase 3 (`platform-linux` mediation crate). See §13 for the proposed detection algorithm.
 6. **Mutter protocol gap:** Mutter/GNOME still does not implement `ext-image-copy-capture`, `ext-foreign-toplevel-list`, or layer-shell protocols. Portal-based fallbacks remain the only option for GNOME. Monitor whether GNOME 50+ adds any of these.
 7. **Newton project status:** The Newton Wayland-native accessibility project (§3) has had no public updates since Jun 2024. The draft Wayland accessibility protocol is not accepted into wayland-protocols. Monitor whether this project continues and whether it could eventually replace AT-SPI for Wayland-native apps.
