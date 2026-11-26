@@ -88,7 +88,7 @@
       failed twice without the approach (Workflow follow-up).
 - [x] 5.3 Run the full compositor, X11 and X11-bare acceptance lanes headless locally. Verify: all
       green, apart from the known skip.
-- [ ] 5.4 Run the acceptance lane on the Windows VM (real Windows, not Wine). Verify: green, so the
+- [x] 5.4 Run the acceptance lane on the Windows VM (real Windows, not Wine). Verify: green, so the
       approach does not disturb UIA, JAB or the Win32 tests.
 
 ## Workflow follow-up
