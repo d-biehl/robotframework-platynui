@@ -1219,15 +1219,20 @@ fn at_point(socket_path: &PathBuf, (x, y): (i64, i64)) -> Value {
     command_ok(socket_path, &format!(r#"{{"command":"window_at_point","x":{x},"y":{y}}}"#))
 }
 
-/// Wait until the own window overlaps the other one while each keeps a private
-/// area, and the other window answers a hit test in its private area; return
-/// both listing entries.
+/// The size the test gives the other process's window (the egui test app starts
+/// at 600×500).
+const OTHER_SIZE: (i64, i64) = (400, 300);
+
+/// Wait until the other window has `other_size`, the own window overlaps it while
+/// each keeps a private area, and the other window answers a hit test in its
+/// private area; return both listing entries.
 ///
-/// Moving and resizing are asynchronous: the app acks the configure and commits a
-/// buffer of the new size, and while it rebuilds its surface it is briefly not hit
-/// by `window_at_point`. On a loaded machine that takes well over a frame, so a
-/// fixed pause made the test flaky.
-fn wait_for_overlapping_layout(socket_path: &PathBuf) -> (Value, Value) {
+/// The resize is asynchronous: the app acks the configure and commits a buffer of
+/// the new size some time later, on a loaded machine well over a frame. Until then
+/// the window still has its start size, with which the layout already overlaps and
+/// a point computed from it is hit — and then lies outside once the window
+/// shrinks. So the points are computed only from the window at its final size.
+fn wait_for_overlapping_layout(socket_path: &PathBuf, other_size: (i64, i64)) -> (Value, Value) {
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let own = window_by_app_id(socket_path, AT_POINT_OWN_APP_ID).expect("own window must still be listed");
@@ -1235,7 +1240,13 @@ fn wait_for_overlapping_layout(socket_path: &PathBuf) -> (Value, Value) {
             window_by_app_id(socket_path, AT_POINT_OTHER_APP_ID).expect("the other window must still be listed");
         let (ox, oy, ow, oh) = content_rect(&own);
         let (tx, ty, tw, th) = content_rect(&other);
-        let laid_out = ox < tx && oy < ty && tx < ox + ow && ty < oy + oh && ox + ow < tx + tw && oy + oh < ty + th;
+        let laid_out = (tw, th) == other_size
+            && ox < tx
+            && oy < ty
+            && tx < ox + ow
+            && ty < oy + oh
+            && ox + ow < tx + tw
+            && oy + oh < ty + th;
         let other_only = ((ox + ow + tx + tw) / 2, (oy + oh + ty + th) / 2);
         let hit = if laid_out { at_point(socket_path, other_only) } else { Value::Null };
         if hit["window"]["app_id"].as_str() == Some(AT_POINT_OTHER_APP_ID) {
@@ -1243,8 +1254,8 @@ fn wait_for_overlapping_layout(socket_path: &PathBuf) -> (Value, Value) {
         }
         assert!(
             std::time::Instant::now() < deadline,
-            "the layout must overlap, leave each window a private area, and let the other window answer at \
-             {other_only:?}: own={own} other={other} hit={hit}"
+            "the other window must reach {other_size:?}, the layout must overlap and leave each window a \
+             private area, and the other window must answer at {other_only:?}: own={own} other={other} hit={hit}"
         );
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -1330,12 +1341,12 @@ fn ipc_window_at_point_skips_the_callers_own_window() {
     // with this process's own window in front of the other one.
     let own = window_by_app_id(&socket_path, AT_POINT_OWN_APP_ID).expect("own window must be listed");
     let other = window_by_app_id(&socket_path, AT_POINT_OTHER_APP_ID).expect("the other window must be listed");
-    resize_window_to(&socket_path, &other, 400, 300);
+    resize_window_to(&socket_path, &other, OTHER_SIZE.0, OTHER_SIZE.1);
     move_window_to(&socket_path, &other, 300, 200);
     move_window_to(&socket_path, &own, 100, 100);
     raise_window(&socket_path, &own);
 
-    let (own, other) = wait_for_overlapping_layout(&socket_path);
+    let (own, other) = wait_for_overlapping_layout(&socket_path, OTHER_SIZE);
     let (ox, oy, ow, oh) = content_rect(&own);
     let (tx, ty, tw, th) = content_rect(&other);
     let overlap = ((tx + ox + ow) / 2, (ty + oy + oh) / 2);
