@@ -485,7 +485,7 @@ fn dispatch_loop(
 ///
 /// # Panics
 ///
-/// Panics if called before [`set_global_and_start`] or if the mutex is poisoned.
+/// Panics if called before `set_global_and_start` or if the mutex is poisoned.
 pub fn compositor() -> CompositorType {
     let guard = GLOBAL.lock().expect("wayland global mutex poisoned");
     let g = guard.as_ref().expect("Wayland platform not initialized — call initialize() first");

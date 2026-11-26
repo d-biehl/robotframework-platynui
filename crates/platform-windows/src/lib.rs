@@ -2,11 +2,11 @@
 //!
 //! This crate wires native Windows device abstractions (pointer, keyboard,
 //! highlight, screenshot) plus desktop-info and window-manager helpers into a
-//! per-runtime [`PlatformBundle`](platynui_core::platform::PlatformBundle).
+//! per-runtime `PlatformBundle`.
 //!
 //! Rather than registering process-global device singletons, the crate exposes
-//! [`create_windows_bundle`] behind a registered
-//! [`PlatformFactory`](platynui_core::platform::PlatformFactory): each runtime
+//! `create_windows_bundle` behind a registered
+//! `PlatformFactory`: each runtime
 //! builds its own bundle and drops it on shutdown. The only deliberately
 //! process-global state is the one-time DPI-awareness setting (see the `init`
 //! module) and a handful of server-stable caches (the keyboard VK map, monitor

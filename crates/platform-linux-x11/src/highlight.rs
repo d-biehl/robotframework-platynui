@@ -10,7 +10,7 @@ use x11rb::protocol::xproto::{self as x, ConnectionExt as XProtoExt, Rectangle, 
 
 /// Per-runtime X11 highlight overlay.
 ///
-/// Owns a background thread (through [`OverlayController`]) that draws the
+/// Owns a background thread (through `OverlayController`) that draws the
 /// overlay windows on its own dedicated X11 connection. The thread's display
 /// is supplied at construction (rather than read from `$DISPLAY`) so the
 /// overlay binds to the same session as the runtime that created it. Dropping

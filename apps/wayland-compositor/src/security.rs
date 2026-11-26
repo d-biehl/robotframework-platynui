@@ -83,7 +83,7 @@ impl SecurityPolicy {
     /// Check whether a Wayland client is allowed to use privileged protocols.
     ///
     /// Reads the identity the compositor established when it accepted the
-    /// client's connection ([`crate::client::ClientState`]), so a client whose
+    /// client's connection (`crate::client::ClientState`), so a client whose
     /// process cannot be identified reaches a decision instead of ending the
     /// session.
     #[must_use]

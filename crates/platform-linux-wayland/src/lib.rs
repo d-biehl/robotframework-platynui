@@ -73,7 +73,7 @@ pub mod screenshot;
 /// Unlike the X11 backend, the Wayland devices do **not** own a per-instance
 /// connection. They read this crate's process-global session state: the
 /// compositor and event-loop handle installed by
-/// [`connection::set_global_and_start`], the active input backend, and the
+/// `connection::set_global_and_start`, the active input backend, and the
 /// enumerated outputs. Building a bundle for a new runtime re-runs this
 /// initialization; `set_global_and_start` stops the previous session's event
 /// loop before installing the new one, which is sufficient for the

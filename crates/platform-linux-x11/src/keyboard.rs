@@ -1,7 +1,7 @@
 //! X11 keyboard device using `XTest` for key injection.
 //!
 //! Key names are resolved from a static lookup table; keysyms are mapped to
-//! X11 keycodes via the current keyboard mapping ([`GetKeyboardMapping`]).
+//! X11 keycodes via the current keyboard mapping (`GetKeyboardMapping`).
 //! Characters not present in the active keymap are injected through dynamic
 //! remapping of a spare (unmapped) keycode.
 //!

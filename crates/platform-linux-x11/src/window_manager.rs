@@ -5,7 +5,7 @@
 //! window manager so any accessibility provider can resolve and manage native
 //! windows without a direct `x11rb` dependency.
 //!
-//! The interned-atom cache ([`ATOMS`]) stays a process-global `OnceLock`: atoms
+//! The interned-atom cache (`ATOMS`) stays a process-global `OnceLock`: atoms
 //! are stable for the lifetime of the X server, so caching them across runtimes
 //! is safe and it is never cleared on shutdown. Only the connection is
 //! per-instance.
@@ -292,7 +292,7 @@ fn choose_window(candidates: &[CandidateWindow], node: &WindowHints, pid: u32) -
 }
 
 /// Whether a window manager manages the display, decided once when the
-/// runtime connects ([`window_mode`]).
+/// runtime connects (`window_mode`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WindowMode {
     /// An EWMH window manager runs: windows are found and operated through it.

@@ -11,7 +11,7 @@
 //! backend changes which backend *serves* a window, never who *claims* it.
 //!
 //! What the router owns: registration, configuration
-//! (`providers.java.*` — see [`provider`]), the window claims, backend
+//! (`providers.java.*` — see `provider`), the window claims, backend
 //! selection per top-level window, and the shared "JVM window absent from
 //! native accessibility" diagnostic for Java-looking windows no backend can
 //! serve. What a backend owns: everything about its channel — the tree, roles,
