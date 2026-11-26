@@ -162,7 +162,7 @@
 
   All must be green.
 - [x] 7.2 Compare the global/version listing with the 1.9 baseline. Every global from the baseline must still be advertised. Version changes must be the expected upstream bumps (for example `xdg_wm_base` 7, `zxdg_decoration_manager_v1` 2, `zwlr_layer_shell_v1` 5). Record the comparison in the PR description. Result: all 50 baseline globals are still advertised; the only changes are `xdg_wm_base` 6→7, `zwlr_layer_shell_v1` 4→5 and `zxdg_decoration_manager_v1` 1→2.
-- [ ] 7.3 After pushing (only when the maintainer asks for it), confirm that the CI run is green in every job, including the Windows, macOS and Linux wheel jobs, which now fetch the smithay git source.
+- [x] 7.3 After pushing (only when the maintainer asks for it), confirm that the CI run is green in every job, including the Windows, macOS and Linux wheel jobs, which now fetch the smithay git source. Green in run 45807155920 (2026-11-26). The first run after this change (45704167967) failed in the compositor lane on GTK 3's quick-click protection for menus; `pointer-paced-approach` fixed that, not this change.
 
 ## Workflow follow-up
 
