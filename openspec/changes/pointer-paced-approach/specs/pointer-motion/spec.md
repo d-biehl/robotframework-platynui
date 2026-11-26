@@ -96,6 +96,48 @@ per action, and both SHALL be reported by the profile like the other pointer par
 - **THEN** that move SHALL end with 5 paced steps at least 30 ms apart
 - **AND** the next move without overrides SHALL use the profile's 3 steps at 20 ms again
 
+### Requirement: The approach is part of the move's duration
+
+The approach SHALL count toward the move's duration, not come on top of it. A move SHALL take at
+least `approach_steps × approach_interval`, so a short move still gets the full interval. A longer
+move SHALL keep its usual duration, with the approach taken from its end. A non-zero
+`max_move_duration` SHALL cap the whole move, approach included, shortening the intervals evenly.
+With `move_time_per_pixel` and `max_move_duration` both 0, the move SHALL run without an approach.
+
+#### Scenario: Short move takes at least the approach time
+
+- **GIVEN** the default pointer profile (800 µs per pixel, so 40 ms of path time for 50 px)
+- **WHEN** the pointer moves 50 px in the `Linear` mode
+- **THEN** the move SHALL take at least 60 ms, with the 3 approach steps at least 20 ms apart
+
+Verified with the recorded sleeps (mock-verifiable).
+
+#### Scenario: Long move keeps its duration
+
+- **GIVEN** the default pointer profile (400 ms of path time for 500 px)
+- **WHEN** the pointer moves 500 px in the `Linear` mode
+- **THEN** the move SHALL take its usual 400 ms, not 460 ms
+- **AND** its last 3 steps SHALL be at least 20 ms apart
+
+Verified with the recorded sleeps (mock-verifiable).
+
+#### Scenario: A short cap shortens the intervals
+
+- **GIVEN** a profile with `max_move_duration` 30 ms and the default approach
+- **WHEN** the pointer moves 50 px in the `Linear` mode
+- **THEN** the move SHALL take no more than 30 ms in total
+- **AND** its 3 approach steps SHALL be evenly spaced, at least 10 ms apart
+
+Verified with the recorded sleeps (mock-verifiable).
+
+#### Scenario: Zero move time means no approach
+
+- **GIVEN** a profile with `move_time_per_pixel` 0 and `max_move_duration` 0
+- **WHEN** the pointer moves 50 px in the `Linear` mode
+- **THEN** no motion event SHALL wait for an approach interval
+
+Verified with the recorded sleeps (mock-verifiable).
+
 ### Requirement: The approach parameters are available on every pointer surface
 
 The approach parameters SHALL be usable wherever the other pointer timing parameters are: the
@@ -151,10 +193,12 @@ Only verifiable against the real GTK 3 toolkit, never the mock. Covered by the e
 
 #### Scenario: Burst path still activates the item
 
-- **GIVEN** the GTK 3 test app in a real lane, and the click on `menu-file-new` given overrides
-  `move_time_per_pixel_us` 0 and `max_move_duration_ms` 0, so the path is sent as fast as possible
+- **GIVEN** the GTK 3 test app in a real lane, and the click on `menu-file-new` given the override
+  `move_time_per_pixel_us` 1, so the path before the approach is sent as one burst
 - **WHEN** the test clicks `menu-file` and then straight away `menu-file-new`
 - **THEN** the `last-action-menu-file-new` label SHALL appear
 
-Only verifiable against the real GTK 3 toolkit, as a local check during implementation (not a
-committed test).
+Only verifiable against the real GTK 3 toolkit, as a check during implementation (not a committed
+test). Whether GTK 3 merges the burst depends on how busy it is: a fast local machine reads the
+motion in time even without the approach, so the scenario passes there but does not exercise the
+merging. The CI compositor lane is where the merging happens.

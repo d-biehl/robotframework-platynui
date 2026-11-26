@@ -2290,6 +2290,8 @@ impl PyPointerOverrides {
         ensure_move_timeout_ms=None,
         scroll_step=None,
         scroll_delay_ms=None,
+        approach_steps=None,
+        approach_interval_ms=None,
     ))]
     /// Creates overrides that can be passed to pointer-related runtime calls.
     fn new(
@@ -2316,6 +2318,8 @@ impl PyPointerOverrides {
         ensure_move_timeout_ms: Option<f64>,
         scroll_step: Option<(f64, f64)>,
         scroll_delay_ms: Option<f64>,
+        approach_steps: Option<u32>,
+        approach_interval_ms: Option<f64>,
     ) -> Self {
         let input = PointerOverridesInput {
             origin,
@@ -2341,6 +2345,8 @@ impl PyPointerOverrides {
             ensure_move_timeout_ms,
             scroll_step,
             scroll_delay_ms,
+            approach_steps,
+            approach_interval_ms,
         };
         Self { inner: input.into() }
     }
@@ -2481,6 +2487,16 @@ impl PyPointerOverrides {
     /// Returns the delay between scroll steps in milliseconds.
     fn scroll_delay_ms(&self) -> Option<f64> {
         self.inner.scroll_delay.map(duration_as_millis_f64)
+    }
+    #[getter]
+    /// Returns how many steps at the end of a path move are paced, when set.
+    fn approach_steps(&self) -> Option<u32> {
+        self.inner.approach_steps
+    }
+    #[getter]
+    /// Returns the minimum time between the paced steps in milliseconds, when set.
+    fn approach_interval_ms(&self) -> Option<f64> {
+        self.inner.approach_interval.map(duration_as_millis_f64)
     }
 }
 
@@ -2679,6 +2695,8 @@ impl PyPointerProfile {
         scroll_step=None,
         scroll_delay_ms=None,
         move_time_per_pixel_us=None,
+        approach_steps=None,
+        approach_interval_ms=None,
     ))]
     /// Creates a profile describing long-lived pointer behaviour.
     fn new(
@@ -2704,6 +2722,8 @@ impl PyPointerProfile {
         scroll_step: Option<(f64, f64)>,
         scroll_delay_ms: Option<f64>,
         move_time_per_pixel_us: Option<f64>,
+        approach_steps: Option<u32>,
+        approach_interval_ms: Option<f64>,
     ) -> Self {
         let mut inner = runtime_rs::PointerProfile::named_default();
         if let Some(mode) = motion {
@@ -2771,6 +2791,12 @@ impl PyPointerProfile {
         }
         if let Some(us) = move_time_per_pixel_us {
             inner.move_time_per_pixel = duration_from_micros(us);
+        }
+        if let Some(v) = approach_steps {
+            inner.approach_steps = v;
+        }
+        if let Some(ms) = approach_interval_ms {
+            inner.approach_interval = duration_from_millis(ms);
         }
         Self { inner }
     }
@@ -2922,6 +2948,18 @@ impl PyPointerProfile {
     fn move_time_per_pixel_us(&self) -> f64 {
         duration_as_micros_f64(self.inner.move_time_per_pixel)
     }
+
+    #[getter]
+    /// Returns how many steps at the end of a path move are paced (0 = no approach).
+    fn approach_steps(&self) -> u32 {
+        self.inner.approach_steps
+    }
+
+    #[getter]
+    /// Returns the minimum time between the paced steps, in milliseconds (0 = no approach).
+    fn approach_interval_ms(&self) -> f64 {
+        duration_as_millis_f64(self.inner.approach_interval)
+    }
 }
 
 impl From<runtime_rs::PointerProfile> for PyPointerProfile {
@@ -3070,6 +3108,8 @@ pub struct PointerOverridesInput {
     pub ensure_move_timeout_ms: Option<f64>,
     pub scroll_step: Option<(f64, f64)>,
     pub scroll_delay_ms: Option<f64>,
+    pub approach_steps: Option<u32>,
+    pub approach_interval_ms: Option<f64>,
 }
 
 impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerOverridesInput {
@@ -3104,6 +3144,8 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerOverridesInput {
             ensure_move_timeout_ms: d.number("ensure_move_timeout_ms")?,
             scroll_step: d.pair("scroll_step")?,
             scroll_delay_ms: d.number("scroll_delay_ms")?,
+            approach_steps: d.count("approach_steps")?,
+            approach_interval_ms: d.number("approach_interval_ms")?,
         };
         warn_unknown_profile_keys!(d, "unknown pointer overrides key; it is ignored");
         Ok(input)
@@ -3181,6 +3223,12 @@ impl From<PointerOverridesInput> for runtime_rs::PointerOverrides {
         }
         if let Some(ap) = s.acceleration_profile {
             ov = ov.acceleration_profile(ap.into());
+        }
+        if let Some(steps) = s.approach_steps {
+            ov = ov.approach_steps(steps);
+        }
+        if let Some(ms) = s.approach_interval_ms {
+            ov = ov.approach_interval(duration_from_millis(ms));
         }
         ov
     }
@@ -3287,6 +3335,8 @@ pub struct PointerProfileInput {
     pub scroll_step: Option<(f64, f64)>,
     pub scroll_delay_ms: Option<f64>,
     pub move_time_per_pixel_us: Option<f64>,
+    pub approach_steps: Option<u32>,
+    pub approach_interval_ms: Option<f64>,
 }
 
 impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerProfileInput {
@@ -3320,6 +3370,8 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PointerProfileInput {
             scroll_step: d.pair("scroll_step")?,
             scroll_delay_ms: d.number("scroll_delay_ms")?,
             move_time_per_pixel_us: d.number("move_time_per_pixel_us")?,
+            approach_steps: d.count("approach_steps")?,
+            approach_interval_ms: d.number("approach_interval_ms")?,
         };
         warn_unknown_profile_keys!(d, "unknown pointer profile key; it is ignored");
         Ok(input)
@@ -3401,6 +3453,12 @@ impl PointerProfileInput {
         }
         if let Some(us) = self.move_time_per_pixel_us {
             profile.move_time_per_pixel = duration_from_micros(us);
+        }
+        if let Some(v) = self.approach_steps {
+            profile.approach_steps = v;
+        }
+        if let Some(ms) = self.approach_interval_ms {
+            profile.approach_interval = duration_from_millis(ms);
         }
     }
 }

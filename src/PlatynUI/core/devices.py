@@ -68,6 +68,10 @@ def _pointer_overrides_from_settings() -> PointerOverridesDict | None:
         overrides['before_next_click_delay_ms'] = value
     if (value := settings.pointer_multi_click_delay_ms) is not None:
         overrides['multi_click_delay_ms'] = value
+    if (steps := settings.pointer_approach_steps) is not None:
+        overrides['approach_steps'] = steps
+    if (value := settings.pointer_approach_interval_ms) is not None:
+        overrides['approach_interval_ms'] = value
     return overrides or None
 
 

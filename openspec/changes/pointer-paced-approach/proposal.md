@@ -33,8 +33,11 @@ motion arrives merged.
 - The `Direct` motion mode keeps its documented meaning: one OS call, with no intermediate steps
   and no approach.
 - A move of zero distance (the pointer is already on the target) gets no approach.
-- **Behavior change, not BREAKING:** pointer moves get slightly slower by default (by about
-  `approach_steps × approach_interval`, see design). Scripts that need the old timing set
+- The approach is part of the move's duration. A move takes at least
+  `approach_steps × approach_interval`, a longer move keeps its duration, a non-zero
+  `max_move_duration` caps the whole move, and zero move time means no approach.
+- **Behavior change, not BREAKING:** short pointer moves (under about 75 px at the defaults) get up
+  to 60 ms slower. Longer moves keep their duration. Scripts that need the old timing set
   `approach_steps` to 0.
 
 ## Capabilities

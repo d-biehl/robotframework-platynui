@@ -227,6 +227,12 @@ struct OverrideArgs {
     jitter_amplitude: Option<f64>,
     #[arg(long = "jitter-frequency")]
     jitter_frequency: Option<f64>,
+    /// Paced steps at the end of a path move (0 turns the approach off).
+    #[arg(long = "approach-steps")]
+    approach_steps: Option<u32>,
+    /// Minimum time between the paced steps, in milliseconds (0 turns the approach off).
+    #[arg(long = "approach-interval", value_parser = parse_millis)]
+    approach_interval: Option<Duration>,
 }
 
 pub fn run(runtime: &Runtime, args: &PointerArgs) -> CliResult<String> {
@@ -494,6 +500,14 @@ fn build_overrides(args: &OverrideArgs) -> CliResult<Option<PointerOverrides>> {
         };
         overrides = overrides.motion_mode(mode);
     }
+    let overrides = path_overrides(overrides, args);
+
+    if overrides == PointerOverrides::default() { Ok(None) } else { Ok(Some(overrides)) }
+}
+
+/// The overrides that shape the path itself: its resolution, the per-mode shape parameters and
+/// the paced approach at its end.
+fn path_overrides(mut overrides: PointerOverrides, args: &OverrideArgs) -> PointerOverrides {
     if let Some(steps) = args.steps_per_pixel {
         overrides = overrides.steps_per_pixel(steps);
     }
@@ -512,8 +526,13 @@ fn build_overrides(args: &OverrideArgs) -> CliResult<Option<PointerOverrides>> {
     if let Some(frequency) = args.jitter_frequency {
         overrides = overrides.jitter_frequency(frequency);
     }
-
-    if overrides == PointerOverrides::default() { Ok(None) } else { Ok(Some(overrides)) }
+    if let Some(steps) = args.approach_steps {
+        overrides = overrides.approach_steps(steps);
+    }
+    if let Some(interval) = args.approach_interval {
+        overrides = overrides.approach_interval(interval);
+    }
+    overrides
 }
 
 fn parse_rect(value: &str) -> Result<Rect, String> {
@@ -731,6 +750,21 @@ mod tests {
         let overrides = OverrideArgs { origin: OriginKind::Absolute, ..Default::default() };
         let err = build_overrides(&overrides).expect_err("missing anchor");
         assert!(err.to_string().contains("--anchor must be provided"));
+    }
+
+    #[test]
+    fn approach_flags_reach_the_overrides() {
+        #[derive(clap::Parser)]
+        struct Flags {
+            #[command(flatten)]
+            overrides: OverrideArgs,
+        }
+        let flags =
+            <Flags as clap::Parser>::try_parse_from(["pointer", "--approach-steps", "2", "--approach-interval", "10"])
+                .expect("approach flags parse");
+        let overrides = build_overrides(&flags.overrides).expect("overrides").expect("not empty");
+        assert_eq!(overrides.approach_steps, Some(2));
+        assert_eq!(overrides.approach_interval, Some(Duration::from_millis(10)));
     }
 
     #[test]

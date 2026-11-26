@@ -1307,6 +1307,14 @@ class BareMetal(OurDynamicCore):
     | ``curve_amplitude`` | how pronounced the ``BEZIER`` curve is |
     | ``jitter_amplitude`` | the size of the ``JITTER`` wobble |
     | ``multi_click_delay_ms`` | the pause between clicks of a multi-click |
+    | ``approach_steps`` | how many last steps before the target arrive spaced out — 3; ``0`` turns it off |
+    | ``approach_interval_ms`` | the least time between those last steps — 20 |
+
+    Every move except a ``DIRECT`` jump ends with that spaced-out approach. Some applications decide
+    what a click means from how the pointer moved before it, and a fast move would otherwise reach
+    them as a single jump — a menu item clicked right after its menu opened may then not react. A
+    short move therefore takes at least as long as its approach; a long one keeps its usual
+    duration.
 
     | Library    PlatynUI.BareMetal    pointer_profile={'motion': 'BEZIER', 'speed_factor': 0.5}
     | `Pointer Click`    Window[@Name="Editor"]//Button[@Name="Save"]    overrides={'speed_factor': 0.3}

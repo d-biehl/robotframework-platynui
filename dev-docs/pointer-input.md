@@ -123,11 +123,13 @@ The motion mode controls how the pointer path is generated between start and tar
 
 | Mode | Description |
 |------|-------------|
-| `Direct` | Teleports to the target in a single OS call — no intermediate steps. The calculated duration is still waited. |
+| `Direct` | Teleports to the target in a single OS call — no intermediate steps and no paced approach (§6). The calculated duration is still waited. |
 | `Linear` | Moves in a straight line from start to target. This is the **default**. |
 | `Bezier` | Follows a curved path (quadratic Bézier). The curve bulges perpendicular to the direct path; `curve_amplitude` controls how far. |
 | `Overshoot` | Moves past the target, then settles back. `overshoot_ratio` controls how far past (fraction of total distance); `overshoot_settle_steps` controls the number of correction steps. |
 | `Jitter` | Adds a sinusoidal wobble perpendicular to the path. `jitter_amplitude` controls the wobble height; `jitter_frequency` controls how many oscillation cycles occur along the path. A sine-envelope tapers the wobble to zero at start and end. |
+
+Every mode except `Direct` ends its path with the **paced approach** described in §6: the last few steps before the target arrive spaced out in time, so the application sees the pointer move over the target before a click.
 
 ## 5. Acceleration Profiles
 
@@ -142,7 +144,7 @@ The acceleration profile determines how motion steps are distributed over time. 
 
 ## 6. How Move Duration Is Calculated
 
-The total duration of a pointer move is determined by two independent mechanisms. Whichever produces the *smaller* value wins:
+The duration of the path itself comes from two independent mechanisms; whichever produces the *smaller* value wins. The paced approach at the end of the path can then raise a short move to a minimum duration (see [Paced approach](#paced-approach-at-the-end-of-a-move) below).
 
 ### Distance-based duration
 
@@ -167,7 +169,36 @@ final_duration = min(base_duration, max_move_duration)
 
 **Important:** If `max_move_duration` is set too low, reducing `speed_factor` below 1.0 won't make the pointer visibly slower — the cap will kick in. To see a slower pointer, either increase `max_move_duration` or set it to `0` (no cap).
 
-If *both* `move_time_per_pixel` and `max_move_duration` are zero, the path is traversed as fast as the OS allows (no intentional delays between steps).
+If *both* `move_time_per_pixel` and `max_move_duration` are zero, the path is traversed as fast as the OS allows (no intentional delays between steps, and no paced approach).
+
+### Paced approach at the end of a move
+
+PlatynUI moves the pointer far faster than a person does: at the defaults, a 50 px move sends about 75 path points within 40 ms. Many toolkits read their input once per frame and merge all pointer motion that arrived in the meantime into a single event. Such a toolkit sees the whole move as one or two motion events. Most of the time that does not matter, but some widgets decide what a click means from how the pointer moved before it. GTK 3 menus are the confirmed case. A release that comes less than 500 ms after the press that opened the menu counts as the end of that press, and the menu stays open without activating anything. The only exception is when the menu has first seen at least three motion events over its items. A test that opens a menu and clicks an item straight away hits exactly this: the item is highlighted, and nothing happens.
+
+The paced approach prevents that. The last `approach_steps` points of the path go out at least `approach_interval` apart, the first of them also spaced from the motion before it. Each lies on a different whole pixel, because two points on the same pixel are a single motion on X11 and Windows. The last one is exactly the target. The rest of the path goes out first, at path speed. A toolkit that reads its input once per frame therefore still sees separate motion over the target before the click.
+
+The approach is part of the move's duration, not added on top of it:
+
+```
+path_duration  = the duration from the two mechanisms above
+approach_time  = approach_steps × approach_interval
+final_duration = max(path_duration, approach_time), then capped by max_move_duration (0 = no cap)
+```
+
+Within `final_duration`, the approach takes its steps and the path before it gets what is left. If the cap leaves less than `approach_time`, the steps move closer together, evenly. Some examples with the defaults (3 steps, 20 ms apart):
+
+- **A 50 px move** has 40 ms of path time and 60 ms of approach time, so it takes 60 ms: the path goes out at once, then the last three steps follow 20 ms apart.
+- **A 500 px move** has 400 ms of path time, so it keeps its 400 ms. The approach takes the last 60 ms of it.
+- **With `max_move_duration` set to 30 ms**, the 50 px move is capped at 30 ms, and its three steps come 10 ms apart.
+
+The approach is skipped when there is nothing to approach or the profile asks for no pacing:
+
+- the `Direct` motion mode, which stays a single jump;
+- a move that ends on the pixel it starts from (for example a click where the pointer already is);
+- `approach_steps` or `approach_interval` set to 0;
+- zero move time (`move_time_per_pixel` and `max_move_duration` both 0).
+
+A move shorter than `approach_steps` pixels paces only as many steps as it has distinct pixels to visit. A 1 px move, for instance, sends one step after the interval.
 
 ### Path resolution
 
@@ -191,6 +222,8 @@ PlatynUI inserts small pauses at key moments so applications can process pointer
 | `max_move_duration` | 600 ms | Hard upper bound on move duration. `0` = no limit. |
 | `speed_factor` | 1.0 | Divides the effective distance: `>1` = faster, `<1` = slower, `≤0` treated as `1.0`. |
 | `steps_per_pixel` | 1.5 | Number of intermediate path points per pixel. |
+| `approach_steps` | 3 | How many steps at the end of a path move are paced (§6). `0` turns the approach off. |
+| `approach_interval` | 20 ms | Minimum time between the paced steps (§6). `0` turns the approach off. |
 | `after_move_delay` | 40 ms | Pause after the pointer finishes moving. |
 | `after_input_delay` | 35 ms | Pause after any pointer input action (click, scroll, etc.). |
 | `press_release_delay` | 50 ms | How long a button is held down during a click. |
@@ -205,7 +238,7 @@ PlatynUI inserts small pauses at key moments so applications can process pointer
 > - **Python** — the parameter is named `move_time_per_pixel_us` and takes **microseconds** (the default `800` means 800 µs).
 > - **CLI** — the `--move-time-per-pixel` flag takes **milliseconds** (parsed by `parse_millis`).
 >
-> All other timing parameters above are likewise expressed in microseconds (`*_us`) or milliseconds (`*_ms`) in the Python API exactly as their suffix indicates, while every CLI delay flag takes milliseconds.
+> All other timing parameters above are likewise expressed in microseconds (`*_us`) or milliseconds (`*_ms`) in the Python API exactly as their suffix indicates, while every CLI delay flag takes milliseconds. For the approach that means `approach_interval_ms` in Python and `--approach-interval <ms>` on the CLI; `approach_steps` is a plain count everywhere (`--approach-steps <n>` on the CLI). As with every other duration, a negative interval counts as 0, while a step count that is negative or not a whole number is rejected with an error that names `approach_steps`.
 
 ### Motion Shape Parameters
 
@@ -340,6 +373,8 @@ All pointer subcommands accept these optional flags:
 | `--acceleration <profile>` | Acceleration: `constant`, `ease-in`, `ease-out`, `smooth-step` |
 | `--move-duration <ms>` | Maximum move duration in milliseconds |
 | `--move-time-per-pixel <ms>` | Time per pixel in **milliseconds** (note: the Python parameter `move_time_per_pixel_us` is in microseconds) |
+| `--approach-steps <n>` | Paced steps at the end of a path move (§6); `0` turns the approach off |
+| `--approach-interval <ms>` | Minimum time between the paced steps (§6); `0` turns the approach off |
 | `--after-move <ms>` | Pause after move |
 | `--after-input <ms>` | Pause after input action |
 | `--press-release <ms>` | Button hold time |
@@ -454,10 +489,12 @@ Library    PlatynUI.BareMetal
 A single click goes through these phases:
 
 ```
-[move to target] → after_move_delay
-                 → [press button] → press_release_delay → [release button]
-                 → after_click_delay → after_input_delay
+[move along the path] → [paced approach onto the target] → after_move_delay
+                      → [press button] → press_release_delay → [release button]
+                      → after_click_delay → after_input_delay
 ```
+
+The paced approach (§6) is part of the move: its last steps over the target come before `after_move_delay` and the press. `Direct` moves and clicks where the pointer already is have no approach.
 
 For multi-click (e.g. double-click):
 
@@ -483,11 +520,15 @@ The table below shows example configurations for different use cases:
 | `speed_factor` | 1.0 |
 | `move_time_per_pixel` | 800 µs |
 | `max_move_duration` | 600 ms |
+| `approach_steps` | 3 |
+| `approach_interval` | 20 ms |
 | `after_move_delay` | 40 ms |
 | `press_release_delay` | 50 ms |
 | `after_click_delay` | 80 ms |
 
 ### Instant (no animation)
+
+`Direct` has no paced approach, so this profile stays instant. Clicking a GTK 3 menu item straight after opening the menu can then be swallowed (§6).
 
 | Parameter | Value |
 |-----------|-------|

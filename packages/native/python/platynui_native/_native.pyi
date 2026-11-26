@@ -183,6 +183,8 @@ class PointerOverridesDict(TypedDict, total=False):
     ensure_move_timeout_ms: float
     scroll_step: tuple[float, float]
     scroll_delay_ms: float
+    approach_steps: int
+    approach_interval_ms: float
 
 class PointerSettingsDict(TypedDict, total=False):
     double_click_time_ms: float
@@ -212,6 +214,8 @@ class PointerProfileDict(TypedDict, total=False):
     scroll_step: tuple[float, float]
     scroll_delay_ms: float
     move_time_per_pixel_us: float
+    approach_steps: int
+    approach_interval_ms: float
 
 class KeyboardProfileDict(TypedDict, total=False):
     press_delay_ms: float
@@ -482,6 +486,8 @@ class PointerOverrides:
         ensure_move_timeout_ms: float | None = ...,
         scroll_step: tuple[float, float] | None = ...,
         scroll_delay_ms: float | None = ...,
+        approach_steps: int | None = ...,
+        approach_interval_ms: float | None = ...,
     ) -> None: ...
     @classmethod
     def from_like(cls, value: PointerOverridesLike) -> PointerOverrides: ...
@@ -531,6 +537,10 @@ class PointerOverrides:
     def scroll_step(self) -> tuple[float, float] | None: ...
     @property
     def scroll_delay_ms(self) -> float | None: ...
+    @property
+    def approach_steps(self) -> int | None: ...
+    @property
+    def approach_interval_ms(self) -> float | None: ...
 
 class KeyboardOverrides:
     def __init__(
@@ -604,6 +614,8 @@ class PointerProfile:
         scroll_step: tuple[float, float] | None = ...,
         scroll_delay_ms: float | None = ...,
         move_time_per_pixel_us: float | None = ...,
+        approach_steps: int | None = ...,
+        approach_interval_ms: float | None = ...,
     ) -> None: ...
     @classmethod
     def from_like(cls, value: PointerProfileLike) -> PointerProfile: ...
@@ -651,6 +663,10 @@ class PointerProfile:
     def scroll_delay_ms(self) -> float: ...
     @property
     def move_time_per_pixel_us(self) -> float: ...
+    @property
+    def approach_steps(self) -> int: ...
+    @property
+    def approach_interval_ms(self) -> float: ...
 
 class KeyboardProfile:
     def __init__(

@@ -54,6 +54,10 @@ class Settings:
     pointer_after_click_delay_ms: float | None = None
     pointer_before_next_click_delay_ms: float | None = None
     pointer_multi_click_delay_ms: float | None = None
+    # The paced approach at the end of a pointer move: how many final steps arrive spaced out
+    # (0 turns it off), and the least time between them in milliseconds.
+    pointer_approach_steps: int | None = None
+    pointer_approach_interval_ms: float | None = None
 
     # Keyboard delay overrides (milliseconds; ``None`` keeps the active profile value).
     # Mirror ``platynui_native.KeyboardOverridesDict``.

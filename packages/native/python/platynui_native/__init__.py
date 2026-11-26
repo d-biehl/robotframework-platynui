@@ -136,6 +136,8 @@ class PointerOverridesDict(TypedDict, total=False):
     ensure_move_timeout_ms: float
     scroll_step: tuple[float, float]
     scroll_delay_ms: float
+    approach_steps: int
+    approach_interval_ms: float
 
 
 class PointerSettingsDict(TypedDict, total=False):
@@ -156,8 +158,10 @@ class PointerProfileDict(TypedDict, total=False):
     """Pointer movement and click pacing, as a dict.
 
     Shapes how the pointer travels to a target — the ``motion`` path, ``speed_factor``, overshoot,
-    curve and jitter — and how moves and repeated clicks are paced. All ``*_ms`` values are
-    milliseconds, ``*_us`` microseconds. All keys are optional; only the keys you set change, the
+    curve and jitter — and how moves and repeated clicks are paced. A path move ends with
+    ``approach_steps`` steps at least ``approach_interval_ms`` apart, so the application sees the
+    pointer move over the target before a click; either set to 0 turns that off. All ``*_ms`` values
+    are milliseconds, ``*_us`` microseconds. All keys are optional; only the keys you set change, the
     rest keep the runtime defaults. The matching per-call overrides type is ``PointerOverridesDict``.
     """
 
@@ -183,6 +187,8 @@ class PointerProfileDict(TypedDict, total=False):
     scroll_step: tuple[float, float]
     scroll_delay_ms: float
     move_time_per_pixel_us: float
+    approach_steps: int
+    approach_interval_ms: float
 
 
 class KeyboardProfileDict(TypedDict, total=False):

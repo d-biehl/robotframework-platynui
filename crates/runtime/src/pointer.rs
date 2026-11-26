@@ -51,6 +51,11 @@ pub struct PointerProfile {
     pub scroll_step: ScrollDelta,
     pub scroll_delay: Duration,
     pub move_time_per_pixel: Duration,
+    /// How many motion steps at the end of a path move are paced (`0` turns the approach off).
+    pub approach_steps: u32,
+    /// The minimum time between the paced steps at the end of a path move (`0` turns the
+    /// approach off).
+    pub approach_interval: Duration,
 }
 
 impl PointerProfile {
@@ -78,6 +83,8 @@ impl PointerProfile {
             scroll_step: ScrollDelta::new(0.0, -120.0),
             scroll_delay: Duration::from_millis(40),
             move_time_per_pixel: Duration::from_micros(800),
+            approach_steps: 3,
+            approach_interval: Duration::from_millis(20),
         }
     }
 
@@ -129,6 +136,8 @@ pub struct PointerOverrides {
     pub move_time_per_pixel: Option<Duration>,
     pub speed_factor: Option<f64>,
     pub acceleration_profile: Option<PointerAccelerationProfile>,
+    pub approach_steps: Option<u32>,
+    pub approach_interval: Option<Duration>,
 }
 
 impl PointerOverrides {
@@ -248,6 +257,16 @@ impl PointerOverrides {
 
     pub fn acceleration_profile(mut self, profile: PointerAccelerationProfile) -> Self {
         self.acceleration_profile = Some(profile);
+        self
+    }
+
+    pub fn approach_steps(mut self, steps: u32) -> Self {
+        self.approach_steps = Some(steps);
+        self
+    }
+
+    pub fn approach_interval(mut self, interval: Duration) -> Self {
+        self.approach_interval = Some(interval);
         self
     }
 }
@@ -557,11 +576,47 @@ impl<'a> PointerEngine<'a> {
         if path.is_empty() {
             return Ok(());
         }
+        let acceleration = effective.acceleration_profile();
 
-        if total_duration.is_zero() {
-            for point in path {
-                self.device.move_to(point)?;
+        // The paced approach (design D1–D3): the path's last distinct pixels go out at least an
+        // interval apart, so a toolkit that merges motion per frame still sees the pointer move
+        // over the target; the rest of the path goes first, in the duration left over.
+        let paced = split_approach(&path, start, target, effective.approach_steps()).and_then(|(body_len, tail)| {
+            effective.approach_timing(total_duration, tail.len()).map(|timing| (body_len, tail, timing))
+        });
+        let Some((body_len, tail, (body_duration, interval))) = paced else {
+            return self.send_path(&path, total_duration, acceleration);
+        };
+
+        self.send_path(&path[..body_len], body_duration, acceleration)?;
+        let mut last_motion = Instant::now();
+        for point in tail {
+            let since = last_motion.elapsed();
+            if interval > since {
+                self.sleep(interval.checked_sub(since).unwrap());
             }
+            self.device.move_to(point)?;
+            last_motion = Instant::now();
+        }
+        Ok(())
+    }
+
+    /// Sends `path` on the eased schedule over `duration`: all at once when it is zero, and only
+    /// the wait when the path is empty.
+    fn send_path(
+        &self,
+        path: &[Point],
+        duration: Duration,
+        acceleration: PointerAccelerationProfile,
+    ) -> Result<(), PointerError> {
+        if duration.is_zero() {
+            for point in path {
+                self.device.move_to(*point)?;
+            }
+            return Ok(());
+        }
+        if path.is_empty() {
+            self.sleep(duration);
             return Ok(());
         }
 
@@ -569,14 +624,13 @@ impl<'a> PointerEngine<'a> {
         let start_time = Instant::now();
         for (index, point) in path.iter().enumerate() {
             self.device.move_to(*point)?;
-            let fraction = easing_fraction(effective.acceleration_profile(), index, steps);
-            let desired = total_duration.mul_f64(fraction);
+            let fraction = easing_fraction(acceleration, index, steps);
+            let desired = duration.mul_f64(fraction);
             let elapsed = start_time.elapsed();
             if desired > elapsed {
                 self.sleep(desired.checked_sub(elapsed).unwrap());
             }
         }
-
         Ok(())
     }
 
@@ -763,6 +817,12 @@ impl<'a> EffectiveProfile<'a> {
             if let Some(delay) = overrides.multi_click_delay {
                 profile.multi_click_delay = delay;
             }
+            if let Some(steps) = overrides.approach_steps {
+                profile.approach_steps = steps;
+            }
+            if let Some(interval) = overrides.approach_interval {
+                profile.approach_interval = interval;
+            }
         }
         profile
     }
@@ -830,6 +890,75 @@ impl<'a> EffectiveProfile<'a> {
     fn scroll_delay(&self) -> Duration {
         self.overrides.and_then(|o| o.scroll_delay).unwrap_or(self.profile.scroll_delay)
     }
+
+    fn approach_steps(&self) -> u32 {
+        self.overrides.and_then(|o| o.approach_steps).unwrap_or(self.profile.approach_steps)
+    }
+
+    fn approach_interval(&self) -> Duration {
+        self.overrides.and_then(|o| o.approach_interval).unwrap_or(self.profile.approach_interval)
+    }
+
+    /// When the paced approach of a move whose path takes `path_duration` and whose tail has
+    /// `steps` points starts, and how far apart its steps are: the duration left for the path
+    /// before the tail, and the interval (design D3). `None` when the approach is off — no
+    /// interval, or a profile that asks for zero move time.
+    fn approach_timing(&self, path_duration: Duration, steps: usize) -> Option<(Duration, Duration)> {
+        let interval = self.approach_interval();
+        let zero_move_time = self.move_time_per_pixel().is_zero() && self.max_move_duration().is_zero();
+        if interval.is_zero() || zero_move_time || steps == 0 {
+            return None;
+        }
+        let steps = u32::try_from(steps).unwrap_or(u32::MAX);
+        let mut total = path_duration.max(interval.saturating_mul(steps));
+        let cap = self.max_move_duration();
+        if !cap.is_zero() {
+            total = total.min(cap);
+        }
+        let interval = interval.min(total / steps);
+        Some((total.saturating_sub(interval.saturating_mul(steps)), interval))
+    }
+}
+
+/// The whole pixel a point falls on — what X11 and Windows deliver; two points on the same pixel
+/// are one motion there.
+fn whole_pixel(point: Point) -> (i64, i64) {
+    // Screen coordinates stay far inside i64; the saturating conversion is the intended rounding.
+    #[allow(clippy::cast_possible_truncation)]
+    (point.x().round() as i64, point.y().round() as i64)
+}
+
+/// Splits a path into the part sent at path speed and the paced approach at its end (design D1,
+/// D2): walking back from the target, up to `steps` points that each lie on another pixel than
+/// the approach point after them, stopping at a point still on the start's pixel. Points that share
+/// a pixel with the approach point after them are dropped. The last approach point is `target`
+/// itself, so the move ends exactly there even where a path's own last point carries a rounding
+/// residue. Returns how many leading points form the fast part, and the approach points in order —
+/// `None` when there is nothing to approach (no steps, or the target is on the start's pixel).
+fn split_approach(path: &[Point], start: Point, target: Point, steps: u32) -> Option<(usize, Vec<Point>)> {
+    let steps = usize::try_from(steps).unwrap_or(usize::MAX);
+    let start_pixel = whole_pixel(start);
+    if steps == 0 || path.is_empty() || whole_pixel(target) == start_pixel {
+        return None;
+    }
+
+    let mut tail = vec![target];
+    let mut last_pixel = whole_pixel(target);
+    let mut body_len = 0;
+    for index in (0..path.len() - 1).rev() {
+        let pixel = whole_pixel(path[index]);
+        if pixel == last_pixel {
+            continue;
+        }
+        if tail.len() == steps || pixel == start_pixel {
+            body_len = index + 1;
+            break;
+        }
+        tail.push(path[index]);
+        last_pixel = pixel;
+    }
+    tail.reverse();
+    Some((body_len, tail))
 }
 
 fn generate_path(start: Point, target: Point, profile: &PointerProfile) -> Vec<Point> {
@@ -1221,6 +1350,8 @@ mod tests {
         let mut profile = PointerProfile::named_default();
         profile.after_move_delay = Duration::ZERO;
         profile.ensure_move_position = false;
+        // About the path schedule, not the paced approach at its end.
+        profile.approach_steps = 0;
         profile.steps_per_pixel = 1.0;
         profile.mode = PointerMotionMode::Linear;
         profile.max_move_duration = Duration::from_millis(120);
@@ -1308,6 +1439,8 @@ mod tests {
         slow_profile.after_move_delay = Duration::ZERO;
         slow_profile.after_input_delay = Duration::ZERO;
         slow_profile.ensure_move_position = false;
+        // About the path schedule, not the paced approach at its end.
+        slow_profile.approach_steps = 0;
         slow_profile.mode = PointerMotionMode::Linear;
         slow_profile.steps_per_pixel = 1.0;
         slow_profile.max_move_duration = Duration::ZERO;
@@ -1361,6 +1494,8 @@ mod tests {
         profile.after_move_delay = Duration::ZERO;
         profile.after_input_delay = Duration::ZERO;
         profile.ensure_move_position = false;
+        // About the path schedule, not the paced approach at its end.
+        profile.approach_steps = 0;
         profile.mode = PointerMotionMode::Linear;
         profile.steps_per_pixel = 1.0;
         profile.max_move_duration = Duration::from_millis(120);
@@ -1417,6 +1552,8 @@ mod tests {
         profile.after_move_delay = Duration::ZERO;
         profile.after_input_delay = Duration::ZERO;
         profile.ensure_move_position = false;
+        // About the path schedule, not the paced approach at its end.
+        profile.approach_steps = 0;
         profile.mode = PointerMotionMode::Linear;
         profile.steps_per_pixel = 1.0;
         profile.max_move_duration = Duration::from_millis(120);
@@ -1569,6 +1706,8 @@ mod tests {
         base_profile.after_move_delay = Duration::ZERO;
         base_profile.after_input_delay = Duration::ZERO;
         base_profile.ensure_move_position = false;
+        // About the path schedule, not the paced approach at its end.
+        base_profile.approach_steps = 0;
         base_profile.mode = PointerMotionMode::Linear;
         base_profile.steps_per_pixel = 1.0;
         base_profile.max_move_duration = Duration::ZERO;
@@ -1643,6 +1782,8 @@ mod tests {
         profile.after_move_delay = Duration::ZERO;
         profile.after_input_delay = Duration::ZERO;
         profile.ensure_move_position = false;
+        // About the path schedule, not the paced approach at its end.
+        profile.approach_steps = 0;
         profile.mode = PointerMotionMode::Linear;
         profile.steps_per_pixel = 1.0;
         profile.max_move_duration = Duration::from_millis(160);
@@ -1679,6 +1820,8 @@ mod tests {
         profile.after_move_delay = Duration::ZERO;
         profile.after_input_delay = Duration::ZERO;
         profile.ensure_move_position = false;
+        // About the path schedule, not the paced approach at its end.
+        profile.approach_steps = 0;
         profile.mode = PointerMotionMode::Linear;
         profile.steps_per_pixel = 1.0;
         profile.max_move_duration = Duration::from_millis(160);
@@ -1930,5 +2073,385 @@ mod tests {
         let log = device.take_log();
         assert!(log.iter().any(|action| matches!(action, Action::Press(PointerButton::Right))));
         assert!(log.iter().any(|action| matches!(action, Action::Release(PointerButton::Right))));
+    }
+
+    // -------- Paced approach (spec: pointer-motion) --------
+
+    /// Real time since the start, plus the total the engine asked to sleep. The engine plans its
+    /// schedule with `Instant`, so these tests really sleep (a few hundred ms in all): a sleep
+    /// that did not advance `Instant` would make the engine sleep the same stretch again on every
+    /// step. Lower bounds on gaps are therefore exact; upper bounds leave room for scheduling.
+    struct ApproachClock {
+        start: Instant,
+        slept: Mutex<Duration>,
+    }
+
+    impl ApproachClock {
+        fn now(&self) -> Duration {
+            self.start.elapsed()
+        }
+
+        fn slept(&self) -> Duration {
+            *self.slept.lock().unwrap()
+        }
+    }
+
+    /// A pointer device that stamps every action with the [`ApproachClock`].
+    struct TimedPointer {
+        clock: Arc<ApproachClock>,
+        position: Mutex<Point>,
+        log: Mutex<Vec<(Duration, Action)>>,
+    }
+
+    impl TimedPointer {
+        fn record(&self, action: Action) {
+            self.log.lock().unwrap().push((self.clock.now(), action));
+        }
+
+        fn take_log(&self) -> Vec<(Duration, Action)> {
+            std::mem::take(&mut *self.log.lock().unwrap())
+        }
+
+        /// The stamped moves of the log, in order.
+        fn take_moves(&self) -> Vec<(Duration, Point)> {
+            self.take_log()
+                .into_iter()
+                .filter_map(|(at, action)| match action {
+                    Action::Move(point) => Some((at, point)),
+                    _ => None,
+                })
+                .collect()
+        }
+    }
+
+    impl PointerDevice for TimedPointer {
+        fn position(&self) -> Result<Point, PlatformError> {
+            Ok(*self.position.lock().unwrap())
+        }
+
+        fn move_to(&self, point: Point) -> Result<(), PlatformError> {
+            *self.position.lock().unwrap() = point;
+            self.record(Action::Move(point));
+            Ok(())
+        }
+
+        fn press(&self, button: PointerButton) -> Result<(), PlatformError> {
+            self.record(Action::Press(button));
+            Ok(())
+        }
+
+        fn release(&self, button: PointerButton) -> Result<(), PlatformError> {
+            self.record(Action::Release(button));
+            Ok(())
+        }
+
+        fn scroll(&self, delta: ScrollDelta) -> Result<(), PlatformError> {
+            self.record(Action::Scroll(delta));
+            Ok(())
+        }
+    }
+
+    /// Runs `body` with an engine on a [`TimedPointer`] that starts at `start`. The profile is
+    /// the default with `adjust` applied; the wait after the move is removed so the clock shows
+    /// only the move itself.
+    fn with_timed_engine<R>(
+        start: Point,
+        adjust: impl FnOnce(&mut PointerProfile),
+        body: impl FnOnce(&mut PointerEngine<'_>, &TimedPointer, &ApproachClock) -> R,
+    ) -> R {
+        let clock = Arc::new(ApproachClock { start: Instant::now(), slept: Mutex::new(Duration::ZERO) });
+        let device =
+            Arc::new(TimedPointer { clock: clock.clone(), position: Mutex::new(start), log: Mutex::new(Vec::new()) });
+        let mut profile = PointerProfile::named_default();
+        profile.after_move_delay = Duration::ZERO;
+        adjust(&mut profile);
+        let sleep_clock = clock.clone();
+        let sleep = move |duration: Duration| {
+            *sleep_clock.slept.lock().unwrap() += duration;
+            std::thread::sleep(duration);
+        };
+        let mut engine = PointerEngine::new(
+            device.clone(),
+            Rect::new(-1000.0, -1000.0, 4000.0, 4000.0),
+            PointerSettings::default(),
+            profile,
+            &sleep,
+        );
+        body(&mut engine, &device, &clock)
+    }
+
+    /// How long after `earlier` the stamp `later` came; the clock only goes forward.
+    fn since(later: Duration, earlier: Duration) -> Duration {
+        later.checked_sub(earlier).expect("stamps are in order")
+    }
+
+    /// The gaps between consecutive moves.
+    fn gaps(moves: &[(Duration, Point)]) -> Vec<Duration> {
+        moves.windows(2).map(|pair| since(pair[1].0, pair[0].0)).collect()
+    }
+
+    fn pixel(point: Point) -> (i64, i64) {
+        // Test coordinates stay far inside i64.
+        #[allow(clippy::cast_possible_truncation)]
+        (point.x().round() as i64, point.y().round() as i64)
+    }
+
+    /// Asserts that the move ends with `steps` paced steps at least `interval` apart (the first
+    /// one also spaced from the motion before it, or from `started` when it is the first motion),
+    /// each at its own pixel, the last exactly on `target`.
+    fn assert_paced_tail(
+        moves: &[(Duration, Point)],
+        started: Duration,
+        target: Point,
+        steps: usize,
+        interval: Duration,
+    ) {
+        assert!(moves.len() >= steps, "expected at least {steps} moves, got {moves:?}");
+        let tail = &moves[moves.len() - steps..];
+        let mut previous = if moves.len() > steps { moves[moves.len() - steps - 1].0 } else { started };
+        for (at, point) in tail {
+            assert!(
+                since(*at, previous) >= interval,
+                "step to {point:?} came {:?} after the previous motion",
+                since(*at, previous)
+            );
+            previous = *at;
+        }
+        let pixels: std::collections::HashSet<_> = tail.iter().map(|(_, point)| pixel(*point)).collect();
+        assert_eq!(pixels.len(), steps, "approach steps share a pixel: {tail:?}");
+        assert_eq!(tail.last().unwrap().1, target, "the last step is the target");
+    }
+
+    #[rstest]
+    fn a_default_move_ends_with_three_paced_steps() {
+        with_timed_engine(
+            Point::new(0.0, 0.0),
+            |_| {},
+            |engine, device, clock| {
+                let started = clock.now();
+                engine.move_to(Point::new(50.0, 0.0), None).unwrap();
+                let moves = device.take_moves();
+                assert_paced_tail(&moves, started, Point::new(50.0, 0.0), 3, Duration::from_millis(20));
+                // Only the last three are paced: the motion before them is still the fast path.
+                assert!(gaps(&moves[..moves.len() - 3]).iter().all(|gap| *gap < Duration::from_millis(20)));
+            },
+        );
+    }
+
+    #[rstest]
+    fn a_click_finishes_the_approach_before_the_press() {
+        with_timed_engine(
+            Point::new(0.0, 0.0),
+            |_| {},
+            |engine, device, clock| {
+                let started = clock.now();
+                engine.click(Some(Point::new(50.0, 0.0)), None, None).unwrap();
+                let log = device.take_log();
+                let press = log.iter().position(|(_, action)| matches!(action, Action::Press(_))).expect("a press");
+                assert!(
+                    log[press + 1..].iter().all(|(_, action)| !matches!(action, Action::Move(_))),
+                    "no motion after the press"
+                );
+                let moves: Vec<_> = log[..press]
+                    .iter()
+                    .filter_map(|(at, action)| match action {
+                        Action::Move(point) => Some((*at, *point)),
+                        _ => None,
+                    })
+                    .collect();
+                assert_paced_tail(&moves, started, Point::new(50.0, 0.0), 3, Duration::from_millis(20));
+            },
+        );
+    }
+
+    #[rstest]
+    #[case::bezier(PointerMotionMode::Bezier)]
+    #[case::overshoot(PointerMotionMode::Overshoot)]
+    #[case::jitter(PointerMotionMode::Jitter)]
+    fn every_path_mode_ends_with_the_paced_approach(#[case] mode: PointerMotionMode) {
+        with_timed_engine(
+            Point::new(0.0, 0.0),
+            |profile| profile.mode = mode,
+            |engine, device, clock| {
+                let started = clock.now();
+                engine.move_to(Point::new(50.0, 0.0), None).unwrap();
+                assert_paced_tail(&device.take_moves(), started, Point::new(50.0, 0.0), 3, Duration::from_millis(20));
+            },
+        );
+    }
+
+    #[rstest]
+    fn direct_mode_is_a_single_jump_without_approach() {
+        with_timed_engine(
+            Point::new(0.0, 0.0),
+            |profile| profile.mode = PointerMotionMode::Direct,
+            |engine, device, clock| {
+                engine.move_to(Point::new(50.0, 0.0), None).unwrap();
+                let moves = device.take_moves();
+                assert_eq!(moves.len(), 1);
+                assert_eq!(moves[0].1, Point::new(50.0, 0.0));
+                // Direct keeps its path time (800 µs × 50 px) and gets no approach minimum.
+                assert_duration_approx(clock.slept(), Duration::from_millis(40));
+            },
+        );
+    }
+
+    #[rstest]
+    fn a_move_onto_the_current_position_waits_no_approach() {
+        with_timed_engine(
+            Point::new(50.0, 0.0),
+            |_| {},
+            |engine, device, clock| {
+                engine.move_to(Point::new(50.0, 0.0), None).unwrap();
+                assert!(device.take_moves().len() <= 1);
+                assert_eq!(clock.slept(), Duration::ZERO);
+            },
+        );
+    }
+
+    #[rstest]
+    fn a_click_on_the_current_position_waits_no_approach() {
+        with_timed_engine(
+            Point::new(50.0, 0.0),
+            |_| {},
+            |engine, device, clock| {
+                let started = clock.now();
+                engine.click(Some(Point::new(50.0, 0.0)), None, None).unwrap();
+                let log = device.take_log();
+                let (pressed_at, _) =
+                    log.iter().find(|(_, action)| matches!(action, Action::Press(_))).expect("a press");
+                assert!(
+                    since(*pressed_at, started) < Duration::from_millis(5),
+                    "press after {:?}",
+                    since(*pressed_at, started)
+                );
+            },
+        );
+    }
+
+    #[rstest]
+    fn a_one_pixel_move_sends_one_paced_step() {
+        with_timed_engine(
+            Point::new(0.0, 0.0),
+            |_| {},
+            |engine, device, clock| {
+                let started = clock.now();
+                engine.move_to(Point::new(1.0, 0.0), None).unwrap();
+                let moves = device.take_moves();
+                assert_eq!(moves.len(), 1, "{moves:?}");
+                assert_paced_tail(&moves, started, Point::new(1.0, 0.0), 1, Duration::from_millis(20));
+            },
+        );
+    }
+
+    #[rstest]
+    #[case::no_steps(0, Duration::from_millis(20))]
+    #[case::no_interval(3, Duration::ZERO)]
+    fn a_zero_step_count_or_interval_turns_the_approach_off(#[case] steps: u32, #[case] interval: Duration) {
+        with_timed_engine(
+            Point::new(0.0, 0.0),
+            |profile| {
+                profile.approach_steps = steps;
+                profile.approach_interval = interval;
+            },
+            |engine, device, clock| {
+                let started = clock.now();
+                engine.move_to(Point::new(50.0, 0.0), None).unwrap();
+                let moves = device.take_moves();
+                // The whole path at 1.5 steps per pixel, on its usual 40 ms schedule.
+                assert_eq!(moves.len(), 75);
+                assert!(gaps(&moves).iter().all(|gap| *gap < Duration::from_millis(10)));
+                let took = since(moves.last().unwrap().0, started);
+                assert!(took >= Duration::from_millis(35) && took < Duration::from_millis(55), "took {took:?}");
+            },
+        );
+    }
+
+    #[rstest]
+    fn a_per_action_override_applies_to_that_move_only() {
+        with_timed_engine(
+            Point::new(0.0, 0.0),
+            |_| {},
+            |engine, device, clock| {
+                let overrides = PointerOverrides::new().approach_steps(5).approach_interval(Duration::from_millis(30));
+                let started = clock.now();
+                engine.move_to(Point::new(50.0, 0.0), Some(&overrides)).unwrap();
+                assert_paced_tail(&device.take_moves(), started, Point::new(50.0, 0.0), 5, Duration::from_millis(30));
+
+                let started = clock.now();
+                engine.move_to(Point::new(100.0, 0.0), None).unwrap();
+                let moves = device.take_moves();
+                assert_paced_tail(&moves, started, Point::new(100.0, 0.0), 3, Duration::from_millis(20));
+                assert!(gaps(&moves[..moves.len() - 3]).iter().all(|gap| *gap < Duration::from_millis(20)));
+            },
+        );
+    }
+
+    #[rstest]
+    fn a_short_move_takes_at_least_the_approach_time() {
+        with_timed_engine(
+            Point::new(0.0, 0.0),
+            |_| {},
+            |engine, device, clock| {
+                let started = clock.now();
+                engine.move_to(Point::new(50.0, 0.0), None).unwrap();
+                let moves = device.take_moves();
+                let took = since(moves.last().unwrap().0, started);
+                // 40 ms of path time, raised to the 3 × 20 ms of the approach — not 40 + 60 ms.
+                assert!(took >= Duration::from_millis(60), "took {took:?}");
+                assert!(took < Duration::from_millis(90), "took {took:?}");
+            },
+        );
+    }
+
+    #[rstest]
+    fn a_long_move_keeps_its_duration() {
+        with_timed_engine(
+            Point::new(0.0, 0.0),
+            |_| {},
+            |engine, device, clock| {
+                let started = clock.now();
+                engine.move_to(Point::new(500.0, 0.0), None).unwrap();
+                let moves = device.take_moves();
+                let took = since(moves.last().unwrap().0, started);
+                // 800 µs × 500 px = 400 ms; the approach comes out of it, not on top (460 ms).
+                assert!(took >= Duration::from_millis(395), "took {took:?}");
+                assert!(took < Duration::from_millis(445), "took {took:?}");
+                assert_paced_tail(&moves, started, Point::new(500.0, 0.0), 3, Duration::from_millis(20));
+            },
+        );
+    }
+
+    #[rstest]
+    fn a_short_cap_spaces_the_steps_evenly() {
+        with_timed_engine(
+            Point::new(0.0, 0.0),
+            |profile| profile.max_move_duration = Duration::from_millis(30),
+            |engine, device, clock| {
+                let started = clock.now();
+                engine.move_to(Point::new(50.0, 0.0), None).unwrap();
+                let moves = device.take_moves();
+                let took = since(moves.last().unwrap().0, started);
+                // Capped at 30 ms, approach included — not 30 + 60 ms.
+                assert!(took < Duration::from_millis(55), "took {took:?}");
+                assert_paced_tail(&moves, started, Point::new(50.0, 0.0), 3, Duration::from_millis(10));
+            },
+        );
+    }
+
+    #[rstest]
+    fn zero_move_time_means_no_approach() {
+        with_timed_engine(
+            Point::new(0.0, 0.0),
+            |profile| {
+                profile.move_time_per_pixel = Duration::ZERO;
+                profile.max_move_duration = Duration::ZERO;
+            },
+            |engine, device, clock| {
+                engine.move_to(Point::new(50.0, 0.0), None).unwrap();
+                assert_eq!(device.take_moves().len(), 75);
+                assert_eq!(clock.slept(), Duration::ZERO);
+            },
+        );
     }
 }

@@ -450,6 +450,16 @@ def test_pointer_overrides_propagate_to_press_release_and_move(native_runtime: M
     native_runtime.pointer_release.assert_called_once_with(Point(5.0, 5.0), MouseButton.LEFT, overrides=overrides)
 
 
+def test_pointer_approach_settings_propagate(native_runtime: MagicMock) -> None:
+    """Zero turns the approach off, so it is passed on, not dropped as unset."""
+    proxy = _BareMouseProxy(Rect(0.0, 0.0, 10.0, 10.0))
+    with Settings(pointer_approach_steps=0, pointer_approach_interval_ms=7.0):
+        proxy.move_to()
+    native_runtime.pointer_move_to.assert_called_once_with(
+        Point(5.0, 5.0), overrides={'approach_steps': 0, 'approach_interval_ms': 7.0}
+    )
+
+
 def test_pointer_overrides_resolved_per_call(native_runtime: MagicMock) -> None:
     """Settings changes between calls are picked up immediately."""
     proxy = _BareMouseProxy(Rect(0.0, 0.0, 10.0, 10.0))

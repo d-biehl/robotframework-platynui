@@ -54,8 +54,8 @@ PlatynUI code:
 - Changing `Direct` mode. It stays the documented single OS call.
 - Guaranteeing delivery when a toolkit blocks its main loop longer than the approach interval. The
   approach makes merging unlikely, not impossible.
-- Changing the path shapes, the eased schedule of the path body, or `after_move_delay`.
-- Making `max_move_duration` cap the approach (see D3).
+- Changing the path shapes, the easing curve, or `after_move_delay`.
+- Keeping the approach when the profile asks for zero move time (see D3).
 
 ## Decisions
 
@@ -67,10 +67,10 @@ PlatynUI code:
   integer position differs from the point collected before. Stop after `approach_steps` points.
   The target is always the last point of the tail.
 - **Sending the body.** The body is everything before the tail. It goes out on the existing eased
-  schedule over `desired_move_duration`.
-- **Sending the tail.** Each tail point goes out only after at least `approach_interval` has passed
-  since the previous `device.move_to`. This is measured with `Instant`, so time already spent in
-  the device call counts, and the first tail point is spaced from the last body point too.
+  schedule, over the part of the move's duration that the approach leaves (D3).
+- **Sending the tail.** Each tail point goes out only after at least the effective interval (D3)
+  has passed since the previous `device.move_to`. This is measured with `Instant`, so time already
+  spent in the device call counts, and the first tail point is spaced from the last body point too.
 - **Skipped points.** Path points between the collected tail points (same integer pixel as a
   collected one) are dropped. Sending them would only add events the toolkit merges anyway.
 
@@ -98,16 +98,40 @@ A path shorter than `approach_steps` pixels yields fewer tail points. A zero-dis
 a tail of only the target, which is already where the pointer is. That move then waits for no
 approach interval (spec: "nothing to approach").
 
-### D3 — The approach is separate from the move duration
+### D3 — The approach sets a minimum move duration
 
-The approach time comes on top of the path's travel time. `max_move_duration` does not cap it, and
-setting both duration knobs to 0 does not remove it. The approach exists for toolkits, not for how
-fast the pointer appears to travel. If a fast-travel profile silently dropped it, it would bring
-back exactly the burst that fails GTK 3 (the spec's "burst path" scenario).
+The approach is part of the move's duration, not added on top. For a move whose tail has `n`
+points:
 
-The way to turn it off is explicit: `approach_steps` 0 or `approach_interval` 0. The documented
-"Instant" profile in `dev-docs/pointer-input.md` §11 uses `Direct`, so it stays instant without
-change.
+- **Approach time.** `A = n × approach_interval`.
+- **Path time.** `D` is what `desired_move_duration` returns today: per-pixel time, capped by a
+  non-zero `max_move_duration`.
+- **Total.** `T = max(D, A)`, then capped by `max_move_duration` when that is non-zero.
+- **Split.** The effective interval is `min(approach_interval, T / n)`. The tail gets
+  `n × effective interval`, and the body gets the rest of `T` (possibly 0, then it goes out as a
+  burst before the paced tail).
+- **Zero move time.** With `move_time_per_pixel` and `max_move_duration` both 0 (the profile asks
+  for "as fast as possible"), there is no approach: `T = 0` and the tail goes out unpaced, as
+  today.
+
+Consequences:
+
+- **Defaults.** A 50 px move has `D` = 40 ms and `A` = 60 ms. It takes 60 ms: the body as a burst,
+  then 3 steps 20 ms apart. A 500 px move keeps its 400 ms, with the last 60 ms being the paced
+  tail.
+- **Short cap.** `max_move_duration` 30 ms with the default approach squeezes the 3 steps to 10 ms
+  apart. The maintainer accepted that a short cap or zero move time reduces or removes the
+  approach.
+- **Unchanged profile.** The "Instant" profile in `dev-docs/pointer-input.md` §11 uses `Direct`, so
+  it is unaffected anyway.
+
+Alternatives considered:
+
+- **On top of the move duration, never capped.** Rejected by the maintainer: the approach should
+  respect the move duration and its cap.
+- **Squeezed into the unchanged move duration.** Rejected. At the default 800 µs per pixel, every
+  move under about 75 px would get intervals below one frame. A 50 px menu click would get about
+  13 ms, which is exactly the case this change is for.
 
 ### D4 — Defaults: 3 steps, 20 ms apart
 
@@ -117,10 +141,11 @@ change.
   menu adds to the count.
 - **Why 20 ms.** 20 ms is above one 60 Hz frame (16.7 ms), which leaves a margin for a toolkit
   that reads input once per frame.
-- **Cost.** About 60 ms per path move. A default click already spends about 40 + 50 + 80 + 35 ms
-  in its fixed delays.
+- **Cost.** Only moves shorter than about 75 px get slower, by at most 60 ms (a move of zero
+  distance gets no approach). Longer moves keep their duration. A default click already spends
+  about 40 + 50 + 80 + 35 ms in its fixed delays.
 
-These defaults are part of the spec, so the maintainer confirms them before implementation.
+The maintainer confirmed these defaults on 2026-11-26.
 
 ### D5 — Parameter names and units per surface
 
@@ -151,9 +176,11 @@ kind of "toolkit reacts to motion over me" target. The spec's first requirement 
 
 ## Risks / Trade-offs
 
-- **[Every path move gets about 60 ms slower]** → Mitigation: the approach can be turned off per
-  profile or per action. The acceptance lanes grow by a few seconds overall. Documented in
-  `dev-docs/pointer-input.md` §6/§7/§10.
+- **[Short moves get up to 60 ms slower]** → Mitigation: long moves are unchanged (D3), and the
+  approach can be turned off per profile or per action. The acceptance lanes grow by a few seconds
+  overall. Documented in `dev-docs/pointer-input.md` §6/§7/§10.
+- **[A short `max_move_duration` squeezes the intervals below a frame]** → Accepted by the
+  maintainer. The cap is an explicit request for speed, and the documentation says what it costs.
 - **[A toolkit that blocks longer than 20 ms can still merge approach steps]** → Mitigation: the
   body's own motion inside the target adds to GTK's count. The interval and the step count are
   tunable. The spec promises spacing, not delivery.
@@ -176,3 +203,15 @@ kind of "toolkit reacts to motion over me" target. The spec's first requirement 
 - **Rollback:**
   - For users, setting `approach_steps` to 0 in the profile restores the old timing exactly.
   - For the project, revert the change.
+
+## Resolved Questions
+
+The maintainer decided these on 2026-11-26, before implementation:
+
+- **Defaults:** 3 steps, 20 ms apart (D4).
+- **`Direct`:** stays a single jump, with no approach.
+- **Duration:** the approach is part of the move's duration and sets a minimum duration (D3). Only
+  a non-zero `max_move_duration` shortens it, and zero move time removes it. This replaced the
+  first draft, where the approach came on top of the duration and was never capped.
+- **Invalid values:** handled like the other pointer parameters. A negative interval counts as 0;
+  a negative or fractional step count is an error naming `approach_steps`.
