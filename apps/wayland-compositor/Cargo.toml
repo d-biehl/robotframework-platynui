@@ -84,6 +84,10 @@ signal-hook = "0.4"
 # (rust-lang/rust#42839), so `nix` is what avoids an `unsafe` block here.
 nix = { version = "0.31", default-features = false, features = ["socket"] }
 
+# Killing an Xwayland that failed to start through the pidfd smithay keeps for it
+# (`pidfd_send_signal`). Already in the tree with this feature through smithay.
+rustix = { version = "1", features = ["process"] }
+
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 # Minimal raw Wayland clients for the integration tests: the popup fixture (the
 # egui test app cannot create xdg_popups — its menus render in-window) and the

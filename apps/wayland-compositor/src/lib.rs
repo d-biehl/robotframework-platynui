@@ -124,10 +124,19 @@ pub struct CompositorArgs {
     #[arg(long)]
     pub keyboard_options: Option<String>,
 
-    /// Enable `XWayland` for running X11 applications.
-    /// Requires the `xwayland` feature and the `Xwayland` binary in `$PATH`.
+    /// Start `XWayland` for running X11 applications; needs the `Xwayland` binary in `$PATH`.
+    /// The session becomes ready (readiness notification, `--print-env`, child program) only
+    /// once `XWayland` is ready and its X11 window manager runs. If that does not happen —
+    /// the binary is missing or not executable, the server exits or does not become ready
+    /// within `--xwayland-timeout`, or the window manager fails — the compositor logs the
+    /// cause at ERROR level, starts no child and exits with code 1.
     #[arg(long)]
     pub xwayland: bool,
+
+    /// How many seconds to wait for `XWayland` to become usable before the start fails
+    /// (with `--xwayland`).
+    #[arg(long, value_name = "SECS", default_value_t = 10, value_parser = clap::value_parser!(u64).range(1..))]
+    pub xwayland_timeout: u64,
 
     /// Disable the test-control IPC socket.
     /// By default, a control socket is created at `$XDG_RUNTIME_DIR/<socket-name>.control`

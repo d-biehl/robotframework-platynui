@@ -928,7 +928,7 @@ fn build_status_response(state: &State) -> serde_json::Value {
         "backend": state.backend_name,
         "uptime_secs": state.start_time.elapsed().as_secs(),
         "socket": state.socket_name,
-        "xwayland": state.xwayland.is_some(),
+        "xwayland": state.xwayland_phase == crate::xwayland::XWaylandPhase::Running,
         "windows": state.space.elements().count(),
         "minimized": state.minimized_windows.len(),
         "outputs": outputs,

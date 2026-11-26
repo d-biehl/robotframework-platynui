@@ -24,6 +24,8 @@ For X11 applications through XWayland:
 cargo run -p platynui-wayland-compositor -- --backend winit --xwayland --print-env
 ```
 
+`--xwayland` needs the `Xwayland` binary on `PATH`. If XWayland cannot start or does not become usable within `--xwayland-timeout` seconds, the compositor fails its start with exit code `1` and an ERROR naming the cause, instead of running without it (see [`docs/usage.md`](docs/usage.md#xwayland-startup)).
+
 ## Notes
 
 - `winit` is the easiest backend for local development because it opens a nested window.

@@ -286,6 +286,14 @@ pub struct State {
 
     // -- XWayland --
     pub xwayland: Option<crate::xwayland::XWaylandState>,
+    /// Where a requested `XWayland` stands; the IPC status reports it as usable only
+    /// while it runs.
+    pub xwayland_phase: crate::xwayland::XWaylandPhase,
+    /// How long a requested `XWayland` may take to become usable (`--xwayland-timeout`).
+    pub xwayland_timeout: std::time::Duration,
+    /// Why the session could not start, once a startup error is recorded; the
+    /// compositor then exits with `1` whatever the child did (see [`Self::exit_code`]).
+    pub startup_error: Option<String>,
     pub xwayland_shell_state: Option<smithay::wayland::xwayland_shell::XWaylandShellState>,
     pub xwayland_keyboard_grab_state: Option<smithay::wayland::xwayland_keyboard_grab::XWaylandKeyboardGrabState>,
 
@@ -663,6 +671,9 @@ impl State {
             child: None,
             child_exit_code: None,
             xwayland: None,
+            xwayland_phase: crate::xwayland::XWaylandPhase::NotRequested,
+            xwayland_timeout: std::time::Duration::from_secs(10),
+            startup_error: None,
             xwayland_shell_state: None,
             xwayland_keyboard_grab_state: None,
             drm_backend: None,
@@ -739,7 +750,8 @@ impl State {
     /// right away with the shell's code for it (`127` not found, `126` not
     /// executable) instead of leaving the compositor running with nothing to wait for.
     pub fn spawn_child_if_requested(&mut self) {
-        match crate::child::spawn_child(&self.child_command, self.xwayland.is_some()) {
+        let x11 = self.xwayland_phase == crate::xwayland::XWaylandPhase::Running;
+        match crate::child::spawn_child(&self.child_command, x11) {
             Ok(Some(child)) if self.exit_with_child => {
                 self.child = Some(child);
                 if let Err(err) = crate::child::monitor_child_exit(&self.loop_handle) {
@@ -756,22 +768,47 @@ impl State {
         }
     }
 
+    /// Announce readiness and start the child program: the single place both happen,
+    /// once every requested service is usable — at the end of the service setup
+    /// without `--xwayland`, once `XWayland` and its window manager run with it.
+    pub fn finish_startup(&mut self) {
+        let x11_display =
+            self.xwayland.as_ref().filter(|_| self.xwayland_phase == crate::xwayland::XWaylandPhase::Running);
+        let x11_display = x11_display.map(|xwayland| xwayland.display);
+        crate::ready::notify_ready(&self.socket_name, x11_display, self.ready_fd.take(), self.print_env);
+        self.spawn_child_if_requested();
+    }
+
+    /// Record why the session could not start: log it at ERROR level, remember it for
+    /// [`Self::exit_code`] and end the session. Setting `running` (rather than stopping
+    /// the loop signal, which calloop resets when `run` begins) also works before the
+    /// event loop has started.
+    pub fn record_startup_error(&mut self, cause: String) {
+        tracing::error!("{cause}");
+        self.startup_error = Some(cause);
+        self.running = false;
+    }
+
     /// Exit code for the compositor process, called once the event loop has stopped.
     ///
-    /// Without `--exit-with-child` (or without a child command) this is success.
-    /// With it, the compositor reports the child's result: the child's exit code
-    /// once it has exited, the spawn failure code if it never started, and failure
+    /// A startup error fails the session in every mode, and so does a session that
+    /// ended while a requested `XWayland` was still starting: it never became usable.
+    /// Otherwise, without `--exit-with-child` (or without a child command) this is
+    /// success. With it, the compositor reports the child's result: the child's exit
+    /// code once it has exited, the spawn failure code if it never started, and failure
     /// if the session ended while the child was still running (`--timeout`, the IPC
-    /// `shutdown` command, `SIGTERM`/`SIGINT`, closing the window) — an unknown
-    /// result never reads as success.
+    /// `shutdown` command, `SIGTERM`/`SIGINT`, closing the window) — an unknown result
+    /// never reads as success.
     pub fn exit_code(&mut self) -> std::process::ExitCode {
         // The session may have ended between the child's exit and the monitor's next poll.
         crate::child::poll_child_exit(self);
-        match self.child_exit_code {
-            Some(code) => std::process::ExitCode::from(code),
-            None if self.exit_with_child && !self.child_command.is_empty() => std::process::ExitCode::FAILURE,
-            None => std::process::ExitCode::SUCCESS,
-        }
+        self.abandon_starting_xwayland();
+        std::process::ExitCode::from(session_exit_code(SessionOutcome {
+            never_usable: self.startup_error.is_some()
+                || self.xwayland_phase == crate::xwayland::XWaylandPhase::Starting,
+            child_exit_code: self.child_exit_code,
+            reports_child: self.exit_with_child && !self.child_command.is_empty(),
+        }))
     }
 
     /// Get the keyboard handle from the seat.
@@ -1505,6 +1542,32 @@ impl FractionalScaleHandler for State {
 
 smithay::delegate_dispatch2!(State);
 
+/// What decides the session's exit code once the event loop has stopped.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SessionOutcome {
+    /// The session never became usable: a startup error was recorded, or it ended
+    /// while a requested `XWayland` was still starting.
+    pub(crate) never_usable: bool,
+    /// The child's result, once known.
+    pub(crate) child_exit_code: Option<u8>,
+    /// The exit code reports the child's result: `--exit-with-child` with a child
+    /// program after `--`.
+    pub(crate) reports_child: bool,
+}
+
+/// The session's exit code: `1` for a session that never became usable, otherwise
+/// the child's result under `--exit-with-child` (`1` while it is unknown), else `0`.
+pub(crate) fn session_exit_code(outcome: SessionOutcome) -> u8 {
+    if outcome.never_usable {
+        return 1;
+    }
+    match outcome.child_exit_code {
+        Some(code) => code,
+        None if outcome.reports_child => 1,
+        None => 0,
+    }
+}
+
 #[cfg(test)]
 mod xkb_names_tests {
     use smithay::input::keyboard::{XkbConfig, xkb};
@@ -1537,5 +1600,33 @@ mod xkb_names_tests {
         };
         let names = XkbNames::from_config(&config);
         assert_eq!(keymap_text(&names.config()), keymap_text(&config));
+    }
+}
+
+#[cfg(test)]
+mod exit_code_tests {
+    use super::{SessionOutcome, session_exit_code};
+
+    fn outcome() -> SessionOutcome {
+        SessionOutcome { never_usable: false, child_exit_code: None, reports_child: false }
+    }
+
+    #[test]
+    fn a_session_that_never_became_usable_fails_in_every_mode() {
+        let failed = SessionOutcome { never_usable: true, ..outcome() };
+        assert_eq!(session_exit_code(failed), 1, "without --exit-with-child");
+        let with_child = SessionOutcome { reports_child: true, ..failed };
+        assert_eq!(session_exit_code(with_child), 1, "with --exit-with-child");
+        let child_done = SessionOutcome { child_exit_code: Some(0), ..with_child };
+        assert_eq!(session_exit_code(child_done), 1, "with a child result already recorded");
+    }
+
+    #[test]
+    fn without_a_startup_error_the_child_result_decides() {
+        assert_eq!(session_exit_code(outcome()), 0, "no child");
+        let running = SessionOutcome { reports_child: true, ..outcome() };
+        assert_eq!(session_exit_code(running), 1, "the child's result is unknown");
+        let exited = SessionOutcome { child_exit_code: Some(3), ..running };
+        assert_eq!(session_exit_code(exited), 3, "the child's own code");
     }
 }

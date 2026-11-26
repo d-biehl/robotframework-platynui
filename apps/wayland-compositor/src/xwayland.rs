@@ -1,15 +1,33 @@
 //! `XWayland` integration — runs an X11 server for legacy X11 applications.
 //!
-//! When the `xwayland` feature is enabled, the compositor can spawn an `XWayland`
-//! process. X11 windows are mapped into the same `Space<Window>` as Wayland
-//! windows. The `XwmHandler` implementation handles window lifecycle events.
+//! With `--xwayland`, the compositor spawns an `Xwayland` process and holds back
+//! its readiness and child program until the server is ready and its X11 window
+//! manager runs (spec: *compositor-session-lifecycle*). A server that does not get
+//! there — missing, not executable, exits early, stays silent past
+//! `--xwayland-timeout`, or its window manager fails — is a startup error: the
+//! cause is logged at ERROR level with the server's last output, the server is
+//! killed through its pidfd if it may still run, and the compositor exits with
+//! `1`. X11 windows are mapped into the same `Space<Window>` as Wayland windows,
+//! and the `XwmHandler` implementation handles their lifecycle.
 
+use std::collections::VecDeque;
 use std::ffi::OsString;
+use std::io::{BufRead, BufReader};
 use std::os::unix::io::OwnedFd;
+use std::os::unix::net::UnixStream;
 use std::process::Stdio;
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 use smithay::{
     desktop::Window,
+    reexports::{
+        calloop::{
+            RegistrationToken,
+            timer::{TimeoutAction, Timer},
+        },
+        wayland_server::Client,
+    },
     utils::{Logical, Rectangle, Size},
     wayland::{
         selection::SelectionTarget,
@@ -17,7 +35,7 @@ use smithay::{
         xwayland_shell::{XWaylandShellHandler, XWaylandShellState},
     },
     xwayland::{
-        X11Surface, X11Wm, XWayland, XWaylandEvent, XwmHandler,
+        X11Surface, X11Wm, XWayland, XWaylandClientData, XWaylandEvent, XwmHandler,
         xwm::{Reorder, ResizeEdge, X11Window, XwmId},
     },
 };
@@ -73,91 +91,312 @@ fn remove_x11_window(state: &mut State, surface: &X11Surface) {
     }
 }
 
-/// Optional `XWayland` state, present only when `XWayland` is running.
+/// Where a requested `XWayland` stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum XWaylandPhase {
+    /// `--xwayland` was not given.
+    #[default]
+    NotRequested,
+    /// The server was started and is not usable yet.
+    Starting,
+    /// The server is ready and its X11 window manager runs.
+    Running,
+    /// The server failed to start or terminated during the session.
+    Terminated,
+}
+
+/// The state of a requested `XWayland`.
 pub struct XWaylandState {
-    /// The X11 window manager connection.
+    /// The X11 window manager connection, once it runs. Kept after the server
+    /// terminates, so a queued smithay callback still finds it.
     pub wm: Option<X11Wm>,
-    /// The `XWayland` client handle — needed by `X11Wm::start_wm`.
-    pub client: Option<smithay::reexports::wayland_server::Client>,
+    /// The server's Wayland client: its liveness tells whether the process still
+    /// runs, and its client data holds the process's pidfd.
+    pub client: Client,
     /// The display number `XWayland` is using (e.g., `:1`).
     pub display: u32,
+    /// The event source that reports readiness, until the startup ends.
+    source: Option<RegistrationToken>,
+    /// When the server was started, for `--xwayland-timeout`.
+    started: Instant,
+    /// The server's forwarded stdout and stderr.
+    output: Arc<ServerOutput>,
+}
+
+/// Whether a failed server's process may still run when the startup fails.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ServerProcess {
+    /// Its Wayland client disconnected: the process exited.
+    Exited,
+    /// It may still run, so it is killed.
+    MayRun,
+}
+
+/// How often the startup watch checks the server.
+const WATCH_INTERVAL: Duration = Duration::from_millis(100);
+/// How many of the server's last output lines a startup error quotes.
+const TAIL_LINES: usize = 8;
+/// How long a startup error waits for the readers of an ended server to see end of file.
+const OUTPUT_EOF_WAIT: Duration = Duration::from_millis(500);
+
+/// The last lines `Xwayland` wrote to stdout and stderr, kept for a startup error.
+struct ServerOutput {
+    tail: Mutex<OutputTail>,
+    closed: Condvar,
+}
+
+struct OutputTail {
+    lines: VecDeque<String>,
+    open_pipes: u8,
+}
+
+impl ServerOutput {
+    fn new(pipes: u8) -> Self {
+        Self { tail: Mutex::new(OutputTail { lines: VecDeque::new(), open_pipes: pipes }), closed: Condvar::new() }
+    }
+
+    /// Log each line of `pipe` under the `xwayland` target and keep the last ones.
+    fn forward(self: &Arc<Self>, stream: &'static str, pipe: std::io::PipeReader) {
+        let output = Arc::clone(self);
+        let reader = move || {
+            for line in BufReader::new(pipe).lines() {
+                let Ok(line) = line else { break };
+                tracing::debug!(target: "xwayland", stream, "{line}");
+                let mut tail = output.tail.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if tail.lines.len() == TAIL_LINES {
+                    tail.lines.pop_front();
+                }
+                tail.lines.push_back(line);
+            }
+            let mut tail = output.tail.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            tail.open_pipes = tail.open_pipes.saturating_sub(1);
+            output.closed.notify_all();
+        };
+        if let Err(err) = std::thread::Builder::new().name(format!("xwayland-{stream}")).spawn(reader) {
+            tracing::warn!(%err, stream, "failed to start the Xwayland output reader");
+        }
+    }
+
+    /// The last lines, after waiting up to [`OUTPUT_EOF_WAIT`] for both pipes to close
+    /// when `ended` (so an exited server's final lines are not lost to scheduling).
+    fn last_lines(&self, ended: bool) -> Vec<String> {
+        let tail = self.tail.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let tail = if ended {
+            self.closed
+                .wait_timeout_while(tail, OUTPUT_EOF_WAIT, |tail| tail.open_pipes > 0)
+                .map_or_else(|err| err.into_inner().0, |(tail, _)| tail)
+        } else {
+            tail
+        };
+        tail.lines.iter().cloned().collect()
+    }
+}
+
+/// Kill a server that failed to start through its pidfd, which refers to exactly that
+/// process, so a reused process ID can never hit another one. Returns whether the
+/// process is gone (killed now or already exited).
+fn kill_server(client: &Client) -> bool {
+    let Some(pidfd) = client.get_data::<XWaylandClientData>().and_then(XWaylandClientData::pidfd) else {
+        tracing::warn!("cannot terminate Xwayland: smithay has no process handle (pidfd) for it");
+        return false;
+    };
+    match rustix::process::pidfd_send_signal(pidfd, rustix::process::Signal::KILL) {
+        Ok(()) | Err(rustix::io::Errno::SRCH) => true,
+        Err(err) => {
+            tracing::warn!(%err, "failed to kill Xwayland");
+            false
+        }
+    }
+}
+
+/// The startup error for a spawn failure, named by its cause.
+fn spawn_error_cause(err: &std::io::Error) -> String {
+    match err.kind() {
+        std::io::ErrorKind::NotFound => format!("Xwayland not found on PATH: {err}"),
+        std::io::ErrorKind::PermissionDenied => format!("Xwayland is not executable: {err}"),
+        _ => format!("failed to start Xwayland: {err}"),
+    }
 }
 
 impl State {
-    /// Start `XWayland` if the feature is enabled and `Xwayland` binary is available.
+    /// Start `XWayland` for `--xwayland`.
     ///
-    /// Registers `XWayland` as a calloop event source. When `XWayland` signals readiness,
-    /// the `X11Wm` is created and stored in `state.xwayland`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the `XWayland` client handle was not stored before the ready event.
+    /// Registers the server as a calloop event source plus a startup watch. The
+    /// session becomes ready in `xwayland_ready` once the window manager
+    /// runs; every way the server fails to get there records a startup error.
     pub fn start_xwayland(&mut self) {
-        let (xwayland, client) = match XWayland::spawn(
+        self.xwayland_phase = XWaylandPhase::Starting;
+        let pipes = std::io::pipe().and_then(|stdout| Ok((stdout, std::io::pipe()?)));
+        let ((stdout_read, stdout_write), (stderr_read, stderr_write)) = match pipes {
+            Ok(pipes) => pipes,
+            Err(err) => {
+                self.xwayland_phase = XWaylandPhase::Terminated;
+                self.record_startup_error(format!("failed to create the pipes for Xwayland's output: {err}"));
+                return;
+            }
+        };
+
+        let spawned = XWayland::spawn(
             &self.display_handle,
             None,
             std::iter::empty::<(OsString, OsString)>(),
             std::iter::empty::<OsString>(),
             true,
-            Stdio::null(),
-            Stdio::null(),
+            Stdio::from(stdout_write),
+            Stdio::from(stderr_write),
             |_| (),
-        ) {
-            Ok(result) => result,
+        );
+        let (xwayland, client) = match spawned {
+            Ok(spawned) => spawned,
             Err(err) => {
-                tracing::warn!(%err, "failed to spawn XWayland — X11 apps will not work");
+                self.xwayland_phase = XWaylandPhase::Terminated;
+                self.record_startup_error(spawn_error_cause(&err));
                 return;
             }
         };
 
-        // Store the client temporarily — we need it when the WM starts
-        self.xwayland = Some(XWaylandState { wm: None, client: Some(client), display: 0 });
+        let output = Arc::new(ServerOutput::new(2));
+        output.forward("stdout", stdout_read);
+        output.forward("stderr", stderr_read);
+        self.xwayland =
+            Some(XWaylandState { wm: None, client, display: 0, source: None, started: Instant::now(), output });
 
-        if let Err(err) = self.loop_handle.insert_source(xwayland, move |event, (), state| match event {
-            XWaylandEvent::Ready { x11_socket, display_number, .. } => {
-                tracing::info!(display = display_number, "XWayland ready");
+        let source = self.loop_handle.insert_source(xwayland, |event, (), state| match event {
+            XWaylandEvent::Ready { x11_socket, display_number } => state.xwayland_ready(x11_socket, display_number),
+            XWaylandEvent::Error => {
+                if state.xwayland_phase == XWaylandPhase::Starting {
+                    state.fail_xwayland_start(
+                        "XWayland failed while starting: reading its display descriptor failed".into(),
+                        ServerProcess::MayRun,
+                    );
+                }
+            }
+        });
+        match source {
+            Ok(token) => {
+                if let Some(xwayland) = self.xwayland.as_mut() {
+                    xwayland.source = Some(token);
+                }
+            }
+            Err(err) => {
+                self.fail_xwayland_start(
+                    format!("failed to register the XWayland event source: {err}"),
+                    ServerProcess::MayRun,
+                );
+                return;
+            }
+        }
 
-                // Set DISPLAY for child processes
-                let display_value = format!(":{display_number}");
+        let watch = self
+            .loop_handle
+            .insert_source(Timer::from_duration(WATCH_INTERVAL), |_, (), state| state.watch_xwayland_start());
+        if let Err(err) = watch {
+            self.fail_xwayland_start(
+                format!("failed to register the XWayland startup watch: {err}"),
+                ServerProcess::MayRun,
+            );
+        }
+    }
+
+    /// One tick of the startup watch: ends it once `XWayland` runs, and fails the start
+    /// when the server exited or `--xwayland-timeout` passed.
+    fn watch_xwayland_start(&mut self) -> TimeoutAction {
+        if self.xwayland_phase != XWaylandPhase::Starting {
+            return TimeoutAction::Drop;
+        }
+        let Some(xwayland) = self.xwayland.as_ref() else { return TimeoutAction::Drop };
+        // A dead client's data is gone from the display; its ID carries a serial, so a
+        // reused slot does not read as alive.
+        if self.display_handle.backend_handle().get_client_data(xwayland.client.id()).is_err() {
+            self.fail_xwayland_start("XWayland exited before it was ready".into(), ServerProcess::Exited);
+            return TimeoutAction::Drop;
+        }
+        if xwayland.started.elapsed() >= self.xwayland_timeout {
+            let secs = self.xwayland_timeout.as_secs();
+            self.fail_xwayland_start(format!("XWayland did not become ready within {secs} s"), ServerProcess::MayRun);
+            return TimeoutAction::Drop;
+        }
+        TimeoutAction::ToDuration(WATCH_INTERVAL)
+    }
+
+    /// The server reported a display: start its window manager first, and only then
+    /// hand out `DISPLAY`, announce readiness and start the child.
+    fn xwayland_ready(&mut self, x11_socket: UnixStream, display_number: u32) {
+        if self.xwayland_phase != XWaylandPhase::Starting {
+            return;
+        }
+        tracing::info!(display = display_number, "XWayland ready");
+        let Some(client) = self.xwayland.as_ref().map(|xwayland| xwayland.client.clone()) else { return };
+        let dh = self.display_handle.clone();
+        match X11Wm::start_wm(self.loop_handle.clone(), &dh, x11_socket, client) {
+            Ok(wm) => {
+                if let Some(xwayland) = self.xwayland.as_mut() {
+                    xwayland.wm = Some(wm);
+                    xwayland.display = display_number;
+                    xwayland.source = None;
+                }
+                self.xwayland_phase = XWaylandPhase::Running;
+                tracing::info!(display = display_number, "X11 window manager started");
                 #[allow(unsafe_code)]
                 // SAFETY: Called from the single-threaded event loop.
                 unsafe {
-                    std::env::set_var("DISPLAY", &display_value);
+                    std::env::set_var("DISPLAY", format!(":{display_number}"));
                 }
-
-                // Print DISPLAY via deferred readiness notification
-                if state.print_env {
-                    println!("DISPLAY={display_value}");
-                }
-                // Send deferred readiness notification (was waiting for XWayland)
-                crate::ready::notify_ready(&state.socket_name, state.ready_fd.take(), state.print_env);
-
-                // Spawn child program now that both Wayland and XWayland are ready
-                state.spawn_child_if_requested();
-
-                // Retrieve the stored client
-                let client = state.xwayland.as_mut().and_then(|s| s.client.take()).expect("XWayland client not stored");
-
-                let dh = state.display_handle.clone();
-                match X11Wm::start_wm(state.loop_handle.clone(), &dh, x11_socket, client) {
-                    Ok(wm) => {
-                        if let Some(ref mut xw_state) = state.xwayland {
-                            xw_state.wm = Some(wm);
-                            xw_state.display = display_number;
-                        }
-                    }
-                    Err(err) => {
-                        tracing::error!(%err, "failed to start X11 window manager");
-                    }
-                }
+                self.finish_startup();
             }
-            XWaylandEvent::Error => {
-                tracing::warn!("XWayland terminated unexpectedly");
-                state.xwayland = None;
+            Err(err) => {
+                self.fail_xwayland_start(format!("X11 window manager failed to start: {err}"), ServerProcess::MayRun);
             }
-        }) {
-            tracing::warn!(%err, "failed to register XWayland event source");
         }
+    }
+
+    /// Fail the start of `XWayland`: kill the server if it may still run, drop its event
+    /// source, and record the startup error with the server's last output.
+    fn fail_xwayland_start(&mut self, cause: String, process: ServerProcess) {
+        self.xwayland_phase = XWaylandPhase::Terminated;
+        let Some(xwayland) = self.xwayland.as_mut() else {
+            self.record_startup_error(cause);
+            return;
+        };
+        // Kill before the source is dropped, so smithay's reaper collects the exit as usual.
+        let ended = process == ServerProcess::Exited || kill_server(&xwayland.client);
+        if let Some(token) = xwayland.source.take() {
+            self.loop_handle.remove(token);
+        }
+        let lines = xwayland.output.last_lines(ended);
+        let cause =
+            if lines.is_empty() { cause } else { format!("{cause}; Xwayland's last output: {}", lines.join(" | ")) };
+        self.record_startup_error(cause);
+    }
+
+    /// A session that ends while `XWayland` is still starting never became usable:
+    /// record that as the startup error and kill the server.
+    pub(crate) fn abandon_starting_xwayland(&mut self) {
+        if self.xwayland_phase == XWaylandPhase::Starting {
+            self.fail_xwayland_start(
+                "the session ended while XWayland was still starting".into(),
+                ServerProcess::MayRun,
+            );
+        }
+    }
+
+    /// Remove every X11 window of a terminated server: the mapped ones from the space
+    /// and the minimized ones from the minimized list, closing their foreign-toplevel
+    /// handles either way.
+    fn remove_all_x11_windows(&mut self) {
+        let mapped: Vec<Window> = self.space.elements().filter(|w| w.x11_surface().is_some()).cloned().collect();
+        let minimized: Vec<Window> =
+            self.minimized_windows.iter().filter(|(w, _)| w.x11_surface().is_some()).map(|(w, _)| w.clone()).collect();
+        for window in &mapped {
+            crate::handlers::foreign_toplevel::close_toplevel(self, window);
+            self.pre_maximize_positions.retain(|(w, _, _)| w != window);
+            self.pre_fullscreen_states.retain(|(w, _, _)| w != window);
+            self.space.unmap_elem(window);
+        }
+        for window in &minimized {
+            crate::handlers::foreign_toplevel::close_toplevel(self, window);
+        }
+        self.minimized_windows.retain(|(w, _)| w.x11_surface().is_none());
     }
 }
 
@@ -538,5 +777,13 @@ impl XwmHandler for State {
                 );
             }
         }
+    }
+
+    fn disconnected(&mut self, _xwm: XwmId) {
+        // smithay logs its own line when the process ends; this one is the
+        // compositor's, and says what it did about it.
+        tracing::error!("XWayland terminated during the session; removing its X11 windows and keeping Wayland clients");
+        self.remove_all_x11_windows();
+        self.xwayland_phase = XWaylandPhase::Terminated;
     }
 }

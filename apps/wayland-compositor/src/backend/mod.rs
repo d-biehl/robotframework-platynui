@@ -239,15 +239,16 @@ pub fn setup_services(
         crate::signals::register_watchdog(handle, duration)?;
     }
 
-    // Start XWayland if requested — readiness notification is deferred until
-    // XWayland is ready.
-    let xwayland_requested = args.xwayland;
+    // What readiness and the child program need, whichever path finishes the startup.
+    state.print_env = args.print_env;
+    state.ready_fd = args.ready_fd;
+    state.exit_with_child = args.exit_with_child;
+    state.child_command.clone_from(&args.child_command);
 
+    // Start XWayland if requested. Readiness and the child program then wait until
+    // XWayland is ready and its window manager runs (`State::finish_startup`).
     if args.xwayland {
-        state.print_env = args.print_env;
-        state.ready_fd = args.ready_fd;
-        state.exit_with_child = args.exit_with_child;
-        state.child_command.clone_from(&args.child_command);
+        state.xwayland_timeout = std::time::Duration::from_secs(args.xwayland_timeout);
         state.xwayland_shell_state = Some(smithay::wayland::xwayland_shell::XWaylandShellState::new::<
             crate::state::State,
         >(&state.display_handle));
@@ -278,12 +279,11 @@ pub fn setup_services(
         }
     }
 
-    // Notify readiness and spawn child immediately if XWayland is not requested
-    if !xwayland_requested {
-        crate::ready::notify_ready(&state.socket_name, args.ready_fd, args.print_env);
-        state.exit_with_child = args.exit_with_child;
-        state.child_command.clone_from(&args.child_command);
-        state.spawn_child_if_requested();
+    // Without XWayland, the session is usable now. The event loop only starts after
+    // this function returns, so with XWayland the control socket and EIS variables
+    // above exist by the time its ready path finishes the startup.
+    if !args.xwayland {
+        state.finish_startup();
     }
 
     Ok(shutdown)

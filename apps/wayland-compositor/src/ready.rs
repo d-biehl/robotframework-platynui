@@ -6,11 +6,15 @@ use std::io::Write;
 ///
 /// Supports three modes:
 /// - `ready_fd`: Write `READY\n` to the specified file descriptor via `/dev/fd/<N>`.
-/// - `print_env`: Print environment variables to stdout.
+/// - `print_env`: Print environment variables to stdout: `WAYLAND_DISPLAY`, then
+///   `DISPLAY` when `XWayland` runs (`x11_display`), then the control and EIS sockets.
 /// - Fallback: Write `READY\n` to stderr.
-pub fn notify_ready(socket_name: &str, ready_fd: Option<i32>, print_env: bool) {
+pub fn notify_ready(socket_name: &str, x11_display: Option<u32>, ready_fd: Option<i32>, print_env: bool) {
     if print_env {
         println!("WAYLAND_DISPLAY={socket_name}");
+        if let Some(display) = x11_display {
+            println!("DISPLAY=:{display}");
+        }
         if let Ok(control) = std::env::var("PLATYNUI_CONTROL_SOCKET") {
             println!("PLATYNUI_CONTROL_SOCKET={control}");
         }

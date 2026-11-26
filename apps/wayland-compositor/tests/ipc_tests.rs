@@ -171,6 +171,26 @@ fn ipc_status() {
     shutdown_compositor(&socket_path, child);
 }
 
+/// Without `--xwayland`, the status reports `XWayland` as not usable (spec: *Session
+/// status reports whether `XWayland` is usable*, "Status without `XWayland`").
+#[test]
+fn ipc_status_without_xwayland() {
+    let Some((child, socket_name)) = start_compositor("status-no-xwayland") else {
+        return;
+    };
+
+    let Some(socket_path) = wait_for_socket(&socket_name, Duration::from_secs(10)) else {
+        eprintln!("skipping: control socket did not appear");
+        return;
+    };
+
+    let response = send_command(&socket_path, r#"{"command": "status"}"#).expect("failed to send status");
+    let status: Value = serde_json::from_str(&response).expect("status should return valid JSON");
+    assert_eq!(status["xwayland"], Value::Bool(false), "unexpected status: {status}");
+
+    shutdown_compositor(&socket_path, child);
+}
+
 /// The status response names the compositor, so a client can tell a `PlatynUI` compositor from
 /// any other peer on a control socket (spec: *The `PlatynUI` compositor identifies itself over
 /// its control socket*). The marker is additive: every field the response carried before

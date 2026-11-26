@@ -68,10 +68,11 @@ because it needs exclusive DRM master access to the GPU. Options:
 | `--socket-name <name>` | auto | Wayland socket name |
 | `--log-level <level>` | `warn` | Log level (error/warn/info/debug/trace) |
 | `--ready-fd <N>` | — | Write `READY\n` to file descriptor N |
-| `--print-env` | `false` | Print `WAYLAND_DISPLAY=...` (and `DISPLAY=...` with XWayland) on stdout when ready |
+| `--print-env` | `false` | Print `WAYLAND_DISPLAY=...`, then `DISPLAY=...` with XWayland, then `PLATYNUI_CONTROL_SOCKET=...` and `LIBEI_SOCKET=...`, on stdout when ready |
 | `--timeout <secs>` | `0` | Auto-shutdown after N seconds (0 = off) |
-| `--xwayland` | `false` | Enable XWayland for running X11 applications |
-| `--control-socket` | `false` | Enable test-control IPC socket |
+| `--xwayland` | `false` | Start XWayland for running X11 applications; needs `Xwayland` on `PATH`. The session becomes ready only once XWayland is ready and its X11 window manager runs; if it cannot get there, the start fails (see [XWayland startup](#xwayland-startup)) |
+| `--xwayland-timeout <secs>` | `10` | How long to wait for XWayland to become usable before the start fails (at least `1`) |
+| `--no-control-socket` | `false` | Disable the test-control IPC socket (enabled by default, exported as `PLATYNUI_CONTROL_SOCKET`) |
 | `--outputs <N>` | `1` | Number of virtual monitors |
 | `--output-layout <horizontal\|vertical>` | `horizontal` | Multi-monitor arrangement |
 | `--scale <factor>` | `1.0` | Scale factor for virtual outputs. Applied to all outputs created via `--outputs`. For per-output scale, use the TOML configuration file. |
@@ -114,6 +115,22 @@ platynui-wayland-compositor --backend headless --xwayland --print-env --ready-fd
 # Output includes both WAYLAND_DISPLAY and DISPLAY
 ```
 
+### XWayland startup
+
+With `--xwayland`, readiness means more than a listening Wayland socket: the compositor announces readiness (`READY`, `--print-env`) and starts the child program only once XWayland has reported its display *and* the compositor's X11 window manager runs. `DISPLAY` is therefore never handed out for a server that cannot serve X11 clients.
+
+When XWayland does not get there, the start fails, with or without `--exit-with-child`:
+
+- the `Xwayland` binary is missing from `PATH` or is not executable;
+- the server exits before it reports a display;
+- it does not become usable within `--xwayland-timeout` seconds (default `10`);
+- the X11 window manager fails to start;
+- the session is ended (`--timeout`, the IPC `shutdown` command, `SIGTERM`/`SIGINT`, closing the window) while XWayland is still starting.
+
+The compositor then logs the cause at ERROR level — visible at the default log level — together with the last lines XWayland itself printed, announces no readiness, starts no child, kills a server process that may still run, and exits with `1`. XWayland's own output is forwarded to the compositor log at DEBUG level under the `xwayland` target.
+
+If XWayland terminates later, during the session, the compositor logs it at ERROR level, removes that server's X11 windows (mapped and minimized), reports XWayland as not usable in the IPC `status`, and keeps serving Wayland clients. It does not restart XWayland; a child that needs X11 fails on its own terms.
+
 ### Child Program Pattern
 
 The `--exit-with-child` flag combined with trailing arguments (`-- <command>`) provides
@@ -128,8 +145,8 @@ platynui-wayland-compositor --backend headless --xwayland --exit-with-child \
     --config ci-compositor.toml -- your-test-suite
 ```
 
-The child program inherits the compositor's environment (`WAYLAND_DISPLAY`, `DISPLAY` if
-XWayland is enabled). The compositor polls the child process every 100 ms and shuts down
+The child program inherits the compositor's environment (`WAYLAND_DISPLAY`, the control
+socket and EIS paths, and `DISPLAY` when XWayland runs; a host `DISPLAY` is removed otherwise). The compositor polls the child process every 100 ms and shuts down
 automatically when the child exits.
 
 The compositor then exits with the child's result, so the caller sees the result of the
@@ -142,8 +159,9 @@ conventions:
 | The child was terminated by a signal | `128 + <signal number>` (for example `143` for `SIGTERM`) |
 | The child could not be started — the session ends right away | `127` if the program does not exist, `126` if it is not executable, `1` for any other start failure (for example a script without a `#!` line) |
 | The session ended while the child was still running (`--timeout`, the IPC `shutdown` command, `SIGTERM`/`SIGINT` to the compositor, closing the window) | `1` — the child's result is unknown, so it never reads as success |
+| A requested XWayland cannot become usable, including a session ended while it is still starting (see [XWayland startup](#xwayland-startup)) | `1` — no readiness is announced and no child is started; this applies with and without `--exit-with-child` |
 
-Without `--exit-with-child`, the compositor exits with `0` when it shuts down normally.
+Without `--exit-with-child`, the compositor exits with `0` when it shuts down normally, unless its start failed.
 
 ## Window Decorations
 

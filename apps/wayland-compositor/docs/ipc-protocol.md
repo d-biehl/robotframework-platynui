@@ -126,7 +126,7 @@ the two run in different PID namespaces.
 | `backend`      | string | Active backend: `"headless"`, `"winit"`, or `"drm"`     |
 | `uptime_secs`  | int    | Seconds since compositor started                        |
 | `socket`       | string | Wayland socket name                                     |
-| `xwayland`     | bool   | Whether XWayland is active                              |
+| `xwayland`     | bool   | Whether XWayland is usable: it is ready and its X11 window manager runs. `false` without `--xwayland`, while XWayland is still starting, and after it terminated |
 | `windows`      | int    | Number of mapped (visible) windows                      |
 | `minimized`    | int    | Number of minimized windows                             |
 | `outputs`      | array  | List of output configurations                           |
